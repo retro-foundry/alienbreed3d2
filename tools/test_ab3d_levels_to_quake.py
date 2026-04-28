@@ -499,7 +499,7 @@ class MapGeometryMergeTests(unittest.TestCase):
         self.assertEqual(by_origin[(0.0, 0.0, 6.0)], 80)
         self.assertEqual(by_origin[(0.0, 0.0, 18.0)], 160)
 
-    def test_backdrop_zone_skips_only_topmost_ceiling_cap(self):
+    def test_backdrop_zone_uses_sky_only_for_topmost_ceiling_cap(self):
         zone = ab3d.Zone(
             zone_id=0,
             floor=0,
@@ -530,9 +530,14 @@ class MapGeometryMergeTests(unittest.TestCase):
             ("floor", -1.0, 0.0),
             ("ceiling", 8.0, 9.0),
             ("floor", 15.0, 16.0),
+            ("ceiling", 24.0, 25.0),
+        ])
+        self.assertEqual([p.texture for p in prisms if p.role == "ceiling"], [
+            "ab3d2/floor_0201",
+            "sky",
         ])
 
-    def test_backdrop_ceiling_does_not_extend_into_neighbour_blockers(self):
+    def test_backdrop_ceiling_seals_without_extending_to_higher_neighbour(self):
         zone = ab3d.Zone(zone_id=0, floor=0, roof=-512, upper_floor=0, upper_roof=0, edge_ids=[0], draw_backdrop=255)
         neighbour = ab3d.Zone(zone_id=1, floor=0, roof=-1024, upper_floor=0, upper_roof=0, edge_ids=[])
         edge = ab3d.Edge(x=0, z=0, dx=64, dz=0, join_zone=1, flags=0)
@@ -545,7 +550,7 @@ class MapGeometryMergeTests(unittest.TestCase):
             cap_thickness=1.0,
         )
 
-        self.assertEqual(extents, [(0.0, 8.0, -1.0, 8.0)])
+        self.assertEqual(extents, [(0.0, 8.0, -1.0, 9.0)])
 
     def test_graph_flat_parser_reads_lower_and_upper_streams(self):
         points = [(0, 0), (64, 0), (64, 64), (0, 64)]

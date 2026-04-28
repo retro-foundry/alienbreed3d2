@@ -570,6 +570,7 @@ AB3D2_TEXTURE_PREFIX = "ab3d2"
 AB3D2_DEFAULT_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/hullmetal"
 AB3D2_DEFAULT_FLOOR_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/floor_0001"
 AB3D2_DEFAULT_CEILING_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/floor_0201"
+AB3D2_DEFAULT_SKY_TEXTURE = "sky"
 AB3D2_FLOOR_EXPORT_BRIGHTNESS = 8
 AB3D2_WALL_SLOT_NAMES: List[Optional[str]] = [
     "stonewall",
@@ -2358,7 +2359,7 @@ def zone_cap_extents(
     for low, high in spans:
         open_to_sky = zone_ceiling_open_to_sky(zone, high, spans)
         floor_bottom = low - cap_thickness
-        ceiling_top = high if open_to_sky else high + cap_thickness
+        ceiling_top = high + cap_thickness
         for edge, _p1, _p2 in segments:
             neighbour = zones_by_id.get(edge.join_zone)
             if neighbour is None or neighbour.zone_id == zone.zone_id:
@@ -3176,6 +3177,7 @@ def zone_shell_prisms(
     map_format: str,
     thickness: float,
     cap_thickness: float,
+    sky_texture: str = AB3D2_DEFAULT_SKY_TEXTURE,
 ) -> List[PrismBrush]:
     prisms: List[PrismBrush] = []
     if len(poly) < 3:
@@ -3217,16 +3219,20 @@ def zone_shell_prisms(
                     role="floor",
                 )
             )
-        if zone_ceiling_open_to_sky(zone, high, spans):
-            continue
-        for cap_poly, ceiling_material in flat_cap_polygons(
-            zone_flat_textures,
-            2,
-            high,
-            poly,
-            ceiling_texture,
-            prefer_zone_footprint=True,
-        ):
+        open_to_sky = zone_ceiling_open_to_sky(zone, high, spans)
+        ceiling_caps = (
+            [(cap_poly, sky_texture) for cap_poly in convex_partition_polygon(poly)]
+            if open_to_sky
+            else flat_cap_polygons(
+                zone_flat_textures,
+                2,
+                high,
+                poly,
+                ceiling_texture,
+                prefer_zone_footprint=True,
+            )
+        )
+        for cap_poly, ceiling_material in ceiling_caps:
             side_textures = ()
             if ceiling_top - high > cap_thickness + 0.05:
                 side_textures = cap_side_textures(
@@ -3451,6 +3457,7 @@ def write_quake_map(
     texture: str,
     floor_texture: str,
     ceiling_texture: str,
+    sky_texture: str,
     scale_xy: float,
     scale_z: float,
     spawn_height: float,
@@ -3493,6 +3500,7 @@ def write_quake_map(
                 wall_texture=texture,
                 floor_texture=floor_texture,
                 ceiling_texture=ceiling_texture,
+                sky_texture=sky_texture,
                 wall_textures_by_zone=wall_textures_by_zone,
                 flat_textures_by_zone=flat_textures_by_zone,
                 map_format=map_format,
@@ -3683,6 +3691,7 @@ def convert_one_level(
     texture: str,
     floor_texture: str,
     ceiling_texture: str,
+    sky_texture: str,
     scale_xy: float,
     scale_z: float,
     spawn_height: float,
@@ -3788,6 +3797,7 @@ def convert_one_level(
             texture,
             floor_texture,
             ceiling_texture,
+            sky_texture,
             scale_xy,
             scale_z,
             spawn_height,
@@ -3862,6 +3872,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "--ceiling-texture",
         default=AB3D2_DEFAULT_CEILING_TEXTURE,
         help="Fallback texture/material name used for ceiling slab brushes",
+    )
+    parser.add_argument(
+        "--sky-texture",
+        default=AB3D2_DEFAULT_SKY_TEXTURE,
+        help="Texture/material name used for solid caps over AB3D2 backdrop/open-sky zones",
     )
     parser.add_argument(
         "--map-format",
@@ -4045,6 +4060,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             texture=args.texture,
             floor_texture=args.floor_texture,
             ceiling_texture=args.ceiling_texture,
+            sky_texture=args.sky_texture,
             scale_xy=args.scale_xy,
             scale_z=args.scale_z,
             spawn_height=args.spawn_height,
