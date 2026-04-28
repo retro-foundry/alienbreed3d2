@@ -468,6 +468,7 @@ class Zone:
     upper_floor: int
     upper_roof: int
     edge_ids: List[int]
+    draw_backdrop: int = 0
 
 
 @dataclasses.dataclass
@@ -487,6 +488,7 @@ class WallTextureSpan:
     material: str
     low: float
     high: float
+    stream: str = "unknown"
 
 
 @dataclasses.dataclass
@@ -495,6 +497,35 @@ class FlatTextureSpan:
     material: str
     z: float
     poly: List[Tuple[float, float]] = dataclasses.field(default_factory=list)
+    stream: str = "unknown"
+
+
+@dataclasses.dataclass
+class PrismBrush:
+    poly: List[Tuple[float, float]]
+    z0: float
+    z1: float
+    texture: str
+    top_texture: str
+    bottom_texture: str
+    side_texture: str
+    side_textures: Tuple[str, ...] = ()
+    inward_normal: Tuple[float, float] = (0.0, 0.0)
+    wall_length: float = 0.0
+    role: str = "solid"
+
+
+@dataclasses.dataclass
+class MergeStats:
+    raw_floor_regions: int = 0
+    raw_ceiling_regions: int = 0
+    raw_wall_runs: int = 0
+    merged_floor_regions: int = 0
+    merged_ceiling_regions: int = 0
+    merged_wall_runs: int = 0
+    raw_brushes: int = 0
+    merged_brushes: int = 0
+    faces: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -1669,6 +1700,7 @@ def parse_zones(data: bytes, zone_offsets: Sequence[int]) -> List[Zone]:
         upper_floor = be_s32(data, zoff + 10)
         upper_roof = be_s32(data, zoff + 14)
         edge_list_offset = be_s16(data, zoff + 32)
+        draw_backdrop = data[zoff + 36]
 
         edge_ids = parse_zone_edge_ids(data, zoff, edge_list_offset)
         zones.append(
@@ -1679,6 +1711,7 @@ def parse_zones(data: bytes, zone_offsets: Sequence[int]) -> List[Zone]:
                 upper_floor=upper_floor,
                 upper_roof=upper_roof,
                 edge_ids=edge_ids,
+                draw_backdrop=draw_backdrop,
             )
         )
 
@@ -1735,6 +1768,193 @@ def polygon_area(poly: Sequence[Tuple[float, float]]) -> float:
     return 0.5 * a
 
 
+def polygon_centroid(poly: Sequence[Tuple[float, float]]) -> Tuple[float, float]:
+    if not poly:
+        return 0.0, 0.0
+    area = polygon_area(poly)
+    if abs(area) <= 1e-6:
+        return sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly)
+
+    cx = 0.0
+    cy = 0.0
+    for i in range(len(poly)):
+        x0, y0 = poly[i]
+        x1, y1 = poly[(i + 1) % len(poly)]
+        cross = x0 * y1 - x1 * y0
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    scale = 1.0 / (6.0 * area)
+    return cx * scale, cy * scale
+
+
+def cross2(
+    a: Tuple[float, float],
+    b: Tuple[float, float],
+    c: Tuple[float, float],
+) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+
+def is_convex_polygon(poly: Sequence[Tuple[float, float]], eps: float = 1e-6) -> bool:
+    if len(poly) < 4:
+        return True
+
+    sign = 0
+    n = len(poly)
+    for i in range(n):
+        area2 = cross2(poly[i], poly[(i + 1) % n], poly[(i + 2) % n])
+        if abs(area2) <= eps:
+            continue
+        turn = 1 if area2 > 0.0 else -1
+        if sign and turn != sign:
+            return False
+        sign = turn
+
+    return True
+
+
+def point_in_triangle(
+    p: Tuple[float, float],
+    a: Tuple[float, float],
+    b: Tuple[float, float],
+    c: Tuple[float, float],
+    eps: float = 1e-6,
+) -> bool:
+    c1 = cross2(a, b, p)
+    c2 = cross2(b, c, p)
+    c3 = cross2(c, a, p)
+    has_neg = c1 < -eps or c2 < -eps or c3 < -eps
+    has_pos = c1 > eps or c2 > eps or c3 > eps
+    return not (has_neg and has_pos)
+
+
+def triangulate_polygon(poly: Sequence[Tuple[float, float]]) -> List[List[Tuple[float, float]]]:
+    clean = unique_polygon(poly)
+    if len(clean) < 3:
+        return []
+    if len(clean) == 3 or is_convex_polygon(clean):
+        return [list(clean)]
+
+    orientation = 1.0 if polygon_area(clean) >= 0.0 else -1.0
+    indices = list(range(len(clean)))
+    triangles: List[List[Tuple[float, float]]] = []
+
+    guard = 0
+    while len(indices) > 3 and guard < len(clean) * len(clean):
+        guard += 1
+        found_ear = False
+        for pos, idx in enumerate(indices):
+            prev_idx = indices[(pos - 1) % len(indices)]
+            next_idx = indices[(pos + 1) % len(indices)]
+            a = clean[prev_idx]
+            b = clean[idx]
+            c = clean[next_idx]
+            if orientation * cross2(a, b, c) <= 1e-6:
+                continue
+
+            contains_point = False
+            for other_idx in indices:
+                if other_idx in (prev_idx, idx, next_idx):
+                    continue
+                if point_in_triangle(clean[other_idx], a, b, c):
+                    contains_point = True
+                    break
+            if contains_point:
+                continue
+
+            triangles.append([a, b, c])
+            del indices[pos]
+            found_ear = True
+            break
+
+        if not found_ear:
+            break
+
+    if len(indices) == 3:
+        triangles.append([clean[indices[0]], clean[indices[1]], clean[indices[2]]])
+
+    return [tri for tri in triangles if abs(polygon_area(tri)) > 1e-6]
+
+
+def convex_partition_polygon(poly: Sequence[Tuple[float, float]]) -> List[List[Tuple[float, float]]]:
+    clean = unique_polygon(poly)
+    if len(clean) < 3:
+        return []
+    if is_convex_polygon(clean):
+        return [list(clean)]
+    return triangulate_polygon(clean)
+
+
+def convex_hull(points: Sequence[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    pts = sorted({(round(p[0], 6), round(p[1], 6)) for p in points})
+    if len(pts) <= 1:
+        return list(pts)
+
+    def hull_cross(o: Tuple[float, float], a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower: List[Tuple[float, float]] = []
+    for p in pts:
+        while len(lower) >= 2 and hull_cross(lower[-2], lower[-1], p) <= 1e-6:
+            lower.pop()
+        lower.append(p)
+
+    upper: List[Tuple[float, float]] = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and hull_cross(upper[-2], upper[-1], p) <= 1e-6:
+            upper.pop()
+        upper.append(p)
+
+    return lower[:-1] + upper[:-1]
+
+
+def try_merge_convex_polygons(
+    a: Sequence[Tuple[float, float]],
+    b: Sequence[Tuple[float, float]],
+) -> Optional[List[Tuple[float, float]]]:
+    if len(a) < 3 or len(b) < 3:
+        return None
+
+    hull = unique_polygon(convex_hull([*a, *b]))
+    if len(hull) < 3 or not is_convex_polygon(hull):
+        return None
+
+    area_a = abs(polygon_area(a))
+    area_b = abs(polygon_area(b))
+    area_hull = abs(polygon_area(hull))
+    tolerance = max(0.01, (area_a + area_b) * 1e-6)
+    if abs(area_hull - (area_a + area_b)) > tolerance:
+        return None
+
+    return hull
+
+
+def merge_convex_polygon_set(polys: Sequence[Sequence[Tuple[float, float]]]) -> List[List[Tuple[float, float]]]:
+    merged: List[List[Tuple[float, float]]] = []
+    for poly in polys:
+        merged.extend(convex_partition_polygon(poly))
+
+    changed = True
+    while changed:
+        changed = False
+        for i in range(len(merged)):
+            replacement = None
+            replacement_j = -1
+            for j in range(i + 1, len(merged)):
+                maybe = try_merge_convex_polygons(merged[i], merged[j])
+                if maybe is not None:
+                    replacement = maybe
+                    replacement_j = j
+                    break
+            if replacement is not None:
+                merged[i] = replacement
+                del merged[replacement_j]
+                changed = True
+                break
+
+    return merged
+
+
 def pick_non_colinear(poly: Sequence[Tuple[float, float]]) -> Tuple[int, int, int]:
     n = len(poly)
     if n < 3:
@@ -1780,6 +2000,7 @@ def brush_from_prism(
     top_texture: Optional[str] = None,
     bottom_texture: Optional[str] = None,
     side_texture: Optional[str] = None,
+    side_textures: Sequence[str] = (),
 ) -> List[str]:
     if len(poly) < 3:
         return []
@@ -1830,6 +2051,7 @@ def brush_from_prism(
     for i in range(n):
         x1, y1 = poly[i]
         x2, y2 = poly[(i + 1) % n]
+        face_texture = side_textures[i] if len(side_textures) == n else side_texture
 
         if clockwise:
             p1 = (x1, y1, low)
@@ -1840,9 +2062,100 @@ def brush_from_prism(
             p2 = (x2, y2, high)
             p3 = (x1, y1, high)
 
-        faces.append(make_face(p1, p2, p3, texture=side_texture, map_format=map_format))
+        faces.append(make_face(p1, p2, p3, texture=face_texture, map_format=map_format))
 
     return faces
+
+
+def prism_faces(spec: PrismBrush, map_format: str) -> List[str]:
+    return brush_from_prism(
+        spec.poly,
+        spec.z0,
+        spec.z1,
+        spec.texture,
+        map_format,
+        top_texture=spec.top_texture,
+        bottom_texture=spec.bottom_texture,
+        side_texture=spec.side_texture,
+        side_textures=spec.side_textures,
+    )
+
+
+def prism_merge_key(spec: PrismBrush) -> Tuple[float, float, str, str, str, str, Tuple[str, ...], str]:
+    low = min(spec.z0, spec.z1)
+    high = max(spec.z0, spec.z1)
+    return (
+        round(low, 3),
+        round(high, 3),
+        spec.texture,
+        spec.top_texture,
+        spec.bottom_texture,
+        spec.side_texture,
+        spec.side_textures,
+        spec.role,
+    )
+
+
+def add_merge_role_count(stats: MergeStats, role: str, merged: bool, amount: int) -> None:
+    if role == "floor":
+        if merged:
+            stats.merged_floor_regions += amount
+        else:
+            stats.raw_floor_regions += amount
+    elif role == "ceiling":
+        if merged:
+            stats.merged_ceiling_regions += amount
+        else:
+            stats.raw_ceiling_regions += amount
+    elif role == "wall":
+        if merged:
+            stats.merged_wall_runs += amount
+        else:
+            stats.raw_wall_runs += amount
+
+
+def merge_prism_brushes(prisms: Sequence[PrismBrush], stats: Optional[MergeStats] = None) -> List[PrismBrush]:
+    grouped: Dict[Tuple[float, float, str, str, str, str, Tuple[str, ...], str], List[PrismBrush]] = {}
+    for spec in prisms:
+        if len(spec.poly) < 3:
+            continue
+        if stats is not None:
+            stats.raw_brushes += 1
+            add_merge_role_count(stats, spec.role, merged=False, amount=1)
+        grouped.setdefault(prism_merge_key(spec), []).append(spec)
+
+    out: List[PrismBrush] = []
+    for _key, group in grouped.items():
+        template = group[0]
+        if any(spec.side_textures for spec in group):
+            if stats is not None:
+                stats.merged_brushes += len(group)
+                add_merge_role_count(stats, template.role, merged=True, amount=len(group))
+            out.extend(group)
+            continue
+
+        merged_polys = merge_convex_polygon_set([spec.poly for spec in group])
+        if stats is not None:
+            stats.merged_brushes += len(merged_polys)
+            add_merge_role_count(stats, template.role, merged=True, amount=len(merged_polys))
+        for poly in merged_polys:
+            out.append(
+                PrismBrush(
+                    poly=poly,
+                    z0=template.z0,
+                    z1=template.z1,
+                    texture=template.texture,
+                    top_texture=template.top_texture,
+                    bottom_texture=template.bottom_texture,
+                    side_texture=template.side_texture,
+                    side_textures=template.side_textures if poly == template.poly else (),
+                    inward_normal=template.inward_normal,
+                    wall_length=template.wall_length,
+                    role=template.role,
+                )
+            )
+
+    return out
 
 
 def to_quake_coords(x: float, z: float, scale_xy: float) -> Tuple[float, float]:
@@ -1889,6 +2202,18 @@ def zone_room_spans(zone: Zone, scale_z: float) -> List[Tuple[float, float]]:
     return spans
 
 
+def zone_ceiling_open_to_sky(
+    zone: Zone,
+    high: float,
+    spans: Sequence[Tuple[float, float]],
+) -> bool:
+    if not zone.draw_backdrop or not spans:
+        return False
+
+    top_high = max(span_high for _span_low, span_high in spans)
+    return abs(high - top_high) <= 0.05
+
+
 def subtract_spans(
     span: Tuple[float, float],
     blockers: Sequence[Tuple[float, float]],
@@ -1913,16 +2238,10 @@ def subtract_spans(
     return remaining
 
 
-def centroid(poly: Sequence[Tuple[float, float]]) -> Tuple[float, float]:
-    if not poly:
-        return (0.0, 0.0)
-    return (sum(p[0] for p in poly) / len(poly), sum(p[1] for p in poly) / len(poly))
-
-
 def wall_poly_for_segment(
     p1: Tuple[float, float],
     p2: Tuple[float, float],
-    zone_centroid: Tuple[float, float],
+    zone_clockwise: bool,
     thickness: float,
 ) -> List[Tuple[float, float]]:
     dx = p2[0] - p1[0]
@@ -1931,13 +2250,7 @@ def wall_poly_for_segment(
     if length < 0.01:
         return []
 
-    nx = dy / length
-    ny = -dx / length
-    mid = ((p1[0] + p2[0]) * 0.5, (p1[1] + p2[1]) * 0.5)
-    to_centroid = (zone_centroid[0] - mid[0], zone_centroid[1] - mid[1])
-    if nx * to_centroid[0] + ny * to_centroid[1] > 0.0:
-        nx = -nx
-        ny = -ny
+    nx, ny = wall_outward_normal(p1, p2, zone_clockwise)
 
     return [
         p1,
@@ -1945,6 +2258,536 @@ def wall_poly_for_segment(
         (p2[0] + nx * thickness, p2[1] + ny * thickness),
         (p1[0] + nx * thickness, p1[1] + ny * thickness),
     ]
+
+
+def wall_outward_normal(
+    p1: Tuple[float, float],
+    p2: Tuple[float, float],
+    zone_clockwise: bool,
+) -> Tuple[float, float]:
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    length = math.hypot(dx, dy)
+    if length < 0.01:
+        return 0.0, 0.0
+
+    # The zone edge order gives us the local interior side. For counter-clockwise
+    # polygons the right-hand normal is outside; clockwise polygons need the
+    # opposite. A centroid test is tempting, but fails on concave AB3D sectors.
+    nx = dy / length
+    ny = -dx / length
+    if zone_clockwise:
+        nx = -nx
+        ny = -ny
+    return nx, ny
+
+
+def zone_cap_extents(
+    zone: Zone,
+    zones_by_id: Mapping[int, Zone],
+    segments: Sequence[Tuple[Edge, Tuple[float, float], Tuple[float, float]]],
+    scale_z: float,
+    cap_thickness: float,
+) -> List[Tuple[float, float, float, float]]:
+    extents: List[Tuple[float, float, float, float]] = []
+    spans = zone_room_spans(zone, scale_z)
+    for low, high in spans:
+        open_to_sky = zone_ceiling_open_to_sky(zone, high, spans)
+        floor_bottom = low - cap_thickness
+        ceiling_top = high if open_to_sky else high + cap_thickness
+        for edge, _p1, _p2 in segments:
+            neighbour = zones_by_id.get(edge.join_zone)
+            if neighbour is None or neighbour.zone_id == zone.zone_id:
+                continue
+            for neighbour_low, neighbour_high in zone_room_spans(neighbour, scale_z):
+                if neighbour_low < low - 0.05:
+                    floor_bottom = min(floor_bottom, neighbour_low)
+                if not open_to_sky and neighbour_high > high + 0.05:
+                    ceiling_top = max(ceiling_top, neighbour_high)
+        extents.append((low, high, floor_bottom, ceiling_top))
+    return extents
+
+
+def cap_extension_spans(extents: Sequence[Tuple[float, float, float, float]]) -> List[Tuple[float, float]]:
+    spans: List[Tuple[float, float]] = []
+    for low, high, floor_bottom, ceiling_top in extents:
+        if low - floor_bottom >= 0.01:
+            spans.append((floor_bottom, low))
+        if ceiling_top - high >= 0.01:
+            spans.append((high, ceiling_top))
+    return spans
+
+
+def point_close(a: Tuple[float, float], b: Tuple[float, float], eps: float = 0.01) -> bool:
+    return abs(a[0] - b[0]) <= eps and abs(a[1] - b[1]) <= eps
+
+
+def segment_length(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+    return math.hypot(b[0] - a[0], b[1] - a[1])
+
+
+def project_polygon(poly: Sequence[Tuple[float, float]], axis: Tuple[float, float]) -> Tuple[float, float]:
+    dots = [p[0] * axis[0] + p[1] * axis[1] for p in poly]
+    return min(dots), max(dots)
+
+
+def convex_polygons_overlap(
+    a: Sequence[Tuple[float, float]],
+    b: Sequence[Tuple[float, float]],
+    eps: float = 0.01,
+) -> bool:
+    if len(a) < 3 or len(b) < 3:
+        return False
+
+    for poly in (a, b):
+        for i in range(len(poly)):
+            p1 = poly[i]
+            p2 = poly[(i + 1) % len(poly)]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            length = math.hypot(dx, dy)
+            if length <= eps:
+                continue
+            axis = (-dy / length, dx / length)
+            a_min, a_max = project_polygon(a, axis)
+            b_min, b_max = project_polygon(b, axis)
+            if a_max <= b_min + eps or b_max <= a_min + eps:
+                return False
+
+    return True
+
+
+def line_intersection_2d(
+    a1: Tuple[float, float],
+    a2: Tuple[float, float],
+    b1: Tuple[float, float],
+    b2: Tuple[float, float],
+) -> Optional[Tuple[float, float]]:
+    ax = a2[0] - a1[0]
+    ay = a2[1] - a1[1]
+    bx = b2[0] - b1[0]
+    by = b2[1] - b1[1]
+    denom = ax * by - ay * bx
+    if abs(denom) <= 1e-6:
+        return None
+    t = ((b1[0] - a1[0]) * by - (b1[1] - a1[1]) * bx) / denom
+    return a1[0] + ax * t, a1[1] + ay * t
+
+
+def clip_polygon_half_plane(
+    poly: Sequence[Tuple[float, float]],
+    a: Tuple[float, float],
+    b: Tuple[float, float],
+    keep_positive: bool,
+    eps: float = 0.01,
+) -> List[Tuple[float, float]]:
+    def inside(p: Tuple[float, float]) -> bool:
+        side = cross2(a, b, p)
+        return side >= -eps if keep_positive else side <= eps
+
+    out: List[Tuple[float, float]] = []
+    if not poly:
+        return out
+
+    prev = poly[-1]
+    prev_inside = inside(prev)
+    for cur in poly:
+        cur_inside = inside(cur)
+        if cur_inside != prev_inside:
+            hit = line_intersection_2d(prev, cur, a, b)
+            if hit is not None:
+                out.append(hit)
+        if cur_inside:
+            out.append(cur)
+        prev = cur
+        prev_inside = cur_inside
+
+    return unique_polygon(out)
+
+
+def convex_polygon_intersection(
+    subject: Sequence[Tuple[float, float]],
+    clip: Sequence[Tuple[float, float]],
+) -> List[Tuple[float, float]]:
+    out = list(subject)
+    if len(out) < 3 or len(clip) < 3:
+        return []
+
+    keep_left = polygon_area(clip) >= 0.0
+    for i in range(len(clip)):
+        out = clip_polygon_half_plane(out, clip[i], clip[(i + 1) % len(clip)], keep_left)
+        if len(out) < 3:
+            return []
+    return out
+
+
+def polygon_min_edge_length(poly: Sequence[Tuple[float, float]]) -> float:
+    if len(poly) < 2:
+        return 0.0
+    return min(segment_length(poly[i], poly[(i + 1) % len(poly)]) for i in range(len(poly)))
+
+
+def segment_overlap_length(
+    a1: Tuple[float, float],
+    a2: Tuple[float, float],
+    b1: Tuple[float, float],
+    b2: Tuple[float, float],
+    eps: float = 0.01,
+) -> float:
+    interval = segment_overlap_interval(a1, a2, b1, b2, eps)
+    if interval is None:
+        return 0.0
+    lo, hi, _length = interval
+    return max(0.0, hi - lo)
+
+
+def segment_overlap_interval(
+    a1: Tuple[float, float],
+    a2: Tuple[float, float],
+    b1: Tuple[float, float],
+    b2: Tuple[float, float],
+    eps: float = 0.01,
+) -> Optional[Tuple[float, float, float]]:
+    ax = a2[0] - a1[0]
+    ay = a2[1] - a1[1]
+    length = math.hypot(ax, ay)
+    if length <= eps:
+        return None
+
+    if abs(cross2(a1, a2, b1)) > eps * length or abs(cross2(a1, a2, b2)) > eps * length:
+        return None
+
+    ux = ax / length
+    uy = ay / length
+
+    def project(p: Tuple[float, float]) -> float:
+        return (p[0] - a1[0]) * ux + (p[1] - a1[1]) * uy
+
+    b0 = project(b1)
+    b1p = project(b2)
+    lo = max(0.0, min(b0, b1p))
+    hi = min(length, max(b0, b1p))
+    if hi - lo <= eps:
+        return None
+    return lo, hi, length
+
+
+def miter_poly_vertex_toward(
+    poly: Sequence[Tuple[float, float]],
+    vertex_index: int,
+    toward_index: int,
+    amount: float,
+    min_edge_length: float = 4.0,
+) -> List[Tuple[float, float]]:
+    if len(poly) < 3:
+        return list(poly)
+
+    vertex_index %= len(poly)
+    toward_index %= len(poly)
+    if vertex_index == toward_index or amount <= 0.0:
+        return list(poly)
+
+    vx, vy = poly[vertex_index]
+    tx, ty = poly[toward_index]
+    dx = tx - vx
+    dy = ty - vy
+    distance = math.hypot(dx, dy)
+    if distance <= 0.01:
+        return list(poly)
+
+    original_area = abs(polygon_area(poly))
+    for scale in (1.0, 0.5, 0.25, 0.125):
+        step = min(amount * scale, distance - min_edge_length)
+        if step <= 0.01:
+            continue
+        candidate = list(poly)
+        candidate[vertex_index] = (vx + dx / distance * step, vy + dy / distance * step)
+        area = abs(polygon_area(candidate))
+        if area <= max(0.01, original_area * 0.25):
+            continue
+        if any(segment_length(candidate[i], candidate[(i + 1) % len(candidate)]) < min_edge_length for i in range(len(candidate))):
+            continue
+        if not is_convex_polygon(candidate):
+            continue
+        return candidate
+
+    return list(poly)
+
+
+def prism_edge_inward_normal(poly: Sequence[Tuple[float, float]], index: int) -> Tuple[float, float]:
+    p1 = poly[index]
+    p2 = poly[(index + 1) % len(poly)]
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    length = math.hypot(dx, dy)
+    if length <= 0.01:
+        return 0.0, 0.0
+
+    if polygon_area(poly) >= 0.0:
+        return -dy / length, dx / length
+    return dy / length, -dx / length
+
+
+def vertical_side_faces(
+    prism: PrismBrush,
+    index: int,
+) -> List[Tuple[int, int, Tuple[float, float], Tuple[float, float], Tuple[float, float], float, float, float, Tuple[float, float]]]:
+    low = min(prism.z0, prism.z1)
+    high = max(prism.z0, prism.z1)
+    height = high - low
+    volume = abs(polygon_area(prism.poly)) * height
+    faces = []
+    for edge_index in range(len(prism.poly)):
+        p1 = prism.poly[edge_index]
+        p2 = prism.poly[(edge_index + 1) % len(prism.poly)]
+        if segment_length(p1, p2) <= 0.01:
+            continue
+        inward = prism_edge_inward_normal(prism.poly, edge_index)
+        faces.append((index, edge_index, p1, p2, inward, low, high, volume, inward))
+    return faces
+
+
+def miter_wall_pair(
+    a: PrismBrush,
+    b: PrismBrush,
+    amount: float,
+    min_edge_length: float = 4.0,
+) -> Optional[Tuple[List[Tuple[float, float]], List[Tuple[float, float]]]]:
+    if a.role != "wall" or b.role != "wall":
+        return None
+
+    na = a.inward_normal
+    nb = b.inward_normal
+    na_len = math.hypot(na[0], na[1])
+    nb_len = math.hypot(nb[0], nb[1])
+    if na_len <= 0.01 or nb_len <= 0.01:
+        return None
+
+    dot = abs((na[0] * nb[0] + na[1] * nb[1]) / (na_len * nb_len))
+    if dot > 0.85:
+        return None
+
+    overlap = unique_polygon(convex_polygon_intersection(a.poly, b.poly))
+    overlap_area = abs(polygon_area(overlap))
+    if len(overlap) < 4 or overlap_area <= 0.01:
+        return None
+    if overlap_area > amount * amount * 1.25:
+        return None
+
+    ca = polygon_centroid(a.poly)
+    cb = polygon_centroid(b.poly)
+    best: Optional[Tuple[List[Tuple[float, float]], List[Tuple[float, float]], float]] = None
+    for i in range(len(overlap)):
+        for j in range(i + 2, len(overlap)):
+            if i == 0 and j == len(overlap) - 1:
+                continue
+            p1 = overlap[i]
+            p2 = overlap[j]
+            if segment_length(p1, p2) <= min_edge_length:
+                continue
+            side_a = cross2(p1, p2, ca)
+            side_b = cross2(p1, p2, cb)
+            if abs(side_a) <= 0.01 or abs(side_b) <= 0.01 or side_a * side_b >= 0.0:
+                continue
+
+            clipped_a = clip_polygon_half_plane(a.poly, p1, p2, side_a > 0.0)
+            clipped_b = clip_polygon_half_plane(b.poly, p1, p2, side_b > 0.0)
+            if len(clipped_a) < 3 or len(clipped_b) < 3:
+                continue
+            if abs(polygon_area(clipped_a)) <= 0.01 or abs(polygon_area(clipped_b)) <= 0.01:
+                continue
+            if polygon_min_edge_length(clipped_a) < min_edge_length or polygon_min_edge_length(clipped_b) < min_edge_length:
+                continue
+            if not is_convex_polygon(clipped_a) or not is_convex_polygon(clipped_b):
+                continue
+
+            score = abs(side_a) + abs(side_b)
+            if best is None or score > best[2]:
+                best = (clipped_a, clipped_b, score)
+
+    if best is None:
+        return None
+    return best[0], best[1]
+
+
+def miter_overlapping_shell_prisms(
+    prisms: Sequence[PrismBrush],
+    amount: float,
+    cap_amount: Optional[float] = None,
+    max_steps: int = 1,
+) -> List[PrismBrush]:
+    if amount <= 0.0:
+        return list(prisms)
+
+    def role_amount(index: int) -> float:
+        if cap_amount is not None and out[index].role in ("floor", "ceiling"):
+            return cap_amount
+        return amount
+
+    out = list(prisms)
+    for _ in range(max_steps):
+        paired_out = list(out)
+        pair_mitered: set[int] = set()
+        for i, a in enumerate(out):
+            if a.role != "wall":
+                continue
+            a_low = min(a.z0, a.z1)
+            a_high = max(a.z0, a.z1)
+            for j in range(i + 1, len(out)):
+                b = paired_out[j]
+                if b.role != "wall":
+                    continue
+                a = paired_out[i]
+                z_overlap = min(a_high, max(b.z0, b.z1)) - max(a_low, min(b.z0, b.z1))
+                if z_overlap <= 0.01 or not convex_polygons_overlap(a.poly, b.poly):
+                    continue
+                paired = miter_wall_pair(a, b, amount)
+                if paired is None:
+                    continue
+                paired_out[i] = dataclasses.replace(a, poly=paired[0])
+                paired_out[j] = dataclasses.replace(b, poly=paired[1])
+                pair_mitered.update((i, j))
+
+        if pair_mitered:
+            out = paired_out
+
+        faces = []
+        for i, prism in enumerate(out):
+            if i in pair_mitered:
+                continue
+            if prism.role not in ("wall", "floor", "ceiling"):
+                continue
+            faces.extend(vertical_side_faces(prism, i))
+
+        vertex_miters: Dict[Tuple[int, int, int], Tuple[float, float]] = {}
+        for pos, face_a in enumerate(faces):
+            i, _edge_i, a1, a2, a_inward, a_low, a_high, a_volume, _ = face_a
+            a_height = a_high - a_low
+            for face_b in faces[pos + 1 :]:
+                j, _edge_j, b1, b2, b_inward, b_low, b_high, b_volume, _ = face_b
+                if i == j:
+                    continue
+                b_height = b_high - b_low
+                z_overlap = min(a_high, b_high) - max(a_low, b_low)
+                if z_overlap <= 0.01:
+                    continue
+                if not convex_polygons_overlap(out[i].poly, out[j].poly):
+                    continue
+                line_overlap = segment_overlap_length(a1, a2, b1, b2)
+                if line_overlap <= 0.01:
+                    continue
+
+                if a_height + 0.05 < b_height:
+                    move_index = i
+                    move_edge = _edge_i
+                    move_a1, move_a2 = a1, a2
+                    other_a1, other_a2 = b1, b2
+                elif b_height + 0.05 < a_height:
+                    move_index = j
+                    move_edge = _edge_j
+                    move_a1, move_a2 = b1, b2
+                    other_a1, other_a2 = a1, a2
+                elif a_volume + 0.05 < b_volume:
+                    move_index = i
+                    move_edge = _edge_i
+                    move_a1, move_a2 = a1, a2
+                    other_a1, other_a2 = b1, b2
+                elif b_volume + 0.05 < a_volume:
+                    move_index = j
+                    move_edge = _edge_j
+                    move_a1, move_a2 = b1, b2
+                    other_a1, other_a2 = a1, a2
+                else:
+                    move_index = j
+                    move_edge = _edge_j
+                    move_a1, move_a2 = b1, b2
+                    other_a1, other_a2 = a1, a2
+
+                interval = segment_overlap_interval(move_a1, move_a2, other_a1, other_a2)
+                if interval is None:
+                    continue
+                overlap_lo, overlap_hi, edge_length = interval
+                max_amount = role_amount(move_index)
+                min_edge_length = min(4.0, max(1.0, max_amount * 0.25))
+                operation_amount = min(max_amount, overlap_hi - overlap_lo + 0.01, edge_length - min_edge_length)
+                if operation_amount <= 0.01:
+                    continue
+
+                score = z_overlap * line_overlap
+                edge_end = (move_edge + 1) % len(out[move_index].poly)
+                operations: List[Tuple[int, int]] = []
+                if overlap_lo <= 0.05:
+                    operations.append((move_edge, edge_end))
+                if overlap_hi >= edge_length - 0.05:
+                    operations.append((edge_end, move_edge))
+                for vertex_index, toward_index in operations:
+                    key = (move_index, vertex_index, toward_index)
+                    old = vertex_miters.get(key)
+                    if old is None or score > old[1]:
+                        vertex_miters[key] = (operation_amount, score)
+
+        if not vertex_miters:
+            break
+
+        next_out: List[PrismBrush] = []
+        moved = False
+        for i, prism in enumerate(out):
+            ops = [
+                (vertex, toward, op_amount, score)
+                for (prism_index, vertex, toward), (op_amount, score) in vertex_miters.items()
+                if prism_index == i
+            ]
+            if not ops:
+                next_out.append(prism)
+                continue
+            new_poly = list(prism.poly)
+            for vertex, toward, op_amount, score in sorted(ops, key=lambda item: item[3], reverse=True):
+                before = new_poly
+                new_poly = miter_poly_vertex_toward(new_poly, vertex, toward, op_amount)
+                moved = moved or new_poly != before
+            next_out.append(dataclasses.replace(prism, poly=new_poly))
+
+        out = next_out
+        if not moved:
+            break
+
+    return out
+
+
+def cap_side_textures(
+    cap_poly: Sequence[Tuple[float, float]],
+    segments: Sequence[Tuple[Edge, Tuple[float, float], Tuple[float, float]]],
+    zone_textures: Mapping[SegmentKey, Sequence[WallTextureSpan]],
+    zones_by_id: Mapping[int, Zone],
+    wall_textures_by_zone: Mapping[int, Mapping[SegmentKey, Sequence[WallTextureSpan]]],
+    low: float,
+    high: float,
+    fallback: str,
+) -> Tuple[str, ...]:
+    textures: List[str] = []
+    for i in range(len(cap_poly)):
+        p1 = cap_poly[i]
+        p2 = cap_poly[(i + 1) % len(cap_poly)]
+        matches: Dict[str, float] = {}
+        for segment in segments:
+            edge, s1, s2 = segment
+            overlap = segment_overlap_length(p1, p2, s1, s2)
+            if overlap <= 0.01:
+                continue
+            material = pick_wall_texture(zone_textures, edge, low, high, fallback)
+            neighbour = zones_by_id.get(edge.join_zone)
+            if neighbour is not None:
+                neighbour_textures = wall_textures_by_zone.get(neighbour.zone_id, {})
+                material = pick_wall_texture(neighbour_textures, edge, low, high, material)
+            matches[material] = matches.get(material, 0.0) + overlap
+
+        if not matches:
+            textures.append(fallback)
+            continue
+
+        textures.append(max(matches.items(), key=lambda item: item[1])[0])
+
+    return tuple(textures)
 
 
 def zone_edge_segments(
@@ -1988,7 +2831,7 @@ def parse_graph_wall_textures(
 
     wall_textures: Dict[int, Dict[SegmentKey, List[WallTextureSpan]]] = {}
 
-    def parse_stream(start: int) -> None:
+    def parse_stream(start: int, stream: str) -> None:
         if not (0 < start + 2 <= len(graph)):
             return
 
@@ -2029,6 +2872,7 @@ def parse_graph_wall_textures(
                             material=material,
                             low=low,
                             high=high,
+                            stream=stream,
                         )
                     )
                 off += 30
@@ -2054,8 +2898,8 @@ def parse_graph_wall_textures(
         entry = zone_graph_adds_off + zone_index * 8
         lower = graph_u32(graph, entry, endian)
         upper = graph_u32(graph, entry + 4, endian)
-        parse_stream(lower)
-        parse_stream(upper)
+        parse_stream(lower, "lower")
+        parse_stream(upper, "upper")
 
     return wall_textures
 
@@ -2075,7 +2919,7 @@ def parse_graph_flat_textures(
 
     flat_textures: Dict[int, List[FlatTextureSpan]] = {}
 
-    def parse_stream(start: int) -> None:
+    def parse_stream(start: int, stream: str) -> None:
         if not (0 < start + 2 <= len(graph)):
             return
 
@@ -2119,14 +2963,19 @@ def parse_graph_flat_textures(
                 tile_off = off + 2 * (sides_minus_one + 6)
                 if tile_off + 2 <= len(graph):
                     tile_offset = graph_u16(graph, tile_off, endian)
-                    zone_flats.append(
-                        FlatTextureSpan(
-                            command_type=command_type,
-                            material=ab3d2_floor_material(tile_offset),
-                            z=to_quake_height(y_word * 64, scale_z),
-                            poly=poly if len(poly) >= 3 else [],
+                    material = ab3d2_floor_material(tile_offset)
+                    z = to_quake_height(y_word * 64, scale_z)
+                    parts = convex_partition_polygon(poly) if len(poly) >= 3 else [[]]
+                    for part in parts:
+                        zone_flats.append(
+                            FlatTextureSpan(
+                                command_type=command_type,
+                                material=material,
+                                z=z,
+                                poly=part if len(part) >= 3 else [],
+                                stream=stream,
+                            )
                         )
-                    )
                 off += 16 + sides_minus_one * 2
                 continue
 
@@ -2140,8 +2989,8 @@ def parse_graph_flat_textures(
         entry = zone_graph_adds_off + zone_index * 8
         lower = graph_u32(graph, entry, endian)
         upper = graph_u32(graph, entry + 4, endian)
-        parse_stream(lower)
-        parse_stream(upper)
+        parse_stream(lower, "lower")
+        parse_stream(upper, "upper")
 
     return flat_textures
 
@@ -2191,47 +3040,41 @@ def pick_flat_texture(
     return fallback
 
 
-def pick_flat_texture_from_sets(
-    flat_texture_sets: Sequence[Sequence[FlatTextureSpan]],
-    command_types: Sequence[int],
-    z: float,
-    fallback: str,
-) -> str:
-    best = None
-    best_delta = 1 << 30
-    for command_type in command_types:
-        for flat_textures in flat_texture_sets:
-            for span in flat_textures:
-                if span.command_type != command_type:
-                    continue
-                delta = abs(span.z - z)
-                if delta < best_delta:
-                    best = span
-                    best_delta = delta
-        if best is not None and best_delta <= 0.05:
-            return best.material
-
-    return fallback
-
-
 def flat_cap_polygons(
     flat_textures: Sequence[FlatTextureSpan],
     command_type: int,
     z: float,
     fallback_poly: Sequence[Tuple[float, float]],
     fallback_material: str,
+    prefer_zone_footprint: bool = False,
 ) -> List[Tuple[List[Tuple[float, float]], str]]:
     matches = [
         span
         for span in flat_textures
         if span.command_type == command_type and abs(span.z - z) <= 0.05
     ]
-    caps = [(span.poly, span.material) for span in matches if len(span.poly) >= 3]
+    by_material: Dict[str, List[List[Tuple[float, float]]]] = {}
+    for span in matches:
+        if len(span.poly) >= 3:
+            by_material.setdefault(span.material, []).append(span.poly)
+
+    if prefer_zone_footprint and by_material:
+        material = next(iter(by_material)) if len(by_material) == 1 else fallback_material
+        return [(poly, material) for poly in convex_partition_polygon(fallback_poly)]
+
+    if len(by_material) == 1:
+        material = next(iter(by_material))
+        return [(poly, material) for poly in convex_partition_polygon(fallback_poly)]
+
+    caps: List[Tuple[List[Tuple[float, float]], str]] = []
+    for material, polys in by_material.items():
+        for poly in merge_convex_polygon_set(polys):
+            caps.append((poly, material))
     if caps:
-        return [(list(poly), material) for poly, material in caps]
+        return caps
 
     material = pick_flat_texture(flat_textures, command_type, z, fallback_material)
-    return [(list(fallback_poly), material)]
+    return [(poly, material) for poly in convex_partition_polygon(fallback_poly)]
 
 
 def zone_volume_brushes(
@@ -2254,7 +3097,7 @@ def zone_volume_brushes(
     return brushes
 
 
-def zone_shell_brushes(
+def zone_shell_prisms(
     zone: Zone,
     zones_by_id: Mapping[int, Zone],
     poly: Sequence[Tuple[float, float]],
@@ -2269,81 +3112,133 @@ def zone_shell_brushes(
     map_format: str,
     thickness: float,
     cap_thickness: float,
-) -> List[List[str]]:
-    brushes: List[List[str]] = []
+) -> List[PrismBrush]:
+    prisms: List[PrismBrush] = []
     if len(poly) < 3:
-        return brushes
+        return prisms
 
     spans = zone_room_spans(zone, scale_z)
     if not spans:
-        return brushes
+        return prisms
 
     zone_textures = wall_textures_by_zone.get(zone.zone_id, {})
     zone_flat_textures = flat_textures_by_zone.get(zone.zone_id, [])
+    segments = zone_edge_segments(zone, edges, scale_xy)
+    cap_extents = zone_cap_extents(zone, zones_by_id, segments, scale_z, cap_thickness)
 
-    for low, high in spans:
+    for low, high, floor_bottom, ceiling_top in cap_extents:
         for cap_poly, floor_material in flat_cap_polygons(zone_flat_textures, 1, low, poly, floor_texture):
-            floor_faces = brush_from_prism(
-                cap_poly,
-                low - cap_thickness,
-                low,
-                floor_material,
-                map_format,
-                top_texture=floor_material,
-                bottom_texture=floor_material,
-                side_texture=wall_texture,
+            side_textures = ()
+            if low - floor_bottom > cap_thickness + 0.05:
+                side_textures = cap_side_textures(
+                    cap_poly,
+                    segments,
+                    zone_textures,
+                    zones_by_id,
+                    wall_textures_by_zone,
+                    floor_bottom,
+                    low,
+                    wall_texture,
+                )
+            prisms.append(
+                PrismBrush(
+                    poly=cap_poly,
+                    z0=floor_bottom,
+                    z1=low,
+                    texture=floor_material,
+                    top_texture=floor_material,
+                    bottom_texture=floor_material,
+                    side_texture=wall_texture,
+                    side_textures=side_textures,
+                    role="floor",
+                )
             )
-            if floor_faces:
-                brushes.append(floor_faces)
-        for cap_poly, ceiling_material in flat_cap_polygons(zone_flat_textures, 2, high, poly, ceiling_texture):
-            ceiling_faces = brush_from_prism(
-                cap_poly,
-                high,
-                high + cap_thickness,
-                ceiling_material,
-                map_format,
-                top_texture=ceiling_material,
-                bottom_texture=ceiling_material,
-                side_texture=wall_texture,
+        if zone_ceiling_open_to_sky(zone, high, spans):
+            continue
+        for cap_poly, ceiling_material in flat_cap_polygons(
+            zone_flat_textures,
+            2,
+            high,
+            poly,
+            ceiling_texture,
+            prefer_zone_footprint=True,
+        ):
+            side_textures = ()
+            if ceiling_top - high > cap_thickness + 0.05:
+                side_textures = cap_side_textures(
+                    cap_poly,
+                    segments,
+                    zone_textures,
+                    zones_by_id,
+                    wall_textures_by_zone,
+                    high,
+                    ceiling_top,
+                    wall_texture,
+                )
+            prisms.append(
+                PrismBrush(
+                    poly=cap_poly,
+                    z0=high,
+                    z1=ceiling_top,
+                    texture=ceiling_material,
+                    top_texture=ceiling_material,
+                    bottom_texture=ceiling_material,
+                    side_texture=wall_texture,
+                    side_textures=side_textures,
+                    role="ceiling",
+                )
             )
-            if ceiling_faces:
-                brushes.append(ceiling_faces)
 
-    zone_ctr = centroid(poly)
-    for edge, p1, p2 in zone_edge_segments(zone, edges, scale_xy):
-        neighbour_spans: Sequence[Tuple[float, float]] = []
-        neighbour_flat_textures: Sequence[FlatTextureSpan] = []
+    zone_clockwise = polygon_area(poly) < 0.0
+    for edge, p1, p2 in segments:
+        neighbour_room_spans: Sequence[Tuple[float, float]] = []
+        neighbour_blockers: Sequence[Tuple[float, float]] = []
         neighbour = zones_by_id.get(edge.join_zone)
         if neighbour is not None and neighbour.zone_id != zone.zone_id:
-            neighbour_spans = zone_room_spans(neighbour, scale_z)
-            neighbour_flat_textures = flat_textures_by_zone.get(neighbour.zone_id, [])
+            neighbour_room_spans = zone_room_spans(neighbour, scale_z)
+            neighbour_segments = zone_edge_segments(neighbour, edges, scale_xy)
+            neighbour_extents = zone_cap_extents(
+                neighbour,
+                zones_by_id,
+                neighbour_segments,
+                scale_z,
+                cap_thickness,
+            )
+            neighbour_blockers = [*neighbour_room_spans, *cap_extension_spans(neighbour_extents)]
 
         for span in spans:
-            wall_spans = subtract_spans(span, neighbour_spans) if neighbour_spans else [span]
+            wall_spans = subtract_spans(span, neighbour_blockers) if neighbour_blockers else [span]
             for low, high in wall_spans:
                 if high - low < 0.01:
                     continue
-                wall_poly = wall_poly_for_segment(p1, p2, zone_ctr, thickness)
+                if neighbour_room_spans and any(abs(neighbour_low - high) <= 0.05 for neighbour_low, _ in neighbour_room_spans):
+                    continue
+                wall_poly = wall_poly_for_segment(
+                    p1,
+                    p2,
+                    zone_clockwise,
+                    thickness,
+                )
                 if not wall_poly:
                     continue
                 material = pick_wall_texture(zone_textures, edge, low, high, wall_texture)
-                flat_texture_sets = (zone_flat_textures, neighbour_flat_textures)
-                top_material = pick_flat_texture_from_sets(flat_texture_sets, (1, 2), high, material)
-                bottom_material = pick_flat_texture_from_sets(flat_texture_sets, (2, 1), low, material)
-                wall_faces = brush_from_prism(
-                    wall_poly,
-                    low,
-                    high,
-                    material,
-                    map_format,
-                    top_texture=top_material,
-                    bottom_texture=bottom_material,
-                    side_texture=material,
+                outward = wall_outward_normal(p1, p2, zone_clockwise)
+                prisms.append(
+                    PrismBrush(
+                        poly=wall_poly,
+                        z0=low,
+                        z1=high,
+                        texture=material,
+                        top_texture=floor_texture,
+                        bottom_texture=ceiling_texture,
+                        side_texture=material,
+                        inward_normal=(-outward[0], -outward[1]),
+                        wall_length=segment_length(p1, p2),
+                        role="wall",
+                    )
                 )
-                if wall_faces:
-                    brushes.append(wall_faces)
 
-    return brushes
+    return prisms
 
 
 def map_entity(kv: Sequence[Tuple[str, str]], brushes: Sequence[Sequence[str]]) -> str:
@@ -2379,8 +3274,10 @@ def write_quake_map(
     cap_thickness: float,
     wall_textures_by_zone: Mapping[int, Mapping[SegmentKey, Sequence[WallTextureSpan]]],
     flat_textures_by_zone: Mapping[int, Sequence[FlatTextureSpan]],
-) -> Tuple[int, int]:
+) -> Tuple[int, int, MergeStats]:
     brushes: List[List[str]] = []
+    shell_prisms: List[PrismBrush] = []
+    merge_stats = MergeStats()
     skipped = 0
     zones_by_id = {zone.zone_id: zone for zone in zones}
 
@@ -2388,8 +3285,12 @@ def write_quake_map(
         poly = zone_polygon_from_edges(zone, edges, scale_xy)
         if solid_mode == "volumes":
             z_brushes = zone_volume_brushes(zone, poly, scale_z, texture, map_format)
+            if not z_brushes:
+                skipped += 1
+                continue
+            brushes.extend(z_brushes)
         else:
-            z_brushes = zone_shell_brushes(
+            z_prisms = zone_shell_prisms(
                 zone,
                 zones_by_id,
                 poly,
@@ -2405,10 +3306,27 @@ def write_quake_map(
                 thickness=solid_thickness,
                 cap_thickness=cap_thickness,
             )
-        if not z_brushes:
-            skipped += 1
-            continue
-        brushes.extend(z_brushes)
+            if not z_prisms:
+                skipped += 1
+                continue
+            shell_prisms.extend(z_prisms)
+
+    if shell_prisms:
+        merged_specs = merge_prism_brushes(shell_prisms, merge_stats)
+        final_specs = miter_overlapping_shell_prisms(
+            merged_specs,
+            max(1.0, solid_thickness),
+            cap_amount=0.0,
+        )
+        for spec in final_specs:
+            faces = prism_faces(spec, map_format)
+            if faces:
+                merge_stats.faces += len(faces)
+                brushes.append(faces)
+    else:
+        merge_stats.raw_brushes = len(brushes)
+        merge_stats.merged_brushes = len(brushes)
+        merge_stats.faces = sum(len(brush) for brush in brushes)
 
     worldspawn_kv = [
         ("classname", "worldspawn"),
@@ -2445,7 +3363,7 @@ def write_quake_map(
 
     text = "\n".join(header_lines) + worldspawn + "\n\n" + player + "\n"
     out_path.write_text(text, encoding="ascii", errors="strict")
-    return len(brushes), skipped
+    return len(brushes), skipped, merge_stats
 
 
 def maybe_compile_bsp(map_path: pathlib.Path, qbsp: Optional[str]) -> Tuple[bool, str]:
@@ -2646,7 +3564,7 @@ def convert_one_level(
     map_path = out_dir / f"{level_dir.name.lower()}.map"
 
     try:
-        brush_count, skipped = write_quake_map(
+        brush_count, skipped, merge_stats = write_quake_map(
             map_path,
             level_dir.name,
             header,
@@ -2684,7 +3602,12 @@ def convert_one_level(
             f" edge_size={edge_size} fit16={fit16:.2f} fit8={fit8:.2f} fit32={fit32:.2f}"
             f" edge_range=[{edge_start},{edge_end})"
             f" graph_walls={graph_wall_count} graph_flats={graph_flat_count}"
-            f" brushes={brush_count} skipped_zones={skipped} -> {map_path}{bsp_note}",
+            f" brushes={brush_count} faces={merge_stats.faces}"
+            f" raw_brushes={merge_stats.raw_brushes} merged_brushes={merge_stats.merged_brushes}"
+            f" merged_floors={merge_stats.merged_floor_regions}/{merge_stats.raw_floor_regions}"
+            f" merged_ceilings={merge_stats.merged_ceiling_regions}/{merge_stats.raw_ceiling_regions}"
+            f" merged_walls={merge_stats.merged_wall_runs}/{merge_stats.raw_wall_runs}"
+            f" skipped_zones={skipped} -> {map_path}{bsp_note}",
         )
 
     return True, f"{level_dir.name}: ok -> {map_path}{bsp_note}"

@@ -11,8 +11,8 @@ It auto-handles:
 - multiple edge record sizes (8/16/32 bytes)
 - Quake 2 face attributes (`texture x y rot sx sy contents flags value`)
 - shell-style Quake solids around empty AB3D room/portal volumes
-- AB3D2 wall texture slots from each level's graph streams
-- AB3D2 floor and roof polygons plus texture offsets from graph flat records
+- AB3D2 wall texture slots from each level's lower and upper graph streams
+- AB3D2 floor and roof polygons plus texture offsets from lower and upper graph flat records
 
 ## Quick Start (AB3D2)
 
@@ -35,7 +35,7 @@ Extracted Quake 2 textures are written to:
 
 Wall texture decoding now uses the AB3D2 `.256wad` files from `media/wallinc` plus the game palette at `media/includes/256pal`. The first 2048 bytes of each wall file are the 32-level palette remap table, and the remaining data is unpacked as vertical strips of three 5-bit texels per 16-bit word.
 
-Floor and roof texture decoding uses the AB3D2 floor atlas at `media/includes/floortile` plus the floor remap table at `media/includes/newtexturemaps.pal`. Graph flat records select atlas offsets which are exported as materials named like `ab3d2/floor_0001` and `ab3d2/floor_0201`. The same graph flat records also provide the cap polygons used for floor and roof slab brushes, so the Quake geometry follows AB3D2's rendered flat surfaces instead of relying only on the broader zone outline.
+Floor and roof texture decoding uses the AB3D2 floor atlas at `media/includes/floortile` plus the floor remap table at `media/includes/newtexturemaps.pal`. Graph flat records select atlas offsets which are exported as materials named like `ab3d2/floor_0001` and `ab3d2/floor_0201`. The converter reads both lower and upper graph streams for each zone, then matches flat and wall records to the relevant room span by height, so zones that contain one room above another export both volumes.
 
 ## One Level Only
 
@@ -118,6 +118,16 @@ python tools/ab3d_levels_to_quake.py \
 - Quake editors typically import/edit `.map` directly.
 - Quake 2 maps reference material paths such as `ab3d2/hullmetal` and `ab3d2/floor_0001`; they do not use the Quake 1 `worldspawn` `wad` key.
 - Use `--solid-mode volumes` only for inspecting the old filled-sector output. The default `--solid-mode shell` exports floors, ceilings, and walls around empty room space.
-- In shell mode, floor and roof brush side faces use the wall fallback material while the visible cap faces keep their flat texture. Wall brush horizontal faces inherit matching floor/roof materials from the current or joined zone, so raised platforms and ledges get flat-textured tops all the way across the generated Quake solids. Caps use `--cap-thickness` independently from `--solid-thickness` so raised floors and ceilings do not expose chunky slab edges in TrenchBroom.
+- In shell mode, horizontal brush faces are flat-textured and vertical brush faces are wall-textured. Floor slabs extend down to the nearest lower joined floor where possible, so raised platform sides come from the platform slab itself instead of separate wall-top strips. Ceiling slabs similarly extend up to the nearest higher joined roof where possible. Remaining wall brush horizontal faces use stable floor/ceiling fallback materials to allow longer wall pieces to merge.
+- Shell brushes are merged conservatively after generation. Only adjacent coplanar prisms with identical heights, roles, and materials are combined, and only when the resulting footprint remains convex, because Quake brushes cannot represent concave or holed solids safely. Wall shell thickness is placed using polygon winding rather than a centroid test, which keeps thickness outside concave rooms and doorways.
+- Verbose conversion output reports total brushes/faces, raw and merged shell brush counts, and merged floor, ceiling, and wall region counts.
 - `.bsp` output requires an external Quake 2 BSP compiler; this script does not implement BSP tree compilation itself.
 - A few zones in some levels may be skipped when their polygons cannot be reconstructed cleanly from source edge lists.
+
+## Tests
+
+```powershell
+python -m unittest tools.test_ab3d_levels_to_quake
+```
+
+The tests cover simple rectangular floors, long corridors, L-shaped floors, adjacent rooms, doorway gaps, straight wall runs, and the winding-based shell direction used for concave AB3D2 sectors.
