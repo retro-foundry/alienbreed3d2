@@ -2044,7 +2044,8 @@ def make_face(
     # Swap p2/p3 so normals point the way TrenchBroom/qbsp expects.
     points = f"{fmt_vec(p1)} {fmt_vec(p3)} {fmt_vec(p2)}"
     if map_format == "quake2":
-        return f"{points} {texture} 0 0 0 1 1 0 0 0"
+        surface_flags = 4 if texture.lower() == "sky" else 0
+        return f"{points} {texture} 0 0 0 1 1 0 {surface_flags} 0"
     return f"{points} {texture} 0 0 0 1 1"
 
 
