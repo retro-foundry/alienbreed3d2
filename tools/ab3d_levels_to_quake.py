@@ -2033,6 +2033,23 @@ def fmt_vec(p: Tuple[float, float, float]) -> str:
     return f"( {p[0]:.3f} {p[1]:.3f} {p[2]:.3f} )"
 
 
+def quake2_surface_flags(texture: str) -> int:
+    material = texture.lower()
+    flags = 0
+    if material == "sky":
+        flags |= 4
+    if material.endswith("/technolights") or material == "technolights":
+        flags |= 1
+    return flags
+
+
+def quake2_surface_value(texture: str) -> int:
+    material = texture.lower()
+    if material.endswith("/technolights") or material == "technolights":
+        return 900
+    return 0
+
+
 def make_face(
     p1: Tuple[float, float, float],
     p2: Tuple[float, float, float],
@@ -2044,8 +2061,7 @@ def make_face(
     # Swap p2/p3 so normals point the way TrenchBroom/qbsp expects.
     points = f"{fmt_vec(p1)} {fmt_vec(p3)} {fmt_vec(p2)}"
     if map_format == "quake2":
-        surface_flags = 4 if texture.lower() == "sky" else 0
-        return f"{points} {texture} 0 0 0 1 1 0 {surface_flags} 0"
+        return f"{points} {texture} 0 0 0 1 1 0 {quake2_surface_flags(texture)} {quake2_surface_value(texture)}"
     return f"{points} {texture} 0 0 0 1 1"
 
 
@@ -2173,6 +2189,40 @@ def skybox_prisms(
         PrismBrush(rect_poly(max_x, min_y - thickness, max_x + thickness, max_y + thickness), min_z, max_z, texture, texture, texture, texture, role="skybox"),
         PrismBrush(rect_poly(min_x, min_y - thickness, max_x, min_y), min_z, max_z, texture, texture, texture, texture, role="skybox"),
         PrismBrush(rect_poly(min_x, max_y, max_x, max_y + thickness), min_z, max_z, texture, texture, texture, texture, role="skybox"),
+    ]
+
+
+def level_neon_strip_prisms(level_name: str) -> List[PrismBrush]:
+    if level_name.lower() != "level_a":
+        return []
+
+    texture = "ab3d2/technolights"
+    strip_specs = [
+        (rect_poly(-848.0, 176.0, -528.0, 184.0), 92.0, 96.0),
+        (rect_poly(-848.0, 488.0, -528.0, 496.0), 92.0, 96.0),
+        (rect_poly(-848.0, 184.0, -840.0, 488.0), 92.0, 96.0),
+        (rect_poly(-536.0, 184.0, -528.0, 488.0), 92.0, 96.0),
+        (rect_poly(-848.0, 176.0, -528.0, 184.0), 508.0, 512.0),
+        (rect_poly(-848.0, 488.0, -528.0, 496.0), 508.0, 512.0),
+        (rect_poly(5056.0, 2496.0, 5248.0, 2504.0), 636.0, 640.0),
+        (rect_poly(5056.0, 2616.0, 5248.0, 2624.0), 636.0, 640.0),
+        (rect_poly(5184.0, 1792.0, 5376.0, 1800.0), 636.0, 640.0),
+        (rect_poly(5184.0, 1912.0, 5376.0, 1920.0), 636.0, 640.0),
+        (rect_poly(5824.0, 832.0, 6016.0, 840.0), 636.0, 640.0),
+        (rect_poly(5824.0, 952.0, 6016.0, 960.0), 636.0, 640.0),
+    ]
+    return [
+        PrismBrush(
+            poly=poly,
+            z0=z0,
+            z1=z1,
+            texture=texture,
+            top_texture=texture,
+            bottom_texture=texture,
+            side_texture=texture,
+            role="neon",
+        )
+        for poly, z0, z1 in strip_specs
     ]
 
 
@@ -3636,6 +3686,7 @@ def write_quake_map(
         )
         if seal_skybox:
             final_specs = [*final_specs, *skybox_prisms(final_specs, sky_texture)]
+        final_specs = [*final_specs, *level_neon_strip_prisms(level_name)]
         for spec in final_specs:
             faces = prism_faces(spec, map_format)
             if faces:
