@@ -21,6 +21,8 @@ It writes Quake 2 `.map` files containing brush geometry, entities, and Quake 2 
 
 Floor and roof slabs are built from the AB3D2 graph flat polygons when available. Floor slabs extend down to the nearest lower joined floor where possible, so raised platforms become slab surfaces plus risers instead of caps surrounded by wall strips. Ceiling slabs similarly extend up to the nearest higher joined roof where possible, so overhead steps become continuous solid brushes instead of thin split caps. Remaining wall horizontal faces use stable floor/ceiling fallback materials so longer wall pieces can merge.
 
+AB3D2 backdrop/open-sky ceilings are still emitted as solid caps, but use the `--sky-texture` material, defaulting to `sky`. Shell-mode maps also get a default outer sky-textured hull so ericw-tools/qbsp sees a sealed world instead of leaks through the original sky/backdrop void. Use `--no-seal-skybox` only when inspecting the raw converted shell geometry.
+
 Generated shell brushes are merged when adjacent pieces share the same role, height, and materials and the combined footprint stays convex. Concave shapes are kept split into safe Quake brushes instead of being forced into invalid diagonal hulls. Wall shell thickness is placed from the source polygon winding, which keeps it outside concave AB3D2 sectors and doorways.
 
 The default output also emits Quake `light` entities from AB3D2 zone brightness and point/corner brightness tables. This gives BSP compilers data to bake a lightmap approximation of the original Gouraud shading while keeping the `.map` editable. Use `--lighting zone` for room-center lights only, or `--lighting none` for unlit geometry.

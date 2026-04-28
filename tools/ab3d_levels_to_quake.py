@@ -2138,6 +2138,43 @@ def prism_faces(spec: PrismBrush, map_format: str) -> List[str]:
     )
 
 
+def rect_poly(x0: float, y0: float, x1: float, y1: float) -> List[Tuple[float, float]]:
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+
+def skybox_prisms(
+    specs: Sequence[PrismBrush],
+    texture: str,
+    padding: float = 512.0,
+    thickness: float = 64.0,
+) -> List[PrismBrush]:
+    if not specs:
+        return []
+
+    xs = [p[0] for spec in specs for p in spec.poly]
+    ys = [p[1] for spec in specs for p in spec.poly]
+    lows = [min(spec.z0, spec.z1) for spec in specs]
+    highs = [max(spec.z0, spec.z1) for spec in specs]
+    if not xs or not ys or not lows or not highs:
+        return []
+
+    min_x = min(xs) - padding
+    max_x = max(xs) + padding
+    min_y = min(ys) - padding
+    max_y = max(ys) + padding
+    min_z = min(lows) - padding
+    max_z = max(highs) + padding
+
+    return [
+        PrismBrush(rect_poly(min_x, min_y, max_x, max_y), min_z - thickness, min_z, texture, texture, texture, texture, role="skybox"),
+        PrismBrush(rect_poly(min_x, min_y, max_x, max_y), max_z, max_z + thickness, texture, texture, texture, texture, role="skybox"),
+        PrismBrush(rect_poly(min_x - thickness, min_y - thickness, min_x, max_y + thickness), min_z, max_z, texture, texture, texture, texture, role="skybox"),
+        PrismBrush(rect_poly(max_x, min_y - thickness, max_x + thickness, max_y + thickness), min_z, max_z, texture, texture, texture, texture, role="skybox"),
+        PrismBrush(rect_poly(min_x, min_y - thickness, max_x, min_y), min_z, max_z, texture, texture, texture, texture, role="skybox"),
+        PrismBrush(rect_poly(min_x, max_y, max_x, max_y + thickness), min_z, max_z, texture, texture, texture, texture, role="skybox"),
+    ]
+
+
 def prism_merge_key(spec: PrismBrush) -> Tuple[float, float, str, str, str, str, Tuple[str, ...], str, Tuple[float, float]]:
     low = min(spec.z0, spec.z1)
     high = max(spec.z0, spec.z1)
@@ -3353,6 +3390,76 @@ def point_light_intensity(value: int, scale: float) -> int:
     return clamp_int(amount * scale, 16, 400)
 
 
+def point_light_origin(
+    point: Tuple[float, float],
+    centroid: Tuple[float, float],
+    z: float,
+    inset: float = 32.0,
+) -> Tuple[float, float, float]:
+    px, py = point
+    cx, cy = centroid
+    dx = cx - px
+    dy = cy - py
+    distance = math.hypot(dx, dy)
+    if distance <= 0.01:
+        return px, py, z
+    step = min(inset, distance * 0.5)
+    return px + dx / distance * step, py + dy / distance * step, z
+
+
+def point_segment_distance(
+    p: Tuple[float, float],
+    a: Tuple[float, float],
+    b: Tuple[float, float],
+) -> float:
+    ax, ay = a
+    bx, by = b
+    px, py = p
+    dx = bx - ax
+    dy = by - ay
+    length2 = dx * dx + dy * dy
+    if length2 <= 1e-6:
+        return math.hypot(px - ax, py - ay)
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length2))
+    cx = ax + dx * t
+    cy = ay + dy * t
+    return math.hypot(px - cx, py - cy)
+
+
+def polygon_contains_point(poly: Sequence[Tuple[float, float]], point: Tuple[float, float], edge_eps: float = 1.0) -> bool:
+    if len(poly) < 3:
+        return False
+    for i in range(len(poly)):
+        if point_segment_distance(point, poly[i], poly[(i + 1) % len(poly)]) <= edge_eps:
+            return False
+
+    x, y = point
+    inside = False
+    j = len(poly) - 1
+    for i in range(len(poly)):
+        xi, yi = poly[i]
+        xj, yj = poly[j]
+        intersects = (yi > y) != (yj > y)
+        if intersects:
+            x_hit = (xj - xi) * (y - yi) / (yj - yi) + xi
+            if x < x_hit:
+                inside = not inside
+        j = i
+    return inside
+
+
+def polygon_safe_interior_point(poly: Sequence[Tuple[float, float]]) -> Tuple[float, float]:
+    centroid = polygon_centroid(poly)
+    if polygon_contains_point(poly, centroid):
+        return centroid
+
+    parts = convex_partition_polygon(poly)
+    if not parts:
+        return centroid
+    best = max(parts, key=lambda part: abs(polygon_area(part)))
+    return polygon_centroid(best)
+
+
 def zone_span_brightness(zone: Zone, stream: str) -> int:
     return zone.upper_brightness if stream == "upper" else zone.brightness
 
@@ -3386,7 +3493,7 @@ def build_light_entities(
         if len(poly) < 3:
             continue
 
-        cx, cy = polygon_centroid(poly)
+        cx, cy = polygon_safe_interior_point(poly)
         for low, high, stream in zone_room_span_records(zone, scale_z):
             midpoint_z = low + (high - low) * 0.5
             add_light(
@@ -3411,9 +3518,15 @@ def build_light_entities(
                 x, y = to_quake_coords(points[point_index][0], points[point_index][1], scale_xy)
                 table_base = local_index * 4 + channel_base
                 if table_base < len(entries):
-                    add_light((x, y, lower_z), point_light_intensity(entries[table_base], point_light_scale))
+                    origin = point_light_origin((x, y), (cx, cy), lower_z)
+                    if not polygon_contains_point(poly, (origin[0], origin[1])):
+                        origin = (cx, cy, lower_z)
+                    add_light(origin, point_light_intensity(entries[table_base], point_light_scale))
                 if table_base + 1 < len(entries):
-                    add_light((x, y, upper_z), point_light_intensity(entries[table_base + 1], point_light_scale))
+                    origin = point_light_origin((x, y), (cx, cy), upper_z)
+                    if not polygon_contains_point(poly, (origin[0], origin[1])):
+                        origin = (cx, cy, upper_z)
+                    add_light(origin, point_light_intensity(entries[table_base + 1], point_light_scale))
 
     return [
         LightSpec(origin=(x, y, z), intensity=intensity)
@@ -3463,6 +3576,7 @@ def write_quake_map(
     spawn_height: float,
     map_format: str,
     solid_mode: str,
+    seal_skybox: bool,
     solid_thickness: float,
     cap_thickness: float,
     wall_textures_by_zone: Mapping[int, Mapping[SegmentKey, Sequence[WallTextureSpan]]],
@@ -3519,6 +3633,8 @@ def write_quake_map(
             max(1.0, solid_thickness),
             cap_amount=0.0,
         )
+        if seal_skybox:
+            final_specs = [*final_specs, *skybox_prisms(final_specs, sky_texture)]
         for spec in final_specs:
             faces = prism_faces(spec, map_format)
             if faces:
@@ -3697,6 +3813,7 @@ def convert_one_level(
     spawn_height: float,
     map_format: str,
     solid_mode: str,
+    seal_skybox: bool,
     solid_thickness: float,
     cap_thickness: float,
     compile_bsp: bool,
@@ -3803,6 +3920,7 @@ def convert_one_level(
             spawn_height,
             map_format,
             solid_mode,
+            seal_skybox,
             solid_thickness,
             cap_thickness,
             wall_textures_by_zone,
@@ -3890,6 +4008,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default="shell",
         help="shell writes Quake solids around empty AB3D zones; volumes preserves the old solid-sector export",
     )
+    parser.add_argument(
+        "--no-seal-skybox",
+        dest="seal_skybox",
+        action="store_false",
+        help="Do not add the outer sky-textured hull that seals converted shell maps for qbsp",
+    )
+    parser.set_defaults(seal_skybox=True)
     parser.add_argument(
         "--solid-thickness",
         type=float,
@@ -4066,6 +4191,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             spawn_height=args.spawn_height,
             map_format=args.map_format,
             solid_mode=args.solid_mode,
+            seal_skybox=args.seal_skybox,
             solid_thickness=args.solid_thickness,
             cap_thickness=args.cap_thickness,
             compile_bsp=args.compile_bsp,

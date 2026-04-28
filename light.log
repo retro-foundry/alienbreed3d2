@@ -1,0 +1,37 @@
+---- light / ericw-tools v0.18.1 ----
+Raytracing backend: Embree
+running with 24 threads
+LoadBSPFile: 'C:\Users\paula\Documents\Projects\alienbreed3d2\build\quake_bsp_ericw_skycaps\level_p.bsp'
+BSP is version 29
+--- LoadEntities ---
+665 entities read, 663 are lights.
+--- OptionsSummary ---
+Embree_TraceInit: Embree version: 2.15.0
+Embree_TraceInit:
+	0 sky faces
+	22274 solid faces
+	0 filtered faces
+	0 shadow-casting skip faces
+SetupLights: 663 initial lights
+SetupLights: 663 after surface lights
+SetupLights: 663 after jittering
+WARNING: couldn't nudge light in solid at 1024.000000 5184.000000 -64.000000
+WARNING: couldn't nudge light in solid at 1024.000000 5184.000000 320.000000
+WARNING: couldn't nudge light in solid at 1280.000000 5184.000000 -64.000000
+WARNING: couldn't nudge light in solid at 1280.000000 5184.000000 320.000000
+--- EstimateLightVisibility ---
+0....1....2....3....4....5....6....7....8....9....
+Final count: 663 lights 0 suns in use.
+--- LightWorld ---
+0....1....2....3....4....5....6....7....8....9....
+Lighting Completed.
+
+lightdatasize: 217333
+0 switchable light styles (32 max)
+Writing C:\Users\paula\Documents\Projects\alienbreed3d2\build\quake_bsp_ericw_skycaps\level_p.bsp as BSP version 29
+0.674 seconds elapsed
+
+stats:
+0.020038 lights tested, 0.019884 hits per sample point
+0.000000 bounce lights tested, 0.000000 hits per sample point
+0 empty lightmaps
