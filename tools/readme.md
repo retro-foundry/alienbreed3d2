@@ -120,6 +120,50 @@ python tools\ab3d_levels_to_quake.py --extract-textures --compile-bsp --qbsp C:\
 
 If no compiler is provided or found on `PATH`, keep using the generated `.map` files directly in TrenchBroom.
 
+### Q2RTX / Quake 2 BSP Notes
+
+Use ericw-tools 2.0 alpha/dev builds for Q2RTX installs. The older ericw-tools 0.18.x stable release writes Quake 1 BSP files by default; Q2RTX rejects those with `unknown file format`.
+
+For Q2RTX, compile with ericw `qbsp -q2rtx`, then run ericw `vis` and `light` with the same target:
+
+```powershell
+build\bin\qbsp.exe -q2rtx -basedir build\q2rtx_ericw build\q2rtx_ericw\maps\level_a.map build\q2rtx_ericw\maps\level_a.bsp
+build\bin\vis.exe -q2rtx -basedir build\q2rtx_ericw build\q2rtx_ericw\maps\level_a.bsp
+build\bin\light.exe -q2rtx -basedir build\q2rtx_ericw build\q2rtx_ericw\maps\level_a.bsp
+```
+
+The `-basedir` directory must look like a Quake 2 `baseq2` tree, including `maps\`, `textures\ab3d2\`, `textures\sky.wal`, and `pics\colormap.pcx`, so the tools can read WAL metadata and surface/content flags. `qbsp -q2rtx` writes normal Quake 2 `IBSP` version 38 files and avoids the invalid edge data seen from `q2tools-220` on these converted maps. If `-q2rtx` gives trouble, try `-q2bsp`; do not use `q2tools-220` for final Q2RTX builds unless its output has been checked for out-of-range edge vertex indices.
+
+The Q2RTX install target used for local testing is:
+
+```text
+C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2
+```
+
+Install compiled BSPs under `baseq2\maps\` and generated WAL textures under `baseq2\textures\ab3d2\`. The compiler/runtime also needs the generated `pics\colormap.pcx`.
+
+### Q1RTX / Quake 1 BSP Notes
+
+Do not load Quake 2 `IBSP` files in `q1rtx.exe`. A Quake 2 BSP may fail in Q1-family engines with errors such as:
+
+```text
+couldnt load maps/level_a.bsp: BSP_LoadEdges: bad vertnum
+```
+
+For Q1RTX or other Quake 1-family engines, generate Quake 1 map syntax and compile with the ericw-tools `qbsp.exe` from `build\bin`:
+
+```powershell
+python tools\ab3d_levels_to_quake.py `
+  --map-format quake1 `
+  --wad build\quake2_assets\ab3d2_textures.wad `
+  --out-dir build\quake1_maps `
+  --verbose
+
+build\bin\qbsp.exe build\quake1_maps\level_a.map build\quake1_bsp\level_a.bsp
+```
+
+Those Quake 1 BSPs are for Q1RTX-style engines only. Do not copy them into Q2RTX, because Q2RTX expects Quake 2 `IBSP` version 38 BSPs.
+
 ## Tests
 
 ```powershell
