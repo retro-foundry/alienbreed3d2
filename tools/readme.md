@@ -19,7 +19,9 @@ twolev.graph.bin
 
 It writes Quake 2 `.map` files containing brush geometry, entities, and Quake 2 face attributes. The default output uses shell brushes around AB3D2 room space so the result opens as editable Quake-style solids in TrenchBroom.
 
-Floor and roof slabs are built from the AB3D2 graph flat polygons when available. Their visible cap faces keep the AB3D2 floor/roof material, and horizontal faces on adjoining wall/step brushes inherit matching flat materials so raised tops are fully covered in TrenchBroom. Thin `--cap-thickness` vertical slab edges use the wall fallback material.
+Floor and roof slabs are built from the AB3D2 graph flat polygons when available. Floor slabs extend down to the nearest lower joined floor where possible, so raised platforms become slab surfaces plus risers instead of caps surrounded by wall strips. Ceiling slabs similarly extend up to the nearest higher joined roof where possible, so overhead steps become continuous solid brushes instead of thin split caps. Remaining wall horizontal faces use stable floor/ceiling fallback materials so longer wall pieces can merge.
+
+Generated shell brushes are merged when adjacent pieces share the same role, height, and materials and the combined footprint stays convex. Concave shapes are kept split into safe Quake brushes instead of being forced into invalid diagonal hulls. Wall shell thickness is placed from the source polygon winding, which keeps it outside concave AB3D2 sectors and doorways.
 
 It also extracts AB3D2 wall textures from:
 
@@ -113,6 +115,14 @@ python tools\ab3d_levels_to_quake.py --extract-textures --compile-bsp --qbsp C:\
 ```
 
 If no compiler is provided or found on `PATH`, keep using the generated `.map` files directly in TrenchBroom.
+
+## Tests
+
+```powershell
+python -m unittest tools.test_ab3d_levels_to_quake
+```
+
+The tests cover the small-room, corridor, L-room, adjacent-room, doorway-gap, and straight-wall-run merge cases.
 
 ## Generated Files
 
