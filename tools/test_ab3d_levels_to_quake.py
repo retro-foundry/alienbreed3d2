@@ -1,4 +1,5 @@
 import importlib.util
+import dataclasses
 import pathlib
 import struct
 import sys
@@ -102,13 +103,37 @@ class MapGeometryMergeTests(unittest.TestCase):
     def test_parse_zones_reads_draw_backdrop_flag(self):
         data = bytearray(50)
         struct.pack_into(">hiiii", data, 0, 7, 0, -512, 0, 0)
+        struct.pack_into(">hh", data, 22, -7, 5)
         struct.pack_into(">h", data, 32, 48)
         data[36] = 255
+        struct.pack_into(">hh", data, 44, 3, 9)
         struct.pack_into(">h", data, 48, -1)
 
         zones = ab3d.parse_zones(bytes(data), [0])
 
         self.assertEqual(zones[0].draw_backdrop, 255)
+        self.assertEqual(zones[0].brightness, -7)
+        self.assertEqual(zones[0].upper_brightness, 5)
+        self.assertEqual(zones[0].floor_noise, 3)
+        self.assertEqual(zones[0].upper_floor_noise, 9)
+
+    def test_parse_level_point_brightness_tables(self):
+        h = dataclasses.replace(header(num_zones=2), points_offset=100, num_points=3)
+        start = ab3d.point_brightness_table_offset(h)
+        border_start = start + h.num_zones * 40 * 2
+        data = bytearray(border_start + h.num_zones * 10 * 2)
+        struct.pack_into(">h", data, start + 0, -15)
+        struct.pack_into(">h", data, start + 80 + 4, 12)
+        struct.pack_into(">hhhh", data, border_start, 0, 2, -1, 99)
+        struct.pack_into(">hhhh", data, border_start + 20, 1, -1, 99, 99)
+
+        brightnesses = ab3d.parse_point_brightnesses(bytes(data), h)
+        border_points = ab3d.parse_zone_border_points(bytes(data), h)
+
+        self.assertEqual(brightnesses[0][0], -15)
+        self.assertEqual(brightnesses[1][2], 12)
+        self.assertEqual(border_points[0], [0, 2])
+        self.assertEqual(border_points[1], [1])
 
     def test_simple_rectangular_room_floor_merges_to_one_brush(self):
         prisms = [
@@ -415,6 +440,51 @@ class MapGeometryMergeTests(unittest.TestCase):
             ("floor", 15.0, 16.0),
             ("ceiling", 24.0, 25.0),
         ])
+
+    def test_lighting_entities_use_zone_and_point_brightness(self):
+        zone = ab3d.Zone(
+            zone_id=0,
+            floor=0,
+            roof=-512,
+            upper_floor=-1024,
+            upper_roof=-1536,
+            edge_ids=[0, 1, 2, 3],
+            brightness=-5,
+            upper_brightness=5,
+        )
+        edges = [
+            ab3d.Edge(x=0, z=0, dx=64, dz=0, join_zone=-1, flags=0),
+            ab3d.Edge(x=64, z=0, dx=0, dz=64, join_zone=-1, flags=0),
+            ab3d.Edge(x=64, z=64, dx=-64, dz=0, join_zone=-1, flags=0),
+            ab3d.Edge(x=0, z=64, dx=0, dz=-64, join_zone=-1, flags=0),
+        ]
+        entries = [0] * 40
+        entries[0] = 10
+        entries[1] = -10
+        entries[2] = 20
+        lights = ab3d.build_light_entities(
+            [zone],
+            edges,
+            [(0, 0)],
+            {0: entries},
+            {0: [0]},
+            scale_xy=1.0,
+            scale_z=1.0,
+            mode="points",
+            zone_light_base=180.0,
+            zone_light_scale=8.0,
+            point_light_scale=8.0,
+        )
+        by_origin = {
+            tuple(round(coord, 3) for coord in light.origin): light.intensity
+            for light in lights
+        }
+
+        self.assertEqual(by_origin[(32.0, 32.0, 4.0)], 140)
+        self.assertEqual(by_origin[(32.0, 32.0, 20.0)], 220)
+        self.assertEqual(by_origin[(0.0, 0.0, 2.0)], 80)
+        self.assertEqual(by_origin[(0.0, 0.0, 6.0)], 80)
+        self.assertEqual(by_origin[(0.0, 0.0, 18.0)], 160)
 
     def test_backdrop_zone_skips_only_topmost_ceiling_cap(self):
         zone = ab3d.Zone(

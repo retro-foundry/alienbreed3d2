@@ -469,6 +469,10 @@ class Zone:
     upper_roof: int
     edge_ids: List[int]
     draw_backdrop: int = 0
+    brightness: int = 0
+    upper_brightness: int = 0
+    floor_noise: int = 0
+    upper_floor_noise: int = 0
 
 
 @dataclasses.dataclass
@@ -513,6 +517,12 @@ class PrismBrush:
     inward_normal: Tuple[float, float] = (0.0, 0.0)
     wall_length: float = 0.0
     role: str = "solid"
+
+
+@dataclasses.dataclass
+class LightSpec:
+    origin: Tuple[float, float, float]
+    intensity: int
 
 
 @dataclasses.dataclass
@@ -1635,6 +1645,44 @@ def parse_points(data: bytes, header: LevelHeader) -> List[Tuple[int, int]]:
     return points
 
 
+def point_brightness_table_offset(header: LevelHeader) -> int:
+    # AB3D2 stores a 4-byte pad/sentinel after the point coordinate array.
+    return header.points_offset + header.num_points * 4 + 4
+
+
+def parse_point_brightnesses(data: bytes, header: LevelHeader) -> Dict[int, List[int]]:
+    start = point_brightness_table_offset(header)
+    stride = 40 * 2
+    if header.num_zones <= 0 or start < 0 or start + header.num_zones * stride > len(data):
+        return {}
+
+    brightnesses: Dict[int, List[int]] = {}
+    for zone_id in range(header.num_zones):
+        zone_start = start + zone_id * stride
+        brightnesses[zone_id] = [be_s16(data, zone_start + i * 2) for i in range(40)]
+    return brightnesses
+
+
+def parse_zone_border_points(data: bytes, header: LevelHeader) -> Dict[int, List[int]]:
+    start = point_brightness_table_offset(header) + header.num_zones * 40 * 2
+    stride = 10 * 2
+    if header.num_zones <= 0 or start < 0 or start + header.num_zones * stride > len(data):
+        return {}
+
+    border_points: Dict[int, List[int]] = {}
+    for zone_id in range(header.num_zones):
+        zone_start = start + zone_id * stride
+        entries: List[int] = []
+        for i in range(10):
+            point_index = be_s16(data, zone_start + i * 2)
+            if point_index < 0:
+                break
+            if point_index < header.num_points:
+                entries.append(point_index)
+        border_points[zone_id] = entries
+    return border_points
+
+
 def parse_edges_with_size(data: bytes, edge_start: int, edge_end: int, edge_size: int) -> List[Edge]:
     start = edge_start
     end = edge_end
@@ -1699,8 +1747,12 @@ def parse_zones(data: bytes, zone_offsets: Sequence[int]) -> List[Zone]:
         roof = be_s32(data, zoff + 6)
         upper_floor = be_s32(data, zoff + 10)
         upper_roof = be_s32(data, zoff + 14)
+        brightness = be_s16(data, zoff + 22)
+        upper_brightness = be_s16(data, zoff + 24)
         edge_list_offset = be_s16(data, zoff + 32)
         draw_backdrop = data[zoff + 36]
+        floor_noise = be_s16(data, zoff + 44)
+        upper_floor_noise = be_s16(data, zoff + 46)
 
         edge_ids = parse_zone_edge_ids(data, zoff, edge_list_offset)
         zones.append(
@@ -1712,6 +1764,10 @@ def parse_zones(data: bytes, zone_offsets: Sequence[int]) -> List[Zone]:
                 upper_roof=upper_roof,
                 edge_ids=edge_ids,
                 draw_backdrop=draw_backdrop,
+                brightness=brightness,
+                upper_brightness=upper_brightness,
+                floor_noise=floor_noise,
+                upper_floor_noise=upper_floor_noise,
             )
         )
 
@@ -2180,10 +2236,10 @@ def zone_polygon_from_edges(zone: Zone, edges: Sequence[Edge], scale_xy: float) 
     return unique_polygon(verts)
 
 
-def zone_room_spans(zone: Zone, scale_z: float) -> List[Tuple[float, float]]:
-    spans: List[Tuple[float, float]] = []
+def zone_room_span_records(zone: Zone, scale_z: float) -> List[Tuple[float, float, str]]:
+    spans: List[Tuple[float, float, str]] = []
 
-    def add_span(floor_raw: int, roof_raw: int) -> None:
+    def add_span(floor_raw: int, roof_raw: int, stream: str) -> None:
         if floor_raw == roof_raw:
             return
         z_floor = to_quake_height(floor_raw, scale_z)
@@ -2191,15 +2247,19 @@ def zone_room_spans(zone: Zone, scale_z: float) -> List[Tuple[float, float]]:
         low = min(z_floor, z_roof)
         high = max(z_floor, z_roof)
         if high - low >= 0.01:
-            spans.append((low, high))
+            spans.append((low, high, stream))
 
-    add_span(zone.floor, zone.roof)
+    add_span(zone.floor, zone.roof, "lower")
     if not (zone.upper_floor == 0 and zone.upper_roof == 0):
         if not (zone.upper_floor == zone.floor and zone.upper_roof == zone.roof):
-            add_span(zone.upper_floor, zone.upper_roof)
+            add_span(zone.upper_floor, zone.upper_roof, "upper")
 
     spans.sort()
     return spans
+
+
+def zone_room_spans(zone: Zone, scale_z: float) -> List[Tuple[float, float]]:
+    return [(low, high) for low, high, _stream in zone_room_span_records(zone, scale_z)]
 
 
 def zone_ceiling_open_to_sky(
@@ -3241,6 +3301,116 @@ def zone_shell_prisms(
     return prisms
 
 
+AB3D_ANIM_BRIGHTNESS_MIDPOINTS = {
+    1: 10,
+    2: 10,
+    3: 10,
+    4: 10,
+    5: 10,
+    6: 18,
+    7: -7,
+}
+
+
+def signed_byte(value: int) -> int:
+    b = value & 0xFF
+    return b - 256 if b >= 128 else b
+
+
+def ab3d_static_brightness(value: int) -> int:
+    low = signed_byte(value)
+    high = (value >> 8) & 0xFF
+    if high and low >= 0:
+        anim = high & 0x0F
+        weight = min(16, (high >> 4) + 1)
+        target = AB3D_ANIM_BRIGHTNESS_MIDPOINTS.get(anim, low)
+        return int(round(low + (target - low) * weight / 16.0))
+    return low
+
+
+def clamp_int(value: float, low: int, high: int) -> int:
+    return max(low, min(high, int(round(value))))
+
+
+def zone_light_intensity(value: int, base: float, scale: float) -> int:
+    return clamp_int(base + ab3d_static_brightness(value) * scale, 32, 1000)
+
+
+def point_light_intensity(value: int, scale: float) -> int:
+    amount = abs(ab3d_static_brightness(value))
+    if amount <= 0:
+        return 0
+    return clamp_int(amount * scale, 16, 400)
+
+
+def zone_span_brightness(zone: Zone, stream: str) -> int:
+    return zone.upper_brightness if stream == "upper" else zone.brightness
+
+
+def build_light_entities(
+    zones: Sequence[Zone],
+    edges: Sequence[Edge],
+    points: Sequence[Tuple[int, int]],
+    point_brightnesses: Mapping[int, Sequence[int]],
+    zone_border_points: Mapping[int, Sequence[int]],
+    scale_xy: float,
+    scale_z: float,
+    mode: str,
+    zone_light_base: float,
+    zone_light_scale: float,
+    point_light_scale: float,
+) -> List[LightSpec]:
+    if mode == "none":
+        return []
+
+    lights: Dict[Tuple[float, float, float], int] = {}
+
+    def add_light(origin: Tuple[float, float, float], intensity: int) -> None:
+        if intensity <= 0:
+            return
+        key = (round(origin[0], 3), round(origin[1], 3), round(origin[2], 3))
+        lights[key] = max(lights.get(key, 0), intensity)
+
+    for zone in zones:
+        poly = zone_polygon_from_edges(zone, edges, scale_xy)
+        if len(poly) < 3:
+            continue
+
+        cx, cy = polygon_centroid(poly)
+        for low, high, stream in zone_room_span_records(zone, scale_z):
+            midpoint_z = low + (high - low) * 0.5
+            add_light(
+                (cx, cy, midpoint_z),
+                zone_light_intensity(zone_span_brightness(zone, stream), zone_light_base, zone_light_scale),
+            )
+
+            if mode != "points":
+                continue
+
+            entries = point_brightnesses.get(zone.zone_id)
+            border = zone_border_points.get(zone.zone_id)
+            if not entries or not border:
+                continue
+
+            channel_base = 2 if stream == "upper" else 0
+            lower_z = low + (high - low) * 0.25
+            upper_z = low + (high - low) * 0.75
+            for local_index, point_index in enumerate(border):
+                if point_index < 0 or point_index >= len(points):
+                    continue
+                x, y = to_quake_coords(points[point_index][0], points[point_index][1], scale_xy)
+                table_base = local_index * 4 + channel_base
+                if table_base < len(entries):
+                    add_light((x, y, lower_z), point_light_intensity(entries[table_base], point_light_scale))
+                if table_base + 1 < len(entries):
+                    add_light((x, y, upper_z), point_light_intensity(entries[table_base + 1], point_light_scale))
+
+    return [
+        LightSpec(origin=(x, y, z), intensity=intensity)
+        for (x, y, z), intensity in sorted(lights.items())
+    ]
+
+
 def map_entity(kv: Sequence[Tuple[str, str]], brushes: Sequence[Sequence[str]]) -> str:
     lines = ["{"]
     for k, v in kv:
@@ -3253,6 +3423,18 @@ def map_entity(kv: Sequence[Tuple[str, str]], brushes: Sequence[Sequence[str]]) 
 
     lines.append("}")
     return "\n".join(lines)
+
+
+def light_entity(light: LightSpec) -> str:
+    x, y, z = light.origin
+    return map_entity(
+        [
+            ("classname", "light"),
+            ("origin", f"{x:.3f} {y:.3f} {z:.3f}"),
+            ("light", str(light.intensity)),
+        ],
+        [],
+    )
 
 
 def write_quake_map(
@@ -3274,7 +3456,14 @@ def write_quake_map(
     cap_thickness: float,
     wall_textures_by_zone: Mapping[int, Mapping[SegmentKey, Sequence[WallTextureSpan]]],
     flat_textures_by_zone: Mapping[int, Sequence[FlatTextureSpan]],
-) -> Tuple[int, int, MergeStats]:
+    points: Sequence[Tuple[int, int]],
+    point_brightnesses: Mapping[int, Sequence[int]],
+    zone_border_points: Mapping[int, Sequence[int]],
+    lighting: str,
+    zone_light_base: float,
+    zone_light_scale: float,
+    point_light_scale: float,
+) -> Tuple[int, int, MergeStats, int]:
     brushes: List[List[str]] = []
     shell_prisms: List[PrismBrush] = []
     merge_stats = MergeStats()
@@ -3340,6 +3529,20 @@ def write_quake_map(
         brushes,
     )
 
+    lights = build_light_entities(
+        zones,
+        edges,
+        points,
+        point_brightnesses,
+        zone_border_points,
+        scale_xy,
+        scale_z,
+        lighting,
+        zone_light_base,
+        zone_light_scale,
+        point_light_scale,
+    )
+
     spawn_x, spawn_y = to_quake_coords(header.plr1_x, header.plr1_z, scale_xy)
     # If we can find the spawn zone, place above that zone floor.
     spawn_z = spawn_height
@@ -3361,9 +3564,10 @@ def write_quake_map(
     if map_format == "quake2":
         header_lines = ["// Game: Quake 2", "// Format: Quake2", ""]
 
-    text = "\n".join(header_lines) + worldspawn + "\n\n" + player + "\n"
+    entities = [worldspawn, *[light_entity(light) for light in lights], player]
+    text = "\n".join(header_lines) + "\n\n".join(entities) + "\n"
     out_path.write_text(text, encoding="ascii", errors="strict")
-    return len(brushes), skipped, merge_stats
+    return len(brushes), skipped, merge_stats, len(lights)
 
 
 def maybe_compile_bsp(map_path: pathlib.Path, qbsp: Optional[str]) -> Tuple[bool, str]:
@@ -3484,6 +3688,10 @@ def convert_one_level(
     cap_thickness: float,
     compile_bsp: bool,
     qbsp: Optional[str],
+    lighting: str,
+    zone_light_base: float,
+    zone_light_scale: float,
+    point_light_scale: float,
     verbose: bool,
 ) -> Tuple[bool, str]:
     bin_path = level_dir / "twolev.bin"
@@ -3546,6 +3754,8 @@ def convert_one_level(
         points = parse_points(data, header)
     except Exception:
         points = []
+    point_brightnesses = parse_point_brightnesses(data, header) if points else {}
+    zone_border_points = parse_zone_border_points(data, header) if points else {}
 
     wall_textures_by_zone = parse_graph_wall_textures(
         graph,
@@ -3564,7 +3774,7 @@ def convert_one_level(
     map_path = out_dir / f"{level_dir.name.lower()}.map"
 
     try:
-        brush_count, skipped, merge_stats = write_quake_map(
+        brush_count, skipped, merge_stats, light_count = write_quake_map(
             map_path,
             level_dir.name,
             header,
@@ -3583,6 +3793,13 @@ def convert_one_level(
             cap_thickness,
             wall_textures_by_zone,
             flat_textures_by_zone,
+            points,
+            point_brightnesses,
+            zone_border_points,
+            lighting,
+            zone_light_base,
+            zone_light_scale,
+            point_light_scale,
         )
     except Exception as exc:
         return False, f"{level_dir.name}: map write failed ({exc})"
@@ -3602,7 +3819,7 @@ def convert_one_level(
             f" edge_size={edge_size} fit16={fit16:.2f} fit8={fit8:.2f} fit32={fit32:.2f}"
             f" edge_range=[{edge_start},{edge_end})"
             f" graph_walls={graph_wall_count} graph_flats={graph_flat_count}"
-            f" brushes={brush_count} faces={merge_stats.faces}"
+            f" brushes={brush_count} lights={light_count} faces={merge_stats.faces}"
             f" raw_brushes={merge_stats.raw_brushes} merged_brushes={merge_stats.merged_brushes}"
             f" merged_floors={merge_stats.merged_floor_regions}/{merge_stats.raw_floor_regions}"
             f" merged_ceilings={merge_stats.merged_ceiling_regions}/{merge_stats.raw_ceiling_regions}"
@@ -3665,6 +3882,30 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         type=float,
         default=1.0,
         help="Thickness in map units for generated shell floor and ceiling brushes",
+    )
+    parser.add_argument(
+        "--lighting",
+        choices=("none", "zone", "points"),
+        default="points",
+        help="Emit Quake light entities from AB3D brightness data: none, zone ambient lights, or zone plus point/corner lights",
+    )
+    parser.add_argument(
+        "--zone-light-base",
+        type=float,
+        default=180.0,
+        help="Quake light value used for AB3D zone brightness 0",
+    )
+    parser.add_argument(
+        "--zone-light-scale",
+        type=float,
+        default=8.0,
+        help="Quake light units added per AB3D zone brightness step",
+    )
+    parser.add_argument(
+        "--point-light-scale",
+        type=float,
+        default=8.0,
+        help="Quake light units added per AB3D point brightness step",
     )
     parser.add_argument(
         "--wad",
@@ -3809,6 +4050,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             cap_thickness=args.cap_thickness,
             compile_bsp=args.compile_bsp,
             qbsp=args.qbsp,
+            lighting=args.lighting,
+            zone_light_base=args.zone_light_base,
+            zone_light_scale=args.zone_light_scale,
+            point_light_scale=args.point_light_scale,
             verbose=args.verbose,
         )
         if ok:

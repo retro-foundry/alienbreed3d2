@@ -13,6 +13,7 @@ It auto-handles:
 - shell-style Quake solids around empty AB3D room/portal volumes
 - AB3D2 wall texture slots from each level's lower and upper graph streams
 - AB3D2 floor and roof polygons plus texture offsets from lower and upper graph flat records
+- AB3D2 zone brightness and point/corner brightness tables as Quake light entities
 
 ## Quick Start (AB3D2)
 
@@ -36,6 +37,8 @@ Extracted Quake 2 textures are written to:
 Wall texture decoding now uses the AB3D2 `.256wad` files from `media/wallinc` plus the game palette at `media/includes/256pal`. The first 2048 bytes of each wall file are the 32-level palette remap table, and the remaining data is unpacked as vertical strips of three 5-bit texels per 16-bit word.
 
 Floor and roof texture decoding uses the AB3D2 floor atlas at `media/includes/floortile` plus the floor remap table at `media/includes/newtexturemaps.pal`. Graph flat records select atlas offsets which are exported as materials named like `ab3d2/floor_0001` and `ab3d2/floor_0201`. The converter reads both lower and upper graph streams for each zone, then matches flat and wall records to the relevant room span by height, so zones that contain one room above another export both volumes.
+
+Lighting export reads `ZoneT_Brightness_w`, `ZoneT_UpperBrightness_w`, the per-zone point brightness table, and the zone border point list. The default `--lighting points` mode emits one room-center light per lower/upper span plus smaller point lights near brightened wall corners so Quake 2 lightmap baking approximates the original AB3D2 Gouraud gradients while keeping the map editable. Use `--lighting zone` for only room-center lights, or `--lighting none` for the old unlit export. The tuning knobs are `--zone-light-base`, `--zone-light-scale`, and `--point-light-scale`.
 
 ## One Level Only
 
@@ -117,6 +120,7 @@ python tools/ab3d_levels_to_quake.py \
 
 - Quake editors typically import/edit `.map` directly.
 - Quake 2 maps reference material paths such as `ab3d2/hullmetal` and `ab3d2/floor_0001`; they do not use the Quake 1 `worldspawn` `wad` key.
+- Quake `.map` brushes cannot store AB3D2's original per-corner Gouraud values directly. The converter emits Quake light entities from that data so an external BSP compiler can bake the approximation into lightmaps.
 - Use `--solid-mode volumes` only for inspecting the old filled-sector output. The default `--solid-mode shell` exports floors, ceilings, and walls around empty room space.
 - In shell mode, horizontal brush faces are flat-textured and vertical brush faces are wall-textured. Floor slabs extend down to the nearest lower joined floor where possible, so raised platform sides come from the platform slab itself instead of separate wall-top strips. Ceiling slabs similarly extend up to the nearest higher joined roof where possible. Remaining wall brush horizontal faces use stable floor/ceiling fallback materials to allow longer wall pieces to merge.
 - Shell brushes are merged conservatively after generation. Only adjacent coplanar prisms with identical heights, roles, and materials are combined, and only when the resulting footprint remains convex, because Quake brushes cannot represent concave or holed solids safely. Wall shell thickness is placed using polygon winding rather than a centroid test, which keeps thickness outside concave rooms and doorways.

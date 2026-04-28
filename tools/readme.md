@@ -23,6 +23,8 @@ Floor and roof slabs are built from the AB3D2 graph flat polygons when available
 
 Generated shell brushes are merged when adjacent pieces share the same role, height, and materials and the combined footprint stays convex. Concave shapes are kept split into safe Quake brushes instead of being forced into invalid diagonal hulls. Wall shell thickness is placed from the source polygon winding, which keeps it outside concave AB3D2 sectors and doorways.
 
+The default output also emits Quake `light` entities from AB3D2 zone brightness and point/corner brightness tables. This gives BSP compilers data to bake a lightmap approximation of the original Gouraud shading while keeping the `.map` editable. Use `--lighting zone` for room-center lights only, or `--lighting none` for unlit geometry.
+
 It also extracts AB3D2 wall textures from:
 
 ```text
@@ -122,7 +124,7 @@ If no compiler is provided or found on `PATH`, keep using the generated `.map` f
 python -m unittest tools.test_ab3d_levels_to_quake
 ```
 
-The tests cover the small-room, corridor, L-room, adjacent-room, doorway-gap, and straight-wall-run merge cases.
+The tests cover geometry merging, lower/upper room spans, sky-open ceilings, mitered wall overlaps, texture preservation, and lighting table export.
 
 ## Generated Files
 
