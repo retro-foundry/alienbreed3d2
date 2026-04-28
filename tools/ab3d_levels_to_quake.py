@@ -2447,7 +2447,7 @@ def zone_cap_extents(
     for low, high in spans:
         open_to_sky = zone_ceiling_open_to_sky(zone, high, spans)
         floor_bottom = low - cap_thickness
-        ceiling_top = high + cap_thickness
+        ceiling_top = high if open_to_sky else high + cap_thickness
         for edge, _p1, _p2 in segments:
             neighbour = zones_by_id.get(edge.join_zone)
             if neighbour is None or neighbour.zone_id == zone.zone_id:
@@ -3309,7 +3309,7 @@ def zone_shell_prisms(
             )
         open_to_sky = zone_ceiling_open_to_sky(zone, high, spans)
         ceiling_caps = (
-            [(cap_poly, sky_texture) for cap_poly in convex_partition_polygon(poly)]
+            []
             if open_to_sky
             else flat_cap_polygons(
                 zone_flat_textures,
