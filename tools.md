@@ -38,3 +38,31 @@ textures/ab3d2/technolights:
 - After changing `.mat` or `.tga` files, fully restart Q2RTX or reload the map from a fresh process so material definitions are re-read.
 - A healthy ericw light pass for the test `level_a` neon strips reports nonzero surface lights, e.g. `207 surface light points in use`.
 
+## Q2RTX PBR Texture Overrides
+
+Q2RTX prefers replacement textures and material definitions over raw Quake 2 WAL rendering. Generate AB3D2 PBR-style overrides after exporting WAL textures:
+
+```powershell
+python tools\generate_q2rtx_pbr.py
+```
+
+This reads:
+
+- `build\quake2_assets\baseq2\textures\ab3d2\*.wal`
+- `build\quake2_assets\baseq2\pics\colormap.pcx`
+
+and writes:
+
+- `build\q2rtx_pbr\baseq2\overrides\ab3d2\*.tga` base-colour overrides
+- `build\q2rtx_pbr\baseq2\overrides\ab3d2\*_n.tga` generated normal maps
+- `build\q2rtx_pbr\baseq2\overrides\ab3d2\*_light.tga` emissive overrides for known light textures such as `technolights` and `floor_0101`
+- `build\q2rtx_pbr\baseq2\materials\ab3d2_pbr.mat`
+
+Install into Q2RTX with:
+
+```powershell
+Copy-Item build\q2rtx_pbr\baseq2\overrides\ab3d2\*.tga "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\overrides\ab3d2" -Force
+Copy-Item build\q2rtx_pbr\baseq2\materials\ab3d2_pbr.mat "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\materials" -Force
+```
+
+The generated material file matches both `ab3d2/name` and `textures/ab3d2/name`, assigns `texture_base` and `texture_normals`, and gives metal/stone/floor textures different roughness, metalness, and specular defaults. Restart Q2RTX after installing so it reloads material definitions and override textures.
