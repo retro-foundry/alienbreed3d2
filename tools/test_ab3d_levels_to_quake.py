@@ -99,6 +99,13 @@ def wall_stream(zone_id, left, right, texture_id, top, bottom):
     return struct.pack(">h", zone_id) + bytes(record) + struct.pack(">H", 0x80)
 
 
+class FaceFormatTests(unittest.TestCase):
+    def test_quake2_sky_faces_are_tagged_with_sky_surface_flag(self):
+        line = ab3d.make_face((0, 0, 0), (64, 0, 0), (0, 64, 0), "sky", "quake2")
+
+        self.assertTrue(line.endswith(" 0 4 0"))
+
+
 class MapGeometryMergeTests(unittest.TestCase):
     def test_parse_zones_reads_draw_backdrop_flag(self):
         data = bytearray(50)
