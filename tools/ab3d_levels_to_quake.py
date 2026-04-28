@@ -2137,9 +2137,12 @@ def prism_faces(spec: PrismBrush, map_format: str) -> List[str]:
     )
 
 
-def prism_merge_key(spec: PrismBrush) -> Tuple[float, float, str, str, str, str, Tuple[str, ...], str]:
+def prism_merge_key(spec: PrismBrush) -> Tuple[float, float, str, str, str, str, Tuple[str, ...], str, Tuple[float, float]]:
     low = min(spec.z0, spec.z1)
     high = max(spec.z0, spec.z1)
+    normal = (0.0, 0.0)
+    if spec.role == "wall":
+        normal = (round(spec.inward_normal[0], 6), round(spec.inward_normal[1], 6))
     return (
         round(low, 3),
         round(high, 3),
@@ -2149,6 +2152,7 @@ def prism_merge_key(spec: PrismBrush) -> Tuple[float, float, str, str, str, str,
         spec.side_texture,
         spec.side_textures,
         spec.role,
+        normal,
     )
 
 
@@ -2171,7 +2175,7 @@ def add_merge_role_count(stats: MergeStats, role: str, merged: bool, amount: int
 
 
 def merge_prism_brushes(prisms: Sequence[PrismBrush], stats: Optional[MergeStats] = None) -> List[PrismBrush]:
-    grouped: Dict[Tuple[float, float, str, str, str, str, Tuple[str, ...], str], List[PrismBrush]] = {}
+    grouped: Dict[Tuple[float, float, str, str, str, str, Tuple[str, ...], str, Tuple[float, float]], List[PrismBrush]] = {}
     for spec in prisms:
         if len(spec.poly) < 3:
             continue

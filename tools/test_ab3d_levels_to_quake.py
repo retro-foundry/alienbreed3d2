@@ -305,6 +305,19 @@ class MapGeometryMergeTests(unittest.TestCase):
         self.assertEqual(mitered[0].poly, [(0, -16), (64, -16), (48.0, 0.0), (0, 0)])
         self.assertEqual(mitered[1].poly, [(48.0, 0.0), (64.0, -16.0), (64, 64), (48, 64)])
 
+    def test_merged_perpendicular_corner_walls_keep_normals_for_miter(self):
+        horizontal = prism(rect(0, -16, 64, 0), role="wall")
+        vertical = prism(rect(48, -16, 64, 64), role="wall")
+        horizontal.inward_normal = (0.0, 1.0)
+        vertical.inward_normal = (-1.0, 0.0)
+
+        merged = ab3d.merge_prism_brushes([horizontal, vertical])
+        mitered = ab3d.miter_overlapping_shell_prisms(merged, amount=16.0)
+
+        self.assertEqual([p.inward_normal for p in merged], [(0.0, 1.0), (-1.0, 0.0)])
+        self.assertEqual(mitered[0].poly, [(0, -16), (64, -16), (48.0, 0.0), (0, 0)])
+        self.assertEqual(mitered[1].poly, [(48.0, 0.0), (64.0, -16.0), (64, 64), (48, 64)])
+
     def test_wall_can_be_mitered_at_both_ends(self):
         horizontal = prism(rect(0, -16, 128, 0), role="wall")
         left = prism(rect(0, -64, 16, 0), role="wall")
