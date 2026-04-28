@@ -422,6 +422,21 @@ class MapGeometryMergeTests(unittest.TestCase):
         self.assertEqual(merged[0].side_textures, ("a", "b", "c", "d"))
         self.assertEqual(merged[1].side_textures, ("a", "b", "c", "d"))
 
+    def test_skybox_prisms_wrap_generated_bounds(self):
+        skybox = ab3d.skybox_prisms(
+            [prism(rect(0, 0, 64, 64), z0=0.0, z1=64.0)],
+            "sky",
+            padding=16.0,
+            thickness=8.0,
+        )
+
+        self.assertEqual(len(skybox), 6)
+        self.assertTrue(all(p.texture == "sky" and p.role == "skybox" for p in skybox))
+        self.assertEqual(bounds(skybox[0].poly), (-16.0, -16.0, 80.0, 80.0))
+        self.assertEqual((skybox[0].z0, skybox[0].z1), (-24.0, -16.0))
+        self.assertEqual(bounds(skybox[1].poly), (-16.0, -16.0, 80.0, 80.0))
+        self.assertEqual((skybox[1].z0, skybox[1].z1), (80.0, 88.0))
+
     def test_zone_room_spans_include_lower_and_upper_rooms(self):
         zone = ab3d.Zone(zone_id=0, floor=0, roof=-512, upper_floor=-1024, upper_roof=-1536, edge_ids=[0])
         spans = ab3d.zone_room_spans(zone, scale_z=1.0)
@@ -495,9 +510,17 @@ class MapGeometryMergeTests(unittest.TestCase):
 
         self.assertEqual(by_origin[(32.0, 32.0, 4.0)], 140)
         self.assertEqual(by_origin[(32.0, 32.0, 20.0)], 220)
-        self.assertEqual(by_origin[(0.0, 0.0, 2.0)], 80)
-        self.assertEqual(by_origin[(0.0, 0.0, 6.0)], 80)
-        self.assertEqual(by_origin[(0.0, 0.0, 18.0)], 160)
+        self.assertEqual(by_origin[(16.0, 16.0, 2.0)], 80)
+        self.assertEqual(by_origin[(16.0, 16.0, 6.0)], 80)
+        self.assertEqual(by_origin[(16.0, 16.0, 18.0)], 160)
+
+    def test_lighting_entities_fall_back_inside_concave_zone(self):
+        point = (0, 0)
+        poly = rect(0, 0, 64, 64)
+        safe = ab3d.polygon_safe_interior_point(poly)
+        origin = ab3d.point_light_origin(point, safe, 4.0)
+
+        self.assertTrue(ab3d.polygon_contains_point(poly, (origin[0], origin[1])))
 
     def test_backdrop_zone_uses_sky_only_for_topmost_ceiling_cap(self):
         zone = ab3d.Zone(
