@@ -12,6 +12,7 @@ from PIL import Image
 
 VERTICAL_SHEETS = {"gieger", "steampunk"}
 EMISSIVE_TEXTURES = {"technolights", "floor_0101"}
+LEVEL_NAMES = tuple(f"level_{letter}" for letter in "abcdefghijklmnop")
 CONTENT_THRESHOLD = 24
 PANEL_ROW_ACTIVE_FRACTION = 0.25
 PANEL_COL_ACTIVE_FRACTION = 0.08
@@ -177,28 +178,46 @@ def write_materials(path: pathlib.Path, names: Sequence[str]) -> None:
         lines.append(f"    specular_factor {specular:.2f}")
         lines.append(f"    base_factor {base_factor:.2f}")
         lines.append("    bump_scale 0.6")
-        lines.append("    correct_albedo 1")
         lines.append("")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="ascii")
 
 
+def write_map_materials(out_root: pathlib.Path, names: Sequence[str]) -> None:
+    material_path = out_root / "baseq2" / "materials" / "ab3d2_pbr.mat"
+    material_text = material_path.read_text(encoding="ascii")
+    maps_dir = out_root / "baseq2" / "maps"
+    maps_dir.mkdir(parents=True, exist_ok=True)
+    for level_name in LEVEL_NAMES:
+        (maps_dir / f"{level_name}.mat").write_text(material_text, encoding="ascii")
+
+
 def build(source_dir: pathlib.Path, out_root: pathlib.Path) -> int:
     override_dir = out_root / "baseq2" / "overrides" / "ab3d2"
+    flat_override_dir = out_root / "baseq2" / "overrides"
+    texture_dir = out_root / "baseq2" / "textures" / "ab3d2"
     material_path = out_root / "baseq2" / "materials" / "ab3d2_pbr.mat"
     names: List[str] = []
     for sheet_path in sorted(source_dir.glob("*.png")):
         name = sheet_path.stem.lower()
         maps = split_sheet(sheet_path)
         albedo = maps["albedo"].convert("RGBA")
-        write_tga(override_dir / f"{name}.tga", pack_base(albedo, maps["roughness"]))
-        write_tga(override_dir / f"{name}_n.tga", pack_normal(maps["normal"], maps["metalness"], albedo))
-        write_tga(override_dir / f"{name}_r.tga", greyscale_rgba(maps["roughness"], albedo))
-        write_tga(override_dir / f"{name}_m.tga", greyscale_rgba(maps["metalness"], albedo))
+        base = pack_base(albedo, maps["roughness"])
+        normal = pack_normal(maps["normal"], maps["metalness"], albedo)
+        roughness = greyscale_rgba(maps["roughness"], albedo)
+        metalness = greyscale_rgba(maps["metalness"], albedo)
+        for directory in (override_dir, flat_override_dir, texture_dir):
+            write_tga(directory / f"{name}.tga", base)
+            write_tga(directory / f"{name}_n.tga", normal)
+        write_tga(override_dir / f"{name}_r.tga", roughness)
+        write_tga(override_dir / f"{name}_m.tga", metalness)
         if name in EMISSIVE_TEXTURES:
-            write_tga(override_dir / f"{name}_light.tga", emissive_from_albedo(name, albedo))
+            light = emissive_from_albedo(name, albedo)
+            for directory in (override_dir, flat_override_dir, texture_dir):
+                write_tga(directory / f"{name}_light.tga", light)
         names.append(name)
     write_materials(material_path, names)
+    write_map_materials(out_root, names)
     return len(names)
 
 
