@@ -103,7 +103,7 @@ class FaceFormatTests(unittest.TestCase):
     def test_quake2_sky_faces_are_tagged_with_sky_surface_flag(self):
         line = ab3d.make_face((0, 0, 0), (64, 0, 0), (0, 64, 0), "sky", "quake2")
 
-        self.assertTrue(line.endswith(" 0 4 0"))
+        self.assertTrue(line.endswith(" 1 4 0"))
 
     def test_quake2_technolights_are_tagged_with_light_surface_flag(self):
         line = ab3d.make_face(
@@ -114,7 +114,18 @@ class FaceFormatTests(unittest.TestCase):
             "quake2",
         )
 
-        self.assertTrue(line.endswith(" 0 1 900"))
+        self.assertTrue(line.endswith(" 1 1 900"))
+
+    def test_quake2_default_faces_are_explicitly_solid(self):
+        line = ab3d.make_face(
+            (0, 0, 0),
+            (64, 0, 0),
+            (0, 64, 0),
+            "ab3d2/floor_0001",
+            "quake2",
+        )
+
+        self.assertTrue(line.endswith(" 1 0 0"))
 
 
 class MapGeometryMergeTests(unittest.TestCase):
