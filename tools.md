@@ -75,3 +75,5 @@ Copy-Item q2rtx_pbr\baseq2\maps\level_*.mat "C:\Program Files (x86)\Steam\steama
 ```
 
 The generated material file matches both `ab3d2/name` and `textures/ab3d2/name`, assigns `texture_base` to the upscaled albedo override, assigns `texture_normals`, and lets Q2RTX read roughness from base alpha and metalness from normal alpha. Restart Q2RTX after installing so it reloads material definitions and override textures.
+
+The sheet builder uses the matching original WAL dimensions from `build\quake2_assets\baseq2\textures\ab3d2` to crop every extracted PBR panel to the exact original aspect ratio, then writes integer-scale replacements. This keeps Q2RTX wrapping aligned with the texture coordinates baked into the converted maps.

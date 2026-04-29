@@ -5,9 +5,12 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import sys
 from typing import Dict, List, Sequence, Tuple
 
 from PIL import Image
+
+import generate_q2rtx_pbr as walpbr
 
 
 VERTICAL_SHEETS = {"gieger", "steampunk"}
@@ -96,6 +99,36 @@ def resize_like(image: Image.Image, target: Image.Image, mode: int) -> Image.Ima
     if image.size == target.size:
         return image.convert("RGBA")
     return image.convert("RGBA").resize(target.size, mode)
+
+
+def crop_to_aspect(image: Image.Image, aspect: float) -> Image.Image:
+    if aspect <= 0:
+        return image
+    width, height = image.size
+    current = width / max(height, 1)
+    if abs(current - aspect) < 0.001:
+        return image
+    if current > aspect:
+        new_width = max(1, round(height * aspect))
+        left = max(0, (width - new_width) // 2)
+        return image.crop((left, 0, left + new_width, height))
+    new_height = max(1, round(width / aspect))
+    top = max(0, (height - new_height) // 2)
+    return image.crop((0, top, width, top + new_height))
+
+
+def conform_maps_to_wal(
+    maps: Dict[str, Image.Image],
+    wal_size: Tuple[int, int],
+    scale: int,
+) -> Dict[str, Image.Image]:
+    wal_width, wal_height = wal_size
+    target_size = (wal_width * scale, wal_height * scale)
+    target_aspect = wal_width / max(wal_height, 1)
+    return {
+        key: crop_to_aspect(image, target_aspect).convert("RGBA").resize(target_size, Image.Resampling.LANCZOS)
+        for key, image in maps.items()
+    }
 
 
 def greyscale_values(image: Image.Image) -> List[int]:
@@ -192,7 +225,7 @@ def write_map_materials(out_root: pathlib.Path, names: Sequence[str]) -> None:
         (maps_dir / f"{level_name}.mat").write_text(material_text, encoding="ascii")
 
 
-def build(source_dir: pathlib.Path, out_root: pathlib.Path) -> int:
+def build(source_dir: pathlib.Path, out_root: pathlib.Path, wal_dir: pathlib.Path, scale: int) -> int:
     override_dir = out_root / "baseq2" / "overrides" / "ab3d2"
     flat_override_dir = out_root / "baseq2" / "overrides"
     texture_dir = out_root / "baseq2" / "textures" / "ab3d2"
@@ -200,7 +233,13 @@ def build(source_dir: pathlib.Path, out_root: pathlib.Path) -> int:
     names: List[str] = []
     for sheet_path in sorted(source_dir.glob("*.png")):
         name = sheet_path.stem.lower()
+        wal_path = wal_dir / f"{name}.wal"
+        if not wal_path.exists():
+            print(f"Skipping {sheet_path.name}: no matching WAL at {wal_path}", file=sys.stderr)
+            continue
+        wal = walpbr.read_wal(wal_path)
         maps = split_sheet(sheet_path)
+        maps = conform_maps_to_wal(maps, (wal.width, wal.height), scale)
         albedo = maps["albedo"].convert("RGBA")
         base = pack_base(albedo, maps["roughness"])
         normal = pack_normal(maps["normal"], maps["metalness"], albedo)
@@ -225,8 +264,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build Q2RTX packed PBR maps from texture sheets")
     parser.add_argument("--source-dir", type=pathlib.Path, default=pathlib.Path("textures_pbr"))
     parser.add_argument("--out-root", type=pathlib.Path, default=pathlib.Path("q2rtx_pbr"))
+    parser.add_argument("--wal-dir", type=pathlib.Path, default=pathlib.Path("build/quake2_assets/baseq2/textures/ab3d2"))
+    parser.add_argument("--scale", type=int, default=4, help="Integer upscale factor relative to the original WAL dimensions")
     args = parser.parse_args()
-    count = build(args.source_dir, args.out_root)
+    count = build(args.source_dir, args.out_root, args.wal_dir, max(1, args.scale))
     print(f"Built {count} packed PBR texture sets -> {args.out_root / 'baseq2' / 'overrides' / 'ab3d2'}")
     print(f"Generated material file -> {args.out_root / 'baseq2' / 'materials' / 'ab3d2_pbr.mat'}")
     return 0
