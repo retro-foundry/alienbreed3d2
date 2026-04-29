@@ -571,6 +571,7 @@ AB3D2_DEFAULT_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/hullmetal"
 AB3D2_DEFAULT_FLOOR_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/floor_0001"
 AB3D2_DEFAULT_CEILING_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/floor_0201"
 AB3D2_DEFAULT_SKY_TEXTURE = "sky"
+Q2_CONTENTS_SOLID = 1
 AB3D2_FLOOR_EXPORT_BRIGHTNESS = 8
 AB3D2_WALL_SLOT_NAMES: List[Optional[str]] = [
     "stonewall",
@@ -2050,6 +2051,10 @@ def quake2_surface_value(texture: str) -> int:
     return 0
 
 
+def quake2_content_flags(texture: str) -> int:
+    return Q2_CONTENTS_SOLID
+
+
 def make_face(
     p1: Tuple[float, float, float],
     p2: Tuple[float, float, float],
@@ -2061,7 +2066,10 @@ def make_face(
     # Swap p2/p3 so normals point the way TrenchBroom/qbsp expects.
     points = f"{fmt_vec(p1)} {fmt_vec(p3)} {fmt_vec(p2)}"
     if map_format == "quake2":
-        return f"{points} {texture} 0 0 0 1 1 0 {quake2_surface_flags(texture)} {quake2_surface_value(texture)}"
+        return (
+            f"{points} {texture} 0 0 0 1 1 {quake2_content_flags(texture)} "
+            f"{quake2_surface_flags(texture)} {quake2_surface_value(texture)}"
+        )
     return f"{points} {texture} 0 0 0 1 1"
 
 
