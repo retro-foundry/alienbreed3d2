@@ -142,6 +142,42 @@ C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2
 
 Install compiled BSPs under `baseq2\maps\` and generated WAL textures under `baseq2\textures\ab3d2\`. The compiler/runtime also needs the generated `pics\colormap.pcx`.
 
+## Q2RTX PBR Textures
+
+The current Q2RTX PBR workflow uses the hand-authored source sheets in:
+
+```text
+textures_pbr
+```
+
+The old OpenAI/Image2 API generation path has been removed. Do not regenerate albedo through the API; use the sheet albedo as the high-resolution base texture and only rebuild the packed Q2RTX outputs from those committed source sheets.
+
+Build the packed texture package from the repository root:
+
+```powershell
+python tools\build_q2rtx_pbr_from_sheets.py
+```
+
+The builder cuts each sheet into albedo, normal, metalness, and roughness panels, crops the panel content to match the original WAL aspect ratio, then writes integer-scale replacements under:
+
+```text
+q2rtx_pbr/baseq2
+```
+
+Q2RTX expects roughness packed into the base texture alpha channel and metalness packed into the normal texture alpha channel. The generated package writes those packed TGAs, inspection roughness/metalness maps, emissive maps for known light textures, and material files that bind the runtime textures to the existing `ab3d2/name` map texture paths.
+
+Install the generated PBR package into the local Q2RTX `baseq2` tree:
+
+```powershell
+Copy-Item q2rtx_pbr\baseq2\overrides\ab3d2\*.tga "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\overrides\ab3d2" -Force
+Copy-Item q2rtx_pbr\baseq2\overrides\*.tga "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\overrides" -Force
+Copy-Item q2rtx_pbr\baseq2\textures\ab3d2\*.tga "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\textures\ab3d2" -Force
+Copy-Item q2rtx_pbr\baseq2\materials\ab3d2_pbr.mat "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\materials" -Force
+Copy-Item q2rtx_pbr\baseq2\maps\level_*.mat "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\maps" -Force
+```
+
+Restart Q2RTX after replacing `.mat` or `.tga` files so material definitions and overrides are reloaded.
+
 ### Q1RTX / Quake 1 BSP Notes
 
 Do not load Quake 2 `IBSP` files in `q1rtx.exe`. A Quake 2 BSP may fail in Q1-family engines with errors such as:
