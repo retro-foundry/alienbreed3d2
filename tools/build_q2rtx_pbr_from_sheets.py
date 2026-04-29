@@ -12,6 +12,10 @@ from PIL import Image
 
 VERTICAL_SHEETS = {"gieger", "steampunk"}
 EMISSIVE_TEXTURES = {"technolights", "floor_0101"}
+CONTENT_THRESHOLD = 24
+PANEL_ROW_ACTIVE_FRACTION = 0.25
+PANEL_COL_ACTIVE_FRACTION = 0.08
+SHEET_ROW_ACTIVE_FRACTION = 0.20
 
 
 def crop_content(image: Image.Image) -> Image.Image:
@@ -21,13 +25,13 @@ def crop_content(image: Image.Image) -> Image.Image:
 
     rows: List[int] = []
     for y in range(height):
-        active = sum(1 for x in range(width) if max(pixels[x, y]) > 24)
-        if active / max(width, 1) > 0.08:
+        active = sum(1 for x in range(width) if max(pixels[x, y]) > CONTENT_THRESHOLD)
+        if active / max(width, 1) > PANEL_ROW_ACTIVE_FRACTION:
             rows.append(y)
     cols: List[int] = []
     for x in range(width):
-        active = sum(1 for y in range(height) if max(pixels[x, y]) > 24)
-        if active / max(height, 1) > 0.01:
+        active = sum(1 for y in range(height) if max(pixels[x, y]) > CONTENT_THRESHOLD)
+        if active / max(height, 1) > PANEL_COL_ACTIVE_FRACTION:
             cols.append(x)
 
     if not rows or not cols:
@@ -54,8 +58,8 @@ def active_row_bands(sheet: Image.Image) -> List[Tuple[int, int]]:
     bands: List[Tuple[int, int]] = []
     start = None
     for y in range(height):
-        active = sum(1 for x in range(width) if max(pixels[x, y]) > 24)
-        is_active = active / max(width, 1) > 0.08
+        active = sum(1 for x in range(width) if max(pixels[x, y]) > CONTENT_THRESHOLD)
+        is_active = active / max(width, 1) > SHEET_ROW_ACTIVE_FRACTION
         if is_active and start is None:
             start = y
         if (not is_active or y == height - 1) and start is not None:
