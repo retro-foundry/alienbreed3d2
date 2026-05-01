@@ -571,6 +571,10 @@ AB3D2_DEFAULT_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/hullmetal"
 AB3D2_DEFAULT_FLOOR_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/floor_0001"
 AB3D2_DEFAULT_CEILING_TEXTURE = f"{AB3D2_TEXTURE_PREFIX}/floor_0201"
 AB3D2_DEFAULT_SKY_TEXTURE = "sky"
+DEFAULT_CONVERSION_SCALE = 7.0 / 24.0
+DEFAULT_SOLID_THICKNESS = 14.0 / 3.0
+DEFAULT_CAP_THICKNESS = 7.0 / 24.0
+DEFAULT_SPAWN_HEIGHT = 28.0 / 3.0
 Q2_CONTENTS_SOLID = 1
 AB3D2_FLOOR_EXPORT_BRIGHTNESS = 8
 AB3D2_WALL_SLOT_NAMES: List[Optional[str]] = [
@@ -2200,40 +2204,6 @@ def skybox_prisms(
     ]
 
 
-def level_neon_strip_prisms(level_name: str) -> List[PrismBrush]:
-    if level_name.lower() != "level_a":
-        return []
-
-    texture = "ab3d2/technolights"
-    strip_specs = [
-        (rect_poly(-848.0, 176.0, -528.0, 184.0), 92.0, 96.0),
-        (rect_poly(-848.0, 488.0, -528.0, 496.0), 92.0, 96.0),
-        (rect_poly(-848.0, 184.0, -840.0, 488.0), 92.0, 96.0),
-        (rect_poly(-536.0, 184.0, -528.0, 488.0), 92.0, 96.0),
-        (rect_poly(-848.0, 176.0, -528.0, 184.0), 508.0, 512.0),
-        (rect_poly(-848.0, 488.0, -528.0, 496.0), 508.0, 512.0),
-        (rect_poly(5056.0, 2496.0, 5248.0, 2504.0), 636.0, 640.0),
-        (rect_poly(5056.0, 2616.0, 5248.0, 2624.0), 636.0, 640.0),
-        (rect_poly(5184.0, 1792.0, 5376.0, 1800.0), 636.0, 640.0),
-        (rect_poly(5184.0, 1912.0, 5376.0, 1920.0), 636.0, 640.0),
-        (rect_poly(5824.0, 832.0, 6016.0, 840.0), 636.0, 640.0),
-        (rect_poly(5824.0, 952.0, 6016.0, 960.0), 636.0, 640.0),
-    ]
-    return [
-        PrismBrush(
-            poly=poly,
-            z0=z0,
-            z1=z1,
-            texture=texture,
-            top_texture=texture,
-            bottom_texture=texture,
-            side_texture=texture,
-            role="neon",
-        )
-        for poly, z0, z1 in strip_specs
-    ]
-
-
 def prism_merge_key(spec: PrismBrush) -> Tuple[float, float, str, str, str, str, Tuple[str, ...], str, Tuple[float, float]]:
     low = min(spec.z0, spec.z1)
     high = max(spec.z0, spec.z1)
@@ -3693,8 +3663,16 @@ def write_quake_map(
             cap_amount=0.0,
         )
         if seal_skybox:
-            final_specs = [*final_specs, *skybox_prisms(final_specs, sky_texture)]
-        final_specs = [*final_specs, *level_neon_strip_prisms(level_name)]
+            skybox_scale = max(abs(scale_xy), abs(scale_z))
+            final_specs = [
+                *final_specs,
+                *skybox_prisms(
+                    final_specs,
+                    sky_texture,
+                    padding=512.0 * skybox_scale,
+                    thickness=64.0 * skybox_scale,
+                ),
+            ]
         for spec in final_specs:
             faces = prism_faces(spec, map_format)
             if faces:
@@ -4078,19 +4056,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--solid-thickness",
         type=float,
-        default=16.0,
+        default=DEFAULT_SOLID_THICKNESS,
         help="Thickness in map units for generated shell wall brushes",
     )
     parser.add_argument(
         "--cap-thickness",
         type=float,
-        default=1.0,
+        default=DEFAULT_CAP_THICKNESS,
         help="Thickness in map units for generated shell floor and ceiling brushes",
     )
     parser.add_argument(
         "--lighting",
         choices=("none", "zone", "points"),
-        default="points",
+        default="none",
         help="Emit Quake light entities from AB3D brightness data: none, zone ambient lights, or zone plus point/corner lights",
     )
     parser.add_argument(
@@ -4157,12 +4135,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=pathlib.Path("build/quake2_assets/ab3d2_textures.wad"),
         help="Output WAD2 preview file generated from AB3D wall textures",
     )
-    parser.add_argument("--scale-xy", type=float, default=1.0, help="Scale factor for AB3D X/Z")
-    parser.add_argument("--scale-z", type=float, default=1.0, help="Scale factor for AB3D vertical axis")
+    parser.add_argument("--scale-xy", type=float, default=DEFAULT_CONVERSION_SCALE, help="Scale factor for AB3D X/Z")
+    parser.add_argument("--scale-z", type=float, default=DEFAULT_CONVERSION_SCALE, help="Scale factor for AB3D vertical axis")
     parser.add_argument(
         "--spawn-height",
         type=float,
-        default=32.0,
+        default=DEFAULT_SPAWN_HEIGHT,
         help="Extra height added above spawn zone floor for info_player_start",
     )
     parser.add_argument(

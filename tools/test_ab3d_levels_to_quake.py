@@ -466,17 +466,6 @@ class MapGeometryMergeTests(unittest.TestCase):
         self.assertEqual(bounds(skybox[1].poly), (-16.0, -16.0, 80.0, 80.0))
         self.assertEqual((skybox[1].z0, skybox[1].z1), (80.0, 88.0))
 
-    def test_level_a_has_neon_strip_prisms_near_start(self):
-        strips = ab3d.level_neon_strip_prisms("level_a")
-
-        self.assertEqual(len(strips), 12)
-        self.assertTrue(all(p.texture == "ab3d2/technolights" for p in strips))
-        self.assertEqual((strips[0].z0, strips[0].z1), (92.0, 96.0))
-        self.assertEqual((strips[-1].z0, strips[-1].z1), (636.0, 640.0))
-
-    def test_other_levels_do_not_get_level_a_neon_strips(self):
-        self.assertEqual(ab3d.level_neon_strip_prisms("level_b"), [])
-
     def test_zone_room_spans_include_lower_and_upper_rooms(self):
         zone = ab3d.Zone(zone_id=0, floor=0, roof=-512, upper_floor=-1024, upper_roof=-1536, edge_ids=[0])
         spans = ab3d.zone_room_spans(zone, scale_z=1.0)
