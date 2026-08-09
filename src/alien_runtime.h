@@ -17,6 +17,12 @@ enum {
  * record.  No native AI behaviour is implied by owning this state.
  */
 typedef struct {
+    /*
+     * controlloop.s:AI_NoEnemies_b.  Despite its source name, SETPLAYERS
+     * asserts it for native single-player enemy updates and clears it for the
+     * original master/slave handoff.
+     */
+    uint8_t no_enemies;
     /* bss/ai_bss.s: ai_AlienWorkspace_vl, 16 bytes per entity. */
     int16_t entity_workspace[ALIEN_RUNTIME_ENTITY_COUNT][ALIEN_RUNTIME_WORKSPACE_WORD_COUNT];
     /* bss/ai_bss.s: AI_AlienTeamWorkspace_vl, 16 bytes per team. */
@@ -29,6 +35,9 @@ typedef struct {
 
 /* Source process/BSS initialization before the first Game_Begin. */
 void alien_runtime_init(AlienRuntime *runtime);
+
+/* controlloop.s:SETPLAYERS' single-player `st AI_NoEnemies_b`. */
+void alien_runtime_begin_single_player(AlienRuntime *runtime);
 
 /*
  * hires.s:Game_Begin's AI_InitAlienWorkspace followed by CLRDAM.  The source

@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "alien_runtime.h"
 #include "game_inventory.h"
 #include "game_link.h"
 #include "level_dynamic_state.h"
@@ -14,7 +15,8 @@
 /* Single-player newanims.s:ObjectHandler dispatch for implemented object classes. */
 int object_handler_update_single_player(
     ObjectRuntime *objects, LevelDynamicState *dynamic_level,
-    MechanismRuntime *mechanism_runtime, const GameLink *game_link,
+    MechanismRuntime *mechanism_runtime, AlienRuntime *alien_runtime,
+    const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
     uint32_t *out_collected_count, char *error, size_t error_size);

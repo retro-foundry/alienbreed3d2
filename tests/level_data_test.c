@@ -546,6 +546,7 @@ int main(int argc, char **argv)
     GameSaveSlots saved_save_slots;
     GameRandom random;
     AlienRuntime alien_runtime;
+    AlienRuntime lock_alien_runtime;
     int should_quit;
     uint8_t override_marker[64u * 32u];
     AssetBlob saved_floor_override;
@@ -570,6 +571,15 @@ int main(int argc, char **argv)
         return 1;
     }
     alien_runtime_init(&alien_runtime);
+    if (alien_runtime.no_enemies != 0u) {
+        fprintf(stderr, "source AI_NoEnemies BSS initialization is inconsistent\n");
+        return 1;
+    }
+    alien_runtime_begin_single_player(&alien_runtime);
+    if (alien_runtime.no_enemies != UINT8_MAX) {
+        fprintf(stderr, "SETPLAYERS single-player alien gate is inconsistent\n");
+        return 1;
+    }
     for (uint16_t workspace_index = 0u;
          workspace_index < ALIEN_RUNTIME_ENTITY_COUNT; ++workspace_index) {
         alien_runtime.entity_workspace[workspace_index][6u] =
@@ -1412,6 +1422,7 @@ int main(int argc, char **argv)
             game.level_runtime.world_point_count != (uint32_t)game.level.point_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
             game.static_scene.wall_count == 0u ||
+            game.alien_runtime.no_enemies != UINT8_MAX ||
             game.alien_runtime.entity_workspace[0u][0u] != 0 ||
             game.alien_runtime.entity_workspace[0u][2u] != -1 ||
             game.alien_runtime.team_workspace[0u][0u] != 0 ||
@@ -1819,6 +1830,7 @@ int main(int argc, char **argv)
                 activatable_player.tmp_used = UINT8_MAX;
                 if (!object_handler_update_single_player(
                         &game.object_runtime, &game.dynamic_level, &game.mechanism_runtime,
+                        &game.alien_runtime,
                         &game.game_link_catalog, &activatable_player,
                         &activatable_inventory, &game.inventory_limits, 1u,
                         NULL, error, sizeof(error)) ||
@@ -1877,6 +1889,7 @@ int main(int argc, char **argv)
                     if (!object_handler_update_single_player(
                             &game.object_runtime, &game.dynamic_level,
                             &game.mechanism_runtime,
+                            &game.alien_runtime,
                             &game.game_link_catalog, &game.player,
                             &game.session.player1_inventory, &game.inventory_limits, 1u,
                             NULL, error, sizeof(error)) ||
@@ -1916,6 +1929,7 @@ int main(int argc, char **argv)
                     if (!object_handler_update_single_player(
                             &game.object_runtime, &game.dynamic_level,
                             &game.mechanism_runtime,
+                            &game.alien_runtime,
                             &game.game_link_catalog, &game.player,
                             &game.session.player1_inventory, &game.inventory_limits, 1u,
                             NULL, error, sizeof(error)) ||
@@ -3483,6 +3497,7 @@ int main(int argc, char **argv)
         slot_bytes[52u] = 0u;
         if (!object_handler_update_single_player(
                 &projectile_objects, &game.dynamic_level, &game.mechanism_runtime,
+                &game.alien_runtime,
                 &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
@@ -3761,9 +3776,12 @@ int main(int argc, char **argv)
         write_be32(slot_bytes + 50u, 0x00000005u);
         write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
         mechanism_runtime_init(&lock_runtime);
+        alien_runtime_init(&lock_alien_runtime);
+        alien_runtime_begin_single_player(&lock_alien_runtime);
         lock_runtime.door_and_lift_locks = 0x0002u;
         if (!object_handler_update_single_player(
-                &lock_objects, &game.dynamic_level, &lock_runtime, &game.game_link_catalog,
+                &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
+                &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             lock_runtime.door_and_lift_locks != 0x0007u ||
@@ -3775,11 +3793,45 @@ int main(int argc, char **argv)
         slot_bytes[18u] = 0u;
         lock_runtime.door_and_lift_locks = 0u;
         if (!object_handler_update_single_player(
-                &lock_objects, &game.dynamic_level, &lock_runtime, &game.game_link_catalog,
+                &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
+                &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             lock_runtime.door_and_lift_locks != 0u) {
             fprintf(stderr, "ObjectHandler dead alien lock suppression is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(slot_bytes + 12u, 0u);
+        write_be16(slot_bytes + 26u, 0u);
+        slot_bytes[18u] = UINT8_MAX;
+        lock_alien_runtime.no_enemies = 0u;
+        lock_runtime.door_and_lift_locks = 0u;
+        if (!object_handler_update_single_player(
+                &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
+                &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            read_be16(slot_bytes + 12u) != UINT16_MAX ||
+            read_be16(slot_bytes + 26u) != 0u ||
+            lock_runtime.door_and_lift_locks != 0x0005u) {
+            fprintf(stderr, "ItsAnAlien no-enemies gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        alien_runtime_begin_single_player(&lock_alien_runtime);
+        write_be16(slot_bytes + 12u, UINT16_MAX);
+        slot_bytes[18u] = UINT8_MAX;
+        lock_runtime.door_and_lift_locks = 0u;
+        if (!object_handler_update_single_player(
+                &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
+                &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            read_be16(slot_bytes + 26u) != UINT16_MAX ||
+            lock_runtime.door_and_lift_locks != 0u) {
+            fprintf(stderr, "ObjectHandler negative alien-zone gate is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;

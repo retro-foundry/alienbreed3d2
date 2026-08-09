@@ -45,7 +45,8 @@ first game's software renderer:
   loaded alien-slot type against that catalog, without starting an AI update;
   `Game_Begin`'s exact per-level alien/team workspace and damage initialization
   is owned separately, including the source's intentionally preserved trailing
-  workspace words and boredom storage. It does not activate an AI routine;
+  workspace words and boredom storage. The single-player `SETPLAYERS` alien
+  gate is also preserved; it does not activate an AI routine;
 - exposes all 20 `BulT` records, including their source animation/pop payload
   views and fixed six-byte frame records. The `Game_Begin` player/alien
   projectile pools and both player entities resolve to checked slots in the

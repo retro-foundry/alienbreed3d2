@@ -203,7 +203,11 @@ authority for all game behavior and data formats.
   its separate `CLRDAM` loop exactly: words 0..5 are initialized, damage is
   cleared, and the source-preserved trailing workspace words and boredom state
   remain untouched. This establishes the mutable state boundary for the later
-  `ItsAnAlien` translation; it does not activate or approximate alien AI.
+  `ItsAnAlien` translation. The no-multiplayer bootstrap also retains
+  `controlloop.s:SETPLAYERS`' 0xff `AI_NoEnemies_b` single-player gate; the
+  `ItsAnAlien:.no_enemies` removal branch is source-translated for state tests
+  without adding master/slave support. It does not activate or approximate
+  alien AI.
 - [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
   `PVST` records for gameplay-only consumers. Every record and target is
   validated across all A-P levels. `src/object_visibility.*` now directly

@@ -199,6 +199,7 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
     }
     /* game_ReadMainMenu:playgame then game_DoneMenu's Plr_ -> Plr1 copy. */
     game_session_begin_single_player(&game->session);
+    alien_runtime_begin_single_player(&game->alien_runtime);
     level_index = game->session.active_level_index;
     return game_bootstrap_load_level(game, data_root, level_index, error, error_size);
 }
@@ -238,6 +239,7 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
             &game->preferences, &game->math, &game->random, 1u, error, error_size) ||
         !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level, &game->mechanism_runtime,
+            &game->alien_runtime,
             &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,
             1u, NULL, error, error_size) ||

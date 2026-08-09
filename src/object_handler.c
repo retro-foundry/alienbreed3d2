@@ -50,7 +50,8 @@ static void object_handler_write_be16(uint8_t *target, uint16_t value)
 
 int object_handler_update_single_player(
     ObjectRuntime *objects, LevelDynamicState *dynamic_level,
-    MechanismRuntime *mechanism_runtime, const GameLink *game_link,
+    MechanismRuntime *mechanism_runtime, AlienRuntime *alien_runtime,
+    const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
     uint32_t *out_collected_count, char *error, size_t error_size)
@@ -58,7 +59,7 @@ int object_handler_update_single_player(
     const LevelRuntime *level;
     uint32_t collected_count = 0u;
 
-    if (!objects || !dynamic_level || !mechanism_runtime || !game_link || !player ||
+    if (!objects || !dynamic_level || !mechanism_runtime || !alien_runtime || !game_link || !player ||
         !inventory || !limits ||
         objects->active_slot_count > objects->slot_count ||
         player->zone_index >= dynamic_level->runtime.zone_count) {
@@ -83,6 +84,10 @@ int object_handler_update_single_player(
         }
         object_handler_write_be16(slot + OBJECT_SLOT_ENTITY_ZONE_ID,
                                   object_handler_read_be16(slot + OBJECT_SLOT_ZONE_ID));
+        /* ObjectHandler's shared negative ObjT_ZoneID_w gate precedes every class jump. */
+        if ((int16_t)object_handler_read_be16(slot + OBJECT_SLOT_ZONE_ID) < 0) {
+            continue;
+        }
         if ((int8_t)slot[OBJECT_SLOT_TYPE_ID] < (int8_t)OBJECT_TYPE_OBJECT) {
             /* newanims.s:ObjectHandler:JUMPALIEN's lock preamble. */
             if (slot[OBJECT_SLOT_ENTITY_HIT_POINTS] != 0u) {
@@ -90,7 +95,11 @@ int object_handler_update_single_player(
                     (uint16_t)object_handler_read_be32(
                         slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD);
             }
-            /* TODO(port): newanims.s:ItsAnAlien. */
+            /* newaliencontrol.s:ItsAnAlien:.no_enemies. */
+            if (alien_runtime->no_enemies == 0u) {
+                object_handler_write_be16(slot + OBJECT_SLOT_ZONE_ID, UINT16_MAX);
+            }
+            /* TODO(port): newaliencontrol.s:ItsAnAlien. */
             continue;
         }
         if (slot[OBJECT_SLOT_TYPE_ID] == OBJECT_TYPE_PROJECTILE) {
@@ -107,8 +116,7 @@ int object_handler_update_single_player(
             }
             continue;
         }
-        if (slot[OBJECT_SLOT_TYPE_ID] != OBJECT_TYPE_OBJECT ||
-            (int16_t)object_handler_read_be16(slot + OBJECT_SLOT_ZONE_ID) < 0) {
+        if (slot[OBJECT_SLOT_TYPE_ID] != OBJECT_TYPE_OBJECT) {
             continue;
         }
         if (!game_link_get_object_definition(game_link, slot[OBJECT_SLOT_ENTITY_TYPE],

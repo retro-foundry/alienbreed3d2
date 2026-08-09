@@ -10,6 +10,14 @@ void alien_runtime_init(AlienRuntime *runtime)
     }
 }
 
+void alien_runtime_begin_single_player(AlienRuntime *runtime)
+{
+    if (runtime) {
+        /* 68000 ST writes 0xff, not a host boolean value. */
+        runtime->no_enemies = UINT8_MAX;
+    }
+}
+
 void alien_runtime_begin_level(AlienRuntime *runtime)
 {
     uint16_t index;
