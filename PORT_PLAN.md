@@ -214,7 +214,10 @@ authority for all game behavior and data formats.
   centre height, current angle, targetability, and upper-zone flag. It runs
   after `Plr1_Control`'s translated spatial update and before `ObjectHandler`.
   Damage response, audio, and weapon-sprite selection remain with their
-  original routines and are not substituted.
+  original routines and are not substituted. The single-player loop also
+  performs `hires.s`/`macros.i:FREE_ENT` on the player-two slot and clears its
+  sight byte each tick, so the shared object list and scene producer retain no
+  multiplayer entity state.
   Reaching the loaded level's authored `Lvl_ExitZoneID_w` (compared to
   `ZoneT_ID_w`, rather than a native zone-table index) now follows
   `hires.s:game_main_loop` into the direct-mode end-level handoff and preserves

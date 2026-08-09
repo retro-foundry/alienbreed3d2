@@ -10,6 +10,8 @@ enum {
     PLAYER_ENTITY_ZONE_ID_OFFSET = 12u,
     PLAYER_ENTITY_TYPE_ID_OFFSET = 16u,
     PLAYER_ENTITY_HIT_POINTS_OFFSET = 18u,
+    PLAYER_ENTITY_SEES_PLAYER_OFFSET = 17u,
+    PLAYER_ENTITY_ENTITY_ZONE_ID_OFFSET = 26u,
     PLAYER_ENTITY_CURRENT_ANGLE_OFFSET = 30u,
     PLAYER_ENTITY_IN_UPPER_ZONE_OFFSET = 63u,
     PLAYER_ENTITY_TYPE_PLAYER1 = 4u
@@ -47,6 +49,23 @@ static int32_t player_entity_asr32_7(int32_t value)
         return value >> 7;
     }
     return -((-(int64_t)value + 127) >> 7);
+}
+
+int player_entity_disable_second_for_single_player(ObjectRuntime *objects,
+                                                   char *error, size_t error_size)
+{
+    uint8_t *slot;
+
+    if (!objects || !object_runtime_get_player2_slot_bytes(objects, &slot)) {
+        player_entity_set_error(error, error_size,
+                                "single-player loop has no player-two entity slot");
+        return 0;
+    }
+    /* macros.i:FREE_ENT followed by hires.s:clr.b ObjT_SeePlayer_b. */
+    player_entity_write_be16(slot + PLAYER_ENTITY_ZONE_ID_OFFSET, UINT16_MAX);
+    player_entity_write_be16(slot + PLAYER_ENTITY_ENTITY_ZONE_ID_OFFSET, UINT16_MAX);
+    slot[PLAYER_ENTITY_SEES_PLAYER_OFFSET] = 0u;
+    return 1;
 }
 
 int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime *level,

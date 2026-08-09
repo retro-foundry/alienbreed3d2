@@ -16,4 +16,8 @@ int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime 
                                      const PlayerRuntime *player,
                                      char *error, size_t error_size);
 
+/* hires.s single-player game loop: FREE_ENT Plr2_ObjectPtr then clears sight. */
+int player_entity_disable_second_for_single_player(ObjectRuntime *objects,
+                                                   char *error, size_t error_size);
+
 #endif

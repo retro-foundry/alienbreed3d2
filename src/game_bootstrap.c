@@ -226,6 +226,8 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
                                        error, error_size) ||
         !player_entity_sync_single_player(&game->object_runtime, &game->dynamic_level.runtime,
                                           &game->player, error, error_size) ||
+        !player_entity_disable_second_for_single_player(&game->object_runtime,
+                                                        error, error_size) ||
         !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,

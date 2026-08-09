@@ -2848,11 +2848,15 @@ int main(int argc, char **argv)
     }
     {
         int16_t authored_exit_zone_id = game.dynamic_level.runtime.exit_zone_id;
+        uint8_t *player2_slot = NULL;
 
         /* Settle any authored spawn teleport before exercising post-control comparison. */
         game.dynamic_level.runtime.exit_zone_id = -1;
         game_input_init(&game.input);
         if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
+            !object_runtime_get_player2_slot_bytes(&game.object_runtime, &player2_slot) ||
+            (int16_t)read_be16(player2_slot + 12u) != -1 ||
+            (int16_t)read_be16(player2_slot + 26u) != -1 || player2_slot[17u] != 0u ||
             !object_observation_matches_source(
                 &game.object_observation, &game.object_runtime, &game.player, &game.math,
                 error, sizeof(error))) {
