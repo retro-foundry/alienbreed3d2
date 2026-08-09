@@ -63,6 +63,7 @@ set(AB3D2_CORE_SOURCES
   src/object_projectiles.c
   src/object_runtime.c
   src/object_scene.c
+  src/object_viewpoint.c
   src/object_visibility.c
   src/object_worry.c
   src/player_entity.c

@@ -24,6 +24,7 @@
 #include "object_movement.h"
 #include "object_projectiles.h"
 #include "object_scene.h"
+#include "object_viewpoint.h"
 #include "object_visibility.h"
 #include "object_worry.h"
 #include "player_entity.h"
@@ -4692,6 +4693,28 @@ int main(int argc, char **argv)
             !game_math_cosine(&game.math, heading.angle, &heading_cosine, error, sizeof(error)) ||
             heading_cosine <= 0) {
             fprintf(stderr, "HeadTowardsAng range path is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* newaliencontrol.s:ViewpointToDraw's four cardinal frame branches. */
+        uint8_t viewpoint_frame;
+
+        if (!object_viewpoint_select_frame(&game.math, 0u, 0u, &viewpoint_frame,
+                                           error, sizeof(error)) ||
+            viewpoint_frame != 2u ||
+            !object_viewpoint_select_frame(&game.math, 2048u, 0u, &viewpoint_frame,
+                                           error, sizeof(error)) ||
+            viewpoint_frame != 1u ||
+            !object_viewpoint_select_frame(&game.math, 4096u, 0u, &viewpoint_frame,
+                                           error, sizeof(error)) ||
+            viewpoint_frame != 0u ||
+            !object_viewpoint_select_frame(&game.math, 6144u, 0u, &viewpoint_frame,
+                                           error, sizeof(error)) ||
+            viewpoint_frame != 3u) {
+            fprintf(stderr, "ViewpointToDraw cardinal frame selection is inconsistent: %s\n",
+                    error);
             game_bootstrap_destroy(&game);
             return 1;
         }
