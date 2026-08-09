@@ -27,8 +27,10 @@ first game's software renderer:
   geometry, sprites, and HUD text. Material commands retain the source asset
   class and select shared versus per-level floor/wall overrides exactly as
   `modules/res.s:Res_LoadLevelData` does, carrying the selected source bytes
-  for later backend-owned conversion/upload; texture-coordinate conversion is
-  deliberately still unresolved;
+  and source palette bytes for later backend-owned conversion/upload. Wall
+  palettes use the exact 2,048-byte `Draw_Wall` prefix; floor/ceiling/water
+  commands retain the shared source texture palette. Texture-coordinate
+  conversion is deliberately still unresolved;
 - exposes the 30 source `ODefT` object definitions, both 20-frame six-byte
   object animation tables, and the 32 eight-byte bitmap metrics per object as
   endian-safe read views. Their mode-dependent bytes remain data only: sprites

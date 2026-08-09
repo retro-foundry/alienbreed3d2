@@ -5,6 +5,9 @@
 
 #define AB3D2_LEVEL_COUNT 16u
 
+/* hireswall.s:Draw_Wall assigns Draw_ChunkPtr_l = Draw_PalettePtr_l + 64*32. */
+#define AB3D2_WALL_PALETTE_BYTE_COUNT (64u * 32u)
+
 static SceneMaterialSource game_bootstrap_floor_material_source(const GameBootstrap *game)
 {
     /* Res_LoadLevelData selects the optional asset solely by its non-null pointer. */
@@ -390,7 +393,8 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             const AssetBlob *material_asset =
                 game_bootstrap_wall_material_asset(game, wall->material_id);
 
-            if (!material_asset || !material_asset->bytes) {
+            if (!material_asset || !material_asset->bytes ||
+                material_asset->size < AB3D2_WALL_PALETTE_BYTE_COUNT) {
                 return 0;
             }
 
@@ -400,6 +404,8 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             command.data.material.source_asset_id = wall->material_id;
             command.data.material.source_bytes = material_asset->bytes;
             command.data.material.source_byte_count = material_asset->size;
+            command.data.material.source_palette_bytes = material_asset->bytes;
+            command.data.material.source_palette_byte_count = AB3D2_WALL_PALETTE_BYTE_COUNT;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
@@ -420,7 +426,8 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             const LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
             const AssetBlob *material_asset = game_bootstrap_floor_material_asset(game);
 
-            if (!material_asset->bytes) {
+            if (!material_asset || !material_asset->bytes ||
+                !game->shared_resources.texture_palette.bytes) {
                 return 0;
             }
 
@@ -429,6 +436,10 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             command.data.material.source_asset_id = flat->material_id;
             command.data.material.source_bytes = material_asset->bytes;
             command.data.material.source_byte_count = material_asset->size;
+            /* Res_LoadFloorsAndTextures loads this .pal once for all floor overrides. */
+            command.data.material.source_palette_bytes = game->shared_resources.texture_palette.bytes;
+            command.data.material.source_palette_byte_count =
+                game->shared_resources.texture_palette.size;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }

@@ -38,6 +38,13 @@ typedef struct {
     /* Exact selected source asset; conversion/upload remains backend-owned. */
     const uint8_t *source_bytes;
     size_t source_byte_count;
+    /*
+     * Exact palette/shade-table asset selected by the source renderer. For a
+     * wall this is the 2,048-byte prefix of source_bytes; for a flat it is the
+     * shared texture-palette asset loaded by Res_LoadFloorsAndTextures.
+     */
+    const uint8_t *source_palette_bytes;
+    size_t source_palette_byte_count;
 } SceneMaterial;
 
 typedef struct {

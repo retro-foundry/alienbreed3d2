@@ -231,7 +231,7 @@ int main(int argc, char **argv)
     PlayerRuntime controlled_player;
     GameMenu menu;
     int should_quit;
-    uint8_t override_marker;
+    uint8_t override_marker[64u * 32u];
     AssetBlob saved_floor_override;
     AssetBlob saved_wall_override;
     int override_sources_ok;
@@ -1298,6 +1298,9 @@ int main(int argc, char **argv)
             game.shared_resources.wall_textures[game.static_scene.walls[0].material_id].bytes ||
         frame.commands[1].data.material.source_byte_count !=
             game.shared_resources.wall_textures[game.static_scene.walls[0].material_id].size ||
+        frame.commands[1].data.material.source_palette_bytes !=
+            game.shared_resources.wall_textures[game.static_scene.walls[0].material_id].bytes ||
+        frame.commands[1].data.material.source_palette_byte_count != 64u * 32u ||
         frame.commands[2].type != SCENE_COMMAND_GEOMETRY ||
         frame.commands[2].data.geometry.vertices != game.static_scene.walls[0].vertices ||
         frame.commands[2].data.geometry.vertex_count != 6u ||
@@ -1317,6 +1320,10 @@ int main(int argc, char **argv)
             game.shared_resources.floor_texture.bytes ||
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_byte_count !=
             game.shared_resources.floor_texture.size ||
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_bytes !=
+            game.shared_resources.texture_palette.bytes ||
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_byte_count !=
+            game.shared_resources.texture_palette.size ||
         frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].type !=
             SCENE_COMMAND_GEOMETRY ||
         frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.vertices !=
@@ -1341,23 +1348,29 @@ int main(int argc, char **argv)
     }
     saved_floor_override = game.level_floor_override;
     saved_wall_override = game.level_wall_overrides[game.static_scene.walls[0].material_id];
-    override_marker = 0u;
-    game.level_floor_override.bytes = &override_marker;
-    game.level_floor_override.size = 1u;
-    game.level_wall_overrides[game.static_scene.walls[0].material_id].bytes = &override_marker;
-    game.level_wall_overrides[game.static_scene.walls[0].material_id].size = 1u;
+    memset(override_marker, 0, sizeof(override_marker));
+    game.level_floor_override.bytes = override_marker;
+    game.level_floor_override.size = sizeof(override_marker);
+    game.level_wall_overrides[game.static_scene.walls[0].material_id].bytes = override_marker;
+    game.level_wall_overrides[game.static_scene.walls[0].material_id].size = sizeof(override_marker);
     scene_frame_begin(&frame);
     override_sources_ok = game_bootstrap_submit_diagnostic_frame(&game, &frame) &&
         frame.commands[1].data.material.source ==
             SCENE_MATERIAL_SOURCE_LEVEL_WALL_TEXTURE_OVERRIDE &&
-        frame.commands[1].data.material.source_bytes == &override_marker &&
-        frame.commands[1].data.material.source_byte_count == 1u &&
+        frame.commands[1].data.material.source_bytes == override_marker &&
+        frame.commands[1].data.material.source_byte_count == sizeof(override_marker) &&
+        frame.commands[1].data.material.source_palette_bytes == override_marker &&
+        frame.commands[1].data.material.source_palette_byte_count == sizeof(override_marker) &&
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source ==
             SCENE_MATERIAL_SOURCE_LEVEL_FLOOR_TEXTURE_OVERRIDE &&
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_bytes ==
-            &override_marker &&
+            override_marker &&
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_byte_count ==
-            1u;
+            sizeof(override_marker) &&
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_bytes ==
+            game.shared_resources.texture_palette.bytes &&
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_byte_count ==
+            game.shared_resources.texture_palette.size;
     game.level_floor_override = saved_floor_override;
     game.level_wall_overrides[game.static_scene.walls[0].material_id] = saved_wall_override;
     if (!override_sources_ok) {
