@@ -13,6 +13,7 @@
 #include "object_handler.h"
 #include "object_scene.h"
 #include "player_entity.h"
+#include "player_shoot.h"
 #include "scene_frame.h"
 
 static uint16_t read_be16(const uint8_t *source)
@@ -2880,6 +2881,65 @@ int main(int argc, char **argv)
             return 1;
         }
         game.dynamic_level.runtime.exit_zone_id = authored_exit_zone_id;
+    }
+    {
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime shot_objects = {0};
+        ObjectObservation shot_observation;
+        PlayerRuntime shot_player = {0};
+        GameBulletDefinition shot_bullet = {0};
+        PlayerShotTarget shot_target;
+
+        shot_objects.slot_bytes = slot_bytes;
+        shot_objects.slot_count = 2u;
+        shot_objects.active_slot_count = 2u;
+        shot_objects.point_bytes = point_bytes;
+        shot_objects.point_count = 2u;
+        for (uint32_t slot_index = 0u; slot_index < 2u; ++slot_index) {
+            uint8_t *slot = slot_bytes + (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            write_be16(slot + 0u, (uint16_t)slot_index);
+            write_be16(slot + 4u, 4u);
+            write_be16(slot + 12u, 0u);
+            slot[16u] = 1u;
+            slot[17u] = 1u;
+            slot[18u] = 1u;
+        }
+        object_observation_init(&shot_observation);
+        shot_observation.in_line[0u] = UINT8_MAX;
+        shot_observation.in_line[1u] = UINT8_MAX;
+        shot_observation.distances[0u] = 50u;
+        shot_observation.distances[1u] = 50u;
+        shot_player.height = 12 * 1024;
+        if (!player_shoot_find_target_single_player(
+                &shot_objects, &shot_observation, &shot_player, &shot_bullet,
+                &shot_target, error, sizeof(error)) || shot_target.found != UINT8_MAX ||
+            shot_target.slot_index != 1u || shot_target.point_index != 1u ||
+            shot_target.distance != 50u || shot_target.vertical_difference != 512 ||
+            shot_target.vertical_speed != -143) {
+            fprintf(stderr, "Plr1_Shot target selection/tie handling is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 4u;
+        if (!player_shoot_find_target_single_player(
+                &shot_objects, &shot_observation, &shot_player, &shot_bullet,
+                &shot_target, error, sizeof(error)) || shot_target.found != UINT8_MAX ||
+            shot_target.slot_index != 0u) {
+            fprintf(stderr, "Plr1_Shot target type mask is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        slot_bytes[17u] = 0u;
+        if (!player_shoot_find_target_single_player(
+                &shot_objects, &shot_observation, &shot_player, &shot_bullet,
+                &shot_target, error, sizeof(error)) || shot_target.found != 0u) {
+            fprintf(stderr, "Plr1_Shot sight gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     game_bootstrap_destroy(&game);
     (void)remove(save_path);

@@ -144,7 +144,13 @@ authority for all game behavior and data formats.
   `CalcPLR1InLine` workspace over that mutable ObjT/object-point state using
   the original sine table and fixed source capacities. It is refreshed after
   the source-order object/mechanism update for the next shot decision and
-  uses neither PVS nor portals; `newplayershoot.s` itself remains pending.
+  uses neither PVS nor portals. `src/player_shoot.*` now translates
+  `newplayershoot.s:Plr1_Shot`'s closest eligible target selection and
+  fixed-point vertical auto-aim calculation from that workspace, including
+  AUX handling, target flags, sight gate, and tie selection. It deliberately
+  has no firing side effects yet: source cooldown, ammunition, randomness,
+  hit/miss effects, projectile creation, and sound still belong to the
+  remaining `Plr1_Shot` path.
 - [x] `src/object_scene.*` translates the non-raster `ObjT` descriptor boundary
   used by `objdrawhires.s:Draw_Objects` and `draw_Object`. Each live source
   slot produces one unprojected `SceneSprite` command in source slot order:
@@ -356,8 +362,9 @@ authority for all game behavior and data formats.
      selection. `CalcPLR1InLine` now publishes its source-shaped object
      observation workspace without a renderer dependency. Next: source
      `Obj_DoCollision`, the remaining alien/projectile `ObjectHandler` paths,
-     and `newplayershoot.s`. Source object render descriptors are now emitted
-     independently of those pending simulation branches.
+     and the remaining firing/miss/projectile portion of `newplayershoot.s`.
+     Source object render descriptors are now emitted independently of those
+     pending simulation branches.
      `SwitchRoutine` remains absent:
      the maintained `objmoveanim` loop comments out its call, so it must not
      be activated as a native gameplay change.
