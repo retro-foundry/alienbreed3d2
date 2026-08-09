@@ -97,6 +97,11 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     if (!game_link_init(&game->game_link, &game->game_link_catalog, error, error_size)) {
         goto fail;
     }
+    /* data/tables_data.s incbins this exact source table as SinCosTable_vw. */
+    if (!asset_io_load(data_root, "includes/bigsine", &game->sine_table, error, error_size) ||
+        !game_math_init(&game->sine_table, &game->math, error, error_size)) {
+        goto fail;
+    }
     /* controlloop.s:Game_Start: Game_StoryFile_vb */
     if (!asset_io_load(data_root, "includes/text_file", &game->story_text, error, error_size)) {
         goto fail;
@@ -296,6 +301,8 @@ void game_bootstrap_destroy(GameBootstrap *game)
     game_shared_resources_destroy(&game->shared_resources);
     asset_blob_release(&game->game_link);
     memset(&game->game_link_catalog, 0, sizeof(game->game_link_catalog));
+    asset_blob_release(&game->sine_table);
+    memset(&game->math, 0, sizeof(game->math));
     memset(&game->session, 0, sizeof(game->session));
     memset(&game->preferences, 0, sizeof(game->preferences));
     asset_blob_release(&game->story_text);

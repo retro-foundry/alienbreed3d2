@@ -7,6 +7,7 @@
 #include "game_controls.h"
 #include "game_input.h"
 #include "game_link.h"
+#include "game_math.h"
 #include "game_preferences.h"
 #include "game_resources.h"
 #include "game_session.h"
@@ -20,6 +21,8 @@
 typedef struct {
     AssetBlob game_link;
     GameLink game_link_catalog;
+    AssetBlob sine_table;
+    GameMath math;
     GameSharedResources shared_resources;
     GameControls controls;
     GameInput input;

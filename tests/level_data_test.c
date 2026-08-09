@@ -70,6 +70,7 @@ int main(int argc, char **argv)
     size_t table_size;
     uint16_t level_index;
     uint16_t zone_index;
+    int16_t trig_value;
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
     static const uint8_t expected_control_defaults[GAME_CONTROL_PERSISTED_BYTE_COUNT] = {
@@ -222,6 +223,14 @@ int main(int argc, char **argv)
         return 1;
     }
     if (game.level_data.size != 0 || game.session.menu_level_index != 0 ||
+        game.sine_table.size != GAME_MATH_SINE_TABLE_BYTES ||
+        game_math_wrap_angle_address(0x3fffu) != 0x1ffeu ||
+        !game_math_sine(&game.math, 0u, &trig_value, error, sizeof(error)) ||
+        trig_value != 0 ||
+        !game_math_sine(&game.math, 2u, &trig_value, error, sizeof(error)) ||
+        trig_value != 50 ||
+        !game_math_cosine(&game.math, 0u, &trig_value, error, sizeof(error)) ||
+        trig_value != 32767 ||
         game.session.campaign_inventory.health != 200u ||
         game.session.campaign_inventory.weapons[0] != 0x00ffu ||
         game.session.campaign_inventory.ammunition[7] != 20u ||

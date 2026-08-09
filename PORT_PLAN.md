@@ -182,10 +182,11 @@ authority for all game behavior and data formats.
      paths in `plr1control.s`, `modules/player.s`, `objectmove.s`, and
      `newplayershoot.s` without changing fixed-point scales, timer ownership,
      collision order, aim behavior, or pickup rules.
-   - `data/tables_data.s` references an absent authoritative `bigsine` binary.
-     Do not generate an approximation for yaw or horizontal motion; recover
-     that exact table (or capture an equivalent oracle) before porting the
-     remaining trigonometric branches of `plr_KeyboardControl`.
+   - `src/game_math.*` now loads and validates the exact 16,384-byte
+     `amiga/media/includes/bigsine` payload that `data/tables_data.s` incbins;
+     it preserves `AMOD_A` address wrapping and big-endian sine/cosine reads.
+     Horizontal movement still awaits the source collision/update order, not a
+     generated trigonometric approximation.
    - Port menu controls and in-game messages before adding convenience inputs.
      Any optional modern binding must remain outside core simulation state.
 
