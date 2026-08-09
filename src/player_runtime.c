@@ -411,6 +411,8 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
     player.tmp_z = player.z;
     player.tmp_height = player.height;
     player.tmp_yaw = player.yaw;
+    player.tmp_gun_selected = player.gun_selected;
+    player.tmp_fire = player.fire;
     player.default_enemy_flags = 0x23u; /* %100011 in Plr_Initialise. */
     *out_player = player;
     return 1;
@@ -935,14 +937,18 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
         return 0;
     }
 
-    /* hires.s:game_main_loop copies Snap* into Plr1_Tmp* before Plr1_Control. */
+    /* hires.s:game_main_loop copies Snap* and transient input into Plr1_Tmp*. */
     player->tmp_x = player->snap_x;
     player->tmp_y = player->snap_y;
     player->tmp_z = player->snap_z;
     player->tmp_height = player->snap_height;
     player->tmp_yaw = player->snap_yaw;
+    player->tmp_clicked = player->clicked;
+    player->clicked = 0u;
+    player->tmp_fire = player->fire;
     player->tmp_used = player->used;
     player->used = 0u;
+    player->tmp_gun_selected = player->gun_selected;
 
     old_x = player_runtime_low_word(player->x);
     old_z = player_runtime_low_word(player->z);

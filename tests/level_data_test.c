@@ -2677,10 +2677,17 @@ int main(int argc, char **argv)
         PlayerRuntime use_snapshot_player = game.player;
         GameInput use_snapshot_input;
 
+        use_snapshot_player.gun_selected = 7u;
+        use_snapshot_player.fire = UINT8_MAX;
+        use_snapshot_player.clicked = UINT8_MAX;
         game_input_init(&use_snapshot_input);
         if (!game_input_set_raw_key(
                 &use_snapshot_input,
                 control_defaults.assigned_raw_keys[GAME_CONTROL_OPERATE], 1,
+                error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &use_snapshot_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
                 error, sizeof(error)) ||
             !player_runtime_update_discrete_controls(&use_snapshot_player,
                                                      &use_snapshot_input, &control_defaults,
@@ -2690,8 +2697,11 @@ int main(int argc, char **argv)
             !player_runtime_update_spatial(&use_snapshot_player, &use_snapshot_input,
                                            &control_defaults, &game.preferences, &game.math,
                                            &game.level_runtime, NULL, error, sizeof(error)) ||
-            use_snapshot_player.tmp_used != UINT8_MAX || use_snapshot_player.used != 0u) {
-            fprintf(stderr, "source operate pulse snapshot is inconsistent: %s\n", error);
+            use_snapshot_player.tmp_used != UINT8_MAX || use_snapshot_player.used != 0u ||
+            use_snapshot_player.tmp_clicked != UINT8_MAX || use_snapshot_player.clicked != 0u ||
+            use_snapshot_player.tmp_fire != UINT8_MAX || use_snapshot_player.fire != UINT8_MAX ||
+            use_snapshot_player.tmp_gun_selected != 7u) {
+            fprintf(stderr, "source transient player snapshot is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }

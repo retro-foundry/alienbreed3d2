@@ -52,8 +52,11 @@ typedef struct {
     uint8_t stood_in_top;
     uint8_t stood_on_lift;
     uint8_t used;
-    /* hires.s snapshots Used_b to Plr1_TmpSpcTap then clears Used_b each tick. */
+    /* hires.s snapshots the transient input fields before Plr1_Control. */
     uint8_t tmp_used;
+    uint8_t tmp_clicked;
+    uint8_t tmp_gun_selected;
+    uint8_t tmp_fire;
     uint8_t fire;
     uint8_t clicked;
     /* modules/player.s:PlrT_GunSelected_b and its next-weapon edge gate. */

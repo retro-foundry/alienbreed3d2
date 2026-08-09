@@ -213,9 +213,10 @@ authority for all game behavior and data formats.
   `hires.s:Plr1_Control` commits that state through source fixed-point
   arithmetic, teleports, floor/roof transitions, and the primary plus extended
   static `EdgeT` sequences from `objectmove.s:MoveObject`; there is no PVS or
-  portal-rendering dependency. Its `TmpX/Y/Z/Height/Used` snapshot now retains
-  the source game-loop values consumed by the first object interaction path,
-  then clears the one-tick use pulse. Static collision also records the source
+  portal-rendering dependency. Its `TmpX/Y/Z/Height/Clicked/Fire/Gun/Used`
+  snapshot now retains the source game-loop values consumed by the first object
+  interaction and weapon paths, then clears the one-tick use and click pulses.
+  Static collision also records the source
   `0x0100` player-contact bit in each mutable `EdgeT_Flags_w`, so mechanism
   routines can consume that signal rather than a native proximity shortcut.
   `src/player_entity.*` now publishes the `hires.s:Plr1_Use` fields required by
