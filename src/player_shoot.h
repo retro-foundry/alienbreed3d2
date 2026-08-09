@@ -45,4 +45,19 @@ int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
                                        uint8_t *out_impact_spawned,
                                        char *error, size_t error_size);
 
+/*
+ * newplayershoot.s:firefive, reached from plr1_FireProjectile after Plr1_Shot
+ * has selected a non-hitscan BulT. It reserves source player-shot slots and
+ * writes the complete source launch state for one or more projectiles. The
+ * later ItsABullet moving-projectile update owns motion and impact handling.
+ */
+int player_shoot_spawn_projectile_volley(ObjectRuntime *objects, const GameMath *math,
+                                         const PlayerRuntime *player,
+                                         uint16_t bullet_type,
+                                         const GameBulletDefinition *bullet,
+                                         uint16_t bullet_count,
+                                         int16_t vertical_speed,
+                                         uint32_t *out_spawned_count,
+                                         char *error, size_t error_size);
+
 #endif

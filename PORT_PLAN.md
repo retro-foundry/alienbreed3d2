@@ -154,10 +154,14 @@ authority for all game behavior and data formats.
   plus impact direction. `src/object_projectiles.*` then translates the
   `ItsABullet` stationary pop branch for that status: its source bitmap/glare/
   additive descriptor, frame advance, and `FREE_ENT` release are dispatched
-  in `ObjectHandler` slot order. These helpers are not wired into input yet:
-  source cooldown, ammunition, hit probability, miss raycast/effect,
-  moving-projectile creation, and sound still belong to the remaining
-  `Plr1_Shot` path. `src/game_random.*` now retains `objectmove.s:GetRand`'s
+  in `ObjectHandler` slot order. `src/player_shoot.*` also now translates
+  `newplayershoot.s:firefive`, which creates a non-hitscan volley directly in
+  the source player-shot pool: exact centred firing angles, speed/vertical
+  clamp, launch coordinates, and projectile bytes are covered by regression
+  tests. These helpers are not wired into input yet: source cooldown,
+  ammunition, hit probability, miss raycast/effect, moving-projectile update,
+  and sound still belong to the remaining `Plr1_Shot` path.
+  `src/game_random.*` now retains `objectmove.s:GetRand`'s
   exact seeded 16-bit rotate/add sequence for the upcoming probability and AI
   paths. `GameBootstrap` owns and initializes that `Rand1` state once per
   source game session, so it persists across campaign-level loads; it is not
@@ -462,7 +466,9 @@ path has no inferred AI worry, narrative, or lock behavior; the stationary
 hitscan-impact projectile dispatch is now present, while alien and moving-
 projectile dispatch remain unported. The reusable `CanItBeSeen` query now
 retains source gameplay PVST/clip/height behavior but is deliberately not
-wired until the owning alien path is translated. Translate each remaining
+wired until the owning alien path is translated. `firefive` now creates the
+source non-hitscan launch state, but its later `ItsABullet` movement/collision
+path is still absent, so it too remains unwired. Translate each remaining
 bounded slice directly from the maintained source and add source-derived
 regressions for its state changes and ordering.
 

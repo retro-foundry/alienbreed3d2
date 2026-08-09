@@ -3090,6 +3090,136 @@ int main(int argc, char **argv)
         }
     }
     {
+        uint8_t slot_bytes[OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT *
+                           OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT *
+                            OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime projectile_objects = {0};
+        PlayerRuntime projectile_player = {0};
+        GameBulletDefinition projectile_bullet = {0};
+        uint16_t projectile_bullet_index = UINT16_MAX;
+        int16_t first_sine;
+        int16_t first_cosine;
+        int16_t second_sine;
+        int16_t second_cosine;
+        int16_t projectile_speed;
+        uint32_t spawned_count = 0u;
+
+        for (uint16_t bullet_index = 0u; bullet_index < GAME_LINK_BULLET_COUNT;
+             ++bullet_index) {
+            if (!game_link_get_bullet_definition(&game.game_link_catalog, bullet_index,
+                                                 &projectile_bullet, error, sizeof(error))) {
+                fprintf(stderr, "could not read source projectile bullet definition: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if ((uint16_t)projectile_bullet.is_hitscan == 0u) {
+                projectile_bullet_index = bullet_index;
+                break;
+            }
+        }
+        if (projectile_bullet_index == UINT16_MAX) {
+            fprintf(stderr, "source non-hitscan projectile fixture is unavailable\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        projectile_objects.slot_bytes = slot_bytes;
+        projectile_objects.slot_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+        projectile_objects.active_slot_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+        projectile_objects.player_shot_first_slot = 0u;
+        projectile_objects.point_bytes = point_bytes;
+        projectile_objects.point_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            uint8_t *slot = slot_bytes + (size_t)shot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+            uint8_t *point = point_bytes + (size_t)shot_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+
+            write_be16(slot + 0u, (uint16_t)shot_index);
+            write_be16(slot + 12u, UINT16_MAX);
+            write_be32(point + 0u, UINT32_C(0x11112222));
+            write_be32(point + 4u, UINT32_C(0x33334444));
+        }
+        projectile_player.x = 300;
+        projectile_player.y = 400;
+        projectile_player.z = -500;
+        projectile_player.yaw = 0u;
+        projectile_player.zone_index = 4u;
+        projectile_player.stood_in_top = UINT8_MAX;
+        projectile_speed = (int16_t)(uint16_t)projectile_bullet.speed;
+        if (!game_math_sine(&game.math, UINT16_C(0xff80), &first_sine,
+                            error, sizeof(error)) ||
+            !game_math_cosine(&game.math, UINT16_C(0xff80), &first_cosine,
+                               error, sizeof(error)) ||
+            !game_math_sine(&game.math, UINT16_C(0x0080), &second_sine,
+                            error, sizeof(error)) ||
+            !game_math_cosine(&game.math, UINT16_C(0x0080), &second_cosine,
+                               error, sizeof(error)) ||
+            !player_shoot_spawn_projectile_volley(
+                &projectile_objects, &game.math, &projectile_player,
+                projectile_bullet_index, &projectile_bullet, 2u, 5000,
+                &spawned_count, error, sizeof(error)) ||
+            spawned_count != 2u) {
+            fprintf(stderr, "firefive source projectile volley is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint32_t shot_index = 0u; shot_index < 2u; ++shot_index) {
+            const uint8_t *slot = slot_bytes +
+                (size_t)shot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+            const uint8_t *point = point_bytes +
+                (size_t)shot_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+            int16_t sine = shot_index == 0u ? first_sine : second_sine;
+            int16_t cosine = shot_index == 0u ? first_cosine : second_cosine;
+            uint32_t expected_velocity_x =
+                (uint32_t)((int32_t)((int64_t)sine * projectile_speed) * 2);
+            uint32_t expected_velocity_z =
+                (uint32_t)((int32_t)((int64_t)cosine * projectile_speed) * 2);
+
+            if (slot[16u] != 2u || read_be16(slot + 12u) != 4u ||
+                slot[31u] != (uint8_t)projectile_bullet_index ||
+                slot[28u] != (uint8_t)projectile_bullet.hit_damage ||
+                read_be16(slot + 54u) != (uint16_t)projectile_bullet.gravity ||
+                slot[60u] != (uint8_t)projectile_bullet.bounce_horizontal ||
+                slot[61u] != (uint8_t)projectile_bullet.bounce_vertical ||
+                read_be32(slot + 18u) != expected_velocity_x ||
+                read_be32(slot + 22u) != expected_velocity_z ||
+                read_be16(slot + 42u) != 2560u || slot[63u] != UINT8_MAX ||
+                read_be16(slot + 58u) != 0u || read_be32(slot + 36u) != 0x23u ||
+                read_be32(slot + 44u) != 4240u || read_be16(slot + 4u) != 33u ||
+                slot[62u] != UINT8_MAX ||
+                read_be32(point + 0u) != UINT32_C(0x012c2222) ||
+                read_be32(point + 4u) != UINT32_C(0xfe0c4444)) {
+                fprintf(stderr, "firefive source projectile launch state is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        if (!player_shoot_spawn_projectile_volley(
+                &projectile_objects, &game.math, &projectile_player,
+                projectile_bullet_index, &projectile_bullet, 0u, 0,
+                &spawned_count, error, sizeof(error)) || spawned_count != 1u ||
+            read_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) != 4u) {
+            fprintf(stderr, "firefive source zero-count projectile attempt is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            write_be16(slot_bytes + (size_t)shot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                       0u);
+        }
+        if (!player_shoot_spawn_projectile_volley(
+                &projectile_objects, &game.math, &projectile_player,
+                projectile_bullet_index, &projectile_bullet, 1u, 0,
+                &spawned_count, error, sizeof(error)) || spawned_count != 0u) {
+            fprintf(stderr, "firefive source projectile pool exhaustion is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime impact_objects = {0};
         GameBulletDefinition impact_bullet = {0};
