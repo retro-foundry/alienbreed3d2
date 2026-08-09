@@ -37,6 +37,7 @@ set(AB3D2_CORE_SOURCES
   src/game_save.c
   src/game_session.c
   src/level_bootstrap.c
+  src/level_dynamic_state.c
   src/level_draw_graph.c
   src/level_mechanisms.c
   src/level_navigation.c

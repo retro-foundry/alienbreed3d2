@@ -144,6 +144,14 @@ authority for all game behavior and data formats.
   terminators. It also exposes the eight raw 14-byte switch records that
   `SwitchRoutine` traverses. Door/lift motion, switch interaction, and all
   associated graphics/audio changes remain deliberately unported.
+- [x] `src/level_dynamic_state.*` owns byte-exact mutable copies of each
+  loaded `twolev.bin` and `twolev.graph.bin`, then exposes the same
+  `LevelRuntime` view over those copies to current simulation. This is the
+  source mutation boundary required by `newanims.s:DoorRoutine` and
+  `LiftRoutine`: they change `ZoneT`, `EdgeT`, and graphics records in place.
+  No mechanism behavior, visibility ordering, or scene rebuild is implied yet;
+  static whole-level production intentionally remains immutable until those
+  routines are ported and tested.
 - [x] `src/level_draw_graph.*` follows the maintained
   `draw_zone_graph.s` cursor for every lower/upper stream: fixed wall records,
   variable flat/water records, object selectors, and header-only ignored tags

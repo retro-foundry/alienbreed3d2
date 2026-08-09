@@ -12,6 +12,7 @@
 #include "game_resources.h"
 #include "game_session.h"
 #include "level_bootstrap.h"
+#include "level_dynamic_state.h"
 #include "level_mechanisms.h"
 #include "level_navigation.h"
 #include "level_runtime.h"
@@ -51,6 +52,7 @@ typedef struct {
     LevelMechanisms level_mechanisms;
     LevelNavigation level_navigation;
     LevelRuntime level_runtime;
+    LevelDynamicState dynamic_level;
     ObjectRuntime object_runtime;
     LevelStaticScene static_scene;
     PlayerRuntime player;

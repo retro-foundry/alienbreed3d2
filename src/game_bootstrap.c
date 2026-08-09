@@ -63,6 +63,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     memset(&game->level_graphics_header, 0, sizeof(game->level_graphics_header));
     memset(&game->level_mechanisms, 0, sizeof(game->level_mechanisms));
     memset(&game->level_navigation, 0, sizeof(game->level_navigation));
+    level_dynamic_state_destroy(&game->dynamic_level);
     memset(&game->level_runtime, 0, sizeof(game->level_runtime));
     object_runtime_destroy(&game->object_runtime);
     level_static_scene_destroy(&game->static_scene);
@@ -212,13 +213,13 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
         return 1;
     }
     if (!player_runtime_update_discrete_controls(&game->player, &game->input,
-                                                 &game->controls, &game->level_runtime,
+                                                 &game->controls, &game->dynamic_level.runtime,
                                                  error, error_size) ||
         !player_runtime_update_spatial(&game->player, &game->input, &game->controls,
                                        &game->preferences, &game->math,
-                                       &game->level_runtime, error, error_size) ||
+                                       &game->dynamic_level.runtime, error, error_size) ||
         !object_collectables_update_single_player(
-            &game->object_runtime, &game->level_runtime, &game->game_link_catalog,
+            &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,
             NULL, error, error_size)) {
         return 0;
@@ -226,12 +227,12 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     /* Game_AddToInventory changes Plr1_Inventory; health drives next control tick. */
     game->player.health = game->session.player1_inventory.health;
     /* hires.s compares Lvl_ExitZoneID_w with the current ZoneT_ID_w, not its index. */
-    if (!level_runtime_get_zone(&game->level_runtime, game->player.zone_index,
+    if (!level_runtime_get_zone(&game->dynamic_level.runtime, game->player.zone_index,
                                 &player_zone, error, error_size)) {
         return 0;
     }
-    if (game->level_runtime.exit_zone_id >= 0 &&
-        player_zone.id == (uint16_t)game->level_runtime.exit_zone_id) {
+    if (game->dynamic_level.runtime.exit_zone_id >= 0 &&
+        player_zone.id == (uint16_t)game->dynamic_level.runtime.exit_zone_id) {
         game_session_finish_single_player(&game->session, 1);
     }
     return 1;
@@ -377,9 +378,12 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         !level_runtime_init(&game->level_data, &game->level_graphics, &game->level,
                             &game->level_graphics_header, &game->level_runtime,
                             error, error_size) ||
+        !level_dynamic_state_init(&game->dynamic_level, &game->level_runtime,
+                                  error, error_size) ||
         !object_runtime_init(&game->object_runtime, &game->level_runtime,
                              error, error_size) ||
-        !player_runtime_init_single_player(&game->level, &game->level_runtime, &game->player,
+        !player_runtime_init_single_player(&game->level, &game->dynamic_level.runtime,
+                                           &game->player,
                                            error, error_size) ||
         !level_static_scene_build(&game->level_runtime,
                                   game->shared_resources.wall_texture_count,

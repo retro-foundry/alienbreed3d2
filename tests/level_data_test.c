@@ -1132,6 +1132,10 @@ int main(int argc, char **argv)
             const uint8_t *source_point;
             uint8_t *runtime_slot;
             uint8_t *runtime_point;
+            uint8_t *dynamic_level_byte;
+            uint8_t *dynamic_graphics_byte;
+            uint8_t original_level_byte;
+            uint8_t original_graphics_byte;
 
             if (game.object_runtime.active_slot_count != game.level_runtime.object_record_count ||
                 game.object_runtime.slot_count != game.level_runtime.object_record_count + 1u ||
@@ -1168,6 +1172,42 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            if (game.dynamic_level.runtime.level_bytes == game.level_runtime.level_bytes ||
+                game.dynamic_level.runtime.graphics_bytes == game.level_runtime.graphics_bytes ||
+                game.dynamic_level.runtime.level_size != game.level_runtime.level_size ||
+                game.dynamic_level.runtime.graphics_size != game.level_runtime.graphics_size ||
+                memcmp(game.dynamic_level.runtime.level_bytes, game.level_runtime.level_bytes,
+                       game.level_runtime.level_size) != 0 ||
+                memcmp(game.dynamic_level.runtime.graphics_bytes,
+                       game.level_runtime.graphics_bytes,
+                       game.level_runtime.graphics_size) != 0 ||
+                !level_dynamic_state_get_level_range(&game.dynamic_level, 0u, 1u,
+                                                     &dynamic_level_byte) ||
+                !level_dynamic_state_get_graphics_range(&game.dynamic_level, 0u, 1u,
+                                                        &dynamic_graphics_byte) ||
+                level_dynamic_state_get_level_range(&game.dynamic_level,
+                                                    (uint32_t)game.level_runtime.level_size,
+                                                    1u, &dynamic_level_byte) ||
+                level_dynamic_state_get_graphics_range(
+                    &game.dynamic_level, (uint32_t)game.level_runtime.graphics_size,
+                    1u, &dynamic_graphics_byte)) {
+                fprintf(stderr, "campaign level %u dynamic level state is invalid\n", level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            original_level_byte = game.level_runtime.level_bytes[0u];
+            original_graphics_byte = game.level_runtime.graphics_bytes[0u];
+            *dynamic_level_byte = (uint8_t)(original_level_byte ^ 0xffu);
+            *dynamic_graphics_byte = (uint8_t)(original_graphics_byte ^ 0xffu);
+            if (game.level_runtime.level_bytes[0u] != original_level_byte ||
+                game.level_runtime.graphics_bytes[0u] != original_graphics_byte) {
+                fprintf(stderr, "campaign level %u dynamic state altered staged media\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            *dynamic_level_byte = original_level_byte;
+            *dynamic_graphics_byte = original_graphics_byte;
         }
         for (uint8_t current_control_point = 0u;
              current_control_point < LEVEL_NAVIGATION_CONTROL_POINT_LIMIT;
@@ -1890,10 +1930,10 @@ int main(int argc, char **argv)
         return 1;
     }
     {
-        int16_t authored_exit_zone_id = game.level_runtime.exit_zone_id;
+        int16_t authored_exit_zone_id = game.dynamic_level.runtime.exit_zone_id;
 
         /* Settle any authored spawn teleport before exercising post-control comparison. */
-        game.level_runtime.exit_zone_id = -1;
+        game.dynamic_level.runtime.exit_zone_id = -1;
         game_input_init(&game.input);
         if (!game_bootstrap_update_single_player(&game, error, sizeof(error))) {
             fprintf(stderr, "source exit-zone setup is inconsistent: %s\n", error);
@@ -1906,7 +1946,7 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
-        game.level_runtime.exit_zone_id = (int16_t)zone.id;
+        game.dynamic_level.runtime.exit_zone_id = (int16_t)zone.id;
         if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
             game.session.level_finished == 0u ||
             memcmp(&game.session.campaign_inventory, &game.session.player1_inventory,
@@ -1915,7 +1955,7 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
-        game.level_runtime.exit_zone_id = authored_exit_zone_id;
+        game.dynamic_level.runtime.exit_zone_id = authored_exit_zone_id;
     }
     game_bootstrap_destroy(&game);
     (void)remove(save_path);
