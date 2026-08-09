@@ -18,7 +18,8 @@ first game's software renderer:
 - unpacks (including stored and LHA-compressed `=SB=` records), parses, and validates the map, fly map, `twolev.bin`,
   `twolev.graph.bin`, and clip stream for every campaign level (`A`–`P`). The
   `TLBT` and `TLGT` headers follow `amiga/ab3d2_source/defs.i` exactly; both
-  source 100x100 navigation maps are also decoded, without yet running AI;
+  source 100x100 navigation maps plus the static door/lift/switch records are
+  also decoded, without yet running AI or mechanism animation;
 - defines a GPU-neutral frame command interface for cameras, materials,
   geometry, sprites, and HUD text;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,

@@ -8,6 +8,53 @@
 #include "level_bootstrap.h"
 #include "scene_frame.h"
 
+static uint16_t read_be16(const uint8_t *source)
+{
+    return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
+}
+
+static uint32_t read_be32(const uint8_t *source)
+{
+    return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
+           ((uint32_t)source[2] << 8) | source[3];
+}
+
+static int liftable_matches_source(const LevelMechanisms *mechanisms,
+                                   const LevelLiftable *liftable)
+{
+    const uint8_t *source;
+    size_t header_offset;
+
+    if (!mechanisms || !mechanisms->graphics_bytes ||
+        liftable->wall_data_offset < 36u) {
+        return 0;
+    }
+    header_offset = (size_t)liftable->wall_data_offset - 36u;
+    if (header_offset > mechanisms->graphics_size ||
+        36u > mechanisms->graphics_size - header_offset) {
+        return 0;
+    }
+    source = mechanisms->graphics_bytes + header_offset;
+    return liftable->bottom == (int16_t)read_be16(source + 0u) &&
+        liftable->top == (int16_t)read_be16(source + 2u) &&
+        liftable->opening_speed == (int16_t)read_be16(source + 4u) &&
+        liftable->closing_speed == (int16_t)read_be16(source + 6u) &&
+        liftable->open_duration == (int16_t)read_be16(source + 8u) &&
+        liftable->opening_sound_fx == (int16_t)read_be16(source + 10u) &&
+        liftable->closing_sound_fx == (int16_t)read_be16(source + 12u) &&
+        liftable->opened_sound_fx == (int16_t)read_be16(source + 14u) &&
+        liftable->closed_sound_fx == (int16_t)read_be16(source + 16u) &&
+        liftable->word9 == (int16_t)read_be16(source + 18u) &&
+        liftable->word10 == (int16_t)read_be16(source + 20u) &&
+        liftable->word11 == (int16_t)read_be16(source + 22u) &&
+        liftable->word12 == (int16_t)read_be16(source + 24u) &&
+        liftable->graphics_offset == read_be32(source + 26u) &&
+        liftable->zone_id == (int16_t)read_be16(source + 30u) &&
+        liftable->word16 == (int16_t)read_be16(source + 32u) &&
+        liftable->raise_condition == source[34u] &&
+        liftable->lower_condition == source[35u];
+}
+
 int main(int argc, char **argv)
 {
     AssetBlob level_data = {0};
@@ -33,10 +80,15 @@ int main(int argc, char **argv)
     LevelEdge edge;
     LevelControlPoint control_point;
     LevelNavigationLink navigation_link;
+    LevelLiftable liftable;
+    LevelLiftableWall liftable_wall;
+    LevelSwitch switch_record;
     LevelObjectSlot object_slot;
     LevelObjectPoint object_point;
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
+    uint16_t mechanism_index;
+    uint16_t wall_index;
     GameSession encoded_session;
     GameSession decoded_session;
     GameMenu menu;
@@ -514,6 +566,102 @@ int main(int argc, char **argv)
                     game_bootstrap_destroy(&game);
                     return 1;
                 }
+            }
+        }
+        if (game.level_mechanisms.door_count > LEVEL_MECHANISMS_MAX_DOORS ||
+            game.level_mechanisms.lift_count > LEVEL_MECHANISMS_MAX_LIFTS ||
+            level_mechanisms_get_door(&game.level_mechanisms,
+                                      game.level_mechanisms.door_count, &liftable,
+                                      error, sizeof(error)) ||
+            level_mechanisms_get_lift(&game.level_mechanisms,
+                                      game.level_mechanisms.lift_count, &liftable,
+                                      error, sizeof(error)) ||
+            level_mechanisms_get_switch(&game.level_mechanisms,
+                                        LEVEL_MECHANISMS_SWITCH_COUNT, &switch_record,
+                                        error, sizeof(error))) {
+            fprintf(stderr, "campaign level %u mechanism bounds are invalid: %s\n",
+                    level_index, error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (mechanism_index = 0u;
+             mechanism_index < game.level_mechanisms.door_count;
+             ++mechanism_index) {
+            if (!level_mechanisms_get_door(&game.level_mechanisms, mechanism_index,
+                                           &liftable, error, sizeof(error)) ||
+                !liftable_matches_source(&game.level_mechanisms, &liftable) ||
+                level_mechanisms_get_door_wall(&game.level_mechanisms, mechanism_index,
+                                                liftable.wall_count, &liftable_wall,
+                                                error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u door %u is invalid: %s\n",
+                        level_index, mechanism_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            for (wall_index = 0u; wall_index < liftable.wall_count; ++wall_index) {
+                const uint8_t *wall_source = game.level_mechanisms.graphics_bytes +
+                    liftable.wall_data_offset + (size_t)wall_index * 10u;
+                if (!level_mechanisms_get_door_wall(&game.level_mechanisms, mechanism_index,
+                                                    wall_index, &liftable_wall,
+                                                    error, sizeof(error)) ||
+                    liftable_wall.edge_index != (int16_t)read_be16(wall_source + 0u) ||
+                    liftable_wall.graphics_offset != read_be32(wall_source + 2u) ||
+                    liftable_wall.unknown_long != read_be32(wall_source + 6u)) {
+                    fprintf(stderr, "campaign level %u door %u wall %u is invalid: %s\n",
+                            level_index, mechanism_index, wall_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+        }
+        for (mechanism_index = 0u;
+             mechanism_index < game.level_mechanisms.lift_count;
+             ++mechanism_index) {
+            if (!level_mechanisms_get_lift(&game.level_mechanisms, mechanism_index,
+                                           &liftable, error, sizeof(error)) ||
+                !liftable_matches_source(&game.level_mechanisms, &liftable) ||
+                level_mechanisms_get_lift_wall(&game.level_mechanisms, mechanism_index,
+                                                liftable.wall_count, &liftable_wall,
+                                                error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u lift %u is invalid: %s\n",
+                        level_index, mechanism_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            for (wall_index = 0u; wall_index < liftable.wall_count; ++wall_index) {
+                const uint8_t *wall_source = game.level_mechanisms.graphics_bytes +
+                    liftable.wall_data_offset + (size_t)wall_index * 10u;
+                if (!level_mechanisms_get_lift_wall(&game.level_mechanisms, mechanism_index,
+                                                    wall_index, &liftable_wall,
+                                                    error, sizeof(error)) ||
+                    liftable_wall.edge_index != (int16_t)read_be16(wall_source + 0u) ||
+                    liftable_wall.graphics_offset != read_be32(wall_source + 2u) ||
+                    liftable_wall.unknown_long != read_be32(wall_source + 6u)) {
+                    fprintf(stderr, "campaign level %u lift %u wall %u is invalid: %s\n",
+                            level_index, mechanism_index, wall_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+        }
+        for (mechanism_index = 0u; mechanism_index < LEVEL_MECHANISMS_SWITCH_COUNT;
+             ++mechanism_index) {
+            const uint8_t *switch_source = game.level_mechanisms.graphics_bytes +
+                game.level_graphics_header.switch_data_offset + (size_t)mechanism_index * 14u;
+            if (!level_mechanisms_get_switch(&game.level_mechanisms, mechanism_index,
+                                             &switch_record, error, sizeof(error)) ||
+                switch_record.word0 != (int16_t)read_be16(switch_source + 0u) ||
+                switch_record.byte2 != switch_source[2u] ||
+                switch_record.byte3 != switch_source[3u] ||
+                switch_record.point_index != read_be16(switch_source + 4u) ||
+                switch_record.graphics_offset != read_be32(switch_source + 6u) ||
+                switch_record.byte10 != switch_source[10u] ||
+                memcmp(switch_record.bytes11_to_13, switch_source + 11u,
+                       sizeof(switch_record.bytes11_to_13)) != 0) {
+                fprintf(stderr, "campaign level %u switch %u is invalid: %s\n",
+                        level_index, mechanism_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
             }
         }
         for (zone_index = 0; zone_index < game.level_runtime.zone_count; ++zone_index) {

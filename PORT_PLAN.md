@@ -85,6 +85,12 @@ authority for all game behavior and data formats.
   `newanims.s:ObjectHandler`'s `-1` terminator. Projectile/player slots remain
   data views only; no object, animation, or AI behaviour has been inferred or
   ported.
+- [x] `src/level_mechanisms.*` decodes the `TLGT` door/lift streams as the
+  exact `ZLiftableT` plus variable `ZDoorWall` sequence used by
+  `newanims.s:DoorRoutine` and `LiftRoutine`, bounded by their source
+  terminators. It also exposes the eight raw 14-byte switch records that
+  `SwitchRoutine` traverses. Door/lift motion, switch interaction, and all
+  associated graphics/audio changes remain deliberately unported.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates, floor-relative standing height, zone, and enemy flags. A
   loaded level now produces a camera and HUD command; geometry/material/sprite
@@ -122,6 +128,8 @@ authority for all game behavior and data formats.
   by `hires.s:Game_Begin`.
 - `src/level_navigation.*` maps the walk/fly link lookup in
   `objectmove.s:GetNextCPt`; no AI or movement routine consumes it yet.
+- `src/level_mechanisms.*` maps `newanims.s`'s door, lift, and switch source
+  data streams; no dynamic mechanism routine consumes them yet.
 - `src/scene_frame.*` and `src/renderer_stub.*` establish the renderer seam.
 - `tests/level_data_test.c` validates the staged data and every campaign level.
 

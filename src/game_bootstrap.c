@@ -21,6 +21,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     }
     memset(&game->level, 0, sizeof(game->level));
     memset(&game->level_graphics_header, 0, sizeof(game->level_graphics_header));
+    memset(&game->level_mechanisms, 0, sizeof(game->level_mechanisms));
     memset(&game->level_navigation, 0, sizeof(game->level_navigation));
     memset(&game->level_runtime, 0, sizeof(game->level_runtime));
     memset(&game->player, 0, sizeof(game->player));
@@ -270,6 +271,8 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
     if (!level_bootstrap_parse(&game->level_data, &game->level, error, error_size) ||
         !level_graphics_bootstrap_parse(&game->level_graphics,
                                         &game->level_graphics_header, error, error_size) ||
+        !level_mechanisms_init(&game->level_graphics, &game->level_graphics_header,
+                               &game->level_mechanisms, error, error_size) ||
         !level_navigation_init(&game->level_map, &game->level_fly_map,
                                &game->level_navigation, error, error_size) ||
         !level_runtime_init(&game->level_data, &game->level_graphics, &game->level,

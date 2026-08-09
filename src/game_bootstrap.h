@@ -11,6 +11,7 @@
 #include "game_resources.h"
 #include "game_session.h"
 #include "level_bootstrap.h"
+#include "level_mechanisms.h"
 #include "level_navigation.h"
 #include "level_runtime.h"
 #include "player_runtime.h"
@@ -39,6 +40,7 @@ typedef struct {
     AssetBlob level_wall_overrides[GAME_LINK_WALL_COUNT];
     LevelBootstrap level;
     LevelGraphicsBootstrap level_graphics_header;
+    LevelMechanisms level_mechanisms;
     LevelNavigation level_navigation;
     LevelRuntime level_runtime;
     PlayerRuntime player;
