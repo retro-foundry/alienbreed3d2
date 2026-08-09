@@ -12,7 +12,10 @@ enum {
     /* c/zone_liftable.h:END_OF_DOOR_LIST. */
     LEVEL_MECHANISMS_LIST_END = 999,
     /* newanims.s:SwitchRoutine's `adda.w #14,a0`. */
-    LEVEL_MECHANISMS_SWITCH_SIZE = 14
+    LEVEL_MECHANISMS_SWITCH_SIZE = 14,
+    /* DoWaterAnims reads three longs and one word before a target list. */
+    LEVEL_MECHANISMS_WATER_STATE_SIZE = 14,
+    LEVEL_MECHANISMS_WATER_TARGET_SIZE = 6
 };
 
 static uint16_t level_mechanisms_read_be16(const uint8_t *source)
@@ -29,6 +32,11 @@ static uint32_t level_mechanisms_read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
            ((uint32_t)source[2] << 8) | source[3];
+}
+
+static int32_t level_mechanisms_read_be32s(const uint8_t *source)
+{
+    return (int32_t)level_mechanisms_read_be32(source);
 }
 
 static void level_mechanisms_set_error(char *error, size_t error_size, const char *message)
@@ -84,6 +92,7 @@ static int level_mechanisms_parse_liftable_stream(const uint8_t *bytes, size_t s
                                                   LevelLiftable *out_liftables,
                                                   uint16_t max_liftables,
                                                   uint16_t *out_count,
+                                                  size_t *out_after_stream,
                                                   char *error, size_t error_size)
 {
     size_t cursor;
@@ -108,6 +117,9 @@ static int level_mechanisms_parse_liftable_stream(const uint8_t *bytes, size_t s
         marker = level_mechanisms_read_be16s(bytes + cursor);
         if (marker == LEVEL_MECHANISMS_LIST_END) {
             *out_count = count;
+            if (out_after_stream) {
+                *out_after_stream = cursor + sizeof(uint16_t);
+            }
             return 1;
         }
         if (count >= max_liftables) {
@@ -158,6 +170,71 @@ static int level_mechanisms_parse_liftable_stream(const uint8_t *bytes, size_t s
             cursor += LEVEL_MECHANISMS_WALL_SIZE;
         }
     }
+}
+
+static int level_mechanisms_parse_water_animations(const uint8_t *bytes, size_t size,
+                                                    size_t stream_offset,
+                                                    LevelWaterAnimation *out_animations,
+                                                    char *error, size_t error_size)
+{
+    size_t cursor = stream_offset;
+
+    if (!bytes || !out_animations) {
+        level_mechanisms_set_error(error, error_size,
+                                   "water-animation parser received null source data");
+        return 0;
+    }
+    for (uint16_t animation_index = 0u;
+         animation_index < LEVEL_MECHANISMS_WATER_ANIMATION_COUNT;
+         ++animation_index) {
+        LevelWaterAnimation animation;
+        uint32_t target_count = 0u;
+
+        if (!level_mechanisms_range_is_valid(cursor, LEVEL_MECHANISMS_WATER_STATE_SIZE, size)) {
+            level_mechanisms_set_error(error, error_size,
+                                       "DoWaterAnims state record is outside graphics data");
+            return 0;
+        }
+        memset(&animation, 0, sizeof(animation));
+        animation.lower_position = level_mechanisms_read_be32s(bytes + cursor + 0u);
+        animation.upper_position = level_mechanisms_read_be32s(bytes + cursor + 4u);
+        animation.position = level_mechanisms_read_be32s(bytes + cursor + 8u);
+        animation.velocity = level_mechanisms_read_be16s(bytes + cursor + 12u);
+        animation.state_offset = (uint32_t)cursor;
+        cursor += LEVEL_MECHANISMS_WATER_STATE_SIZE;
+        animation.target_list_offset = (uint32_t)cursor;
+        for (;;) {
+            int16_t zone_index;
+
+            if (!level_mechanisms_range_is_valid(cursor, sizeof(uint16_t), size)) {
+                level_mechanisms_set_error(error, error_size,
+                                           "DoWaterAnims target list has no negative terminator");
+                return 0;
+            }
+            zone_index = level_mechanisms_read_be16s(bytes + cursor);
+            cursor += sizeof(uint16_t);
+            if (zone_index < 0) {
+                break;
+            }
+            if (!level_mechanisms_range_is_valid(cursor, sizeof(uint32_t), size) ||
+                target_count == UINT16_MAX) {
+                level_mechanisms_set_error(error, error_size,
+                                           "DoWaterAnims target record is malformed");
+                return 0;
+            }
+            if (!level_mechanisms_range_is_valid(
+                    level_mechanisms_read_be32(bytes + cursor) + 2u, sizeof(uint16_t), size)) {
+                level_mechanisms_set_error(error, error_size,
+                                           "DoWaterAnims target graphics offset is outside data");
+                return 0;
+            }
+            ++target_count;
+            cursor += sizeof(uint32_t);
+        }
+        animation.target_count = (uint16_t)target_count;
+        out_animations[animation_index] = animation;
+    }
+    return 1;
 }
 
 static int level_mechanisms_get_liftable(const LevelMechanisms *mechanisms,
@@ -225,6 +302,7 @@ int level_mechanisms_init(const AssetBlob *graphics_data,
 {
     LevelMechanisms mechanisms;
     size_t switch_bytes;
+    size_t lift_water_stream_offset;
     uint16_t switch_index;
 
     if (!graphics_data || !graphics_data->bytes || !graphics_header || !out_mechanisms) {
@@ -251,15 +329,24 @@ int level_mechanisms_init(const AssetBlob *graphics_data,
                                                 mechanisms.doors,
                                                 LEVEL_MECHANISMS_MAX_DOORS,
                                                 &mechanisms.door_count,
+                                                NULL,
                                                 error, error_size) ||
         !level_mechanisms_parse_liftable_stream(graphics_data->bytes, graphics_data->size,
                                                 graphics_header->lift_data_offset,
                                                 mechanisms.lifts,
                                                 LEVEL_MECHANISMS_MAX_LIFTS,
                                                 &mechanisms.lift_count,
+                                                &lift_water_stream_offset,
                                                 error, error_size)) {
         return 0;
     }
+    if (!level_mechanisms_parse_water_animations(graphics_data->bytes, graphics_data->size,
+                                                 lift_water_stream_offset,
+                                                 mechanisms.water_animations,
+                                                 error, error_size)) {
+        return 0;
+    }
+    mechanisms.water_animation_count = LEVEL_MECHANISMS_WATER_ANIMATION_COUNT;
     for (switch_index = 0u; switch_index < LEVEL_MECHANISMS_SWITCH_COUNT; ++switch_index) {
         const uint8_t *source = graphics_data->bytes + graphics_header->switch_data_offset +
             (size_t)switch_index * LEVEL_MECHANISMS_SWITCH_SIZE;
@@ -331,5 +418,54 @@ int level_mechanisms_get_switch(const LevelMechanisms *mechanisms,
         return 0;
     }
     *out_switch = mechanisms->switches[switch_index];
+    return 1;
+}
+
+int level_mechanisms_get_water_animation(const LevelMechanisms *mechanisms,
+                                         uint16_t animation_index,
+                                         LevelWaterAnimation *out_animation,
+                                         char *error, size_t error_size)
+{
+    if (!mechanisms || !mechanisms->graphics_bytes || !out_animation ||
+        animation_index >= mechanisms->water_animation_count) {
+        level_mechanisms_set_error(error, error_size,
+                                   "requested DoWaterAnims state is outside the source data");
+        return 0;
+    }
+    *out_animation = mechanisms->water_animations[animation_index];
+    return 1;
+}
+
+int level_mechanisms_get_water_animation_target(
+    const LevelMechanisms *mechanisms, uint16_t animation_index, uint16_t target_index,
+    LevelWaterAnimationTarget *out_target, char *error, size_t error_size)
+{
+    LevelWaterAnimation animation;
+    const uint8_t *source;
+    LevelWaterAnimationTarget target;
+    size_t target_offset;
+
+    if (!out_target ||
+        !level_mechanisms_get_water_animation(mechanisms, animation_index, &animation,
+                                              error, error_size) ||
+        target_index >= animation.target_count) {
+        if (error && error_size > 0u && error[0] == '\0') {
+            level_mechanisms_set_error(error, error_size,
+                                       "requested DoWaterAnims target is outside the source data");
+        }
+        return 0;
+    }
+    target_offset = (size_t)animation.target_list_offset +
+        (size_t)target_index * LEVEL_MECHANISMS_WATER_TARGET_SIZE;
+    if (!level_mechanisms_range_is_valid(target_offset, LEVEL_MECHANISMS_WATER_TARGET_SIZE,
+                                         mechanisms->graphics_size)) {
+        level_mechanisms_set_error(error, error_size,
+                                   "DoWaterAnims target is outside graphics data");
+        return 0;
+    }
+    source = mechanisms->graphics_bytes + target_offset;
+    target.zone_index = level_mechanisms_read_be16(source + 0u);
+    target.graphics_offset = level_mechanisms_read_be32(source + 2u);
+    *out_target = target;
     return 1;
 }

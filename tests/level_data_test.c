@@ -40,6 +40,14 @@ static int32_t source_asr32_7(int32_t value)
     return -((-(int64_t)value + 127) >> 7);
 }
 
+static int32_t source_asr32_6(int32_t value)
+{
+    if (value >= 0) {
+        return value >> 6;
+    }
+    return -((-(int64_t)value + 63) >> 6);
+}
+
 static uint32_t read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
@@ -267,6 +275,8 @@ int main(int argc, char **argv)
     LevelNavigationLink navigation_link;
     LevelLiftable liftable;
     LevelLiftableWall liftable_wall;
+    LevelWaterAnimation water_animation;
+    LevelWaterAnimationTarget water_target;
     LevelSwitch switch_record;
     LevelObjectSlot object_slot;
     LevelObjectPoint object_point;
@@ -286,6 +296,7 @@ int main(int argc, char **argv)
     uint32_t world_point_index;
     uint32_t decoration_fixture_count = 0u;
     uint32_t destructible_fixture_count = 0u;
+    uint32_t water_fixture_count = 0u;
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
@@ -1462,6 +1473,8 @@ int main(int argc, char **argv)
         }
         if (game.level_mechanisms.door_count > LEVEL_MECHANISMS_MAX_DOORS ||
             game.level_mechanisms.lift_count > LEVEL_MECHANISMS_MAX_LIFTS ||
+            game.level_mechanisms.water_animation_count !=
+                LEVEL_MECHANISMS_WATER_ANIMATION_COUNT ||
             level_mechanisms_get_door(&game.level_mechanisms,
                                       game.level_mechanisms.door_count, &liftable,
                                       error, sizeof(error)) ||
@@ -1475,6 +1488,82 @@ int main(int argc, char **argv)
                     level_index, error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        if (water_fixture_count == 0u) {
+            for (uint16_t water_index = 0u;
+                 water_index < game.level_mechanisms.water_animation_count;
+                 ++water_index) {
+                uint8_t *water_state;
+                uint8_t *water_graphics;
+                LevelZone water_zone;
+                int32_t expected_position;
+                int16_t expected_velocity;
+                int water_has_target;
+
+                if (!level_mechanisms_get_water_animation(
+                        &game.level_mechanisms, water_index, &water_animation,
+                        error, sizeof(error)) ||
+                    !level_dynamic_state_get_graphics_range(
+                        &game.dynamic_level, water_animation.state_offset, 14u,
+                        &water_state)) {
+                    continue;
+                }
+                water_has_target = water_animation.target_count != 0u;
+                if (water_has_target != 0 &&
+                    (!level_mechanisms_get_water_animation_target(
+                         &game.level_mechanisms, water_index, 0u, &water_target,
+                         error, sizeof(error)) ||
+                     water_target.zone_index >= game.dynamic_level.runtime.zone_count)) {
+                    fprintf(stderr, "campaign level %u DoWaterAnims target is invalid: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (water_animation.lower_position != (int32_t)read_be32(water_state + 0u) ||
+                    water_animation.upper_position != (int32_t)read_be32(water_state + 4u) ||
+                    water_animation.position != (int32_t)read_be32(water_state + 8u) ||
+                    water_animation.velocity != (int16_t)read_be16(water_state + 12u)) {
+                    fprintf(stderr, "campaign level %u DoWaterAnims state view is inconsistent\n",
+                            level_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                expected_position = (int32_t)((uint32_t)read_be32(water_state + 8u) +
+                    (uint32_t)((int32_t)(int16_t)read_be16(water_state + 12u)));
+                expected_velocity = (int16_t)read_be16(water_state + 12u);
+                if (expected_position <= (int32_t)read_be32(water_state + 0u)) {
+                    expected_position = (int32_t)read_be32(water_state + 0u);
+                    expected_velocity = (int16_t)(0u - (uint16_t)expected_velocity);
+                } else if (expected_position >= (int32_t)read_be32(water_state + 4u)) {
+                    expected_position = (int32_t)read_be32(water_state + 4u);
+                    expected_velocity = (int16_t)(0u - (uint16_t)expected_velocity);
+                }
+                if (!mechanism_runtime_update_water_animations(
+                        &game.dynamic_level, &game.level_mechanisms, 1u,
+                        error, sizeof(error)) ||
+                    !level_dynamic_state_get_graphics_range(
+                        &game.dynamic_level, water_animation.state_offset, 14u,
+                        &water_state) ||
+                    (int32_t)read_be32(water_state + 8u) != expected_position ||
+                    (int16_t)read_be16(water_state + 12u) != expected_velocity ||
+                    (water_has_target != 0 &&
+                     (!level_dynamic_state_get_graphics_range(
+                          &game.dynamic_level, water_target.graphics_offset + 2u, 2u,
+                          &water_graphics) ||
+                      !level_runtime_get_zone(&game.dynamic_level.runtime, water_target.zone_index,
+                                              &water_zone, error, sizeof(error)) ||
+                      (int16_t)read_be16(water_graphics) !=
+                          (int16_t)source_asr32_6(expected_position) ||
+                      water_zone.water != expected_position))) {
+                    fprintf(stderr,
+                            "campaign level %u DoWaterAnims update is inconsistent: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                ++water_fixture_count;
+                break;
+            }
         }
         for (mechanism_index = 0u;
              mechanism_index < game.level_mechanisms.door_count;
@@ -2037,8 +2126,9 @@ int main(int argc, char **argv)
             }
         }
     }
-    if (decoration_fixture_count == 0u || destructible_fixture_count == 0u) {
-        fprintf(stderr, "campaign data does not contain both passive object fixture classes\n");
+    if (decoration_fixture_count == 0u || destructible_fixture_count == 0u ||
+        water_fixture_count == 0u) {
+        fprintf(stderr, "campaign data does not contain all passive-object/water fixtures\n");
         game_bootstrap_destroy(&game);
         return 1;
     }

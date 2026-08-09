@@ -14,6 +14,7 @@ enum {
     /* defs.i:ZoneT_Roof_l and c/zone_liftable.h:ZLiftable offsets. */
     MECHANISM_ZONE_FLOOR_OFFSET = 2,
     MECHANISM_ZONE_ROOF_OFFSET = 6,
+    MECHANISM_ZONE_WATER_OFFSET = 18,
     MECHANISM_LIFTABLE_SIZE = 36,
     MECHANISM_LIFTABLE_POSITION_OFFSET = 22,
     MECHANISM_LIFTABLE_VELOCITY_OFFSET = 24,
@@ -36,6 +37,11 @@ static uint32_t mechanism_runtime_read_be32(const uint8_t *bytes)
 {
     return ((uint32_t)bytes[0] << 24) | ((uint32_t)bytes[1] << 16) |
            ((uint32_t)bytes[2] << 8) | bytes[3];
+}
+
+static int32_t mechanism_runtime_read_be32s(const uint8_t *bytes)
+{
+    return (int32_t)mechanism_runtime_read_be32(bytes);
 }
 
 static void mechanism_runtime_write_be16(uint8_t *bytes, uint16_t value)
@@ -70,6 +76,14 @@ static int16_t mechanism_runtime_asr16_2(int16_t value)
         return (int16_t)(value / 4);
     }
     return (int16_t)-(((int32_t)-value + 3) / 4);
+}
+
+static int32_t mechanism_runtime_asr32_6(int32_t value)
+{
+    if (value >= 0) {
+        return value >> 6;
+    }
+    return -((-(int64_t)value + 63) >> 6);
 }
 
 static int mechanism_runtime_get_door_header(LevelDynamicState *dynamic_level,
@@ -588,6 +602,71 @@ int mechanism_runtime_update_lifts_single_player(MechanismRuntime *runtime,
 
     /* LiftRoutine clears Anim_LiftOnlyLocks_w after its 999 terminator. */
     runtime->lift_only_locks = 0u;
-    /* TODO(port): newanims.s:DoWaterAnims, called after the lift stream. */
+    return mechanism_runtime_update_water_animations(dynamic_level, mechanisms, frame_ticks,
+                                                     error, error_size);
+}
+
+int mechanism_runtime_update_water_animations(LevelDynamicState *dynamic_level,
+                                              const LevelMechanisms *mechanisms,
+                                              uint16_t frame_ticks,
+                                              char *error, size_t error_size)
+{
+    if (!dynamic_level || !mechanisms ||
+        dynamic_level->runtime.graphics_bytes != dynamic_level->graphics_bytes ||
+        mechanisms->water_animation_count != LEVEL_MECHANISMS_WATER_ANIMATION_COUNT) {
+        mechanism_runtime_set_error(error, error_size,
+                                    "DoWaterAnims received invalid runtime state");
+        return 0;
+    }
+    for (uint16_t animation_index = 0u;
+         animation_index < mechanisms->water_animation_count;
+         ++animation_index) {
+        LevelWaterAnimation animation;
+        uint8_t *state;
+        int32_t position;
+        int16_t velocity;
+
+        if (!level_mechanisms_get_water_animation(mechanisms, animation_index, &animation,
+                                                  error, error_size) ||
+            !level_dynamic_state_get_graphics_range(
+                dynamic_level, animation.state_offset, 14u, &state)) {
+            mechanism_runtime_set_error(error, error_size,
+                                        "DoWaterAnims state is outside mutable graphics data");
+            return 0;
+        }
+        position = (int32_t)((uint32_t)mechanism_runtime_read_be32(state + 8u) +
+            (uint32_t)((int32_t)mechanism_runtime_read_be16s(state + 12u) *
+                       (int16_t)frame_ticks));
+        velocity = mechanism_runtime_read_be16s(state + 12u);
+        /* The source caps first at +0, then at +4, and reverses at either bound. */
+        if (position <= mechanism_runtime_read_be32s(state + 0u)) {
+            position = mechanism_runtime_read_be32s(state + 0u);
+            velocity = mechanism_runtime_neg16(velocity);
+        } else if (position >= mechanism_runtime_read_be32s(state + 4u)) {
+            position = mechanism_runtime_read_be32s(state + 4u);
+            velocity = mechanism_runtime_neg16(velocity);
+        }
+        mechanism_runtime_write_be32(state + 8u, (uint32_t)position);
+        mechanism_runtime_write_be16(state + 12u, (uint16_t)velocity);
+        for (uint16_t target_index = 0u; target_index < animation.target_count;
+             ++target_index) {
+            LevelWaterAnimationTarget target;
+            uint8_t *graphics_record;
+
+            if (!level_mechanisms_get_water_animation_target(
+                    mechanisms, animation_index, target_index, &target, error, error_size) ||
+                target.zone_index >= dynamic_level->runtime.zone_count ||
+                !level_dynamic_state_get_graphics_range(
+                    dynamic_level, target.graphics_offset + 2u, 2u, &graphics_record) ||
+                !mechanism_runtime_write_zone_height(dynamic_level, (int16_t)target.zone_index,
+                                                     MECHANISM_ZONE_WATER_OFFSET, position)) {
+                mechanism_runtime_set_error(error, error_size,
+                                            "DoWaterAnims target is outside mutable source data");
+                return 0;
+            }
+            mechanism_runtime_write_be16(graphics_record,
+                                         (uint16_t)mechanism_runtime_asr32_6(position));
+        }
+    }
     return 1;
 }

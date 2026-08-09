@@ -10,6 +10,8 @@
 enum {
     LEVEL_MECHANISMS_MAX_DOORS = 16,
     LEVEL_MECHANISMS_MAX_LIFTS = 16,
+    /* newanims.s:DoWaterAnims starts d0 at 20 and uses DBRA. */
+    LEVEL_MECHANISMS_WATER_ANIMATION_COUNT = 21,
     /* newanims.s:SwitchRoutine starts with d0 = 7 and uses DBRA. */
     LEVEL_MECHANISMS_SWITCH_COUNT = 8
 };
@@ -62,6 +64,22 @@ typedef struct {
     uint8_t bytes11_to_13[3];
 } LevelSwitch;
 
+/* One fixed DoWaterAnims controller followed by its negative-ended target list. */
+typedef struct {
+    int32_t lower_position;
+    int32_t upper_position;
+    int32_t position;
+    int16_t velocity;
+    uint32_t state_offset;
+    uint32_t target_list_offset;
+    uint16_t target_count;
+} LevelWaterAnimation;
+
+typedef struct {
+    uint16_t zone_index;
+    uint32_t graphics_offset;
+} LevelWaterAnimationTarget;
+
 typedef struct {
     const uint8_t *graphics_bytes;
     size_t graphics_size;
@@ -70,6 +88,8 @@ typedef struct {
     LevelLiftable lifts[LEVEL_MECHANISMS_MAX_LIFTS];
     uint16_t lift_count;
     LevelSwitch switches[LEVEL_MECHANISMS_SWITCH_COUNT];
+    LevelWaterAnimation water_animations[LEVEL_MECHANISMS_WATER_ANIMATION_COUNT];
+    uint16_t water_animation_count;
 } LevelMechanisms;
 
 int level_mechanisms_init(const AssetBlob *graphics_data,
@@ -93,5 +113,12 @@ int level_mechanisms_get_lift_wall(const LevelMechanisms *mechanisms,
 int level_mechanisms_get_switch(const LevelMechanisms *mechanisms,
                                 uint16_t switch_index, LevelSwitch *out_switch,
                                 char *error, size_t error_size);
+int level_mechanisms_get_water_animation(const LevelMechanisms *mechanisms,
+                                         uint16_t animation_index,
+                                         LevelWaterAnimation *out_animation,
+                                         char *error, size_t error_size);
+int level_mechanisms_get_water_animation_target(
+    const LevelMechanisms *mechanisms, uint16_t animation_index, uint16_t target_index,
+    LevelWaterAnimationTarget *out_target, char *error, size_t error_size);
 
 #endif

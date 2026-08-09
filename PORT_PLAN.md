@@ -203,7 +203,10 @@ authority for all game behavior and data formats.
   audio nor pixels. Its `LiftRoutine` companion now mutates source `ZoneT`
   floor height, lift wall/graphics displacement, per-lift source height table,
   trigger edges, and the `FloorSpd_w` handoff consumed by the next player-fall
-  update; it does not yet include `DoWaterAnims`. Dynamic `Obj_DoCollision`,
+  update. Its trailing `DoWaterAnims` pass now follows the source's 21
+  controller records after the lift `999` marker, including motion-bound
+  reversal and every authored graphics/`ZoneT_Water_l` target; it neither
+  renders pixels nor requires PVS. Dynamic `Obj_DoCollision`,
   `src/object_activatables.*` ports the `ItsAnObject`/`Activatable` subset:
   source floor/ceiling placement, default/action six-byte frame records,
   player collision, operate-to-toggle state, active timeout, and inventory
@@ -212,7 +215,7 @@ authority for all game behavior and data formats.
   worry-gated decoration placement/default animation. It deliberately leaves
   object locks, destructible narrative messages, and AI worry selection out
   of scope until their owning systems exist. Dynamic `Obj_DoCollision`,
-  switches, water animation, enemies, projectiles, sounds, and sprites remain
+  switches, enemies, projectiles, sounds, and sprites remain
   absent until their owning routines are ported.
   `SceneCamera.look_offset` now carries
   the source small-screen look value for the future GPU backend. Walls, floors,
@@ -315,8 +318,8 @@ authority for all game behavior and data formats.
      trigonometric approximation. The current interaction scope includes the
      tested collectable, activatable, destructible, and decoration paths,
      `DoorRoutine`, and `LiftRoutine`; next: source `Obj_DoCollision`, the
-     remaining alien/projectile `ObjectHandler` paths, switches/water
-     animation, and `newplayershoot.s`.
+     remaining alien/projectile `ObjectHandler` paths, switches,
+     `newplayershoot.s`, and source sprites.
    - Keep optional modern bindings outside core simulation state. The native
      menu is intentionally not on the gameplay-first launch path for now; do
      not extend it while the direct Level A path is the active milestone.
