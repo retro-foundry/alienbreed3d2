@@ -26,6 +26,7 @@ FetchContent_MakeAvailable(SDL2)
 set(AB3D2_CORE_SOURCES
   src/alien_runtime.c
   src/alien_decision.c
+  src/alien_flight.c
   src/alien_memory.c
   src/alien_perception.c
   src/alien_spatial.c

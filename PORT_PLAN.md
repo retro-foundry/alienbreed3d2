@@ -571,6 +571,10 @@ source callers.
 are also available for those callers. They preserve high-word-only Vec2L
 position writes, source floor/upper-floor centring, and current-control-point
 selection without assuming a movement mode or alien-definition setup.
+`ai_FlyToHeightCommon`, `ai_FlyToPlayerHeight`, `ai_FlyToCPTHeight`, and
+`ai_CheckFloorCeiling` are available as a separate source vertical-flight
+helper. They retain the $\pm$32 velocity limits and source word-level room
+clamps, but are not invoked without a translated flying mode.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,

@@ -3,6 +3,7 @@
 
 #include "alien_runtime.h"
 #include "alien_decision.h"
+#include "alien_flight.h"
 #include "alien_memory.h"
 #include "alien_perception.h"
 #include "alien_spatial.h"
@@ -4206,6 +4207,98 @@ int main(int argc, char **argv)
             read_be16(slot_bytes + 28u) != (spatial_zone.control_point & 0x00ffu)) {
             fprintf(stderr, "ai_GetRoomStats/ai_GetRoomCPT upper source state is inconsistent: %s\n",
                     error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s flying helpers accelerate and clamp around source room bounds. */
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime flight_objects = {0};
+        PlayerRuntime flight_player = game.player;
+        LevelZone flight_zone = {0};
+        uint16_t flight_zone_index = UINT16_MAX;
+        int16_t lower_floor;
+        int16_t lower_roof;
+        int16_t safe_height;
+        int32_t thing_height = 2560;
+
+        for (uint16_t zone_index = 0u;
+             zone_index < game.dynamic_level.runtime.zone_count; ++zone_index) {
+            LevelZone candidate;
+
+            if (!level_runtime_get_zone(&game.dynamic_level.runtime, zone_index,
+                                        &candidate, error, sizeof(error))) {
+                fprintf(stderr, "could not scan ai flight source zones: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            lower_floor = (int16_t)source_asr32_count(candidate.floor, 7u);
+            lower_roof = (int16_t)source_asr32_count(candidate.roof, 7u);
+            if (lower_floor > lower_roof + 128) {
+                flight_zone = candidate;
+                flight_zone_index = zone_index;
+                break;
+            }
+        }
+        if (flight_zone_index == UINT16_MAX) {
+            fprintf(stderr, "could not establish ai flight source state: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        lower_floor = (int16_t)source_asr32_count(flight_zone.floor, 7u);
+        lower_roof = (int16_t)source_asr32_count(flight_zone.roof, 7u);
+        safe_height = (int16_t)(lower_roof + (lower_floor - lower_roof) / 2);
+        flight_objects.slot_bytes = slot_bytes;
+        flight_objects.slot_count = 2u;
+        flight_objects.active_slot_count = 2u;
+        write_be16(slot_bytes + 4u, safe_height);
+        write_be16(slot_bytes + 48u, 31u);
+        if (!alien_flight_move_toward_height(
+                &flight_objects, 0u, &game.dynamic_level.runtime, flight_zone_index,
+                (int16_t)(safe_height + 1), thing_height, error, sizeof(error)) ||
+            read_be16(slot_bytes + 48u) != 32u ||
+            read_be16(slot_bytes + 4u) != (uint16_t)(safe_height + 32)) {
+            fprintf(stderr, "ai_FlyToHeightCommon downward clamp is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(slot_bytes + 4u, safe_height);
+        write_be16(slot_bytes + 48u, (uint16_t)-31);
+        if (!alien_flight_move_toward_height(
+                &flight_objects, 0u, &game.dynamic_level.runtime, flight_zone_index,
+                (int16_t)(safe_height - 1), thing_height, error, sizeof(error)) ||
+            read_be16(slot_bytes + 48u) != (uint16_t)-32 ||
+            read_be16(slot_bytes + 4u) != (uint16_t)(safe_height - 32)) {
+            fprintf(stderr, "ai_FlyToHeightCommon upward clamp is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(slot_bytes + 4u, lower_floor);
+        write_be16(slot_bytes + 48u, 0u);
+        if (!alien_flight_check_floor_ceiling(
+                &flight_objects, 0u, &game.dynamic_level.runtime, flight_zone_index,
+                thing_height, error, sizeof(error)) ||
+            read_be16(slot_bytes + 4u) != (uint16_t)(lower_floor - 10)) {
+            fprintf(stderr, "ai_CheckFloorCeiling lower source clamp is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(slot_bytes + 4u, safe_height);
+        write_be16(slot_bytes + 48u, 0u);
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, safe_height);
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 48u, 0u);
+        flight_player.y = (int32_t)(safe_height + 20) * 128;
+        if (!alien_flight_move_toward_player_height(
+                &flight_objects, 0u, &game.dynamic_level.runtime, flight_zone_index,
+                &flight_player, thing_height, error, sizeof(error)) ||
+            !alien_flight_move_toward_height(
+                &flight_objects, 1u, &game.dynamic_level.runtime, flight_zone_index,
+                (int16_t)(safe_height + 20), thing_height, error, sizeof(error)) ||
+            memcmp(slot_bytes, slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT,
+                   OBJECT_RUNTIME_SLOT_BYTE_COUNT) != 0) {
+            fprintf(stderr, "ai_FlyToPlayerHeight source handoff is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
