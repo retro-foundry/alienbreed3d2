@@ -42,6 +42,13 @@ typedef struct {
     int8_t other_zone;
 } LevelDrawWall;
 
+/* Draw_Flats record with its source point words kept intact. */
+typedef struct {
+    int16_t height;
+    uint16_t point_count;
+    uint32_t points_offset;
+} LevelDrawFlat;
+
 /*
  * All calls follow draw_zone_graph.s directly and do not consult PVS or
  * portal state. `upper_stream` is zero for the lower stream and nonzero for
@@ -58,5 +65,14 @@ int level_draw_graph_read_wall(const LevelRuntime *runtime,
                                const LevelDrawGraphRecord *record,
                                LevelDrawWall *out_wall,
                                char *error, size_t error_size);
+int level_draw_graph_read_flat(const LevelRuntime *runtime,
+                               const LevelDrawGraphRecord *record,
+                               LevelDrawFlat *out_flat,
+                               char *error, size_t error_size);
+int level_draw_graph_get_flat_point(const LevelRuntime *runtime,
+                                    const LevelDrawFlat *flat, uint16_t point_index,
+                                    uint16_t *out_raw_point_word,
+                                    uint16_t *out_world_point_index,
+                                    char *error, size_t error_size);
 
 #endif

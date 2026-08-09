@@ -82,6 +82,7 @@ int main(int argc, char **argv)
     LevelDrawGraphStreams draw_graph_streams;
     LevelDrawGraphRecord draw_graph_record;
     LevelDrawWall draw_wall;
+    LevelDrawFlat draw_flat;
     LevelEdge edge;
     LevelControlPoint control_point;
     LevelWorldPoint world_point;
@@ -98,6 +99,9 @@ int main(int argc, char **argv)
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
+    uint16_t flat_point_index;
+    uint16_t flat_raw_point_word;
+    uint16_t flat_world_point_index;
     uint16_t mechanism_index;
     uint16_t wall_index;
     GameSession encoded_session;
@@ -768,24 +772,61 @@ int main(int argc, char **argv)
                         game_bootstrap_destroy(&game);
                         return 1;
                     }
-                    if (draw_graph_record.type != LEVEL_DRAW_GRAPH_TYPE_WALL) {
+                    if (draw_graph_record.type == LEVEL_DRAW_GRAPH_TYPE_WALL) {
+                        source = game.level_runtime.graphics_bytes + draw_graph_record.source_offset;
+                        if (!level_draw_graph_read_wall(&game.level_runtime, &draw_graph_record,
+                                                        &draw_wall, error, sizeof(error)) ||
+                            draw_wall.left_point_index >= game.level_runtime.world_point_count ||
+                            draw_wall.right_point_index >= game.level_runtime.world_point_count ||
+                            draw_wall.left_point_index != read_be16(source + 2u) ||
+                            draw_wall.right_point_index != read_be16(source + 4u) ||
+                            draw_wall.texture_id != read_be16(source + 14u) ||
+                            draw_wall.top != (int32_t)read_be32(source + 20u) ||
+                            draw_wall.bottom != (int32_t)read_be32(source + 24u)) {
+                            fprintf(stderr,
+                                    "campaign level %u zone %u wall record %u is invalid: %s\n",
+                                    level_index, zone_index, draw_graph_record_index, error);
+                            game_bootstrap_destroy(&game);
+                            return 1;
+                        }
+                        continue;
+                    }
+                    if (draw_graph_record.type != LEVEL_DRAW_GRAPH_TYPE_FLOOR &&
+                        draw_graph_record.type != LEVEL_DRAW_GRAPH_TYPE_CEILING &&
+                        draw_graph_record.type != LEVEL_DRAW_GRAPH_TYPE_WATER) {
                         continue;
                     }
                     source = game.level_runtime.graphics_bytes + draw_graph_record.source_offset;
-                    if (!level_draw_graph_read_wall(&game.level_runtime, &draw_graph_record,
-                                                    &draw_wall, error, sizeof(error)) ||
-                        draw_wall.left_point_index >= game.level_runtime.world_point_count ||
-                        draw_wall.right_point_index >= game.level_runtime.world_point_count ||
-                        draw_wall.left_point_index != read_be16(source + 2u) ||
-                        draw_wall.right_point_index != read_be16(source + 4u) ||
-                        draw_wall.texture_id != read_be16(source + 14u) ||
-                        draw_wall.top != (int32_t)read_be32(source + 20u) ||
-                        draw_wall.bottom != (int32_t)read_be32(source + 24u)) {
+                    if (!level_draw_graph_read_flat(&game.level_runtime, &draw_graph_record,
+                                                    &draw_flat, error, sizeof(error)) ||
+                        draw_flat.height != (int16_t)read_be16(source + 2u) ||
+                        draw_flat.point_count != (uint16_t)(read_be16(source + 4u) + 1u) ||
+                        draw_flat.points_offset != draw_graph_record.source_offset + 6u ||
+                        level_draw_graph_get_flat_point(&game.level_runtime, &draw_flat,
+                                                        draw_flat.point_count, &flat_raw_point_word,
+                                                        &flat_world_point_index,
+                                                        error, sizeof(error))) {
                         fprintf(stderr,
-                                "campaign level %u zone %u wall record %u is invalid: %s\n",
+                                "campaign level %u zone %u flat record %u is invalid: %s\n",
                                 level_index, zone_index, draw_graph_record_index, error);
                         game_bootstrap_destroy(&game);
                         return 1;
+                    }
+                    for (flat_point_index = 0u; flat_point_index < draw_flat.point_count;
+                         ++flat_point_index) {
+                        if (!level_draw_graph_get_flat_point(&game.level_runtime, &draw_flat,
+                                                            flat_point_index, &flat_raw_point_word,
+                                                            &flat_world_point_index,
+                                                            error, sizeof(error)) ||
+                            flat_raw_point_word != read_be16(source + 6u +
+                                                              (size_t)flat_point_index * 2u) ||
+                            flat_world_point_index != (flat_raw_point_word & 0x0fffu)) {
+                            fprintf(stderr,
+                                    "campaign level %u zone %u flat point %u is invalid: %s\n",
+                                    level_index, zone_index, flat_point_index, error);
+                            game_bootstrap_destroy(&game);
+                            return 1;
+                        }
                     }
                 }
             }

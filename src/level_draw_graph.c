@@ -11,7 +11,9 @@ enum {
     /* draw_zone_graph.s:Draw_Objects consumes a one-word selector. */
     LEVEL_DRAW_GRAPH_OBJECTS_SIZE = 4,
     /* Draw_Flats uses `lea 10(a0,d6.w*2),a0` after floor height/count. */
-    LEVEL_DRAW_GRAPH_FLAT_FIXED_SIZE = 16
+    LEVEL_DRAW_GRAPH_FLAT_FIXED_SIZE = 16,
+    /* Draw_Flats masks its source point words with this before point lookup. */
+    LEVEL_DRAW_GRAPH_FLAT_POINT_INDEX_MASK = 0x0fff
 };
 
 static uint16_t level_draw_graph_read_be16(const uint8_t *source)
@@ -240,5 +242,74 @@ int level_draw_graph_read_wall(const LevelRuntime *runtime,
     wall.brightness_offset = (int8_t)source[28u];
     wall.other_zone = (int8_t)source[29u];
     *out_wall = wall;
+    return 1;
+}
+
+int level_draw_graph_read_flat(const LevelRuntime *runtime,
+                               const LevelDrawGraphRecord *record,
+                               LevelDrawFlat *out_flat,
+                               char *error, size_t error_size)
+{
+    const uint8_t *source;
+    uint16_t sides_minus_one;
+    uint64_t expected_size;
+    LevelDrawFlat flat;
+
+    if (!runtime || !runtime->graphics_bytes || !record || !out_flat ||
+        (record->type != LEVEL_DRAW_GRAPH_TYPE_FLOOR &&
+         record->type != LEVEL_DRAW_GRAPH_TYPE_CEILING &&
+         record->type != LEVEL_DRAW_GRAPH_TYPE_WATER) ||
+        !level_draw_graph_range_is_valid(record->source_offset, record->byte_count,
+                                         runtime->graphics_size)) {
+        level_draw_graph_set_error(error, error_size, "draw-graph flat record is malformed");
+        return 0;
+    }
+    source = runtime->graphics_bytes + record->source_offset;
+    sides_minus_one = level_draw_graph_read_be16(source + 4u);
+    expected_size = LEVEL_DRAW_GRAPH_FLAT_FIXED_SIZE +
+        (uint64_t)sides_minus_one * sizeof(uint16_t);
+    if (expected_size != record->byte_count || sides_minus_one == UINT16_MAX) {
+        level_draw_graph_set_error(error, error_size, "draw-graph flat record has an invalid side count");
+        return 0;
+    }
+    flat.height = level_draw_graph_read_be16s(source + 2u);
+    /* Draw_Flats uses DBRA, hence its stored value is the final point index. */
+    flat.point_count = (uint16_t)(sides_minus_one + 1u);
+    flat.points_offset = record->source_offset + 6u;
+    *out_flat = flat;
+    return 1;
+}
+
+int level_draw_graph_get_flat_point(const LevelRuntime *runtime,
+                                    const LevelDrawFlat *flat, uint16_t point_index,
+                                    uint16_t *out_raw_point_word,
+                                    uint16_t *out_world_point_index,
+                                    char *error, size_t error_size)
+{
+    size_t point_offset;
+    uint16_t raw_point_word;
+    uint16_t world_point_index;
+
+    if (!runtime || !runtime->graphics_bytes || !flat || !out_raw_point_word ||
+        !out_world_point_index || point_index >= flat->point_count) {
+        level_draw_graph_set_error(error, error_size,
+                                   "draw-graph flat point is outside the runtime view");
+        return 0;
+    }
+    point_offset = (size_t)flat->points_offset + (size_t)point_index * sizeof(uint16_t);
+    if (!level_draw_graph_range_is_valid(point_offset, sizeof(uint16_t), runtime->graphics_size)) {
+        level_draw_graph_set_error(error, error_size,
+                                   "draw-graph flat point is outside the source file");
+        return 0;
+    }
+    raw_point_word = level_draw_graph_read_be16(runtime->graphics_bytes + point_offset);
+    world_point_index = raw_point_word & LEVEL_DRAW_GRAPH_FLAT_POINT_INDEX_MASK;
+    if (world_point_index >= runtime->world_point_count) {
+        level_draw_graph_set_error(error, error_size,
+                                   "draw-graph flat point references an invalid world point");
+        return 0;
+    }
+    *out_raw_point_word = raw_point_word;
+    *out_world_point_index = world_point_index;
     return 1;
 }

@@ -108,8 +108,9 @@ authority for all game behavior and data formats.
   `draw_zone_graph.s` cursor for every lower/upper stream: fixed wall records,
   variable flat/water records, object selectors, and header-only ignored tags
   through the signed-byte terminator. It exposes the complete `Draw_Wall`
-  record and validates every cursor boundary and wall point reference in all
-  campaign levels. `src/level_static_scene.*` expands every source wall into
+  record plus every `Draw_Flats` height and source point word (including its
+  high flag bits) and validates each reference in all campaign levels.
+  `src/level_static_scene.*` expands every source wall into
   triangle-list world geometry and emits its source texture ID as a material
   command; it intentionally flags UVs as unresolved rather than fabricating a
   software-renderer approximation. Neither step uses PVS/portal traversal.
@@ -122,7 +123,8 @@ authority for all game behavior and data formats.
   they deliberately do not move the player. The source advances snap state
   before `hires.s:Plr1_Control` collision-validates and commits it, so native
   horizontal/vertical movement remains gated on that complete sequence.
-  Wall, flat, and sprite scene emission remain distinct follow-up slices.
+  Flat and sprite scene emission remain distinct follow-up slices; walls now
+  submit source-defined material and geometry commands.
 - [ ] Before emitting textured world geometry, establish the source-to-GPU
   material mapping for each primitive. `src/level_draw_graph.*` has now proven
   every active cursor boundary in the shipped streams: type 3 and other
