@@ -235,6 +235,10 @@ int game_link_get_object_frame_data(const GameLink *link, uint16_t object_index,
 int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
                                    GameShootDefinition *out_definition,
                                    char *error, size_t error_size);
+/* defs.i:GLFT_GunObjects_l, consumed by hires.s:Plr1_Use. */
+int game_link_get_gun_object_type(const GameLink *link, uint16_t gun_index,
+                                  uint16_t *out_object_type,
+                                  char *error, size_t error_size);
 int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
                                    GameAlienDefinition *out_definition,
                                    char *error, size_t error_size);

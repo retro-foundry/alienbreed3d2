@@ -46,7 +46,9 @@ first game's software renderer:
 - exposes all 20 `BulT` records, including their source animation/pop payload
   views and fixed six-byte frame records. The `Game_Begin` player/alien
   projectile pools and both player entities resolve to checked slots in the
-  owned `ObjT` runtime array. The bounded stationary impact state created by
+  owned `ObjT` runtime array. Player 1's source `ENT_NEXT_2` companion weapon
+  entity is also republished each update from `GLFT_GunObjects_l`, so firing
+  updates its real object state. The bounded stationary impact state created by
   `plr1_HitscanSucceded` advances its original `ItsABullet` pop frames and
   releases its source slot; projectile flight/collision remains unported;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,

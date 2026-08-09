@@ -55,6 +55,14 @@ static int32_t source_asr32_7(int32_t value)
     return -((-(int64_t)value + 127) >> 7);
 }
 
+static int32_t source_asr32_count(int32_t value, unsigned int count)
+{
+    if (value >= 0) {
+        return value >> count;
+    }
+    return -(((-(int64_t)value) + ((INT64_C(1) << count) - 1)) >> count);
+}
+
 static int32_t source_asr32_6(int32_t value)
 {
     if (value >= 0) {
@@ -1460,6 +1468,8 @@ int main(int argc, char **argv)
             const uint8_t *source_point;
             uint8_t *runtime_slot;
             uint8_t *runtime_point;
+            uint8_t *weapon_slot;
+            uint8_t *weapon_point;
             uint8_t *dynamic_level_byte;
             uint8_t *dynamic_graphics_byte;
             uint8_t original_level_byte;
@@ -1467,6 +1477,10 @@ int main(int argc, char **argv)
             uint16_t original_edge_flags;
             uint16_t changed_edge_flags;
             uint16_t player_point_index;
+            uint16_t weapon_point_index;
+            uint16_t gun_object_type;
+            int32_t weapon_height;
+            int32_t weapon_bobble;
 
             if (game.object_runtime.player_shot_first_slot !=
                     (game.level_runtime.player_shot_offset -
@@ -1516,7 +1530,8 @@ int main(int argc, char **argv)
             }
 
             if (!player_entity_sync_single_player(&game.object_runtime,
-                                                  &game.dynamic_level.runtime, &game.player,
+                                                  &game.dynamic_level.runtime,
+                                                  &game.game_link_catalog, &game.player,
                                                   error, sizeof(error)) ||
                 !object_runtime_get_player1_slot_bytes(&game.object_runtime, &runtime_slot) ||
                 runtime_slot[16u] != 4u || runtime_slot[18u] != 10u ||
@@ -1540,6 +1555,42 @@ int main(int argc, char **argv)
                 read_be32(runtime_point + 0u) != (uint32_t)game.player.x ||
                 read_be32(runtime_point + 4u) != (uint32_t)game.player.z) {
                 fprintf(stderr, "campaign level %u Plr1_Use point publication is invalid\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (game.object_runtime.player1_slot > UINT32_MAX - 2u ||
+                !object_runtime_get_slot_bytes(&game.object_runtime,
+                                               game.object_runtime.player1_slot + 2u,
+                                               &weapon_slot) ||
+                !game_link_get_gun_object_type(&game.game_link_catalog,
+                                               game.player.tmp_gun_selected, &gun_object_type,
+                                               error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u Plr1_Use weapon setup is invalid: %s\n",
+                        level_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            weapon_point_index = read_be16(weapon_slot + 0u);
+            weapon_height = source_asr32_7(
+                (int32_t)((uint32_t)game.player.tmp_y +
+                          (uint32_t)source_asr32_count(game.player.tmp_height, 2u) +
+                          10 * 128));
+            weapon_bobble = source_asr32_count(game.player.bobble_y, 8u);
+            weapon_bobble += source_asr32_count(weapon_bobble, 1u);
+            if (weapon_point_index >= game.object_runtime.point_count ||
+                !object_runtime_get_point_bytes(&game.object_runtime, weapon_point_index,
+                                                &weapon_point) ||
+                read_be16(weapon_slot + 12u) != zone.id ||
+                read_be16(weapon_slot + 26u) != zone.id || weapon_slot[16u] != 1u ||
+                weapon_slot[54u] != (uint8_t)gun_object_type || weapon_slot[55u] != UINT8_MAX ||
+                read_be16(weapon_slot + 30u) !=
+                    (uint16_t)((game.player.tmp_yaw + 4096u) & 8190u) ||
+                read_be16(weapon_slot + 4u) !=
+                    (uint16_t)((uint16_t)weapon_height + (uint16_t)weapon_bobble) ||
+                weapon_slot[63u] != game.player.stood_in_top ||
+                memcmp(weapon_point, runtime_point, OBJECT_RUNTIME_POINT_BYTE_COUNT) != 0) {
+                fprintf(stderr, "campaign level %u Plr1_Use companion weapon is invalid\n",
                         level_index);
                 game_bootstrap_destroy(&game);
                 return 1;

@@ -967,6 +967,7 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
     if (player->ducked == 0u && player->squished == 0u) {
         bobble = player_runtime_add32(bobble, bobble);
     }
+    player->bobble_y = bobble;
     visual_y = player_runtime_add32(player->snap_y, bobble);
     thing_height = player_runtime_sub32(player->height, bobble);
     step_up = (player->ducked != 0u || player->squished != 0u) ?

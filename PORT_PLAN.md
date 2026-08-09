@@ -265,10 +265,14 @@ authority for all game behavior and data formats.
   routines can consume that signal rather than a native proximity shortcut.
   `src/player_entity.*` now publishes the `hires.s:Plr1_Use` fields required by
   the live shared `ObjT` state: the player-one type, point position, zone,
-  centre height, current angle, targetability, and upper-zone flag. It runs
-  after `Plr1_Control`'s translated spatial update and before `ObjectHandler`.
-  Damage response, audio, and weapon-sprite selection remain with their
-  original routines and are not substituted. The single-player loop also
+  centre height, current angle, targetability, and upper-zone flag. Its
+  `.notdead` tail now also produces the `ENT_NEXT_2` companion weapon ObjT:
+  source reverse angle, zone pair, `GLFT_GunObjects_l` object type, copied
+  point, active animation byte, source height/bobble adjustment, and upper-
+  zone state. This keeps the `Plr1_Shot` timer write attached to its real
+  source object. It runs after `Plr1_Control`'s translated spatial update and
+  before `ObjectHandler`. Damage response and audio remain with their original
+  routines and are not substituted. The single-player loop also
   performs `hires.s`/`macros.i:FREE_ENT` on the player-two slot and clears its
   sight byte each tick, so the shared object list and scene producer retain no
   multiplayer entity state.

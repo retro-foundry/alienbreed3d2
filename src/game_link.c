@@ -336,6 +336,23 @@ int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
     return 1;
 }
 
+int game_link_get_gun_object_type(const GameLink *link, uint16_t gun_index,
+                                  uint16_t *out_object_type,
+                                  char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+
+    if (!out_object_type || gun_index >= GAME_LINK_GUN_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_GUN_OBJECTS, &bytes, &size) ||
+        size != (size_t)GAME_LINK_GUN_COUNT * 2u) {
+        game_link_set_error(error, error_size, "gun object type is outside the GLFT table");
+        return 0;
+    }
+    *out_object_type = game_link_read_be16(bytes + (size_t)gun_index * 2u);
+    return 1;
+}
+
 int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
                                    GameAlienDefinition *out_definition,
                                    char *error, size_t error_size)

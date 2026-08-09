@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 enum {
     /* defs.i:ObjT/EntT/ShotT offsets used by hires.s:Plr1_Use. */
@@ -13,8 +14,16 @@ enum {
     PLAYER_ENTITY_SEES_PLAYER_OFFSET = 17u,
     PLAYER_ENTITY_ENTITY_ZONE_ID_OFFSET = 26u,
     PLAYER_ENTITY_CURRENT_ANGLE_OFFSET = 30u,
+    PLAYER_ENTITY_OBJECT_KIND_OFFSET = 54u,
+    PLAYER_ENTITY_WHICH_ANIMATION_OFFSET = 55u,
     PLAYER_ENTITY_IN_UPPER_ZONE_OFFSET = 63u,
-    PLAYER_ENTITY_TYPE_PLAYER1 = 4u
+    PLAYER_ENTITY_TYPE_PLAYER1 = 4u,
+    PLAYER_ENTITY_TYPE_OBJECT = 1u,
+    PLAYER_ENTITY_WEAPON_SLOT_DISTANCE = 2u,
+    /* data/tables_data.s:SINE_SIZE and SINTAB_MASK_ADR. */
+    PLAYER_ENTITY_REVERSE_ANGLE = 4096u,
+    PLAYER_ENTITY_ANGLE_MASK = 8190u,
+    PLAYER_ENTITY_WEAPON_HEIGHT_OFFSET = 10 * 128
 };
 
 static void player_entity_set_error(char *error, size_t error_size, const char *message)
@@ -51,6 +60,14 @@ static int32_t player_entity_asr32_7(int32_t value)
     return -((-(int64_t)value + 127) >> 7);
 }
 
+static int32_t player_entity_asr32(int32_t value, unsigned int shift)
+{
+    if (value >= 0) {
+        return value >> shift;
+    }
+    return -(((-(int64_t)value) + ((INT64_C(1) << shift) - 1)) >> shift);
+}
+
 int player_entity_disable_second_for_single_player(ObjectRuntime *objects,
                                                    char *error, size_t error_size)
 {
@@ -69,16 +86,22 @@ int player_entity_disable_second_for_single_player(ObjectRuntime *objects,
 }
 
 int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime *level,
-                                     const PlayerRuntime *player,
+                                     const GameLink *game_link, const PlayerRuntime *player,
                                      char *error, size_t error_size)
 {
     uint8_t *slot;
     uint8_t *point;
+    uint8_t *weapon_slot;
+    uint8_t *weapon_point;
     uint16_t point_index;
+    uint16_t weapon_point_index;
+    uint16_t gun_object_type;
     LevelZone zone;
     int32_t middle_height;
+    int32_t weapon_height;
+    int32_t weapon_bobble;
 
-    if (!objects || !level || !player || player->zone_index >= level->zone_count ||
+    if (!objects || !level || !game_link || !player || player->zone_index >= level->zone_count ||
         !object_runtime_get_player1_slot_bytes(objects, &slot)) {
         player_entity_set_error(error, error_size,
                                 "Plr1_Use received an invalid player entity or source zone");
@@ -104,5 +127,44 @@ int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime 
                               (uint32_t)(player->tmp_height / 2));
     player_entity_write_be16(slot + PLAYER_ENTITY_VERTICAL_POSITION_OFFSET,
                              (uint16_t)player_entity_asr32_7(middle_height));
+
+    /* hires.s:Plr1_Use .notdead companion weapon entity, at ENT_NEXT_2. */
+    if (objects->player1_slot > UINT32_MAX - PLAYER_ENTITY_WEAPON_SLOT_DISTANCE ||
+        !object_runtime_get_slot_bytes(objects,
+                                       objects->player1_slot + PLAYER_ENTITY_WEAPON_SLOT_DISTANCE,
+                                       &weapon_slot) ||
+        !game_link_get_gun_object_type(game_link, player->tmp_gun_selected, &gun_object_type,
+                                       error, error_size)) {
+        player_entity_set_error(error, error_size,
+                                "Plr1_Use companion weapon is outside owned source state");
+        return 0;
+    }
+    weapon_point_index = player_entity_read_be16(weapon_slot + PLAYER_ENTITY_POINT_INDEX_OFFSET);
+    if (!object_runtime_get_point_bytes(objects, weapon_point_index, &weapon_point)) {
+        player_entity_set_error(error, error_size,
+                                "Plr1_Use companion weapon references an invalid source point");
+        return 0;
+    }
+    player_entity_write_be16(
+        weapon_slot + PLAYER_ENTITY_CURRENT_ANGLE_OFFSET,
+        (uint16_t)((player_entity_read_be16(slot + PLAYER_ENTITY_CURRENT_ANGLE_OFFSET) +
+                    PLAYER_ENTITY_REVERSE_ANGLE) & PLAYER_ENTITY_ANGLE_MASK));
+    player_entity_write_be16(weapon_slot + PLAYER_ENTITY_ZONE_ID_OFFSET, zone.id);
+    player_entity_write_be16(weapon_slot + PLAYER_ENTITY_ENTITY_ZONE_ID_OFFSET, zone.id);
+    weapon_slot[PLAYER_ENTITY_OBJECT_KIND_OFFSET] = (uint8_t)gun_object_type;
+    weapon_slot[PLAYER_ENTITY_TYPE_ID_OFFSET] = PLAYER_ENTITY_TYPE_OBJECT;
+    memcpy(weapon_point, point, OBJECT_RUNTIME_POINT_BYTE_COUNT);
+    weapon_slot[PLAYER_ENTITY_WHICH_ANIMATION_OFFSET] = UINT8_MAX;
+    weapon_height = player_entity_asr32(
+        (int32_t)((uint32_t)player->tmp_y +
+                  (uint32_t)player_entity_asr32(player->tmp_height, 2u) +
+                  PLAYER_ENTITY_WEAPON_HEIGHT_OFFSET),
+        7u);
+    weapon_bobble = player_entity_asr32(player->bobble_y, 8u);
+    weapon_bobble = (int32_t)((uint32_t)weapon_bobble +
+                               (uint32_t)player_entity_asr32(weapon_bobble, 1u));
+    player_entity_write_be16(weapon_slot + PLAYER_ENTITY_VERTICAL_POSITION_OFFSET,
+                             (uint16_t)((uint16_t)weapon_height + (uint16_t)weapon_bobble));
+    weapon_slot[PLAYER_ENTITY_IN_UPPER_ZONE_OFFSET] = slot[PLAYER_ENTITY_IN_UPPER_ZONE_OFFSET];
     return 1;
 }
