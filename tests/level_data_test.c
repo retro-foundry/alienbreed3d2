@@ -97,6 +97,7 @@ int main(int argc, char **argv)
     uint32_t world_point_index;
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
+    uint32_t static_wall_index;
     uint16_t mechanism_index;
     uint16_t wall_index;
     GameSession encoded_session;
@@ -799,6 +800,52 @@ int main(int argc, char **argv)
                     game_bootstrap_destroy(&game);
                     return 1;
                 }
+            }
+        }
+        for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
+             ++static_wall_index) {
+            const LevelStaticWallScene *scene_wall =
+                &game.static_scene.walls[static_wall_index];
+            const uint8_t *source = game.level_runtime.graphics_bytes +
+                scene_wall->source_record_offset;
+            LevelWorldPoint left_point;
+            LevelWorldPoint right_point;
+            int32_t top;
+            int32_t bottom;
+
+            if (scene_wall->source_record_offset > game.level_runtime.graphics_size ||
+                30u > game.level_runtime.graphics_size - scene_wall->source_record_offset ||
+                (uint8_t)read_be16(source) != LEVEL_DRAW_GRAPH_TYPE_WALL ||
+                scene_wall->material_id != read_be16(source + 14u) ||
+                !level_runtime_get_world_point(&game.level_runtime, read_be16(source + 2u),
+                                               &left_point, error, sizeof(error)) ||
+                !level_runtime_get_world_point(&game.level_runtime, read_be16(source + 4u),
+                                               &right_point, error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u static wall %u is invalid: %s\n",
+                        level_index, static_wall_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            top = (int32_t)read_be32(source + 20u);
+            bottom = (int32_t)read_be32(source + 24u);
+            if (scene_wall->vertices[0].position.x != left_point.x ||
+                scene_wall->vertices[0].position.y != top ||
+                scene_wall->vertices[0].position.z != left_point.z ||
+                scene_wall->vertices[1].position.x != right_point.x ||
+                scene_wall->vertices[1].position.y != top ||
+                scene_wall->vertices[1].position.z != right_point.z ||
+                scene_wall->vertices[2].position.x != right_point.x ||
+                scene_wall->vertices[2].position.y != bottom ||
+                scene_wall->vertices[2].position.z != right_point.z ||
+                scene_wall->vertices[5].position.x != left_point.x ||
+                scene_wall->vertices[5].position.y != bottom ||
+                scene_wall->vertices[5].position.z != left_point.z ||
+                scene_wall->vertices[0].texture_u != 0 ||
+                scene_wall->vertices[0].texture_v != 0) {
+                fprintf(stderr, "campaign level %u static wall %u geometry is inconsistent\n",
+                        level_index, static_wall_index);
+                game_bootstrap_destroy(&game);
+                return 1;
             }
         }
         for (uint32_t object_index = 0;
