@@ -276,6 +276,15 @@ int level_draw_graph_read_flat(const LevelRuntime *runtime,
     /* Draw_Flats uses DBRA, hence its stored value is the final point index. */
     flat.point_count = (uint16_t)(sides_minus_one + 1u);
     flat.points_offset = record->source_offset + 6u;
+    /* hires.s:pastsides advances one word, then reads scale, tile, and light. */
+    flat.skipped_word = level_draw_graph_read_be16(
+        source + 6u + (size_t)flat.point_count * sizeof(uint16_t));
+    flat.texture_scale = level_draw_graph_read_be16(
+        source + 8u + (size_t)flat.point_count * sizeof(uint16_t));
+    flat.texture_offset = level_draw_graph_read_be16(
+        source + 10u + (size_t)flat.point_count * sizeof(uint16_t));
+    flat.brightness_offset = level_draw_graph_read_be16s(
+        source + 12u + (size_t)flat.point_count * sizeof(uint16_t));
     *out_flat = flat;
     return 1;
 }

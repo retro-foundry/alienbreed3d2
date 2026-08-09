@@ -47,6 +47,12 @@ typedef struct {
     int16_t height;
     uint16_t point_count;
     uint32_t points_offset;
+    /* hires.s:pastsides skips this source word before its render parameters. */
+    uint16_t skipped_word;
+    /* Source words consumed by hires.s:pastsides after the polygon point list. */
+    uint16_t texture_scale;
+    uint16_t texture_offset;
+    int16_t brightness_offset;
 } LevelDrawFlat;
 
 /*

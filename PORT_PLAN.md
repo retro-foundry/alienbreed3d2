@@ -108,8 +108,9 @@ authority for all game behavior and data formats.
   `draw_zone_graph.s` cursor for every lower/upper stream: fixed wall records,
   variable flat/water records, object selectors, and header-only ignored tags
   through the signed-byte terminator. It exposes the complete `Draw_Wall`
-  record plus every `Draw_Flats` height and source point word (including its
-  high flag bits) and validates each reference in all campaign levels.
+  record plus every `Draw_Flats` height, source point word (including its high
+  flag bits), skipped word, scale, floor-texture byte offset, and brightness
+  offset; it validates each reference in all campaign levels.
   `src/level_static_scene.*` expands every source wall into
   triangle-list world geometry and emits its source texture ID as a material
   command; it intentionally flags UVs as unresolved rather than fabricating a
@@ -133,7 +134,8 @@ authority for all game behavior and data formats.
   bounds, and material ID, but its screen-space perspective texture-coordinate
   calculation must not be replaced by invented UVs. Decode that mapping or
   capture an original-runtime fixture before clearing the unresolved-UV flag
-  on wall commands; likewise establish the flat-tail and object/sprite
+  on wall commands; likewise turn the now-decoded flat texture byte offset
+  into an explicit source-asset material mapping, and establish object/sprite
   semantics before emitting their scene commands. Do not use a software-renderer
   fallback.
 

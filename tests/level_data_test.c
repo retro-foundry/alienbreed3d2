@@ -802,6 +802,14 @@ int main(int argc, char **argv)
                         draw_flat.height != (int16_t)read_be16(source + 2u) ||
                         draw_flat.point_count != (uint16_t)(read_be16(source + 4u) + 1u) ||
                         draw_flat.points_offset != draw_graph_record.source_offset + 6u ||
+                        draw_flat.skipped_word != read_be16(source + 6u +
+                                                             (size_t)draw_flat.point_count * 2u) ||
+                        draw_flat.texture_scale != read_be16(source + 8u +
+                                                              (size_t)draw_flat.point_count * 2u) ||
+                        draw_flat.texture_offset != read_be16(source + 10u +
+                                                               (size_t)draw_flat.point_count * 2u) ||
+                        draw_flat.brightness_offset != (int16_t)read_be16(
+                            source + 12u + (size_t)draw_flat.point_count * 2u) ||
                         level_draw_graph_get_flat_point(&game.level_runtime, &draw_flat,
                                                         draw_flat.point_count, &flat_raw_point_word,
                                                         &flat_world_point_index,
