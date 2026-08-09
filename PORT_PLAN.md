@@ -171,9 +171,14 @@ authority for all game behavior and data formats.
   its stationary miss effect to the first free player-shot slot without
   touching the source fields it does not own. Its regression verifies the
   ray/contact height, source slot/point byte writes, edge flag, and random
-  state. These helpers are not wired into input yet: source cooldown,
-  ammunition, hit probability, moving-projectile update, and sound still
-  belong to the remaining `Plr1_Shot` path.
+  state. The parent `Plr1_Shot:.fire_hitscanned_bullets` random roll is also
+  now translated: it reads the selected live target point's source high words,
+  retains word subtraction, signed `MULS`, wrapped longword addition,
+  arithmetic divide-by-64, and signed `BGT` decision after one `GetRand`
+  advance. The hit/miss mutation and bullet loop remain owned by the still-
+  unwired parent. These helpers are not wired into input yet: source cooldown,
+  ammunition, moving-projectile update, and sound still belong to the
+  remaining `Plr1_Shot` path.
   `src/game_random.*` now retains `objectmove.s:GetRand`'s
   exact seeded 16-bit rotate/add sequence for the upcoming probability and AI
   paths. `GameBootstrap` owns and initializes that `Rand1` state once per
@@ -405,8 +410,9 @@ authority for all game behavior and data formats.
      `object_movement.*` and `player_shoot.*` now preserve the complete
      zero-extension `MoveObject` trace and its `plr1_HitscanFailed` pool write.
      Next: source `Obj_DoCollision`, the remaining alien/projectile-flight
-     `ObjectHandler` paths, and the cooldown, ammunition, hit-probability,
-     input, and audio portions of `newplayershoot.s`.
+     `ObjectHandler` paths, and the cooldown, ammunition, input, and audio
+     portions of `newplayershoot.s`; its per-bullet hitscan roll is now
+     translated but remains unwired with its source hit/miss mutations.
      Source object render descriptors are now emitted independently of those
      pending simulation branches.
      `SwitchRoutine` remains absent:

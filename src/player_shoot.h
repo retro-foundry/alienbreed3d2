@@ -34,6 +34,18 @@ int player_shoot_find_target_single_player(const ObjectRuntime *objects,
                                            char *error, size_t error_size);
 
 /*
+ * newplayershoot.s:Plr1_Shot .fire_hitscanned_bullets. Advances GetRand once
+ * and compares its source-shaped roll against the selected live target point.
+ * The caller owns the resulting hit or miss mutation and the bullet loop.
+ */
+int player_shoot_hitscan_roll_is_hit(const ObjectRuntime *objects,
+                                     const PlayerShotTarget *target,
+                                     const PlayerRuntime *player,
+                                     GameRandom *random,
+                                     uint8_t *out_hit,
+                                     char *error, size_t error_size);
+
+/*
  * newplayershoot.s:plr1_HitscanSucceded.  Creates the source impact ObjT
  * when a player-shot slot is free, then applies the source byte-sized damage
  * and impact direction to the selected target.  Hit probability, misses, and

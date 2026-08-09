@@ -194,6 +194,57 @@ int player_shoot_find_target_single_player(const ObjectRuntime *objects,
     return 1;
 }
 
+int player_shoot_hitscan_roll_is_hit(const ObjectRuntime *objects,
+                                     const PlayerShotTarget *target,
+                                     const PlayerRuntime *player,
+                                     GameRandom *random,
+                                     uint8_t *out_hit,
+                                     char *error, size_t error_size)
+{
+    const uint8_t *target_slot;
+    const uint8_t *target_point;
+    int16_t point_index;
+    int16_t delta_x;
+    int16_t delta_z;
+    int32_t distance;
+    int32_t roll;
+
+    if (!objects || !objects->slot_bytes || !objects->point_bytes || !target || !player ||
+        !random || !out_hit || target->found == 0u ||
+        target->slot_index >= objects->active_slot_count ||
+        objects->active_slot_count > objects->slot_count) {
+        player_shoot_set_error(error, error_size,
+                               "Plr1_Shot hitscan roll received invalid source state");
+        return 0;
+    }
+    target_slot = objects->slot_bytes +
+        (size_t)target->slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+    point_index = player_shoot_read_be16s(target_slot + PLAYER_SHOOT_POINT_INDEX);
+    if (point_index < 0 || (uint16_t)point_index >= objects->point_count) {
+        player_shoot_set_error(error, error_size,
+                               "Plr1_Shot hitscan target has an invalid source point");
+        return 0;
+    }
+    target_point = objects->point_bytes +
+        (size_t)(uint16_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+
+    /*
+     * `newplayershoot.s:.fire_hitscanned_bullets` uses only the high words
+     * of Vec2L and Plr1_XOff_l/Plr1_ZOff_l before its signed MULS/ASR path.
+     */
+    delta_x = player_shoot_add16(player_shoot_read_be16s(target_point + 0u),
+                                 (int16_t)-(int16_t)player->x);
+    delta_z = player_shoot_add16(player_shoot_read_be16s(target_point + 4u),
+                                 (int16_t)-(int16_t)player->z);
+    distance = player_shoot_asr32(
+        player_shoot_add32(player_shoot_muls16(delta_x, delta_x),
+                           player_shoot_muls16(delta_z, delta_z)),
+        6u);
+    roll = (int32_t)((uint32_t)(game_random_next(random) & 0x7fffu) << 1);
+    *out_hit = roll > distance ? UINT8_MAX : 0u;
+    return 1;
+}
+
 int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
                                        const PlayerShotTarget *target,
                                        uint16_t bullet_type,

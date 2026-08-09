@@ -2965,6 +2965,9 @@ int main(int argc, char **argv)
         PlayerRuntime shot_player = {0};
         GameBulletDefinition shot_bullet = {0};
         PlayerShotTarget shot_target;
+        GameRandom hitscan_random;
+        GameRandom expected_hitscan_random;
+        uint8_t hitscan_hit = 0u;
 
         shot_objects.slot_bytes = slot_bytes;
         shot_objects.slot_count = 2u;
@@ -2995,6 +2998,37 @@ int main(int argc, char **argv)
             shot_target.vertical_speed != -143) {
             fprintf(stderr, "Plr1_Shot target selection/tie handling is inconsistent: %s\n",
                     error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be32(point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u,
+                   UINT32_C(10) << 16);
+        write_be32(point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(20) << 16);
+        game_random_init(&hitscan_random);
+        expected_hitscan_random = hitscan_random;
+        (void)game_random_next(&expected_hitscan_random);
+        if (!player_shoot_hitscan_roll_is_hit(
+                &shot_objects, &shot_target, &shot_player, &hitscan_random,
+                &hitscan_hit, error, sizeof(error)) || hitscan_hit != UINT8_MAX ||
+            hitscan_random.state != expected_hitscan_random.state) {
+            fprintf(stderr, "Plr1_Shot hitscan hit roll is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be32(point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u,
+                   UINT32_C(30000) << 16);
+        write_be32(point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(30000) << 16);
+        game_random_init(&hitscan_random);
+        expected_hitscan_random = hitscan_random;
+        (void)game_random_next(&expected_hitscan_random);
+        hitscan_hit = UINT8_MAX;
+        if (!player_shoot_hitscan_roll_is_hit(
+                &shot_objects, &shot_target, &shot_player, &hitscan_random,
+                &hitscan_hit, error, sizeof(error)) || hitscan_hit != 0u ||
+            hitscan_random.state != expected_hitscan_random.state) {
+            fprintf(stderr, "Plr1_Shot hitscan miss roll is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
