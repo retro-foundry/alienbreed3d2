@@ -931,6 +931,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s\n", error);
         return 1;
     }
+    if (game.random.state != 234u) {
+        fprintf(stderr, "Game_Start source random seed is inconsistent\n");
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
     if (game.shared_resources.floor_texture.size != 65536u ||
         game.shared_resources.texture_maps.size != 131072u ||
         game.shared_resources.texture_palette.size != 16384u ||

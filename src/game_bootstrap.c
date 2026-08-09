@@ -175,6 +175,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     game_controls_default(&game->controls);
     game_input_init(&game->input);
     game_preferences_default(&game->preferences);
+    game_random_init(&game->random);
     return 1;
 
 fail:

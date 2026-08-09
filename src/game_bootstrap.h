@@ -9,6 +9,7 @@
 #include "game_link.h"
 #include "game_math.h"
 #include "game_preferences.h"
+#include "game_random.h"
 #include "game_resources.h"
 #include "game_session.h"
 #include "level_bootstrap.h"
@@ -35,6 +36,8 @@ typedef struct {
     GameControls controls;
     GameInput input;
     GamePreferences preferences;
+    /* objectmove.s:Rand1 persists across campaign-level loads. */
+    GameRandom random;
     GameSession session;
     AssetBlob story_text;
     uint16_t active_level_index;

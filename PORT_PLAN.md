@@ -159,8 +159,9 @@ authority for all game behavior and data formats.
   moving-projectile creation, and sound still belong to the remaining
   `Plr1_Shot` path. `src/game_random.*` now retains `objectmove.s:GetRand`'s
   exact seeded 16-bit rotate/add sequence for the upcoming probability and AI
-  paths; it is intentionally not consumed until the owning shot/AI routine is
-  fully translated.
+  paths. `GameBootstrap` owns and initializes that `Rand1` state once per
+  source game session, so it persists across campaign-level loads; it is not
+  consumed until the owning shot/AI routine is fully translated.
 - [x] `src/object_scene.*` translates the non-raster `ObjT` descriptor boundary
   used by `objdrawhires.s:Draw_Objects` and `draw_Object`. Each live source
   slot produces one unprojected `SceneSprite` command in source slot order:
