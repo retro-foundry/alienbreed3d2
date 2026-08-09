@@ -72,8 +72,14 @@ int object_handler_update_single_player(
         object_handler_write_be16(slot + OBJECT_SLOT_ENTITY_ZONE_ID,
                                   object_handler_read_be16(slot + OBJECT_SLOT_ZONE_ID));
         if (slot[OBJECT_SLOT_TYPE_ID] == OBJECT_TYPE_PROJECTILE) {
-            if (!object_projectiles_update_impact_slot(objects, slot_index, game_link,
-                                                       error, error_size)) {
+            uint8_t popping = slot[30u];
+
+            if ((popping != 0u &&
+                 !object_projectiles_update_impact_slot(objects, slot_index, game_link,
+                                                        error, error_size)) ||
+                (popping == 0u &&
+                 !object_projectiles_update_flight_animation_slot(objects, slot_index, game_link,
+                                                                   error, error_size))) {
                 return 0;
             }
             continue;

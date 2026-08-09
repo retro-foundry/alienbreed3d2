@@ -46,6 +46,29 @@ static void object_projectiles_write_be32(uint8_t *target, uint32_t value)
     target[3] = (uint8_t)value;
 }
 
+static void object_projectiles_apply_animation_descriptor(
+    uint8_t *slot, uint32_t graphics_type, const GameBulletAnimationFrame *frame)
+{
+    /* ItsABullet clears +8 before bitmap, glare, or additive frame setup. */
+    object_projectiles_write_be32(slot + OBJECT_PROJECTILE_GRAPHICS_LONG, 0u);
+    if ((int32_t)graphics_type < 1) {
+        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 1u] = frame->byte_0;
+        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 3u] = frame->byte_1;
+        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_GRAPHICS_WORD, frame->word_2);
+    } else if (graphics_type == 1u) {
+        object_projectiles_write_be16(
+            slot + OBJECT_PROJECTILE_GRAPHICS_LONG,
+            (uint16_t)(int16_t)-(int16_t)(int8_t)frame->byte_0);
+        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 3u] = frame->byte_1;
+        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_GRAPHICS_WORD, frame->word_2);
+    } else {
+        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 1u] = frame->byte_0;
+        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 3u] = frame->byte_1;
+        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 2u] = 6u;
+        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_GRAPHICS_WORD, frame->word_2);
+    }
+}
+
 int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_index,
                                           const GameLink *game_link,
                                           char *error, size_t error_size)
@@ -79,24 +102,7 @@ int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_
         return 0;
     }
 
-    /* ItsABullet clears +8 before its bitmap/glare/additive pop descriptor. */
-    object_projectiles_write_be32(slot + OBJECT_PROJECTILE_GRAPHICS_LONG, 0u);
-    if ((int32_t)bullet.impact_graphics_type < 1) {
-        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 1u] = frame.byte_0;
-        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 3u] = frame.byte_1;
-        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_GRAPHICS_WORD, frame.word_2);
-    } else if (bullet.impact_graphics_type == 1u) {
-        object_projectiles_write_be16(
-            slot + OBJECT_PROJECTILE_GRAPHICS_LONG,
-            (uint16_t)(int16_t)-(int16_t)(int8_t)frame.byte_0);
-        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 3u] = frame.byte_1;
-        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_GRAPHICS_WORD, frame.word_2);
-    } else {
-        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 1u] = frame.byte_0;
-        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 3u] = frame.byte_1;
-        slot[OBJECT_PROJECTILE_GRAPHICS_LONG + 2u] = 6u;
-        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_GRAPHICS_WORD, frame.word_2);
-    }
+    object_projectiles_apply_animation_descriptor(slot, bullet.impact_graphics_type, &frame);
 
     next_frame = (uint16_t)(frame_index + 1u);
     /* cmp.w BulT_PopFrames_l+2,d2 / ble.s notdonepopping. */
@@ -109,5 +115,45 @@ int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_
     } else {
         slot[OBJECT_PROJECTILE_ANIMATION] = (uint8_t)next_frame;
     }
+    return 1;
+}
+
+int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint32_t slot_index,
+                                                     const GameLink *game_link,
+                                                     char *error, size_t error_size)
+{
+    uint8_t *slot;
+    uint16_t bullet_index;
+    uint16_t frame_index;
+    uint16_t next_frame;
+    GameBulletDefinition bullet;
+    GameBulletAnimationFrame frame;
+
+    if (!objects || !game_link || slot_index >= objects->active_slot_count ||
+        objects->active_slot_count > objects->slot_count ||
+        !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
+        object_projectiles_set_error(error, error_size,
+                                     "ItsABullet flight received an invalid source slot");
+        return 0;
+    }
+    if (slot[OBJECT_PROJECTILE_TYPE_ID] != OBJECT_TYPE_PROJECTILE ||
+        object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_ZONE_ID) < 0 ||
+        slot[OBJECT_PROJECTILE_STATUS] != 0u) {
+        return 1;
+    }
+    bullet_index = slot[OBJECT_PROJECTILE_SIZE];
+    frame_index = slot[OBJECT_PROJECTILE_ANIMATION];
+    if (!game_link_get_bullet_definition(game_link, bullet_index, &bullet, error, error_size) ||
+        !game_link_get_bullet_animation_frame(game_link, GAME_LINK_BULLET_ANIMATION_FLIGHT,
+                                              bullet_index, frame_index, &frame,
+                                              error, error_size)) {
+        return 0;
+    }
+    object_projectiles_apply_animation_descriptor(slot, bullet.graphics_type, &frame);
+    next_frame = (uint16_t)(frame_index + 1u);
+    /* cmp.w BulT_AnimFrames_l+2,d2 / ble.s notdoneanim. */
+    slot[OBJECT_PROJECTILE_ANIMATION] =
+        (int16_t)next_frame > (int16_t)(uint16_t)bullet.animation_frames ?
+        0u : (uint8_t)next_frame;
     return 1;
 }

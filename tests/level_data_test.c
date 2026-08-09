@@ -3285,6 +3285,7 @@ int main(int argc, char **argv)
         ObjectRuntime projectile_objects = {0};
         PlayerRuntime projectile_player = {0};
         GameBulletDefinition projectile_bullet = {0};
+        GameBulletAnimationFrame projectile_frame;
         uint16_t projectile_bullet_index = UINT16_MAX;
         int16_t first_sine;
         int16_t first_cosine;
@@ -3381,6 +3382,50 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+        }
+        if (!game_link_get_bullet_animation_frame(
+                &game.game_link_catalog, GAME_LINK_BULLET_ANIMATION_FLIGHT,
+                projectile_bullet_index, 0u, &projectile_frame, error, sizeof(error)) ||
+            !object_projectiles_update_flight_animation_slot(
+                &projectile_objects, 0u, &game.game_link_catalog, error, sizeof(error)) ||
+            read_be16(slot_bytes + 6u) != projectile_frame.word_2 ||
+            slot_bytes[11u] != projectile_frame.byte_1 ||
+            slot_bytes[52u] != ((int16_t)(uint16_t)projectile_bullet.animation_frames < 1 ?
+                                     0u : 1u)) {
+            fprintf(stderr, "ItsABullet source flight animation is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if ((int32_t)projectile_bullet.graphics_type < 1) {
+            if (slot_bytes[9u] != projectile_frame.byte_0 || slot_bytes[10u] != 0u) {
+                fprintf(stderr, "ItsABullet bitmap flight descriptor is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        } else if (projectile_bullet.graphics_type == 1u) {
+            if ((int16_t)read_be16(slot_bytes + 8u) !=
+                    (int16_t)-(int16_t)(int8_t)projectile_frame.byte_0 ||
+                slot_bytes[10u] != 0u) {
+                fprintf(stderr, "ItsABullet glare flight descriptor is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        } else if (slot_bytes[9u] != projectile_frame.byte_0 || slot_bytes[10u] != 6u) {
+            fprintf(stderr, "ItsABullet additive flight descriptor is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        slot_bytes[52u] = 0u;
+        if (!object_handler_update_single_player(
+                &projectile_objects, &game.dynamic_level.runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            slot_bytes[52u] != ((int16_t)(uint16_t)projectile_bullet.animation_frames < 1 ?
+                                     0u : 1u)) {
+            fprintf(stderr, "ObjectHandler flight projectile dispatch is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
         }
         if (!player_shoot_spawn_projectile_volley(
                 &projectile_objects, &game.math, &projectile_player,

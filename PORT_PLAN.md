@@ -495,7 +495,11 @@ preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator, and
 activatable, destructible, and decoration branches. The destructible/decorative
 path has no inferred AI worry, narrative, or lock behavior; the stationary
 hitscan-impact projectile dispatch is now present, while alien and moving-
-projectile dispatch remain unported. The reusable `CanItBeSeen` query now
+  projectile dispatch remain unported. `src/object_projectiles.*` now also
+  retains `ItsABullet:notpopping`'s source `BulT_AnimData_vb` graphics
+  descriptor and animation-frame cycle for each live launched projectile;
+  flight motion/collision, blast, lighting, and audio remain in the later
+  source branches and are not replaced. The reusable `CanItBeSeen` query now
 retains source gameplay PVST/clip/height behavior but is deliberately not
 wired until the owning alien path is translated. `firefive` now creates the
 source non-hitscan launch state, but its later `ItsABullet` movement/collision
