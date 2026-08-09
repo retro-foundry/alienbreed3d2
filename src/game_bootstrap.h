@@ -23,6 +23,9 @@
 typedef struct {
     AssetBlob game_link;
     GameLink game_link_catalog;
+    /* c/game_properties.c: optional global ab3:Includes/game.props. */
+    AssetBlob game_properties;
+    GameInventoryConsumableLimits inventory_limits;
     AssetBlob sine_table;
     GameMath math;
     GameSharedResources shared_resources;
@@ -66,6 +69,13 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
 /* game_ReadMainMenu:playgame followed by game_DoneMenu and Game_Begin. */
 int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char *data_root,
                                                 char *error, size_t error_size);
+/*
+ * Single-player source order: plr_KeyboardControl, Plr1_Control, then the
+ * currently ported Collectable branch of ObjectHandler. Other object classes
+ * remain outside this focused update.
+ */
+int game_bootstrap_update_single_player(GameBootstrap *game,
+                                        char *error, size_t error_size);
 /*
  * controlloop.s:levelMenu/DEFGAME. This reads the selected level's optional
  * deflev.dat record; when it is absent, the source resets to DEFAULTGAME.

@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "object_collectables.h"
+
 #define AB3D2_LEVEL_COUNT 16u
 
 /* hireswall.s:Draw_Wall assigns Draw_ChunkPtr_l = Draw_PalettePtr_l + 64*32. */
@@ -122,6 +124,8 @@ static int game_bootstrap_load_optional_level_file(const char *data_root,
 int game_bootstrap_init(GameBootstrap *game, const char *data_root,
                         char *error, size_t error_size)
 {
+    int game_properties_found;
+
     if (!game) {
         if (error && error_size > 0) {
             (void)snprintf(error, error_size, "game bootstrap pointer is null");
@@ -130,6 +134,14 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     }
     memset(game, 0, sizeof(*game));
 
+    /* c/game.c:Game_Init establishes default caps before optional game.props. */
+    if (!asset_io_load_optional(data_root, "includes/game.props", &game->game_properties,
+                                &game_properties_found, error, error_size) ||
+        !game_inventory_decode_game_properties(game->game_properties.bytes,
+                                               game->game_properties.size,
+                                               &game->inventory_limits)) {
+        goto fail;
+    }
     /* controlloop.s:Game_Start: GLF_DatabaseName_vb */
     if (!asset_io_load(data_root, "includes/test.lnk", &game->game_link, error, error_size)) {
         goto fail;
@@ -181,6 +193,33 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
     game_session_begin_single_player(&game->session);
     level_index = game->session.active_level_index;
     return game_bootstrap_load_level(game, data_root, level_index, error, error_size);
+}
+
+int game_bootstrap_update_single_player(GameBootstrap *game,
+                                        char *error, size_t error_size)
+{
+    if (!game || game->level_data.size == 0u) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "single-player update requires a loaded source level");
+        }
+        return 0;
+    }
+    if (!player_runtime_update_discrete_controls(&game->player, &game->input,
+                                                 &game->controls, &game->level_runtime,
+                                                 error, error_size) ||
+        !player_runtime_update_spatial(&game->player, &game->input, &game->controls,
+                                       &game->preferences, &game->math,
+                                       &game->level_runtime, error, error_size) ||
+        !object_collectables_update_single_player(
+            &game->object_runtime, &game->level_runtime, &game->game_link_catalog,
+            &game->player, &game->session.player1_inventory, &game->inventory_limits,
+            NULL, error, error_size)) {
+        return 0;
+    }
+    /* Game_AddToInventory changes Plr1_Inventory; health drives next control tick. */
+    game->player.health = game->session.player1_inventory.health;
+    return 1;
 }
 
 int game_bootstrap_load_level_definition(GameBootstrap *game, const char *data_root,
@@ -352,6 +391,8 @@ void game_bootstrap_destroy(GameBootstrap *game)
     game_shared_resources_destroy(&game->shared_resources);
     asset_blob_release(&game->game_link);
     memset(&game->game_link_catalog, 0, sizeof(game->game_link_catalog));
+    asset_blob_release(&game->game_properties);
+    memset(&game->inventory_limits, 0, sizeof(game->inventory_limits));
     asset_blob_release(&game->sine_table);
     memset(&game->math, 0, sizeof(game->math));
     memset(&game->session, 0, sizeof(game->session));

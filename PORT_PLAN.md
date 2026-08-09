@@ -172,9 +172,16 @@ authority for all game behavior and data formats.
   `hires.s:Plr1_Control` commits that state through source fixed-point
   arithmetic, teleports, floor/roof transitions, and the primary plus extended
   static `EdgeT` sequences from `objectmove.s:MoveObject`; there is no PVS or
-  portal-rendering dependency. Dynamic `Obj_DoCollision`, pickups, doors,
-  lifts, enemies, projectiles, and sprites remain deliberately absent until
-  their owning object routines are ported. `SceneCamera.look_offset` now carries
+  portal-rendering dependency. Its `TmpX/Y/Z/Height` snapshot now retains the
+  source game-loop values consumed by the first object interaction path.
+  `src/object_collectables.*` ports the single-player `ItsAnObject`/
+  `Collectable`, `Plr1_CheckObjectCollide`, and `Plr1_CollectItem` subset for
+  a same-zone/layer candidate: floor/roof placement, source word-coordinate
+  hit test, `GLFT_AmmoGive`/`GunGive`, saturated inventory update, and removed
+  slot sentinel. The Level B slot-20 health fixture validates this exact path.
+  Dynamic `Obj_DoCollision`, activatables, doors, lifts, enemies, projectiles,
+  animations, sounds, and sprites remain absent until their owning routines
+  are ported. `SceneCamera.look_offset` now carries
   the source small-screen look value for the future GPU backend. Walls, floors,
   ceilings, and water continue to submit source-defined material and geometry
   commands.
@@ -272,8 +279,9 @@ authority for all game behavior and data formats.
      it preserves `AMOD_A` address wrapping and big-endian sine/cosine reads.
      Horizontal movement, falling, and static `MoveObject` collision now use
      that table and the maintained fixed-point update order, not a generated
-     trigonometric approximation. Next: source `Obj_DoCollision`, mechanisms,
-     interaction, and `newplayershoot.s`.
+     trigonometric approximation. The current interaction scope is the tested
+     collectable path only. Next: source `Obj_DoCollision`, activatables and
+     mechanisms, and `newplayershoot.s`.
    - Keep optional modern bindings outside core simulation state. The native
      menu is intentionally not on the gameplay-first launch path for now; do
      not extend it while the direct Level A path is the active milestone.
@@ -357,9 +365,11 @@ Amiga boot-media prerequisites. This is an evidence-collection dependency for
 the remaining dynamic-object work, not permission to infer behavior or use an
 older binary as an oracle.
 
-The immediately preceding preparation step is complete: the runtime can now
-decode the source's object inventory grants and reproduce its inventory-limit
-helpers, and it owns byte-exact mutable `ObjT`/object-point storage. Do not
-connect those helpers to pickup slots until the required
-`ObjectHandler` fixture establishes the mutable `ObjT` initialization, worry,
-animation, and update ordering for the loaded level.
+The immediately preceding preparation step is complete: the runtime decodes
+the source's object inventory grants and reproduces its inventory-limit helpers,
+owns byte-exact mutable `ObjT`/object-point storage, and applies the narrow
+source collectable path for a current-zone/layer candidate. This does not port
+PVS/worry selection, `DEFANIMOBJ`, audio/messages, or any other
+`ObjectHandler` class. Do not generalize the pickup path into a full object
+update until the required `ObjectHandler` fixture establishes mutable `ObjT`
+initialization, worry, animation, and update ordering for the loaded level.

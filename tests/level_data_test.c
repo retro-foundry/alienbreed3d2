@@ -9,6 +9,7 @@
 #include "game_save.h"
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
+#include "object_collectables.h"
 #include "scene_frame.h"
 
 static uint16_t read_be16(const uint8_t *source)
@@ -1812,6 +1813,70 @@ int main(int argc, char **argv)
         fprintf(stderr, "finished level did not preserve player-one inventory\n");
         game_bootstrap_destroy(&game);
         return 1;
+    }
+    /*
+     * Level B's first authored collectable is slot 20: object definition 0
+     * at point 20/zone 146. This exercises the exact ObjectHandler collectable
+     * branch without invoking activation, animation, doors, AI, or projectiles.
+     */
+    if (!game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error)) ||
+        !game_session_select_level(&game.session, 1u, error, sizeof(error)) ||
+        !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error))) {
+        fprintf(stderr, "could not load Level B collectable fixture: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    {
+        uint8_t *collectable_slot;
+        uint8_t *collectable_point;
+        LevelZone collectable_zone;
+        GameObjectDefinition collectable_definition;
+        GameInventory collectable_grant;
+        GameInventory expected_inventory;
+        uint32_t collected_count;
+
+        if (!object_runtime_get_slot_bytes(&game.object_runtime, 20u, &collectable_slot) ||
+            !object_runtime_get_point_bytes(&game.object_runtime, 20u, &collectable_point) ||
+            collectable_slot[16u] != 1u || collectable_slot[54u] != 0u ||
+            (int16_t)read_be16(collectable_slot + 12u) != 146 ||
+            collectable_slot[63u] != 0u ||
+            !game_link_get_object_definition(&game.game_link_catalog, 0u,
+                                             &collectable_definition,
+                                             error, sizeof(error)) ||
+            collectable_definition.behaviour != 0u ||
+            collectable_definition.collision_radius != 150u ||
+            collectable_definition.collision_height != 75u ||
+            !game_link_get_object_inventory_grant(&game.game_link_catalog, 0u,
+                                                  &collectable_grant,
+                                                  error, sizeof(error)) ||
+            !level_runtime_get_zone(&game.level_runtime, 146u, &collectable_zone,
+                                    error, sizeof(error))) {
+            fprintf(stderr, "Level B source collectable fixture is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game.player.zone_index = 146u;
+        game.player.stood_in_top = 0u;
+        game.player.tmp_x = (int16_t)read_be16(collectable_point + 0u);
+        game.player.tmp_z = (int16_t)read_be16(collectable_point + 4u);
+        game.player.tmp_height = 12 * 1024;
+        game.player.tmp_y = collectable_zone.floor - game.player.tmp_height;
+        expected_inventory = game.session.player1_inventory;
+        game_inventory_apply_grant(&expected_inventory, &collectable_grant,
+                                   &game.inventory_limits);
+        if (!object_collectables_update_single_player(
+                &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits,
+                &collected_count, error, sizeof(error)) ||
+            collected_count != 1u ||
+            (int16_t)read_be16(collectable_slot + 12u) != -1 ||
+            collectable_slot[62u] != 0u ||
+            memcmp(&game.session.player1_inventory, &expected_inventory,
+                   sizeof(expected_inventory)) != 0) {
+            fprintf(stderr, "Level B source collectable update is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     game_bootstrap_destroy(&game);
     (void)remove(save_path);

@@ -9,6 +9,15 @@ dynamic object, projectile, timer, or sprite routine from source inspection
 alone when its observable state depends on preceding routines or 68000
 register/flag behaviour.
 
+The sole current exception is the narrow, table-driven Level B collectable
+regression in `src/object_collectables.*`: it reproduces the explicit
+single-player `Collectable`/`Plr1_CheckObjectCollide`/`Plr1_CollectItem`
+branch for a candidate already in the current player zone and layer. Its test
+checks the shipped source slot, point word coordinates, floor placement, grant,
+and removal sentinel. It is not an `ObjectHandler` oracle and must not be used
+to infer PVS/worry selection, animation, activatables, mechanisms, audio,
+sprites, collisions, enemies, or projectiles.
+
 `amiga/ab3d2_source/Makefile` can build a debug (`FLAVOR=dev`) executable with
 debug information. Capture fixtures from that maintained source and the same
 staged game media used by the PC test suite. Record the executable checksum,

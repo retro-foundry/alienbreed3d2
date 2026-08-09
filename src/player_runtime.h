@@ -27,6 +27,11 @@ typedef struct {
     int32_t snap_x_speed;
     int32_t snap_y_velocity;
     int32_t snap_z_speed;
+    /* hires.s game_main_loop snapshots these before Plr1_Control. */
+    int32_t tmp_x;
+    int32_t tmp_y;
+    int32_t tmp_z;
+    int32_t tmp_height;
     int32_t aim_speed;
     uint16_t zone_index;
     uint16_t yaw;

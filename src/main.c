@@ -267,21 +267,16 @@ int main(int argc, char **argv)
                 break;
             }
         }
-        if (!player_runtime_update_discrete_controls(&game.player, &game.input,
-                                                     &game.controls, &game.level_runtime,
-                                                     error, sizeof(error)) ||
-            !player_runtime_update_spatial(&game.player, &game.input, &game.controls,
-                                           &game.preferences, &game.math, &game.level_runtime,
-                                           error, sizeof(error))) {
+        if (!game_bootstrap_update_single_player(&game, error, sizeof(error))) {
             fprintf(stderr, "[GAME] %s\n", error);
             renderer_stub_set_status(renderer, error);
         } else {
             (void)snprintf(status, sizeof(status),
                            "Level %c | zone %u | x=%" PRId32 " y=%" PRId32
-                           " z=%" PRId32 " look=%d | GPU renderer pending",
+                           " z=%" PRId32 " hp=%u look=%d | GPU renderer pending",
                            (char)('A' + game.active_level_index), game.player.zone_index,
                            game.player.x, game.player.y, game.player.z,
-                           game.player.look_offset);
+                           game.player.health, game.player.look_offset);
             renderer_stub_set_status(renderer, status);
         }
         scene_frame_begin(&frame);
