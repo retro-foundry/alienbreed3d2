@@ -11,6 +11,7 @@
 #include "level_draw_graph.h"
 #include "object_collectables.h"
 #include "object_handler.h"
+#include "player_entity.h"
 #include "scene_frame.h"
 
 static uint16_t read_be16(const uint8_t *source)
@@ -1174,6 +1175,7 @@ int main(int argc, char **argv)
             uint8_t original_graphics_byte;
             uint16_t original_edge_flags;
             uint16_t changed_edge_flags;
+            uint16_t player_point_index;
 
             if (game.object_runtime.player_shot_first_slot !=
                     (game.level_runtime.player_shot_offset -
@@ -1218,6 +1220,36 @@ int main(int argc, char **argv)
                     &game.object_runtime, OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT, &runtime_slot)) {
                 fprintf(stderr, "campaign level %u Game_Begin object-pool mapping is invalid: %s\n",
                         level_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+
+            if (!player_entity_sync_single_player(&game.object_runtime,
+                                                  &game.dynamic_level.runtime, &game.player,
+                                                  error, sizeof(error)) ||
+                !object_runtime_get_player1_slot_bytes(&game.object_runtime, &runtime_slot) ||
+                runtime_slot[16u] != 4u || runtime_slot[18u] != 10u ||
+                read_be16(runtime_slot + 30u) != game.player.tmp_yaw ||
+                runtime_slot[63u] != game.player.stood_in_top ||
+                !level_runtime_get_zone(&game.dynamic_level.runtime, game.player.zone_index,
+                                        &zone, error, sizeof(error)) ||
+                read_be16(runtime_slot + 12u) != zone.id ||
+                read_be16(runtime_slot + 4u) !=
+                    (uint16_t)source_asr32_7((int32_t)((uint32_t)game.player.tmp_y +
+                                                       (uint32_t)(game.player.tmp_height / 2)))) {
+                fprintf(stderr, "campaign level %u Plr1_Use entity state is invalid: %s\n",
+                        level_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            player_point_index = read_be16(runtime_slot);
+            if (player_point_index >= game.object_runtime.point_count ||
+                !object_runtime_get_point_bytes(&game.object_runtime, player_point_index,
+                                                &runtime_point) ||
+                read_be32(runtime_point + 0u) != (uint32_t)game.player.x ||
+                read_be32(runtime_point + 4u) != (uint32_t)game.player.z) {
+                fprintf(stderr, "campaign level %u Plr1_Use point publication is invalid\n",
+                        level_index);
                 game_bootstrap_destroy(&game);
                 return 1;
             }

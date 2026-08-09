@@ -49,6 +49,7 @@ set(AB3D2_CORE_SOURCES
   src/object_handler.c
   src/object_passives.c
   src/object_runtime.c
+  src/player_entity.c
   src/player_runtime.c
   src/scene_frame.c
   # Reused =SB= decoder from the first PC port. It matches

@@ -410,6 +410,7 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
     player.tmp_y = player.y;
     player.tmp_z = player.z;
     player.tmp_height = player.height;
+    player.tmp_yaw = player.yaw;
     player.default_enemy_flags = 0x23u; /* %100011 in Plr_Initialise. */
     *out_player = player;
     return 1;
@@ -939,6 +940,7 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
     player->tmp_y = player->snap_y;
     player->tmp_z = player->snap_z;
     player->tmp_height = player->snap_height;
+    player->tmp_yaw = player->snap_yaw;
     player->tmp_used = player->used;
     player->used = 0u;
 

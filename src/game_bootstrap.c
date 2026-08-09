@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "object_handler.h"
+#include "player_entity.h"
 
 #define AB3D2_LEVEL_COUNT 16u
 
@@ -221,6 +222,8 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
                                        &game->preferences, &game->math,
                                        &game->dynamic_level.runtime, &game->dynamic_level,
                                        error, error_size) ||
+        !player_entity_sync_single_player(&game->object_runtime, &game->dynamic_level.runtime,
+                                          &game->player, error, error_size) ||
         !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,

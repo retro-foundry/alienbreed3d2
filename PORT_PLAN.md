@@ -188,6 +188,12 @@ authority for all game behavior and data formats.
   then clears the one-tick use pulse. Static collision also records the source
   `0x0100` player-contact bit in each mutable `EdgeT_Flags_w`, so mechanism
   routines can consume that signal rather than a native proximity shortcut.
+  `src/player_entity.*` now publishes the `hires.s:Plr1_Use` fields required by
+  the live shared `ObjT` state: the player-one type, point position, zone,
+  centre height, current angle, targetability, and upper-zone flag. It runs
+  after `Plr1_Control`'s translated spatial update and before `ObjectHandler`.
+  Damage response, audio, and weapon-sprite selection remain with their
+  original routines and are not substituted.
   Reaching the loaded level's authored `Lvl_ExitZoneID_w` (compared to
   `ZoneT_ID_w`, rather than a native zone-table index) now follows
   `hires.s:game_main_loop` into the direct-mode end-level handoff and preserves
@@ -322,8 +328,8 @@ authority for all game behavior and data formats.
      tested collectable, activatable, destructible, and decoration paths,
      `DoorRoutine`, `LiftRoutine`, and the source edge-gated next-weapon
      selection. Next: source `Obj_DoCollision`, the remaining alien/projectile
-     `ObjectHandler` paths, player-entity synchronisation,
-     `newplayershoot.s`, and source sprites. `SwitchRoutine` remains absent:
+     `ObjectHandler` paths, `newplayershoot.s`, and source sprites.
+     `SwitchRoutine` remains absent:
      the maintained `objmoveanim` loop comments out its call, so it must not
      be activated as a native gameplay change.
    - Keep optional modern bindings outside core simulation state. The native

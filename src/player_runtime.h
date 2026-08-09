@@ -34,6 +34,7 @@ typedef struct {
     int32_t tmp_y;
     int32_t tmp_z;
     int32_t tmp_height;
+    uint16_t tmp_yaw;
     int32_t aim_speed;
     uint16_t zone_index;
     uint16_t yaw;
