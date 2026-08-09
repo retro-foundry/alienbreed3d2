@@ -717,6 +717,41 @@ int level_runtime_get_zone_border_point(const LevelRuntime *runtime, uint16_t zo
     return 1;
 }
 
+int level_runtime_get_zone_point_index(const LevelRuntime *runtime, uint16_t zone_index,
+                                       uint32_t list_index, int16_t *out_point_index,
+                                       char *error, size_t error_size)
+{
+    uint32_t zone_offset;
+    int64_t list_offset;
+    uint64_t item_offset;
+
+    if (!runtime || !runtime->level_bytes || !runtime->graphics_bytes || !out_point_index ||
+        zone_index >= runtime->zone_count || list_index > runtime->world_point_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested ZoneT point list entry is outside the runtime view");
+        return 0;
+    }
+    zone_offset = level_runtime_read_be32(runtime->graphics_bytes +
+                                           runtime->zone_offsets_table_offset +
+                                           (size_t)zone_index * sizeof(uint32_t));
+    if (!level_runtime_range_is_valid(zone_offset, LEVEL_RUNTIME_ZONE_SIZE, runtime->level_size)) {
+        level_runtime_set_error(error, error_size, "requested ZoneT point list has a malformed zone");
+        return 0;
+    }
+    list_offset = (int64_t)zone_offset +
+        (int64_t)level_runtime_read_be16s(runtime->level_bytes + zone_offset + 34u);
+    item_offset = (uint64_t)list_offset + (uint64_t)list_index * sizeof(uint16_t);
+    if (list_offset < 0 || item_offset > UINT32_MAX ||
+        !level_runtime_range_is_valid((uint32_t)item_offset, sizeof(uint16_t),
+                                      runtime->level_size)) {
+        level_runtime_set_error(error, error_size,
+                                "requested ZoneT point list entry is outside the level data");
+        return 0;
+    }
+    *out_point_index = level_runtime_read_be16s(runtime->level_bytes + (uint32_t)item_offset);
+    return 1;
+}
+
 int level_runtime_get_narrative_message(const LevelRuntime *runtime, uint16_t message_index,
                                         LevelNarrativeMessage *out_message,
                                         char *error, size_t error_size)

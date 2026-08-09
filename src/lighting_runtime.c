@@ -171,6 +171,26 @@ static int lighting_runtime_refresh_point_brightness(const LightingRuntime *runt
     return 1;
 }
 
+static int lighting_runtime_add_current_point_brightness(LightingRuntime *runtime,
+                                                         uint32_t world_point_index,
+                                                         uint32_t component_index,
+                                                         int16_t brightness_change,
+                                                         char *error, size_t error_size)
+{
+    size_t word_index = (size_t)world_point_index * 4u + component_index;
+    size_t word_capacity = (size_t)LIGHTING_RUNTIME_POINT_ZONE_CAPACITY *
+        LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT;
+    int16_t *point_words = &runtime->current_point_brightness[0u][0u];
+
+    if (component_index >= 4u || word_index >= word_capacity) {
+        lighting_runtime_set_error(error, error_size,
+                                   "Flash world point is outside CurrentPointBrights_vl");
+        return 0;
+    }
+    point_words[word_index] = lighting_runtime_add16(point_words[word_index], brightness_change);
+    return 1;
+}
+
 void lighting_runtime_init(LightingRuntime *runtime)
 {
     if (runtime) {
@@ -303,4 +323,88 @@ void lighting_runtime_advance_animation(LightingRuntime *runtime)
         runtime->animation_values[animation_index] = value;
     }
     runtime->animation_timer = LIGHTING_RUNTIME_ANIMATION_INTERVAL;
+}
+
+int lighting_runtime_flash(LightingRuntime *runtime, const LevelRuntime *level,
+                           uint16_t zone_index, int16_t brightness_change,
+                           char *error, size_t error_size)
+{
+    uint32_t list_index;
+
+    if (!runtime || !level || zone_index >= level->zone_count ||
+        zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY ||
+        level->zone_count > LIGHTING_RUNTIME_POINT_ZONE_CAPACITY) {
+        lighting_runtime_set_error(error, error_size, "Flash received invalid source lighting state");
+        return 0;
+    }
+    /* newanims.s:Flash clamps only values at or below -20. */
+    if (brightness_change <= -20) {
+        brightness_change = -20;
+    }
+    for (list_index = 0u; ; ++list_index) {
+        int16_t point_index;
+
+        if (list_index > level->world_point_count) {
+            lighting_runtime_set_error(error, error_size,
+                                       "Flash ZoneT point list has no negative terminator");
+            return 0;
+        }
+        if (!level_runtime_get_zone_point_index(level, zone_index, list_index, &point_index,
+                                                error, error_size)) {
+            return 0;
+        }
+        if (point_index < 0) {
+            break;
+        }
+        if ((uint32_t)point_index >= level->world_point_count ||
+            !lighting_runtime_add_current_point_brightness(
+                runtime, (uint16_t)point_index, 0u, brightness_change, error, error_size) ||
+            !lighting_runtime_add_current_point_brightness(
+                runtime, (uint16_t)point_index, 1u, brightness_change, error, error_size)) {
+            return 0;
+        }
+    }
+    runtime->zone_brightness[zone_index][LIGHTING_RUNTIME_LOWER_BRIGHTNESS] =
+        lighting_runtime_add16(runtime->zone_brightness[zone_index]
+                                                       [LIGHTING_RUNTIME_LOWER_BRIGHTNESS],
+                               brightness_change);
+    runtime->zone_brightness[zone_index][LIGHTING_RUNTIME_UPPER_BRIGHTNESS] =
+        lighting_runtime_add16(runtime->zone_brightness[zone_index]
+                                                       [LIGHTING_RUNTIME_UPPER_BRIGHTNESS],
+                               brightness_change);
+
+    /* newanims.s:doemall follows the source zone's complete PVST list. */
+    for (list_index = 0u; ; ++list_index) {
+        LevelPotentialVisibility visible_zone;
+        uint16_t visible_zone_index;
+
+        if (list_index > level->zone_count) {
+            lighting_runtime_set_error(error, error_size,
+                                       "Flash PVST list has no negative terminator");
+            return 0;
+        }
+        if (!level_runtime_get_zone_potential_visibility(level, zone_index, list_index,
+                                                         &visible_zone, error, error_size)) {
+            return 0;
+        }
+        if (visible_zone.zone_index < 0) {
+            break;
+        }
+        visible_zone_index = (uint16_t)visible_zone.zone_index;
+        if (visible_zone_index >= level->zone_count ||
+            visible_zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
+            lighting_runtime_set_error(error, error_size,
+                                       "Flash PVST entry is outside Zone_BrightTable_vl");
+            return 0;
+        }
+        runtime->zone_brightness[visible_zone_index][LIGHTING_RUNTIME_LOWER_BRIGHTNESS] =
+            lighting_runtime_add16(runtime->zone_brightness[visible_zone_index]
+                                                           [LIGHTING_RUNTIME_LOWER_BRIGHTNESS],
+                                   brightness_change);
+        runtime->zone_brightness[visible_zone_index][LIGHTING_RUNTIME_UPPER_BRIGHTNESS] =
+            lighting_runtime_add16(runtime->zone_brightness[visible_zone_index]
+                                                           [LIGHTING_RUNTIME_UPPER_BRIGHTNESS],
+                                   brightness_change);
+    }
+    return 1;
 }

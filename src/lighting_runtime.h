@@ -53,4 +53,13 @@ int lighting_runtime_refresh_single_player(LightingRuntime *runtime,
 /* newanims.s:objmoveanim's Anim_Timer_w gate and brightanim call. */
 void lighting_runtime_advance_animation(LightingRuntime *runtime);
 
+/*
+ * newanims.s:Flash. It applies the source lower bound of -20, alters the
+ * current lower pair for the zone's point list, then updates Zone_BrightTable
+ * for the source zone and every zone in its PVST list.
+ */
+int lighting_runtime_flash(LightingRuntime *runtime, const LevelRuntime *level,
+                           uint16_t zone_index, int16_t brightness_change,
+                           char *error, size_t error_size);
+
 #endif

@@ -4724,6 +4724,64 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        {
+            int16_t point_index;
+            int16_t *point_words = &lighting.current_point_brightness[0u][0u];
+            int16_t before_lower;
+            int16_t before_upper;
+            int16_t before_point_lower;
+            int16_t before_point_upper;
+            uint16_t source_zone_pvs_entries = 0u;
+
+            if (!level_runtime_get_zone_point_index(
+                    &game.dynamic_level.runtime, lighting_player.zone_index, 0u, &point_index,
+                    error, sizeof(error)) ||
+                point_index < 0 ||
+                (uint32_t)point_index >= game.dynamic_level.runtime.world_point_count) {
+                fprintf(stderr, "Flash source point-list fixture is invalid: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            before_lower = lighting.zone_brightness[lighting_player.zone_index][0u];
+            before_upper = lighting.zone_brightness[lighting_player.zone_index][1u];
+            before_point_lower = point_words[(size_t)(uint16_t)point_index * 4u];
+            before_point_upper = point_words[(size_t)(uint16_t)point_index * 4u + 1u];
+            for (uint32_t visible_index = 0u;
+                 visible_index <= game.dynamic_level.runtime.zone_count; ++visible_index) {
+                LevelPotentialVisibility visible_zone;
+
+                if (!level_runtime_get_zone_potential_visibility(
+                        &game.dynamic_level.runtime, lighting_player.zone_index, visible_index,
+                        &visible_zone, error, sizeof(error))) {
+                    fprintf(stderr, "Flash PVST fixture is invalid: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (visible_zone.zone_index < 0) {
+                    break;
+                }
+                if ((uint16_t)visible_zone.zone_index == lighting_player.zone_index) {
+                    ++source_zone_pvs_entries;
+                }
+            }
+            if (!lighting_runtime_flash(&lighting, &game.dynamic_level.runtime,
+                                        lighting_player.zone_index, -50,
+                                        error, sizeof(error)) ||
+                point_words[(size_t)(uint16_t)point_index * 4u] !=
+                    source_add16(before_point_lower, -20) ||
+                point_words[(size_t)(uint16_t)point_index * 4u + 1u] !=
+                    source_add16(before_point_upper, -20) ||
+                lighting.zone_brightness[lighting_player.zone_index][0u] !=
+                    source_add16(before_lower, (int16_t)(-20 *
+                        (int16_t)(source_zone_pvs_entries + 1u))) ||
+                lighting.zone_brightness[lighting_player.zone_index][1u] !=
+                    source_add16(before_upper, (int16_t)(-20 *
+                        (int16_t)(source_zone_pvs_entries + 1u)))) {
+                fprintf(stderr, "newanims.s:Flash source state is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
     }
     {
         /* modules/ai.s:ai_CalcSqrt's zero and three-refinement source paths. */

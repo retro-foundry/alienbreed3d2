@@ -227,6 +227,10 @@ int level_runtime_get_point_brightness(const LevelRuntime *runtime, uint16_t zon
 int level_runtime_get_zone_border_point(const LevelRuntime *runtime, uint16_t zone_index,
                                         uint16_t marker_index, int16_t *out_marker,
                                         char *error, size_t error_size);
+/* newanims.s:ZoneT_Points_w's signed-world-point-index list. */
+int level_runtime_get_zone_point_index(const LevelRuntime *runtime, uint16_t zone_index,
+                                       uint32_t list_index, int16_t *out_point_index,
+                                       char *error, size_t error_size);
 int level_runtime_get_narrative_message(const LevelRuntime *runtime, uint16_t message_index,
                                         LevelNarrativeMessage *out_message,
                                         char *error, size_t error_size);

@@ -633,9 +633,14 @@ border markers per zone are now exposed through checked level-runtime views.
 authored sequences at the source VBlank/timer gate after object, door, and
 lift updates. This gameplay brightness is live before the object/alien phase;
 it does not rasterize pixels. `anim_BrightenPoints`,
-`Anim_BrightenPointsAngle`, projectile/blast flashes, and alien torches remain
+`Anim_BrightenPointsAngle`, projectile/blast callers, and alien torches remain
 with their owning source routines, so no dynamic-light substitute has been
 introduced.
+`newanims.s:Flash` is now available as an uncalled source helper for those
+later projectile/blast owners. It preserves its `-20` lower clamp, signed
+`ZoneT_Points_w` walk, lower current-point pair writes, explicit source-zone
+brightness update, and its complete PVST brightness pass. It does not create
+a native flash or invoke an unported damage effect by itself.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
