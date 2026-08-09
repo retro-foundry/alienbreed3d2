@@ -25,7 +25,8 @@ first game's software renderer:
 - defines a GPU-neutral frame command interface for cameras, materials,
   geometry, sprites, and HUD text. Material commands retain the source asset
   class and select shared versus per-level floor/wall overrides exactly as
-  `modules/res.s:Res_LoadLevelData` does; texture-coordinate conversion is
+  `modules/res.s:Res_LoadLevelData` does, carrying the selected source bytes
+  for later backend-owned conversion/upload; texture-coordinate conversion is
   deliberately still unresolved;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload) while keeping host save storage

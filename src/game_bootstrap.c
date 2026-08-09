@@ -13,6 +13,12 @@ static SceneMaterialSource game_bootstrap_floor_material_source(const GameBootst
         SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE;
 }
 
+static const AssetBlob *game_bootstrap_floor_material_asset(const GameBootstrap *game)
+{
+    return game->level_floor_override.bytes != NULL ?
+        &game->level_floor_override : &game->shared_resources.floor_texture;
+}
+
 static SceneMaterialSource game_bootstrap_wall_material_source(const GameBootstrap *game,
                                                                uint32_t wall_texture_index)
 {
@@ -21,6 +27,17 @@ static SceneMaterialSource game_bootstrap_wall_material_source(const GameBootstr
             game->level_wall_overrides[wall_texture_index].bytes != NULL ?
         SCENE_MATERIAL_SOURCE_LEVEL_WALL_TEXTURE_OVERRIDE :
         SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE;
+}
+
+static const AssetBlob *game_bootstrap_wall_material_asset(const GameBootstrap *game,
+                                                           uint32_t wall_texture_index)
+{
+    if (wall_texture_index >= game->shared_resources.wall_texture_count) {
+        return NULL;
+    }
+    return game->level_wall_overrides[wall_texture_index].bytes != NULL ?
+        &game->level_wall_overrides[wall_texture_index] :
+        &game->shared_resources.wall_textures[wall_texture_index];
 }
 
 static void game_bootstrap_release_level(GameBootstrap *game)
@@ -370,11 +387,19 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
         for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count;
              ++wall_index) {
             const LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
+            const AssetBlob *material_asset =
+                game_bootstrap_wall_material_asset(game, wall->material_id);
+
+            if (!material_asset || !material_asset->bytes) {
+                return 0;
+            }
 
             command.type = SCENE_COMMAND_MATERIAL;
             command.data.material.source =
                 game_bootstrap_wall_material_source(game, wall->material_id);
             command.data.material.source_asset_id = wall->material_id;
+            command.data.material.source_bytes = material_asset->bytes;
+            command.data.material.source_byte_count = material_asset->size;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
@@ -393,10 +418,17 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
         for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count;
              ++flat_index) {
             const LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
+            const AssetBlob *material_asset = game_bootstrap_floor_material_asset(game);
+
+            if (!material_asset->bytes) {
+                return 0;
+            }
 
             command.type = SCENE_COMMAND_MATERIAL;
             command.data.material.source = game_bootstrap_floor_material_source(game);
             command.data.material.source_asset_id = flat->material_id;
+            command.data.material.source_bytes = material_asset->bytes;
+            command.data.material.source_byte_count = material_asset->size;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }

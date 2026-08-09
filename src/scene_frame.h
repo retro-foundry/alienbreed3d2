@@ -35,6 +35,9 @@ typedef enum {
 typedef struct {
     SceneMaterialSource source;
     uint32_t source_asset_id;
+    /* Exact selected source asset; conversion/upload remains backend-owned. */
+    const uint8_t *source_bytes;
+    size_t source_byte_count;
 } SceneMaterial;
 
 typedef struct {
