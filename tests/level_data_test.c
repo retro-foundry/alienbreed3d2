@@ -8,6 +8,7 @@
 #include "alien_dark.h"
 #include "alien_flight.h"
 #include "alien_math.h"
+#include "alien_main.h"
 #include "alien_memory.h"
 #include "alien_perception.h"
 #include "alien_setup.h"
@@ -4737,6 +4738,39 @@ int main(int argc, char **argv)
             fprintf(stderr, "ai_CalcSqrt source approximation is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+    }
+    {
+        /* AI_MainRoutine's signed CurrentMode comparisons select six source paths. */
+        static const uint8_t source_modes[] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, UINT8_MAX};
+        static const AlienMainRoute expected_routes[] = {
+            ALIEN_MAIN_ROUTE_DEFAULT,
+            ALIEN_MAIN_ROUTE_RESPONSE,
+            ALIEN_MAIN_ROUTE_FOLLOWUP,
+            ALIEN_MAIN_ROUTE_RETREAT,
+            ALIEN_MAIN_ROUTE_TAKE_DAMAGE,
+            ALIEN_MAIN_ROUTE_DIE,
+            ALIEN_MAIN_ROUTE_TAKE_DAMAGE,
+            ALIEN_MAIN_ROUTE_DEFAULT
+        };
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime main_objects = {0};
+
+        main_objects.slot_bytes = slot_bytes;
+        main_objects.slot_count = 1u;
+        main_objects.active_slot_count = 1u;
+        for (uint32_t mode_index = 0u; mode_index < sizeof(source_modes); ++mode_index) {
+            AlienMainRoute route;
+
+            slot_bytes[20u] = source_modes[mode_index];
+            write_be16(slot_bytes + 2u, 0x4321u);
+            if (!alien_main_route(&main_objects, 0u, &route, error, sizeof(error)) ||
+                route != expected_routes[mode_index] ||
+                read_be16(slot_bytes + 2u) != UINT16_C(0xffec)) {
+                fprintf(stderr, "AI_MainRoutine mode dispatch is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
     }
     {

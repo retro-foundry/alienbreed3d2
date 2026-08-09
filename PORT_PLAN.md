@@ -614,6 +614,11 @@ waits for its owning AI modes.
 impact calculation. Its starting-bit selection, three signed word-precision
 refinements, and coarse source result are retained instead of using a host
 square-root routine.
+`modules/ai.s:AI_MainRoutine` is now a checked, uncalled route helper. It
+preserves the initial `ObjT_YPos_w = -20` write and signed-byte
+`EntT_CurrentMode_b` selection among the source default, response, followup,
+retreat, death, and damage branches. It does not activate a partial alien:
+each selected branch remains with its complete owning mode routine.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

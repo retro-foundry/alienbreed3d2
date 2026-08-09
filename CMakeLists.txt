@@ -30,6 +30,7 @@ set(AB3D2_CORE_SOURCES
   src/alien_death.c
   src/alien_dark.c
   src/alien_flight.c
+  src/alien_main.c
   src/alien_math.c
   src/alien_memory.c
   src/alien_perception.c
