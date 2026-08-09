@@ -36,6 +36,8 @@ first game's software renderer:
   replayable oracle fixture;
 - exposes all 20 `AlienT` records used by `ItsAnAlien` and validates every
   loaded alien-slot type against that catalog, without starting an AI update;
+- exposes all 20 `BulT` records, including their source animation/pop payload
+  views, without creating or updating a projectile;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload) while keeping host save storage
   unported. The default starting ammunition class is read through the checked

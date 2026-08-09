@@ -19,6 +19,8 @@ typedef struct {
 /* defs.i:ODefT_SizeOf_l and O_FrameStoreSize/O_AnimSize. */
 enum {
     GAME_LINK_SHOOT_DEFINITION_SIZE = 8,
+    GAME_LINK_BULLET_DEFINITION_SIZE = 300,
+    GAME_LINK_BULLET_ANIMATION_DATA_SIZE = 120,
     GAME_LINK_ALIEN_DEFINITION_SIZE = 42,
     GAME_LINK_OBJECT_DEFINITION_SIZE = 40,
     GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE = 6,
@@ -115,6 +117,31 @@ typedef struct {
     uint16_t auxiliary_type;
 } GameAlienDefinition;
 
+/*
+ * defs.i:BulT. The original declares each leading parameter as ULONG, so
+ * their raw unsigned representation is retained here; source instructions
+ * choose signed, word, or byte views when running a projectile update.
+ */
+typedef struct {
+    uint32_t is_hitscan;
+    uint32_t gravity;
+    uint32_t lifetime;
+    uint32_t ammunition_in_clip;
+    uint32_t bounce_horizontal;
+    uint32_t bounce_vertical;
+    uint32_t hit_damage;
+    uint32_t explosive_force;
+    uint32_t speed;
+    uint32_t animation_frames;
+    uint32_t pop_frames;
+    uint32_t bounce_sound_effect;
+    uint32_t impact_sound_effect;
+    uint32_t graphics_type;
+    uint32_t impact_graphics_type;
+    const uint8_t *animation_data;
+    const uint8_t *pop_data;
+} GameBulletDefinition;
+
 enum {
     GAME_LINK_LEVEL_COUNT = 16,
     GAME_LINK_OBJECT_COUNT = 30,
@@ -190,6 +217,9 @@ int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
 int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
                                    GameAlienDefinition *out_definition,
                                    char *error, size_t error_size);
+int game_link_get_bullet_definition(const GameLink *link, uint16_t bullet_index,
+                                    GameBulletDefinition *out_definition,
+                                    char *error, size_t error_size);
 
 /* Fixed 40-byte labels have no NUL terminator in the shipped game link. */
 int game_link_copy_level_name(const GameLink *link, uint16_t level_index,

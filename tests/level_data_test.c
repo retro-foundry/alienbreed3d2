@@ -128,6 +128,29 @@ static int alien_definition_matches_source(const GameAlienDefinition *definition
         definition->auxiliary_type == read_be16(source + 40u);
 }
 
+static int bullet_definition_matches_source(const GameBulletDefinition *definition,
+                                            const uint8_t *source)
+{
+    return definition && source &&
+        definition->is_hitscan == read_be32(source + 0u) &&
+        definition->gravity == read_be32(source + 4u) &&
+        definition->lifetime == read_be32(source + 8u) &&
+        definition->ammunition_in_clip == read_be32(source + 12u) &&
+        definition->bounce_horizontal == read_be32(source + 16u) &&
+        definition->bounce_vertical == read_be32(source + 20u) &&
+        definition->hit_damage == read_be32(source + 24u) &&
+        definition->explosive_force == read_be32(source + 28u) &&
+        definition->speed == read_be32(source + 32u) &&
+        definition->animation_frames == read_be32(source + 36u) &&
+        definition->pop_frames == read_be32(source + 40u) &&
+        definition->bounce_sound_effect == read_be32(source + 44u) &&
+        definition->impact_sound_effect == read_be32(source + 48u) &&
+        definition->graphics_type == read_be32(source + 52u) &&
+        definition->impact_graphics_type == read_be32(source + 56u) &&
+        definition->animation_data == source + 60u &&
+        definition->pop_data == source + 180u;
+}
+
 int main(int argc, char **argv)
 {
     AssetBlob level_data = {0};
@@ -160,6 +183,7 @@ int main(int argc, char **argv)
     uint16_t object_frame_data_index;
     uint16_t shoot_definition_index;
     uint16_t alien_definition_index;
+    uint16_t bullet_definition_index;
     int16_t trig_value;
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
@@ -187,6 +211,7 @@ int main(int argc, char **argv)
     GameObjectFrameData object_frame_data;
     GameShootDefinition shoot_definition;
     GameAlienDefinition alien_definition;
+    GameBulletDefinition bullet_definition;
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
     uint32_t world_point_index;
@@ -284,7 +309,8 @@ int main(int argc, char **argv)
         game_link_blob.size != GAME_LINK_SIZE ||
         !game_link_table(&game_link, GAME_LINK_TABLE_BULLET_DEFINITIONS,
                          &table_bytes, &table_size) ||
-        table_bytes == NULL || table_size != 20u * 300u ||
+        table_bytes == NULL || table_size != (size_t)GAME_LINK_BULLET_COUNT *
+                                               GAME_LINK_BULLET_DEFINITION_SIZE ||
         !game_link_table(&game_link, GAME_LINK_TABLE_SHOOT_DEFINITIONS,
                          &shoot_definition_bytes, &shoot_definition_size) ||
         shoot_definition_size != (size_t)GAME_LINK_GUN_COUNT *
@@ -332,6 +358,21 @@ int main(int argc, char **argv)
         fprintf(stderr, "GLFT catalog parsing is inconsistent: %s\n", error);
         asset_blob_release(&game_link_blob);
         return 1;
+    }
+    for (bullet_definition_index = 0u;
+         bullet_definition_index < GAME_LINK_BULLET_COUNT;
+         ++bullet_definition_index) {
+        if (!game_link_get_bullet_definition(&game_link, bullet_definition_index,
+                                             &bullet_definition, error, sizeof(error)) ||
+            !bullet_definition_matches_source(
+                &bullet_definition,
+                table_bytes + (size_t)bullet_definition_index *
+                    GAME_LINK_BULLET_DEFINITION_SIZE)) {
+            fprintf(stderr, "GLFT bullet definition %u is inconsistent: %s\n",
+                    bullet_definition_index, error);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
     }
     for (alien_definition_index = 0u;
          alien_definition_index < GAME_LINK_ALIEN_COUNT;
@@ -436,8 +477,10 @@ int main(int argc, char **argv)
         game_link_get_shoot_definition(&game_link, GAME_LINK_GUN_COUNT,
                                        &shoot_definition, error, sizeof(error)) ||
         game_link_get_alien_definition(&game_link, GAME_LINK_ALIEN_COUNT,
-                                       &alien_definition, error, sizeof(error))) {
-        fprintf(stderr, "GLFT object-record bounds checks are inconsistent\n");
+                                       &alien_definition, error, sizeof(error)) ||
+        game_link_get_bullet_definition(&game_link, GAME_LINK_BULLET_COUNT,
+                                        &bullet_definition, error, sizeof(error))) {
+        fprintf(stderr, "GLFT definition bounds checks are inconsistent\n");
         asset_blob_release(&game_link_blob);
         return 1;
     }
