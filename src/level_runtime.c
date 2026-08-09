@@ -209,7 +209,7 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
         !level_runtime_range_is_valid(AB3D2_LEVEL_MESSAGE_BYTES + AB3D2_TLBT_SIZE,
                                       (size_t)control_point_bytes, level_data->size) ||
         !level_runtime_range_is_valid((uint32_t)point_brightness_offset,
-                                      LEVEL_RUNTIME_POINT_BRIGHTNESS_TRAILER,
+                                      sizeof(uint32_t),
                                       level_data->size) ||
         !level_runtime_range_is_valid((uint32_t)zone_border_points_offset,
                                       (size_t)level->zone_count * LEVEL_RUNTIME_ZONE_BORDER_BYTES,
