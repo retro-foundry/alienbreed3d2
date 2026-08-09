@@ -11,6 +11,8 @@ authority for all game behavior and data formats.
 - The active development path enters the default single-player session and
   Level A directly. Do not spend implementation time on menus until the game
   loop, dynamic world state, and renderer handoff are playable end to end.
+  The desktop executable also accepts `--level A` through `--level P`, which
+  uses the source campaign selection handoff without exposing menu behavior.
 - Use the Alien Breed 3D I PC port as a desktop-build, SDL2, logging, and
   packed-asset reference only. Do not import its gameplay, level assumptions,
   procedural test data, or software renderer.
@@ -324,7 +326,9 @@ executable now enters the source default single-player session directly in
 Level A, loads source-defined resources, runs source-backed player movement,
 falling, teleport/zone transitions, and static edge collision, and produces
 PVS-free camera/material/geometry/HUD commands without pixels or multiplayer
-code.
+code. `--level A` through `--level P` provides direct source campaign-level
+selection while menu work is deferred; this allows the gameplay loop to enter
+authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
 objects, apply `Obj_DoCollision`, activate doors/lifts/switches, emit sprites,

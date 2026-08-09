@@ -21,6 +21,25 @@ static int make_default_data_root(char *out_root, size_t out_root_size)
     return written >= 0 && (size_t)written < out_root_size;
 }
 
+/* Source campaign identifiers are SETPLAYERS' contiguous lowercase a..p. */
+static int level_index_from_argument(const char *text, uint16_t *out_level_index)
+{
+    char level;
+
+    if (!text || !out_level_index || text[0] == '\0' || text[1] != '\0') {
+        return 0;
+    }
+    level = text[0];
+    if (level >= 'A' && level <= 'P') {
+        level = (char)(level - 'A' + 'a');
+    }
+    if (level < 'a' || level > 'p') {
+        return 0;
+    }
+    *out_level_index = (uint16_t)(level - 'a');
+    return 1;
+}
+
 /*
  * modules/rawkey_macros.i uses these Amiga raw-key values. SDL scancodes are
  * physical keys too, so this boundary keeps source bindings out of simulation
@@ -140,20 +159,28 @@ int main(int argc, char **argv)
     char error[256];
     char status[160];
     const char *configured_data_root = NULL;
+    uint16_t selected_level_index = 0u;
     GameBootstrap game;
     SceneFrame frame;
     RendererStub *renderer = NULL;
 
     for (int argument_index = 1; argument_index < argc; argument_index += 2) {
         if (argument_index + 1 >= argc) {
-            fprintf(stderr, "usage: %s [--data-root <directory>]\n",
+            fprintf(stderr, "usage: %s [--data-root <directory>] [--level <A-P>]\n",
                     argv[0]);
             return 2;
         }
         if (strcmp(argv[argument_index], "--data-root") == 0 && !configured_data_root) {
             configured_data_root = argv[argument_index + 1];
+        } else if (strcmp(argv[argument_index], "--level") == 0) {
+            if (!level_index_from_argument(argv[argument_index + 1],
+                                           &selected_level_index)) {
+                fprintf(stderr, "usage: %s [--data-root <directory>] [--level <A-P>]\n",
+                        argv[0]);
+                return 2;
+            }
         } else {
-            fprintf(stderr, "usage: %s [--data-root <directory>]\n",
+            fprintf(stderr, "usage: %s [--data-root <directory>] [--level <A-P>]\n",
                     argv[0]);
             return 2;
         }
@@ -191,7 +218,15 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* Gameplay-first bootstrap: source default session enters Level A directly. */
+    /* Gameplay-first bootstrap: source session enters a selected A-P level directly. */
+    if (!game_session_select_level(&game.session, selected_level_index, error, sizeof(error))) {
+        fprintf(stderr, "[GAME] %s\n", error);
+        renderer_stub_destroy(renderer);
+        scene_frame_destroy(&frame);
+        game_bootstrap_destroy(&game);
+        SDL_Quit();
+        return 1;
+    }
     if (!game_bootstrap_start_selected_single_player(&game, configured_data_root,
                                                      error, sizeof(error))) {
         fprintf(stderr, "[GAME] %s\n", error);
@@ -201,11 +236,12 @@ int main(int argc, char **argv)
         SDL_Quit();
         return 1;
     }
-    renderer_stub_set_status(renderer, "Level A active; static collision; GPU renderer pending");
+    renderer_stub_set_status(renderer, "Level active; static collision; GPU renderer pending");
 
     fprintf(stdout,
-            "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes Level A active\n",
-            game.game_link.size, game.story_text.size);
+            "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes Level %c active\n",
+            game.game_link.size, game.story_text.size,
+            (char)('A' + game.active_level_index));
     while (renderer_stub_is_running(renderer)) {
         SDL_Event event;
 
