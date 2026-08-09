@@ -19,6 +19,7 @@
 #include "level_navigation.h"
 #include "level_runtime.h"
 #include "level_static_scene.h"
+#include "lighting_runtime.h"
 #include "mechanism_runtime.h"
 #include "object_runtime.h"
 #include "object_animation.h"
@@ -44,6 +45,8 @@ typedef struct {
     AlienRuntime alien_runtime;
     /* bss/tables_bss.s:ObjectWorkspace_vl, consumed by DOALLANIMS and AI. */
     ObjectAnimationRuntime object_animation_runtime;
+    /* Source dynamic light state; its room-brightness output feeds AI. */
+    LightingRuntime lighting_runtime;
     GameSession session;
     AssetBlob story_text;
     uint16_t active_level_index;

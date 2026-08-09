@@ -181,6 +181,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     game_preferences_default(&game->preferences);
     game_random_init(&game->random);
     object_animation_runtime_init(&game->object_animation_runtime);
+    lighting_runtime_init(&game->lighting_runtime);
     return 1;
 
 fail:
@@ -223,6 +224,8 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     if (game->session.level_finished != 0u) {
         return 1;
     }
+    /* hires.s:VBlankInterrupt decrements Anim_Timer_w before frame work. */
+    lighting_runtime_vblank(&game->lighting_runtime);
     /* hires.s:dosomething calls DOALLANIMS before its control/object work. */
     if (!object_animation_update_single_player(
             &game->object_animation_runtime, &game->object_runtime,
@@ -235,6 +238,9 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
                                        &game->preferences, &game->math,
                                        &game->dynamic_level.runtime, &game->dynamic_level,
                                        error, error_size) ||
+        !lighting_runtime_refresh_single_player(
+            &game->lighting_runtime, &game->dynamic_level.runtime, &game->player,
+            error, error_size) ||
         !player_entity_sync_single_player(&game->object_runtime, &game->dynamic_level.runtime,
                                           &game->game_link_catalog, &game->player,
                                           error, error_size) ||
@@ -255,8 +261,12 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
             &game->player, 1u, error, error_size) ||
         !mechanism_runtime_update_lifts_single_player(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
-            &game->player, 1u, error, error_size) ||
-        !object_worry_update_single_player(
+            &game->player, 1u, error, error_size)) {
+        return 0;
+    }
+    /* newanims.s:objmoveanim advances brightanim after ObjectHandler/doors/lifts. */
+    lighting_runtime_advance_animation(&game->lighting_runtime);
+    if (!object_worry_update_single_player(
             &game->object_runtime, &game->dynamic_level.runtime, &game->player,
             &game->alien_runtime, error, error_size) ||
         !object_observation_update_single_player(
@@ -469,6 +479,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     memset(&game->math, 0, sizeof(game->math));
     alien_runtime_init(&game->alien_runtime);
     object_animation_runtime_init(&game->object_animation_runtime);
+    lighting_runtime_init(&game->lighting_runtime);
     memset(&game->session, 0, sizeof(game->session));
     memset(&game->preferences, 0, sizeof(game->preferences));
     asset_blob_release(&game->story_text);

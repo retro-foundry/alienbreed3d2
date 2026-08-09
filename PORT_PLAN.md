@@ -614,6 +614,19 @@ waits for its owning AI modes.
 impact calculation. Its starting-bit selection, three signed word-precision
 refinements, and coarse source result are retained instead of using a host
 square-root routine.
+`hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
+border markers per zone are now exposed through checked level-runtime views.
+`src/lighting_runtime.*` owns the corresponding source BSS state:
+`CurrentPointBrights_vl`, `Zone_BrightTable_vl`, `Anim_BrightTable_vw`, and
+`Anim_Timer_w`.  It performs the Player 1 PVST refresh and
+`Plr1_RoomBright_w` average from `hires.s:donetalking` through
+`whythehell`, while `newanims.s:brightanim` advances each of its seven
+authored sequences at the source VBlank/timer gate after object, door, and
+lift updates. This gameplay brightness is live before the object/alien phase;
+it does not rasterize pixels. `anim_BrightenPoints`,
+`Anim_BrightenPointsAngle`, projectile/blast flashes, and alien torches remain
+with their owning source routines, so no dynamic-light substitute has been
+introduced.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,

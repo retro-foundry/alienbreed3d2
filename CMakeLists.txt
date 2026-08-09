@@ -51,6 +51,7 @@ set(AB3D2_CORE_SOURCES
   src/level_bootstrap.c
   src/level_dynamic_state.c
   src/level_draw_graph.c
+  src/lighting_runtime.c
   src/level_mechanisms.c
   src/level_navigation.c
   src/level_runtime.c

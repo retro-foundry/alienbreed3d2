@@ -43,6 +43,8 @@ typedef struct {
     uint16_t snap_yaw;
     int16_t snap_yaw_speed;
     int16_t look_offset;
+    /* hires.s:Plr1_RoomBright_w, derived from CurrentPointBrights_vl. */
+    int16_t room_brightness;
     /* newanims.s:LiftRoutine -> modules/player.s:plr_Fall handoff. */
     int16_t floor_speed;
     uint16_t bobble;

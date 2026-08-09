@@ -21,6 +21,7 @@
 #include "game_save.h"
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
+#include "lighting_runtime.h"
 #include "object_collectables.h"
 #include "object_animation.h"
 #include "object_handler.h"
@@ -92,6 +93,11 @@ static int16_t source_asr16_1(int16_t value)
         return (int16_t)(value >> 1);
     }
     return (int16_t)-(((-(int32_t)value) + 1) >> 1);
+}
+
+static int16_t source_add16(int16_t left, int16_t right)
+{
+    return (int16_t)((uint16_t)left + (uint16_t)right);
 }
 
 static uint32_t read_be32(const uint8_t *source)
@@ -4616,6 +4622,104 @@ int main(int argc, char **argv)
                               &dark_random, &dark_result, error, sizeof(error)) ||
             dark_result != -1 || dark_random.state != expected_dark_random.state) {
             fprintf(stderr, "ai_CheckForDark bright source gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* hires.s/newanims.s own player room brightness and its seven animation heads. */
+        static const int16_t first_animation_values[] = {1, 9, 17, 16, 8, 20, -10};
+        LightingRuntime lighting;
+        PlayerRuntime lighting_player = game.player;
+        uint16_t marker_count = 0u;
+        int16_t expected_room_brightness = 0;
+        int16_t brightness_sum = 0;
+
+        lighting_runtime_init(&lighting);
+        lighting_runtime_vblank(&lighting);
+        for (uint16_t point_index = 0u;
+             point_index < LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT; ++point_index) {
+            int16_t source_brightness;
+            size_t source_offset = (size_t)game.dynamic_level.runtime.point_brightness_offset +
+                ((size_t)lighting_player.zone_index * LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT +
+                 point_index) * sizeof(uint16_t);
+
+            if (!level_runtime_get_point_brightness(
+                    &game.dynamic_level.runtime, lighting_player.zone_index, point_index,
+                    &source_brightness, error, sizeof(error)) ||
+                source_brightness != (int16_t)read_be16(
+                    game.dynamic_level.runtime.level_bytes + source_offset)) {
+                fprintf(stderr, "Game_Begin point-brightness source table is inconsistent: %s\n",
+                        error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        for (uint16_t marker_index = 0u;
+             marker_index < LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT; ++marker_index) {
+            int16_t marker;
+            size_t source_offset = (size_t)game.dynamic_level.runtime.zone_border_points_offset +
+                ((size_t)lighting_player.zone_index * LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT +
+                 marker_index) * sizeof(uint16_t);
+
+            if (!level_runtime_get_zone_border_point(
+                    &game.dynamic_level.runtime, lighting_player.zone_index, marker_index,
+                    &marker, error, sizeof(error)) ||
+                marker != (int16_t)read_be16(
+                    game.dynamic_level.runtime.level_bytes + source_offset)) {
+                fprintf(stderr, "Game_Begin zone-brightness marker table is inconsistent: %s\n",
+                        error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        if (lighting.animation_timer != -1 ||
+            !lighting_runtime_refresh_single_player(
+                &lighting, &game.dynamic_level.runtime, &lighting_player,
+                error, sizeof(error))) {
+            fprintf(stderr, "source initial room-brightness refresh is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        lighting_runtime_advance_animation(&lighting);
+        if (lighting.animation_timer != 5 ||
+            memcmp(lighting.animation_values, first_animation_values,
+                   sizeof(first_animation_values)) != 0) {
+            fprintf(stderr, "newanims.s:brightanim first source values are inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint16_t marker_index = 0u;
+             marker_index < LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT; ++marker_index) {
+            int16_t marker;
+            int16_t brightness;
+
+            if (!level_runtime_get_zone_border_point(
+                    &game.dynamic_level.runtime, lighting_player.zone_index, marker_index,
+                    &marker, error, sizeof(error))) {
+                fprintf(stderr, "source room-brightness marker update is invalid: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (marker < 0) {
+                break;
+            }
+            brightness = lighting.current_point_brightness[lighting_player.zone_index][marker_index];
+            if (brightness < 0) {
+                brightness = (int16_t)(UINT16_C(0) - (uint16_t)brightness);
+            }
+            brightness_sum = source_add16(brightness_sum, brightness);
+            ++marker_count;
+        }
+        if (marker_count == 0u) {
+            fprintf(stderr, "hires.s:Plr1_RoomBright_w source fixture has no markers\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        expected_room_brightness = source_add16(
+            (int16_t)((int32_t)brightness_sum / (int32_t)marker_count), -300);
+        if (lighting_player.room_brightness != expected_room_brightness) {
+            fprintf(stderr, "hires.s:Plr1_RoomBright_w source average is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }

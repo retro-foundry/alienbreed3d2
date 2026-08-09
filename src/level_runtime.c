@@ -10,7 +10,12 @@ enum {
     LEVEL_RUNTIME_ZONE_PVS_OFFSET = 48,
     LEVEL_RUNTIME_PVS_SIZE = 8,
     LEVEL_RUNTIME_POINT_SIZE = 4,
-    LEVEL_RUNTIME_ZONE_BORDER_BYTES = 80,
+    /* hires.s:Game_Begin's forty signed words per zone. */
+    LEVEL_RUNTIME_POINT_BRIGHTNESS_BYTES =
+        LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT * (uint32_t)sizeof(uint16_t),
+    /* hires.s derives RoomBright from ten signed marker words per zone. */
+    LEVEL_RUNTIME_ZONE_BORDER_BYTES =
+        LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT * (uint32_t)sizeof(uint16_t),
     /* defs.i:EdgeT_SizeOf_l. */
     LEVEL_RUNTIME_EDGE_SIZE = 16,
     /* modules/ai.s indexes Lvl_ControlPointCoordsPtr_l by eight bytes. */
@@ -293,7 +298,7 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     point_brightness_offset = (uint64_t)level->points_offset +
         world_point_count * LEVEL_RUNTIME_POINT_SIZE;
     zone_border_points_offset = point_brightness_offset +
-        (uint64_t)level->zone_count * LEVEL_RUNTIME_ZONE_BORDER_BYTES;
+        (uint64_t)level->zone_count * LEVEL_RUNTIME_POINT_BRIGHTNESS_BYTES;
     zone_offsets_table_bytes = (uint64_t)level->zone_count * sizeof(uint32_t);
     control_point_bytes = (uint64_t)level->control_point_count *
         LEVEL_RUNTIME_CONTROL_POINT_SIZE;
@@ -313,7 +318,8 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
         !level_runtime_range_is_valid(AB3D2_LEVEL_MESSAGE_BYTES + AB3D2_TLBT_SIZE,
                                       (size_t)control_point_bytes, level_data->size) ||
         !level_runtime_range_is_valid((uint32_t)point_brightness_offset,
-                                      sizeof(uint32_t),
+                                      (size_t)level->zone_count *
+                                          LEVEL_RUNTIME_POINT_BRIGHTNESS_BYTES,
                                       level_data->size) ||
         !level_runtime_range_is_valid((uint32_t)zone_border_points_offset,
                                       (size_t)level->zone_count * LEVEL_RUNTIME_ZONE_BORDER_BYTES,
@@ -656,6 +662,58 @@ int level_runtime_get_world_point(const LevelRuntime *runtime, uint32_t point_in
     point.x = level_runtime_read_be16s(source + 0u);
     point.z = level_runtime_read_be16s(source + 2u);
     *out_point = point;
+    return 1;
+}
+
+int level_runtime_get_point_brightness(const LevelRuntime *runtime, uint16_t zone_index,
+                                       uint16_t point_index, int16_t *out_brightness,
+                                       char *error, size_t error_size)
+{
+    size_t brightness_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_brightness ||
+        zone_index >= runtime->zone_count ||
+        point_index >= LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT) {
+        level_runtime_set_error(error, error_size,
+                                "requested source point brightness is outside the runtime view");
+        return 0;
+    }
+    brightness_offset = (size_t)runtime->point_brightness_offset +
+        ((size_t)zone_index * LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT + point_index) *
+            sizeof(uint16_t);
+    if (brightness_offset > runtime->level_size ||
+        sizeof(uint16_t) > runtime->level_size - brightness_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested source point brightness is outside the level data");
+        return 0;
+    }
+    *out_brightness = level_runtime_read_be16s(runtime->level_bytes + brightness_offset);
+    return 1;
+}
+
+int level_runtime_get_zone_border_point(const LevelRuntime *runtime, uint16_t zone_index,
+                                        uint16_t marker_index, int16_t *out_marker,
+                                        char *error, size_t error_size)
+{
+    size_t marker_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_marker ||
+        zone_index >= runtime->zone_count ||
+        marker_index >= LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT) {
+        level_runtime_set_error(error, error_size,
+                                "requested source zone-brightness marker is outside the runtime view");
+        return 0;
+    }
+    marker_offset = (size_t)runtime->zone_border_points_offset +
+        ((size_t)zone_index * LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT + marker_index) *
+            sizeof(uint16_t);
+    if (marker_offset > runtime->level_size ||
+        sizeof(uint16_t) > runtime->level_size - marker_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested source zone-brightness marker is outside the level data");
+        return 0;
+    }
+    *out_marker = level_runtime_read_be16s(runtime->level_bytes + marker_offset);
     return 1;
 }
 

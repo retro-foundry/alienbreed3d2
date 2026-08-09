@@ -128,6 +128,17 @@ typedef struct {
 } LevelWorldPoint;
 
 /*
+ * hires.s:Game_Begin places a fixed forty-word point-brightness record after
+ * the Vec2W world-point array for every zone.  It then places ten signed
+ * border words per zone after that table; hires.s uses those markers when
+ * deriving Plr1_RoomBright_w.
+ */
+enum {
+    LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT = 40u,
+    LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT = 10u
+};
+
+/*
  * The leading fixed text blocks in twolev.bin. newaliencontrol.s and ai.s
  * pass these exact 160-byte payloads to Msg_PushLine with an explicit length.
  */
@@ -208,6 +219,14 @@ int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t contro
 int level_runtime_get_world_point(const LevelRuntime *runtime, uint32_t point_index,
                                   LevelWorldPoint *out_point,
                                   char *error, size_t error_size);
+/* hires.s:PointBrightsPtr_l, indexed as zone * 40 + point. */
+int level_runtime_get_point_brightness(const LevelRuntime *runtime, uint16_t zone_index,
+                                       uint16_t point_index, int16_t *out_brightness,
+                                       char *error, size_t error_size);
+/* hires.s:Lvl_ZoneBorderPointsPtr_l, indexed as zone * 10 + marker. */
+int level_runtime_get_zone_border_point(const LevelRuntime *runtime, uint16_t zone_index,
+                                        uint16_t marker_index, int16_t *out_marker,
+                                        char *error, size_t error_size);
 int level_runtime_get_narrative_message(const LevelRuntime *runtime, uint16_t message_index,
                                         LevelNarrativeMessage *out_message,
                                         char *error, size_t error_size);
