@@ -605,6 +605,11 @@ the object type/worry bytes, returns the source `ai_GetOut_w` result, and
 synchronizes a live preceding auxiliary slot. Death selection, splat/spawn
 creation, brightness, and the complete AI dispatcher remain with their owning
 source routines.
+`modules/ai.s:ai_CheckForDark` now preserves its same-zone short circuit and
+one `GetRand & 31` signed comparison exactly. It takes the source player-zone
+ID and `Plr1_RoomBright_w` explicitly, rather than inventing a brightness
+value while the native point-brightness producer is still absent, so it too
+waits for its owning AI modes.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,

@@ -5,6 +5,7 @@
 #include "alien_animation.h"
 #include "alien_decision.h"
 #include "alien_death.h"
+#include "alien_dark.h"
 #include "alien_flight.h"
 #include "alien_memory.h"
 #include "alien_perception.h"
@@ -4570,6 +4571,50 @@ int main(int argc, char **argv)
             read_be16(slot_bytes + 40u) != 0u ||
             animation_random.state != expected_animation_random.state) {
             fprintf(stderr, "DOALLANIMS end-frame special is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_CheckForDark preserves its same-zone and random gates. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime dark_objects = {0};
+        GameRandom dark_random;
+        GameRandom expected_dark_random;
+        int16_t dark_result;
+        int16_t threshold;
+
+        dark_objects.slot_bytes = slot_bytes;
+        dark_objects.slot_count = 1u;
+        dark_objects.active_slot_count = 1u;
+        write_be16(slot_bytes + 0u, 7u);
+        game_random_init(&dark_random);
+        expected_dark_random = dark_random;
+        if (!alien_dark_check(&dark_objects, 0u, 7u, 31, &dark_random, &dark_result,
+                              error, sizeof(error)) ||
+            dark_result != -1 || dark_random.state != expected_dark_random.state) {
+            fprintf(stderr, "ai_CheckForDark same-zone source gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(slot_bytes + 0u, 8u);
+        game_random_init(&dark_random);
+        expected_dark_random = dark_random;
+        threshold = (int16_t)(game_random_next(&expected_dark_random) & 31u);
+        if (!alien_dark_check(&dark_objects, 0u, 7u, (int16_t)(threshold + 1),
+                              &dark_random, &dark_result, error, sizeof(error)) ||
+            dark_result != 0 || dark_random.state != expected_dark_random.state) {
+            fprintf(stderr, "ai_CheckForDark dark source gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game_random_init(&dark_random);
+        expected_dark_random = dark_random;
+        threshold = (int16_t)(game_random_next(&expected_dark_random) & 31u);
+        if (!alien_dark_check(&dark_objects, 0u, 7u, threshold,
+                              &dark_random, &dark_result, error, sizeof(error)) ||
+            dark_result != -1 || dark_random.state != expected_dark_random.state) {
+            fprintf(stderr, "ai_CheckForDark bright source gate is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
