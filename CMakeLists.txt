@@ -33,6 +33,7 @@ set(AB3D2_CORE_SOURCES
   src/game_math.c
   src/game_menu.c
   src/game_preferences.c
+  src/game_random.c
   src/game_resources.c
   src/game_save.c
   src/game_session.c

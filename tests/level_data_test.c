@@ -6,6 +6,7 @@
 #include "game_link.h"
 #include "game_inventory.h"
 #include "game_menu.h"
+#include "game_random.h"
 #include "game_save.h"
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
@@ -531,6 +532,7 @@ int main(int argc, char **argv)
     GameMenu menu;
     GameSaveSlots archived_save_slots;
     GameSaveSlots saved_save_slots;
+    GameRandom random;
     int should_quit;
     uint8_t override_marker[64u * 32u];
     AssetBlob saved_floor_override;
@@ -542,6 +544,17 @@ int main(int argc, char **argv)
     if (argc != 3) {
         fprintf(stderr, "usage: %s <data-root> <archived-boot.dat>\n", argv[0]);
         return 2;
+    }
+    game_random_init(&random);
+    if (random.state != 234u || game_random_next(&random) != 0x2a93u ||
+        game_random_next(&random) != 0x77dcu || game_random_next(&random) != 0xe226u) {
+        fprintf(stderr, "objectmove.s GetRand source sequence is inconsistent\n");
+        return 1;
+    }
+    random.state = UINT16_MAX;
+    if (game_random_next(&random) != 0x2342u || random.state != 0x2342u) {
+        fprintf(stderr, "objectmove.s GetRand word wrapping is inconsistent\n");
+        return 1;
     }
     if (!asset_io_join(argv[1], "test_boot.dat", save_path, sizeof(save_path))) {
         fprintf(stderr, "could not construct temporary source boot.dat path\n");

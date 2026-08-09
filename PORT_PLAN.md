@@ -155,9 +155,12 @@ authority for all game behavior and data formats.
   `ItsABullet` stationary pop branch for that status: its source bitmap/glare/
   additive descriptor, frame advance, and `FREE_ENT` release are dispatched
   in `ObjectHandler` slot order. These helpers are not wired into input yet:
-  source cooldown, ammunition, randomness, hit probability, miss raycast/
-  effect, moving-projectile creation, and sound still belong to the remaining
-  `Plr1_Shot` path.
+  source cooldown, ammunition, hit probability, miss raycast/effect,
+  moving-projectile creation, and sound still belong to the remaining
+  `Plr1_Shot` path. `src/game_random.*` now retains `objectmove.s:GetRand`'s
+  exact seeded 16-bit rotate/add sequence for the upcoming probability and AI
+  paths; it is intentionally not consumed until the owning shot/AI routine is
+  fully translated.
 - [x] `src/object_scene.*` translates the non-raster `ObjT` descriptor boundary
   used by `objdrawhires.s:Draw_Objects` and `draw_Object`. Each live source
   slot produces one unprojected `SceneSprite` command in source slot order:
