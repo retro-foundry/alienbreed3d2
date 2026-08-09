@@ -73,6 +73,19 @@ typedef struct {
 } LevelZone;
 
 /*
+ * TLGT_ZoneGraphAddsOffset_l entry used by draw_zone_graph.s. The lower
+ * stream is always present; a zero upper-stream offset is the source's
+ * sentinel for a zone without an upper draw stream.
+ */
+typedef struct {
+    uint32_t lower_stream_offset;
+    uint32_t upper_stream_offset;
+    int16_t lower_zone_id;
+    int16_t upper_zone_id;
+    uint8_t has_upper_stream;
+} LevelDrawGraphStreams;
+
+/*
  * defs.i:EdgeT native read view. These are collision/gameplay edges; they do
  * not imply a renderer visibility or portal traversal policy.
  */
@@ -140,6 +153,9 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
                        char *error, size_t error_size);
 int level_runtime_get_zone(const LevelRuntime *runtime, uint16_t zone_index,
                            LevelZone *out_zone, char *error, size_t error_size);
+int level_runtime_get_zone_draw_graph_streams(const LevelRuntime *runtime, uint16_t zone_index,
+                                              LevelDrawGraphStreams *out_streams,
+                                              char *error, size_t error_size);
 /*
  * objectmove.s' normal collision pass consumes non-negative indexes through
  * the first negative list marker. Extended-edge markers are intentionally not

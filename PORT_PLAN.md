@@ -79,7 +79,9 @@ authority for all game behavior and data formats.
   records used by source AI navigation, and the `EdgeT` collision records
   reached by each zone's primary edge-index list exactly through the first
   negative source marker; source extended-edge markers remain distinct for the
-  later collision port.
+  later collision port. It also exposes every lower/upper draw-graph stream
+  root from `TLGT_ZoneGraphAddsOffset_l`; these roots are complete-level scene
+  inputs, not PVS traversal state.
   It also exposes the ten leading fixed 160-byte message payloads exactly as
   `newaliencontrol.s` and `modules/ai.s` pass them to `Msg_PushLine`; no text
   formatting or display behavior has been inferred.

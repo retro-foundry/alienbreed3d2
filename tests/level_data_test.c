@@ -78,6 +78,7 @@ int main(int argc, char **argv)
         0x22u, 0x33u, 0x28u, 0x40u, 0x0cu, 0x0bu, 0x29u, 0x0du, 0x00u
     };
     LevelZone zone;
+    LevelDrawGraphStreams draw_graph_streams;
     LevelEdge edge;
     LevelControlPoint control_point;
     LevelWorldPoint world_point;
@@ -509,6 +510,10 @@ int main(int argc, char **argv)
                 game.level_graphics_header.zone_adds_table_offset ||
             game.level_runtime.zone_graph_adds_offset !=
                 game.level_graphics_header.zone_graph_adds_offset ||
+            !level_runtime_get_zone_draw_graph_streams(&game.level_runtime, 0u,
+                                                       &draw_graph_streams,
+                                                       error, sizeof(error)) ||
+            draw_graph_streams.lower_zone_id != 0 ||
             !level_navigation_get_next(&game.level_navigation, 0u, 0u, 0,
                                        &navigation_link, error, sizeof(error)) ||
             navigation_link.next_control_point != 0u || navigation_link.only_see != 0u ||
@@ -701,8 +706,19 @@ int main(int argc, char **argv)
             }
         }
         for (zone_index = 0; zone_index < game.level_runtime.zone_count; ++zone_index) {
+            const uint8_t *draw_graph_table = game.level_runtime.graphics_bytes +
+                game.level_runtime.zone_graph_adds_offset + (size_t)zone_index * 8u;
+
             if (!level_runtime_get_zone(&game.level_runtime, zone_index, &zone,
                                         error, sizeof(error)) ||
+                !level_runtime_get_zone_draw_graph_streams(&game.level_runtime, zone_index,
+                                                           &draw_graph_streams,
+                                                           error, sizeof(error)) ||
+                draw_graph_streams.lower_stream_offset != read_be32(draw_graph_table) ||
+                draw_graph_streams.upper_stream_offset != read_be32(draw_graph_table + 4u) ||
+                draw_graph_streams.lower_zone_id != (int16_t)zone_index ||
+                (draw_graph_streams.has_upper_stream != 0u &&
+                 draw_graph_streams.upper_zone_id != (int16_t)zone_index) ||
                 !level_runtime_get_zone_edge_count(&game.level_runtime, zone_index,
                                                    &zone_edge_count, error, sizeof(error)) ||
                 level_runtime_get_zone_edge_index(&game.level_runtime, zone_index,

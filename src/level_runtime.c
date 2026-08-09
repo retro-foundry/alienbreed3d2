@@ -290,9 +290,26 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
         uint32_t zone_offset = level_runtime_read_be32(
             graphics_data->bytes + graphics_header->zone_adds_table_offset +
                                                         (size_t)zone_index * sizeof(uint32_t));
+        uint32_t lower_stream_offset = level_runtime_read_be32(
+            graphics_data->bytes + graphics_header->zone_graph_adds_offset +
+            (size_t)zone_index * 2u * sizeof(uint32_t));
+        uint32_t upper_stream_offset = level_runtime_read_be32(
+            graphics_data->bytes + graphics_header->zone_graph_adds_offset +
+            ((size_t)zone_index * 2u + 1u) * sizeof(uint32_t));
+
         if (!level_runtime_range_is_valid(zone_offset, LEVEL_RUNTIME_ZONE_SIZE, level_data->size)) {
             level_runtime_set_error(error, error_size,
                                     "TLGT zone offset is outside the twolev.bin zone data");
+            return 0;
+        }
+        /* draw_zone_graph.s dereferences the lower stream's leading zone word. */
+        if (!level_runtime_range_is_valid(lower_stream_offset, sizeof(uint16_t),
+                                          graphics_data->size) ||
+            (upper_stream_offset != 0u &&
+             !level_runtime_range_is_valid(upper_stream_offset, sizeof(uint16_t),
+                                           graphics_data->size))) {
+            level_runtime_set_error(error, error_size,
+                                    "zone draw-graph stream points outside twolev.graph.bin");
             return 0;
         }
     }
@@ -554,6 +571,48 @@ int level_runtime_get_zone(const LevelRuntime *runtime, uint16_t zone_index,
     zone.floor_noise = level_runtime_read_be16(source + 44u);
     zone.upper_floor_noise = level_runtime_read_be16(source + 46u);
     *out_zone = zone;
+    return 1;
+}
+
+int level_runtime_get_zone_draw_graph_streams(const LevelRuntime *runtime, uint16_t zone_index,
+                                              LevelDrawGraphStreams *out_streams,
+                                              char *error, size_t error_size)
+{
+    LevelDrawGraphStreams streams;
+    size_t table_offset;
+
+    if (!runtime || !runtime->graphics_bytes || !out_streams ||
+        zone_index >= runtime->zone_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested draw-graph streams are outside the runtime view");
+        return 0;
+    }
+    table_offset = (size_t)runtime->zone_graph_adds_offset +
+        (size_t)zone_index * 2u * sizeof(uint32_t);
+    if (table_offset > runtime->graphics_size ||
+        2u * sizeof(uint32_t) > runtime->graphics_size - table_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested draw-graph streams are outside the runtime view");
+        return 0;
+    }
+    streams.lower_stream_offset = level_runtime_read_be32(runtime->graphics_bytes + table_offset);
+    streams.upper_stream_offset = level_runtime_read_be32(runtime->graphics_bytes + table_offset +
+                                                           sizeof(uint32_t));
+    if (!level_runtime_range_is_valid(streams.lower_stream_offset, sizeof(uint16_t),
+                                      runtime->graphics_size) ||
+        (streams.upper_stream_offset != 0u &&
+         !level_runtime_range_is_valid(streams.upper_stream_offset, sizeof(uint16_t),
+                                       runtime->graphics_size))) {
+        level_runtime_set_error(error, error_size,
+                                "draw-graph stream is outside the runtime view");
+        return 0;
+    }
+    streams.lower_zone_id = level_runtime_read_be16s(runtime->graphics_bytes +
+                                                      streams.lower_stream_offset);
+    streams.has_upper_stream = streams.upper_stream_offset != 0u ? UINT8_MAX : 0u;
+    streams.upper_zone_id = streams.has_upper_stream != 0u ?
+        level_runtime_read_be16s(runtime->graphics_bytes + streams.upper_stream_offset) : -1;
+    *out_streams = streams;
     return 1;
 }
 
