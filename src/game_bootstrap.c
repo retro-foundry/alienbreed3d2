@@ -64,6 +64,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     memset(&game->level_mechanisms, 0, sizeof(game->level_mechanisms));
     memset(&game->level_navigation, 0, sizeof(game->level_navigation));
     level_dynamic_state_destroy(&game->dynamic_level);
+    mechanism_runtime_init(&game->mechanism_runtime);
     memset(&game->level_runtime, 0, sizeof(game->level_runtime));
     object_runtime_destroy(&game->object_runtime);
     level_static_scene_destroy(&game->static_scene);
@@ -222,7 +223,10 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
         !object_collectables_update_single_player(
             &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,
-            NULL, error, error_size)) {
+            NULL, error, error_size) ||
+        !mechanism_runtime_update_doors_single_player(
+            &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
+            &game->player, 1u, error, error_size)) {
         return 0;
     }
     /* Game_AddToInventory changes Plr1_Inventory; health drives next control tick. */
@@ -395,6 +399,7 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         game_bootstrap_release_level(game);
         return 0;
     }
+    mechanism_runtime_init(&game->mechanism_runtime);
 
     /* game_DoneMenu copies the selected single-player inventory before Game_Begin. */
     game->player.health = game->session.player1_inventory.health;

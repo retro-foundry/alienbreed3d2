@@ -195,9 +195,14 @@ authority for all game behavior and data formats.
   a same-zone/layer candidate: floor/roof placement, source word-coordinate
   hit test, `GLFT_AmmoGive`/`GunGive`, saturated inventory update, and removed
   slot sentinel. The Level B slot-20 health fixture validates this exact path.
-  Dynamic `Obj_DoCollision`, activatables, doors, lifts, enemies, projectiles,
-  animations, sounds, and sprites remain absent until their owning routines
-  are ported. `SceneCamera.look_offset` now carries
+  `src/mechanism_runtime.*` now ports the single-player `newanims.s:DoorRoutine`
+  slice: source `ZLiftableT` position/velocity and open timers, `ZoneT_Roof_l`,
+  per-door graphics displacement records, door-state bits, source raise masks,
+  player-in-door safety opening, and `EdgeT_Flags_w` consumption. It operates
+  entirely on the cloned level bytes, leaves PVS unused, and emits neither
+  audio nor pixels. Dynamic `Obj_DoCollision`, activatables, lifts, switches,
+  enemies, projectiles, animations, sounds, and sprites remain absent until
+  their owning routines are ported. `SceneCamera.look_offset` now carries
   the source small-screen look value for the future GPU backend. Walls, floors,
   ceilings, and water continue to submit source-defined material and geometry
   commands.
@@ -295,15 +300,15 @@ authority for all game behavior and data formats.
      it preserves `AMOD_A` address wrapping and big-endian sine/cosine reads.
      Horizontal movement, falling, and static `MoveObject` collision now use
      that table and the maintained fixed-point update order, not a generated
-     trigonometric approximation. The current interaction scope is the tested
-     collectable path only. Next: source `Obj_DoCollision`, activatables and
-     mechanisms, and `newplayershoot.s`.
+     trigonometric approximation. The current interaction scope includes the
+     tested collectable path and `DoorRoutine`; next: source `Obj_DoCollision`,
+     activatables, lifts/switches, and `newplayershoot.s`.
    - Keep optional modern bindings outside core simulation state. The native
      menu is intentionally not on the gameplay-first launch path for now; do
      not extend it while the direct Level A path is the active milestone.
 
 5. **Objects, animation, AI, audio, and progression**
-   - Port runtime object initialization, animation, doors/lifts/switches, and
+   - Port runtime object initialization, animation, lifts/switches, and
      collision from `newanims.s`, `objectmove.s`, and `newaliencontrol.s`.
    - Port AI from `modules/ai.s` using its GLFT definition tables; do not
      approximate enemy state machines or constants.
@@ -356,8 +361,9 @@ selection while menu work is deferred; this allows the gameplay loop to enter
 authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
-objects, apply `Obj_DoCollision`, activate doors/lifts/switches, emit sprites,
-and create projectiles. Translate each bounded slice directly from the
+objects, apply `Obj_DoCollision`, activate lifts/switches, emit sprites, and
+create projectiles. The first door slice is complete; translate each remaining
+bounded slice directly from the
 maintained source and add source-derived regressions for its state changes and
 ordering. When an original-runtime fixture becomes available, follow the
 optional byte-exact capture contract in

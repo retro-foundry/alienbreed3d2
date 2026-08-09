@@ -33,7 +33,7 @@ static int level_dynamic_state_get_edge_flag_bytes(const LevelDynamicState *stat
 {
     uint64_t offset;
 
-    if (!state || !out_bytes || edge_index >= state->runtime.edge_count) {
+    if (!state || !out_bytes) {
         return 0;
     }
     /* EdgeT is 16 bytes and EdgeT_Flags_w is its final source word. */
@@ -129,5 +129,17 @@ int level_dynamic_state_or_edge_flags(LevelDynamicState *state, uint32_t edge_in
     }
     current_flags = level_dynamic_state_read_be16(flag_bytes);
     level_dynamic_state_write_be16(flag_bytes, (uint16_t)(current_flags | flags));
+    return 1;
+}
+
+int level_dynamic_state_set_edge_flags(LevelDynamicState *state, uint32_t edge_index,
+                                       uint16_t flags)
+{
+    uint8_t *flag_bytes;
+
+    if (!level_dynamic_state_get_edge_flag_bytes(state, edge_index, &flag_bytes)) {
+        return 0;
+    }
+    level_dynamic_state_write_be16(flag_bytes, flags);
     return 1;
 }

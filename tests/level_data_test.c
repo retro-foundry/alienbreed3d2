@@ -17,6 +17,20 @@ static uint16_t read_be16(const uint8_t *source)
     return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
 }
 
+static void write_be16(uint8_t *target, uint16_t value)
+{
+    target[0] = (uint8_t)(value >> 8);
+    target[1] = (uint8_t)value;
+}
+
+static int16_t source_asr16_2(int16_t value)
+{
+    if (value >= 0) {
+        return (int16_t)(value / 4);
+    }
+    return (int16_t)-(((int32_t)-value + 3) / 4);
+}
+
 static uint32_t read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
@@ -1306,6 +1320,116 @@ int main(int argc, char **argv)
                             level_index, mechanism_index, wall_index, error);
                     game_bootstrap_destroy(&game);
                     return 1;
+                }
+            }
+        }
+        {
+            LevelLiftable door;
+            LevelLiftableWall door_wall;
+            PlayerRuntime door_player = game.player;
+            uint8_t *door_header;
+            uint8_t *door_graphics;
+            uint16_t activation_flags;
+            int16_t expected_velocity;
+            uint16_t observed_edge_flags;
+            LevelZone dynamic_door_zone;
+            uint16_t door_index = 0u;
+
+            while (door_index < game.level_mechanisms.door_count &&
+                   (!level_mechanisms_get_door(&game.level_mechanisms, door_index, &door,
+                                               error, sizeof(error)) ||
+                    door.wall_count == 0u)) {
+                ++door_index;
+            }
+            if (door_index < game.level_mechanisms.door_count) {
+                if (!level_mechanisms_get_door_wall(&game.level_mechanisms, door_index, 0u,
+                                                    &door_wall, error, sizeof(error)) ||
+                    door_wall.edge_index < 0 || door.wall_data_offset < 36u ||
+                    !level_dynamic_state_get_graphics_range(
+                        &game.dynamic_level, door.wall_data_offset - 36u, 36u,
+                        &door_header) ||
+                    !level_dynamic_state_get_graphics_range(
+                        &game.dynamic_level, door.graphics_offset + 2u, 2u,
+                        &door_graphics)) {
+                    fprintf(stderr, "campaign level %u door runtime fixture is invalid: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                switch (door.raise_condition) {
+                case 0u:
+                    activation_flags = 0x0100u;
+                    expected_velocity = (int16_t)(uint16_t)(0u - (uint16_t)door.opening_speed);
+                    break;
+                case 1u:
+                    activation_flags = 0x0900u;
+                    expected_velocity = (int16_t)(uint16_t)(0u - (uint16_t)door.opening_speed);
+                    break;
+                case 2u:
+                    activation_flags = 0x0400u;
+                    expected_velocity = (int16_t)(uint16_t)(0u - (uint16_t)door.opening_speed);
+                    break;
+                case 3u:
+                    activation_flags = 0x0200u;
+                    expected_velocity = (int16_t)(uint16_t)(0u - (uint16_t)door.opening_speed);
+                    break;
+                case 4u:
+                    activation_flags = 0x8000u;
+                    expected_velocity = (int16_t)(uint16_t)(0u - (uint16_t)door.opening_speed);
+                    break;
+                default:
+                    /* DoorRoutine's player-in-door safety path opens a closed door. */
+                    activation_flags = 0x8000u;
+                    expected_velocity = -16;
+                    door_player.zone_index = (uint16_t)door.zone_id;
+                    break;
+                }
+                write_be16(door_header + 22u, (uint16_t)door.bottom);
+                write_be16(door_header + 24u, 0u);
+                door_player.tmp_used = UINT8_MAX;
+                mechanism_runtime_init(&game.mechanism_runtime);
+                if (!level_dynamic_state_set_edge_flags(
+                        &game.dynamic_level, (uint16_t)door_wall.edge_index, activation_flags) ||
+                    !mechanism_runtime_update_doors_single_player(
+                        &game.mechanism_runtime, &game.dynamic_level, &game.level_mechanisms,
+                        &door_player, 1u, error, sizeof(error)) ||
+                    (int16_t)read_be16(door_header + 22u) != door.bottom ||
+                    (int16_t)read_be16(door_header + 24u) != expected_velocity ||
+                    (int16_t)read_be16(door_graphics) != door.bottom ||
+                    !level_runtime_get_zone(&game.dynamic_level.runtime,
+                                            (uint16_t)door.zone_id, &dynamic_door_zone,
+                                            error, sizeof(error)) ||
+                    dynamic_door_zone.roof != (int32_t)source_asr16_2(door.bottom) * 256 ||
+                    !level_dynamic_state_get_edge_flags(
+                        &game.dynamic_level, (uint16_t)door_wall.edge_index,
+                        &observed_edge_flags) ||
+                    observed_edge_flags != 0x8000u) {
+                    fprintf(stderr, "campaign level %u DoorRoutine update is inconsistent: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (door.open_duration > 0) {
+                    write_be16(door_header + 22u, (uint16_t)door.top);
+                    write_be16(door_header + 24u, 0u);
+                    game.mechanism_runtime.door_open_timers[door_index] =
+                        (uint16_t)(door.open_duration - 1);
+                    if (!level_dynamic_state_set_edge_flags(
+                            &game.dynamic_level, (uint16_t)door_wall.edge_index, 0x8000u) ||
+                        !mechanism_runtime_update_doors_single_player(
+                            &game.mechanism_runtime, &game.dynamic_level,
+                            &game.level_mechanisms, &door_player, 1u, error,
+                            sizeof(error)) ||
+                        (int16_t)read_be16(door_header + 22u) != door.top ||
+                        (int16_t)read_be16(door_header + 24u) != door.closing_speed ||
+                        game.mechanism_runtime.door_open_timers[door_index] !=
+                            (uint16_t)door.open_duration) {
+                        fprintf(stderr,
+                                "campaign level %u DoorRoutine close timer is inconsistent: %s\n",
+                                level_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
                 }
             }
         }

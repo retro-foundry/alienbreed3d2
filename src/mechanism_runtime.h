@@ -1,0 +1,32 @@
+#ifndef AB3D2_MECHANISM_RUNTIME_H
+#define AB3D2_MECHANISM_RUNTIME_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "level_dynamic_state.h"
+#include "level_mechanisms.h"
+#include "player_runtime.h"
+
+/* newanims.s:DoorRoutine's persistent non-level-data globals. */
+typedef struct {
+    uint16_t door_open_timers[LEVEL_MECHANISMS_MAX_DOORS];
+    uint16_t current_door_state;
+    uint16_t door_and_lift_locks;
+} MechanismRuntime;
+
+void mechanism_runtime_init(MechanismRuntime *runtime);
+
+/*
+ * Single-player newanims.s:DoorRoutine. This mutates only the cloned source
+ * ZoneT, EdgeT, ZLiftableT, and door-graphics records; it emits no pixels or
+ * sounds. frame_ticks is Anim_TempFrames_w for this simulation update.
+ */
+int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
+                                                 LevelDynamicState *dynamic_level,
+                                                 const LevelMechanisms *mechanisms,
+                                                 const PlayerRuntime *player,
+                                                 uint16_t frame_ticks,
+                                                 char *error, size_t error_size);
+
+#endif
