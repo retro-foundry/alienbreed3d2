@@ -21,10 +21,14 @@ first game's software renderer:
 - defines a GPU-neutral frame command interface for cameras, materials,
   geometry, sprites, and HUD text;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
-  big-endian level and inventory payload) while keeping its host storage and
-  interactive menu flow unported;
-- opens a diagnostic SDL window whose title reports the command count. It does
-  not rasterize the game scene.
+  big-endian level and inventory payload) while keeping host save storage
+  unported;
+- drives the source single-player main menu, including the two-page level
+  selector and level start handoff. Master/slave multiplayer is explicitly
+  unavailable; controls, preferences, and load/save actions report their
+  unported status;
+- opens a diagnostic SDL window whose title presents the current menu/level
+  status and command count. It does not rasterize the game scene.
 
 Single-player is the only intended PC mode. The original serial master/slave
 multiplayer flow is intentionally not ported.
@@ -40,8 +44,10 @@ cmake --build build/pc --config Debug
 ctest --test-dir build/pc --output-on-failure
 ```
 
-Run the `ab3d2` executable from its build output directory. Use Escape or
-close the window to exit. The native runtime fails explicitly if an
+Run the `ab3d2` executable from its build output directory. Use Up/Down to
+navigate, Enter or Space to activate a menu item, and the source menu's EXIT
+entry (or the window close control) to quit. Escape preserves the main menu's
+source no-op/cancel behavior. The native runtime fails explicitly if an
 authoritative asset is unavailable.
 
 ## Port authority and source map

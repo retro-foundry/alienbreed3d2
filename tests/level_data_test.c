@@ -4,6 +4,7 @@
 #include "asset_io.h"
 #include "game_bootstrap.h"
 #include "game_link.h"
+#include "game_menu.h"
 #include "level_bootstrap.h"
 #include "scene_frame.h"
 
@@ -29,6 +30,8 @@ int main(int argc, char **argv)
     LevelObjectPoint object_point;
     GameSession encoded_session;
     GameSession decoded_session;
+    GameMenu menu;
+    int should_quit;
     char error[256];
 
     if (argc != 2) {
@@ -159,6 +162,89 @@ int main(int argc, char **argv)
         game.session.campaign_inventory.ammunition[7] != 20u ||
         game_session_select_level(&game.session, GAME_LINK_LEVEL_COUNT, error, sizeof(error))) {
         fprintf(stderr, "DEFAULTGAME single-player state is inconsistent\n");
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    game_menu_init(&menu, &game);
+    if (menu.screen != GAME_MENU_SCREEN_MAIN || menu.selection != 0u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_UP, &should_quit,
+                                error, sizeof(error)) ||
+        menu.selection != 8u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN, &should_quit,
+                                error, sizeof(error)) ||
+        menu.selection != 0u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_LEVEL_ACTIVE || game.level_data.size == 0 ||
+        game.session.active_level_index != 0u) {
+        fprintf(stderr, "single-player main-menu start is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    game_menu_init(&menu, &game);
+    if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN, &should_quit,
+                                error, sizeof(error)) ||
+        menu.selection != 1u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_NOTICE ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_BACK, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_MAIN) {
+        fprintf(stderr, "single-player multiplayer exclusion is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN, &should_quit,
+                                error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN, &should_quit,
+                                error, sizeof(error)) ||
+        menu.selection != 2u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_LEVEL_PAGE_ONE) {
+        fprintf(stderr, "source level-menu entry is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    for (uint16_t menu_step = 0; menu_step < 8u; ++menu_step) {
+        if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                    &should_quit, error, sizeof(error))) {
+            fprintf(stderr, "source level-menu navigation failed: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    if (menu.selection != 8u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_LEVEL_PAGE_TWO ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN, &should_quit,
+                                error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_UP, &should_quit,
+                                error, sizeof(error)) ||
+        menu.selection != 0u) {
+        fprintf(stderr, "source level-menu page change is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_MAIN || menu.selection != 0u ||
+        game.session.menu_level_index != 8u ||
+        game.session.campaign_inventory.health != 200u) {
+        fprintf(stderr, "source page-two DEFGAME selection is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    game_menu_init(&menu, &game);
+    if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_UP, &should_quit,
+                                error, sizeof(error)) ||
+        menu.selection != 8u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        !should_quit) {
+        fprintf(stderr, "main-menu exit command is inconsistent: %s\n", error);
         game_bootstrap_destroy(&game);
         return 1;
     }

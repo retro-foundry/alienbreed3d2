@@ -8,6 +8,7 @@
 struct RendererStub {
     SDL_Window *window;
     int running;
+    char status[160];
 };
 
 RendererStub *renderer_stub_create(void)
@@ -26,6 +27,8 @@ RendererStub *renderer_stub_create(void)
         return NULL;
     }
     renderer->running = 1;
+    (void)snprintf(renderer->status, sizeof(renderer->status),
+                   "status presenter; GPU renderer pending");
     return renderer;
 }
 
@@ -38,32 +41,36 @@ void renderer_stub_destroy(RendererStub *renderer)
     free(renderer);
 }
 
-int renderer_stub_handle_events(RendererStub *renderer)
+int renderer_stub_is_running(const RendererStub *renderer)
 {
-    SDL_Event event;
+    return renderer && renderer->running;
+}
 
-    if (!renderer) {
-        return 0;
+void renderer_stub_request_quit(RendererStub *renderer)
+{
+    if (renderer) {
+        renderer->running = 0;
     }
-    while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT ||
-            (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_ESCAPE)) {
-            renderer->running = 0;
-        }
+}
+
+void renderer_stub_set_status(RendererStub *renderer, const char *status)
+{
+    if (!renderer || !status) {
+        return;
     }
-    return renderer->running;
+    (void)snprintf(renderer->status, sizeof(renderer->status), "%s", status);
 }
 
 void renderer_stub_present(RendererStub *renderer, const SceneFrame *frame)
 {
-    char title[160];
+    char title[360];
     size_t command_count = frame ? frame->count : 0;
 
     if (!renderer || !renderer->window) {
         return;
     }
     (void)snprintf(title, sizeof(title),
-                   "Alien Breed 3D II PC - GPU renderer pending (%zu scene command%s)",
-                   command_count, command_count == 1 ? "" : "s");
+                   "Alien Breed 3D II PC - %s (%zu scene command%s)",
+                   renderer->status, command_count, command_count == 1 ? "" : "s");
     SDL_SetWindowTitle(renderer->window, title);
 }

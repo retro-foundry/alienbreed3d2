@@ -50,9 +50,14 @@ authority for all game behavior and data formats.
   70-byte big-endian campaign-record codec (level counter plus `InvCT`/`InvIT`).
   Selecting an absent optional `levels/level_X/deflev.dat` follows the source
   path back through `DEFAULTGAME`; malformed definitions fail explicitly.
-- [ ] Port the actual SDL-driven menu commands and all source preferences/
-  host-side `boot.dat` slot storage before treating the diagnostic window as a
-  playable menu.
+- [x] `src/game_menu.*` drives the single-player `game_ReadMainMenu` command
+  flow from SDL keys: source-style cyclic navigation, play/`game_DoneMenu`,
+  two-page `DEFGAME` selection (including its register-restored A-P level
+  index), and exit. The master/slave branch is explicitly unavailable, as
+  required for this port, and the status presenter identifies actions that
+  have no implemented native subsystem.
+- [ ] Port source controls/preferences and host-side `boot.dat` slot storage
+  before treating the diagnostic window as a fully playable menu.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
   including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
   offset table, plus every `ZoneT` in all campaign levels into endian-safe
@@ -86,6 +91,9 @@ authority for all game behavior and data formats.
 - `src/game_bootstrap.*` maps `controlloop.s:Game_Start`, `SETPLAYERS`, and
   `modules/res.s:Res_LoadLevelData` for the game link, narrative file, and
   Level A–P map/flight-map/data/graphics/clip bundles.
+- `src/game_menu.*` maps the single-player branches of
+  `controlloop.s:game_ReadMainMenu`, `levelMenu`, `levelMenu2`, and
+  `game_DoneMenu` onto SDL key actions, without creating a multiplayer path.
 - `src/level_bootstrap.*` decodes the big-endian `TLBT` and `TLGT` headers used
   by `hires.s:Game_Begin`.
 - `src/scene_frame.*` and `src/renderer_stub.*` establish the renderer seam.

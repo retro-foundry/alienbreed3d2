@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "game_bootstrap.h"
+#include "game_menu.h"
 #include "renderer_stub.h"
 
 static int make_default_data_root(char *out_root, size_t out_root_size)
@@ -20,12 +21,38 @@ static int make_default_data_root(char *out_root, size_t out_root_size)
     return written >= 0 && (size_t)written < out_root_size;
 }
 
+static int menu_input_from_key(SDL_Keycode key, GameMenuInput *out_input)
+{
+    if (!out_input) {
+        return 0;
+    }
+    switch (key) {
+    case SDLK_UP:
+        *out_input = GAME_MENU_INPUT_UP;
+        return 1;
+    case SDLK_DOWN:
+        *out_input = GAME_MENU_INPUT_DOWN;
+        return 1;
+    case SDLK_RETURN:
+    case SDLK_KP_ENTER:
+    case SDLK_SPACE:
+        *out_input = GAME_MENU_INPUT_ACTIVATE;
+        return 1;
+    case SDLK_ESCAPE:
+        *out_input = GAME_MENU_INPUT_BACK;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 int main(int argc, char **argv)
 {
     char data_root[1024];
     char error[256];
     const char *configured_data_root = NULL;
     GameBootstrap game;
+    GameMenu menu;
     SceneFrame frame;
     RendererStub *renderer = NULL;
 
@@ -69,11 +96,39 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    game_menu_init(&menu, &game);
+    renderer_stub_set_status(renderer, game_menu_status(&menu));
+
     fprintf(stdout,
-            "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes LEVEL_A zones=%u points=%u\n",
-            game.game_link.size, game.story_text.size, game.level.zone_count,
-            game.level.point_count);
-    while (renderer_stub_handle_events(renderer)) {
+            "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes single-player menu ready\n",
+            game.game_link.size, game.story_text.size);
+    while (renderer_stub_is_running(renderer)) {
+        SDL_Event event;
+
+        while (SDL_PollEvent(&event)) {
+            GameMenuInput input;
+            int should_quit;
+
+            if (event.type == SDL_QUIT) {
+                renderer_stub_request_quit(renderer);
+                break;
+            }
+            if (event.type != SDL_KEYDOWN || event.key.repeat ||
+                !menu_input_from_key(event.key.keysym.sym, &input)) {
+                continue;
+            }
+            if (!game_menu_handle_input(&menu, &game, configured_data_root, input,
+                                        &should_quit, error, sizeof(error))) {
+                fprintf(stderr, "[MENU] %s\n", error);
+                renderer_stub_set_status(renderer, error);
+                continue;
+            }
+            renderer_stub_set_status(renderer, game_menu_status(&menu));
+            if (should_quit) {
+                renderer_stub_request_quit(renderer);
+                break;
+            }
+        }
         scene_frame_begin(&frame);
         if (!game_bootstrap_submit_diagnostic_frame(&game, &frame)) {
             fprintf(stderr, "[SCENE] diagnostic command submission failed\n");
