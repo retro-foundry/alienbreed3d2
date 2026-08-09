@@ -58,8 +58,11 @@ from the first game port. The initial mappings are:
 - startup asset ownership: `controlloop.s:Game_Start`;
 - level bootstrap: `hires.s:Game_Begin` and `modules/res.s:Res_LoadLevelData`;
 - level binary structures: `defs.i:TLBT`;
-- future scene production: `hires.s:DrawDisplay`, `newaliencontrol.s:ViewpointToDraw`,
-  `orderzones.s:Zone_OrderZones`, and `objdrawhires.s`.
+- future whole-level scene production: `hires.s:DrawDisplay`,
+  `newaliencontrol.s:ViewpointToDraw`, and `objdrawhires.s`. It does not
+  depend on `orderzones.s:Zone_OrderZones`, PVS errata, or portal traversal.
 
 The future GPU backend will consume `src/scene_frame.h`; it must not depend on
-Amiga framebuffer, C2P, copper, or software-rasterizer state.
+Amiga framebuffer, C2P, copper, or software-rasterizer state. It may submit a
+complete loaded level every frame; any visibility culling is an optional native
+optimisation rather than a porting prerequisite.
