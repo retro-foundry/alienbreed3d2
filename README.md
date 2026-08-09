@@ -69,7 +69,8 @@ first game's software renderer:
   Master/slave multiplayer is explicitly unavailable. Native SDL events feed
   the source-shaped raw-key map, player movement/falling/static collision,
   collectables, doors, lifts, water updates, source PVST gameplay activation,
-  and the source single-player
+  and `hires.s:DOALLANIMS`' source-timed alien frame/action workspace update;
+  the source single-player
   weapon cooldown/ammunition/hitscan/projectile-launch/flight path; enemy,
   mouse-input, blast/brightness, and audio paths remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,

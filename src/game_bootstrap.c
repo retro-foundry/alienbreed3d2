@@ -5,6 +5,7 @@
 
 #include "object_handler.h"
 #include "object_scene.h"
+#include "object_animation.h"
 #include "player_entity.h"
 #include "player_shoot.h"
 #include "object_worry.h"
@@ -179,6 +180,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     game_input_init(&game->input);
     game_preferences_default(&game->preferences);
     game_random_init(&game->random);
+    object_animation_runtime_init(&game->object_animation_runtime);
     return 1;
 
 fail:
@@ -221,7 +223,11 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     if (game->session.level_finished != 0u) {
         return 1;
     }
-    if (!player_runtime_update_discrete_controls(&game->player, &game->input,
+    /* hires.s:dosomething calls DOALLANIMS before its control/object work. */
+    if (!object_animation_update_single_player(
+            &game->object_animation_runtime, &game->object_runtime,
+            &game->game_link_catalog, &game->random, error, error_size) ||
+        !player_runtime_update_discrete_controls(&game->player, &game->input,
                                                  &game->controls, &game->dynamic_level.runtime,
                                                  &game->session.player1_inventory,
                                                  error, error_size) ||
@@ -462,6 +468,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     asset_blob_release(&game->sine_table);
     memset(&game->math, 0, sizeof(game->math));
     alien_runtime_init(&game->alien_runtime);
+    object_animation_runtime_init(&game->object_animation_runtime);
     memset(&game->session, 0, sizeof(game->session));
     memset(&game->preferences, 0, sizeof(game->preferences));
     asset_blob_release(&game->story_text);

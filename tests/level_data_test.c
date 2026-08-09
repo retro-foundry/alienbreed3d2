@@ -12,6 +12,7 @@
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
 #include "object_collectables.h"
+#include "object_animation.h"
 #include "object_handler.h"
 #include "object_movement.h"
 #include "object_projectiles.h"
@@ -461,6 +462,7 @@ int main(int argc, char **argv)
     const uint8_t *table_bytes;
     const uint8_t *shoot_definition_bytes;
     const uint8_t *alien_definition_bytes;
+    const uint8_t *alien_animation_bytes;
     const uint8_t *object_definition_bytes;
     const uint8_t *object_default_animation_bytes;
     const uint8_t *object_action_animation_bytes;
@@ -470,6 +472,7 @@ int main(int argc, char **argv)
     size_t table_size;
     size_t shoot_definition_size;
     size_t alien_definition_size;
+    size_t alien_animation_size;
     size_t object_definition_size;
     size_t object_default_animation_size;
     size_t object_action_animation_size;
@@ -483,6 +486,8 @@ int main(int argc, char **argv)
     uint16_t object_frame_data_index;
     uint16_t shoot_definition_index;
     uint16_t alien_definition_index;
+    uint16_t alien_animation_option;
+    uint16_t alien_animation_frame_index;
     uint16_t bullet_definition_index;
     uint16_t bullet_animation_index;
     int16_t trig_value;
@@ -515,6 +520,7 @@ int main(int argc, char **argv)
     GameObjectFrameData object_frame_data;
     GameShootDefinition shoot_definition;
     GameAlienDefinition alien_definition;
+    GameAlienAnimationFrame alien_animation_frame;
     GameBulletDefinition bullet_definition;
     GameBulletAnimationFrame bullet_animation_frame;
     GameInventory object_inventory_grant;
@@ -730,6 +736,10 @@ int main(int argc, char **argv)
                          &alien_definition_bytes, &alien_definition_size) ||
         alien_definition_size != (size_t)GAME_LINK_ALIEN_COUNT *
                                       GAME_LINK_ALIEN_DEFINITION_SIZE ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_ALIEN_ANIMATIONS,
+                         &alien_animation_bytes, &alien_animation_size) ||
+        alien_animation_size != (size_t)GAME_LINK_ALIEN_COUNT *
+                                    GAME_LINK_ALIEN_ANIMATION_SIZE ||
         !game_link_table(&game_link, GAME_LINK_TABLE_OBJECT_DEFINITIONS,
                          &object_definition_bytes, &object_definition_size) ||
         object_definition_size != (size_t)GAME_LINK_OBJECT_COUNT *
@@ -828,6 +838,33 @@ int main(int argc, char **argv)
                     alien_definition_index, error);
             asset_blob_release(&game_link_blob);
             return 1;
+        }
+        for (alien_animation_option = 0u;
+             alien_animation_option < GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT;
+             ++alien_animation_option) {
+            for (alien_animation_frame_index = 0u;
+                 alien_animation_frame_index < GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT;
+                 ++alien_animation_frame_index) {
+                size_t frame_offset =
+                    ((size_t)alien_definition_index * GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT +
+                     alien_animation_option) * GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT +
+                    alien_animation_frame_index;
+
+                if (!game_link_get_alien_animation_frame(
+                        &game_link, alien_definition_index, alien_animation_option,
+                        alien_animation_frame_index, &alien_animation_frame,
+                        error, sizeof(error)) ||
+                    memcmp(alien_animation_frame.bytes,
+                           alien_animation_bytes +
+                               frame_offset * GAME_LINK_ALIEN_ANIMATION_FRAME_SIZE,
+                           GAME_LINK_ALIEN_ANIMATION_FRAME_SIZE) != 0) {
+                    fprintf(stderr, "GLFT alien animation %u option %u frame %u is inconsistent: %s\n",
+                            alien_definition_index, alien_animation_option,
+                            alien_animation_frame_index, error);
+                    asset_blob_release(&game_link_blob);
+                    return 1;
+                }
+            }
         }
     }
     for (shoot_definition_index = 0u;
@@ -934,6 +971,12 @@ int main(int argc, char **argv)
                                        &shoot_definition, error, sizeof(error)) ||
         game_link_get_alien_definition(&game_link, GAME_LINK_ALIEN_COUNT,
                                        &alien_definition, error, sizeof(error)) ||
+        game_link_get_alien_animation_frame(
+            &game_link, 0u, GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT, 0u,
+            &alien_animation_frame, error, sizeof(error)) ||
+        game_link_get_alien_animation_frame(
+            &game_link, 0u, 0u, GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT,
+            &alien_animation_frame, error, sizeof(error)) ||
         game_link_get_bullet_definition(&game_link, GAME_LINK_BULLET_COUNT,
                                         &bullet_definition, error, sizeof(error)) ||
         game_link_get_bullet_animation_frame(&game_link, GAME_LINK_BULLET_ANIMATION_FLIGHT,
@@ -3937,6 +3980,84 @@ int main(int argc, char **argv)
             lock_runtime.door_and_lift_locks != 0u) {
             fprintf(stderr, "ObjectHandler negative alien-zone gate is inconsistent: %s\n",
                     error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* hires.s:DOALLANIMS uses alien 0's authored walk frame special bytes. */
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime animation_objects = {0};
+        ObjectAnimationRuntime animation_runtime;
+        GameRandom animation_random;
+        GameRandom expected_animation_random;
+        uint8_t expected_random_value;
+
+        animation_objects.slot_bytes = slot_bytes;
+        animation_objects.slot_count = 2u;
+        animation_objects.active_slot_count = 2u;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 12u, 0u);
+        slot_bytes[16u] = 0u;
+        slot_bytes[54u] = 0u;
+        slot_bytes[55u] = 0u;
+        slot_bytes[62u] = UINT8_MAX;
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        object_animation_runtime_init(&animation_runtime);
+        game_random_init(&animation_random);
+        expected_animation_random = animation_random;
+        if (!object_animation_update_single_player(
+                &animation_runtime, &animation_objects, &game.game_link_catalog,
+                &animation_random, error, sizeof(error)) ||
+            animation_runtime.thistime != 5u ||
+            animation_runtime.workspace[0u][0u] != 1u ||
+            animation_runtime.workspace[0u][1u] != 0u ||
+            animation_runtime.workspace[0u][2u] != 0u ||
+            animation_runtime.workspace[0u][3u] != 0u ||
+            animation_runtime.workspace[0u][4u] != 5u ||
+            read_be16(slot_bytes + 40u) != 1u ||
+            animation_random.state != expected_animation_random.state) {
+            fprintf(stderr, "DOALLANIMS initial source frame is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint16_t tick = 0u; tick < 4u; ++tick) {
+            if (!object_animation_update_single_player(
+                    &animation_runtime, &animation_objects, &game.game_link_catalog,
+                    &animation_random, error, sizeof(error))) {
+                fprintf(stderr, "DOALLANIMS cadence update failed: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        expected_random_value = (uint8_t)(game_random_next(&expected_animation_random) % 10u);
+        if (!object_animation_update_single_player(
+                &animation_runtime, &animation_objects, &game.game_link_catalog,
+                &animation_random, error, sizeof(error)) ||
+            animation_runtime.thistime != 5u ||
+            animation_runtime.workspace[0u][0u] != 2u ||
+            animation_runtime.workspace[0u][1u] != 1u ||
+            animation_runtime.workspace[0u][2u] != 0u ||
+            animation_runtime.workspace[0u][4u] != expected_random_value ||
+            read_be16(slot_bytes + 40u) != 2u ||
+            animation_random.state != expected_animation_random.state) {
+            fprintf(stderr, "DOALLANIMS random special frame is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        animation_runtime.thistime = 0u;
+        animation_runtime.workspace[0u][4u] = 1u;
+        write_be16(slot_bytes + 40u, 7u);
+        if (!object_animation_update_single_player(
+                &animation_runtime, &animation_objects, &game.game_link_catalog,
+                &animation_random, error, sizeof(error)) ||
+            animation_runtime.workspace[0u][0u] != 3u ||
+            animation_runtime.workspace[0u][1u] != 7u ||
+            animation_runtime.workspace[0u][3u] != UINT8_MAX ||
+            animation_runtime.workspace[0u][4u] != 0u ||
+            read_be16(slot_bytes + 40u) != 0u ||
+            animation_random.state != expected_animation_random.state) {
+            fprintf(stderr, "DOALLANIMS end-frame special is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }

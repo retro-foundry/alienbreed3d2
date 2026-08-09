@@ -25,6 +25,13 @@ enum {
     GAME_LINK_BULLET_ANIMATION_FRAME_SIZE = 6,
     GAME_LINK_BULLET_ANIMATION_FRAME_COUNT = 20,
     GAME_LINK_ALIEN_DEFINITION_SIZE = 42,
+    /* defs.i:A_FrameLen/A_OptLen/A_AnimLen. */
+    GAME_LINK_ALIEN_ANIMATION_FRAME_SIZE = 11,
+    GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT = 20,
+    GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT = 11,
+    GAME_LINK_ALIEN_ANIMATION_SIZE = GAME_LINK_ALIEN_ANIMATION_FRAME_SIZE *
+                                     GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT *
+                                     GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT,
     GAME_LINK_OBJECT_DEFINITION_SIZE = 40,
     GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE = 6,
     GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT = 20,
@@ -119,6 +126,16 @@ typedef struct {
     uint16_t splat_type;
     uint16_t auxiliary_type;
 } GameAlienDefinition;
+
+/*
+ * One eleven-byte A_FrameLen record from GLFT_AlienAnims_l.  hires.s:DOALLANIMS
+ * owns the byte-level interpretation (notably offsets 0, 5, 6, and 7), so this
+ * catalog reader deliberately preserves every source byte without assigning
+ * renderer or AI meaning to the remaining fields.
+ */
+typedef struct {
+    uint8_t bytes[GAME_LINK_ALIEN_ANIMATION_FRAME_SIZE];
+} GameAlienAnimationFrame;
 
 /*
  * defs.i:BulT. The original declares each leading parameter as ULONG, so
@@ -242,6 +259,10 @@ int game_link_get_gun_object_type(const GameLink *link, uint16_t gun_index,
 int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
                                    GameAlienDefinition *out_definition,
                                    char *error, size_t error_size);
+int game_link_get_alien_animation_frame(const GameLink *link, uint16_t alien_index,
+                                        uint16_t animation_option, uint16_t frame_index,
+                                        GameAlienAnimationFrame *out_frame,
+                                        char *error, size_t error_size);
 int game_link_get_bullet_definition(const GameLink *link, uint16_t bullet_index,
                                     GameBulletDefinition *out_definition,
                                     char *error, size_t error_size);

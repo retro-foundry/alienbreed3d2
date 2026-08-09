@@ -25,7 +25,7 @@ enum {
                                  GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE,
     GLFT_AMMO_GIVE_SIZE = 44,
     GLFT_GUN_GIVE_SIZE = 24,
-    GLFT_ALIEN_ANIMATION_SIZE = 2420,
+    GLFT_ALIEN_ANIMATION_SIZE = GAME_LINK_ALIEN_ANIMATION_SIZE,
     GLFT_NAME_SIZE = 20,
     GLFT_FRAME_DATA_SIZE = GAME_LINK_OBJECT_COUNT * GAME_LINK_OBJECT_FRAME_DATA_COUNT *
                            GAME_LINK_OBJECT_FRAME_DATA_SIZE,
@@ -79,6 +79,8 @@ _Static_assert(GAME_LINK_BULLET_ANIMATION_DATA_SIZE ==
                    GAME_LINK_BULLET_ANIMATION_FRAME_COUNT *
                        GAME_LINK_BULLET_ANIMATION_FRAME_SIZE,
                "BulT animation payload must contain fixed six-byte records");
+_Static_assert(GAME_LINK_ALIEN_ANIMATION_SIZE == 2420,
+               "Alien animation payload must match defs.i:A_AnimLen");
 
 static const GameLinkTableRange game_link_ranges[GAME_LINK_TABLE_COUNT] = {
     [GAME_LINK_TABLE_LEVEL_NAMES] = {GLFT_LEVEL_NAMES_OFFSET, GLFT_LEVEL_COUNT * GLFT_LEVEL_NAME_SIZE},
@@ -391,6 +393,32 @@ int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
     definition.splat_type = game_link_read_be16(source + 38u);
     definition.auxiliary_type = game_link_read_be16(source + 40u);
     *out_definition = definition;
+    return 1;
+}
+
+int game_link_get_alien_animation_frame(const GameLink *link, uint16_t alien_index,
+                                        uint16_t animation_option, uint16_t frame_index,
+                                        GameAlienAnimationFrame *out_frame,
+                                        char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    size_t frame_offset;
+
+    if (!out_frame || alien_index >= GAME_LINK_ALIEN_COUNT ||
+        animation_option >= GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT ||
+        frame_index >= GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_ALIEN_ANIMATIONS, &bytes, &size) ||
+        size != (size_t)GAME_LINK_ALIEN_COUNT * GAME_LINK_ALIEN_ANIMATION_SIZE) {
+        game_link_set_error(error, error_size, "alien animation frame is outside the GLFT table");
+        return 0;
+    }
+    /* defs.i:A_AnimLen = A_OptLen * 11 and A_OptLen = A_FrameLen * 20. */
+    frame_offset = ((size_t)alien_index * GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT +
+                    animation_option) * GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT + frame_index;
+    memcpy(out_frame->bytes,
+           bytes + frame_offset * GAME_LINK_ALIEN_ANIMATION_FRAME_SIZE,
+           GAME_LINK_ALIEN_ANIMATION_FRAME_SIZE);
     return 1;
 }
 

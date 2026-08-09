@@ -216,6 +216,16 @@ authority for all game behavior and data formats.
   `AI_WorkT_SeenBy_w`. It runs after ObjectHandler/door/lift work to prepare
   the following source update. This is gameplay activation only and remains
   entirely separate from the PVS-free renderer.
+- [x] `src/object_animation.*` now owns the process-lifetime eight-byte-per-
+  object `bss/tables_bss.s:ObjectWorkspace_vl` and translates
+  `hires.s:DOALLANIMS`, which `hires.s:dosomething` calls before its normal
+  control/object work. It retains the low-byte signed five-tick cadence,
+  ObjT terminator/zone/worry/type gates, walk/attack/hit/death option mapping,
+  `EntT_Timer2_w` frame advance/end handling, action bytes, and deterministic
+  `GetRand` special-frame behavior. Animation sound byte five remains absent
+  until the native audio event path exists; no sound or AI substitute is made.
+  The workspace is intentionally preserved across level loads, as in the
+  source, for the later `modules/ai.s` consumers.
 - [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
   `PVST` records for gameplay-only consumers. Every record and target is
   validated across all A-P levels. `src/object_visibility.*` now directly
@@ -460,6 +470,9 @@ authority for all game behavior and data formats.
 5. **Objects, animation, AI, audio, and progression**
    - Port runtime object initialization, animation, switches/water animation, and
      collision from `newanims.s`, `objectmove.s`, and `newaliencontrol.s`.
+     `hires.s:DOALLANIMS`' alien frame state is now live as a separate VBlank-
+     timed source pass; object animation, full alien control, and audio events
+     remain owned by their specific source routines.
    - Port AI from `modules/ai.s` using its GLFT definition tables; do not
      approximate enemy state machines or constants.
    - Load and play original sound/music data through a native audio backend;
@@ -524,6 +537,10 @@ dispatch is now present while alien dispatch remains unported.
 Its living type-zero preamble now also accumulates the source
 `EntT_DoorsAndLiftsHeld_l` mask into the door/lift runtime before its later
 door update; it intentionally stops before `ItsAnAlien`'s unported AI call.
+`hires.s:DOALLANIMS` now runs first in the native tick with its source cadence
+and object workspace, preparing the action/end animation state consumed by the
+future `modules/ai.s` translation. It does not itself update an alien's AI,
+spawn auxiliaries, or replace the still-unported animation sound event.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,

@@ -1,0 +1,181 @@
+#include "object_animation.h"
+
+#include <stdio.h>
+#include <string.h>
+
+enum {
+    /* defs.i:ObjT/EntT/ShotT offsets used by hires.s:DOALLANIMS. */
+    OBJECT_ANIMATION_SLOT_POINT_INDEX = 0u,
+    OBJECT_ANIMATION_SLOT_ZONE_ID = 12u,
+    OBJECT_ANIMATION_SLOT_TYPE_ID = 16u,
+    OBJECT_ANIMATION_SLOT_ENTITY_ZONE_ID = 26u,
+    OBJECT_ANIMATION_SLOT_TIMER2 = 40u,
+    OBJECT_ANIMATION_SLOT_ENTITY_TYPE = 54u,
+    OBJECT_ANIMATION_SLOT_WHICH_ANIMATION = 55u,
+    OBJECT_ANIMATION_SLOT_WORRY = 62u,
+    OBJECT_ANIMATION_TYPE_OBJECT = 1u,
+    OBJECT_ANIMATION_UPDATE_INTERVAL = 5u
+};
+
+static void object_animation_set_error(char *error, size_t error_size, const char *message)
+{
+    if (error && error_size > 0u) {
+        (void)snprintf(error, error_size, "%s", message);
+    }
+}
+
+static uint16_t object_animation_read_be16(const uint8_t *source)
+{
+    return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
+}
+
+static void object_animation_write_be16(uint8_t *target, uint16_t value)
+{
+    target[0] = (uint8_t)(value >> 8);
+    target[1] = (uint8_t)value;
+}
+
+static uint8_t object_animation_option_for_which_animation(uint8_t which_animation,
+                                                             int *out_is_alien_animation)
+{
+    *out_is_alien_animation = 1;
+    if (which_animation == 0u) {
+        return 0u;
+    }
+    if (which_animation == 1u) {
+        return 8u;
+    }
+    if (which_animation == 2u) {
+        return 9u;
+    }
+    if (which_animation == 3u) {
+        return 10u;
+    }
+    *out_is_alien_animation = 0;
+    return 0u;
+}
+
+void object_animation_runtime_init(ObjectAnimationRuntime *runtime)
+{
+    if (runtime) {
+        /* tables_bss.s:ObjectWorkspace_vl and hires.s:thistime start cleared once. */
+        memset(runtime, 0, sizeof(*runtime));
+    }
+}
+
+int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
+                                          ObjectRuntime *objects,
+                                          const GameLink *game_link,
+                                          GameRandom *random,
+                                          char *error, size_t error_size)
+{
+    if (!runtime || !objects || !game_link || !random || !objects->slot_bytes ||
+        objects->active_slot_count > objects->slot_count ||
+        objects->active_slot_count > OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT) {
+        object_animation_set_error(error, error_size,
+                                   "DOALLANIMS received invalid source animation state");
+        return 0;
+    }
+
+    /* hires.s:DOALLANIMS uses subq.b then signed BLE against thistime. */
+    runtime->thistime = (uint8_t)(runtime->thistime - 1u);
+    if ((int8_t)runtime->thistime > 0) {
+        return 1;
+    }
+    runtime->thistime = OBJECT_ANIMATION_UPDATE_INTERVAL;
+
+    for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
+        uint8_t *slot;
+        uint8_t *workspace = runtime->workspace[slot_index];
+        uint16_t timer2;
+        uint16_t next_timer2;
+        uint8_t option;
+        uint8_t special;
+        uint8_t special_value;
+        uint8_t special_mode;
+        int is_alien_animation;
+        GameAlienAnimationFrame current_frame;
+        GameAlienAnimationFrame next_frame;
+
+        if (!object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
+            object_animation_set_error(error, error_size,
+                                       "DOALLANIMS slot is outside the owned source list");
+            return 0;
+        }
+        /* Objectloop2 stops at the signed ObjT point-index terminator. */
+        if ((int16_t)object_animation_read_be16(slot + OBJECT_ANIMATION_SLOT_POINT_INDEX) < 0) {
+            break;
+        }
+        if ((int16_t)object_animation_read_be16(slot + OBJECT_ANIMATION_SLOT_ZONE_ID) < 0) {
+            continue;
+        }
+        object_animation_write_be16(slot + OBJECT_ANIMATION_SLOT_ENTITY_ZONE_ID,
+                                    object_animation_read_be16(
+                                        slot + OBJECT_ANIMATION_SLOT_ZONE_ID));
+        if (slot[OBJECT_ANIMATION_SLOT_WORRY] == 0u ||
+            (int8_t)slot[OBJECT_ANIMATION_SLOT_TYPE_ID] >=
+                (int8_t)OBJECT_ANIMATION_TYPE_OBJECT) {
+            continue;
+        }
+
+        option = object_animation_option_for_which_animation(
+            slot[OBJECT_ANIMATION_SLOT_WHICH_ANIMATION], &is_alien_animation);
+        if (is_alien_animation == 0) {
+            continue;
+        }
+        timer2 = object_animation_read_be16(slot + OBJECT_ANIMATION_SLOT_TIMER2);
+        if (timer2 >= GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT ||
+            slot[OBJECT_ANIMATION_SLOT_ENTITY_TYPE] >= GAME_LINK_ALIEN_COUNT) {
+            object_animation_set_error(error, error_size,
+                                       "DOALLANIMS encountered an alien frame outside GLFT bounds");
+            return 0;
+        }
+        if (!game_link_get_alien_animation_frame(
+                game_link, slot[OBJECT_ANIMATION_SLOT_ENTITY_TYPE], option, timer2,
+                &current_frame, error, error_size)) {
+            return 0;
+        }
+
+        /* hires.s emits audio for bytes[5]; no native audio consumer exists yet. */
+        if (current_frame.bytes[6u] != 0u) {
+            workspace[0u] = (uint8_t)(workspace[0u] + 1u);
+            workspace[1u] = (uint8_t)timer2;
+        }
+        next_timer2 = (uint16_t)(timer2 + 1u);
+        special = current_frame.bytes[7u];
+        if (special != 0u) {
+            special_value = (uint8_t)(special & 0x3fu);
+            special_mode = (uint8_t)(special >> 6u);
+            if (special_mode < 2u) {
+                workspace[4u] = special_value;
+            } else if (special_mode == 2u) {
+                if (special_value == 0u) {
+                    object_animation_set_error(error, error_size,
+                                               "DOALLANIMS source animation divides by zero");
+                    return 0;
+                }
+                workspace[4u] = (uint8_t)(game_random_next(random) % special_value);
+            } else {
+                workspace[4u] = (uint8_t)(workspace[4u] - 1u);
+                if (workspace[4u] != 0u) {
+                    next_timer2 = special_value;
+                }
+            }
+        }
+        if (next_timer2 >= GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT ||
+            !game_link_get_alien_animation_frame(
+                game_link, slot[OBJECT_ANIMATION_SLOT_ENTITY_TYPE], option, next_timer2,
+                &next_frame, error, error_size)) {
+            object_animation_set_error(error, error_size,
+                                       "DOALLANIMS next alien frame is outside GLFT bounds");
+            return 0;
+        }
+        if ((int8_t)next_frame.bytes[0u] < 0) {
+            workspace[3u] = UINT8_MAX;
+            next_timer2 = 0u;
+        }
+        workspace[2u] = option;
+        object_animation_write_be16(slot + OBJECT_ANIMATION_SLOT_TIMER2, next_timer2);
+    }
+    return 1;
+}

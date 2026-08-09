@@ -21,6 +21,7 @@
 #include "level_static_scene.h"
 #include "mechanism_runtime.h"
 #include "object_runtime.h"
+#include "object_animation.h"
 #include "object_observation.h"
 #include "player_runtime.h"
 #include "scene_frame.h"
@@ -41,6 +42,8 @@ typedef struct {
     GameRandom random;
     /* hires.s:Game_Begin and modules/ai.s source-owned AI storage. */
     AlienRuntime alien_runtime;
+    /* bss/tables_bss.s:ObjectWorkspace_vl, consumed by DOALLANIMS and AI. */
+    ObjectAnimationRuntime object_animation_runtime;
     GameSession session;
     AssetBlob story_text;
     uint16_t active_level_index;
@@ -82,7 +85,7 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
 int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char *data_root,
                                                 char *error, size_t error_size);
 /*
- * Single-player source order: plr_KeyboardControl, Plr1_Control, Plr1_Shot,
+ * Single-player source order: hires.s:DOALLANIMS, plr_KeyboardControl, Plr1_Control, Plr1_Shot,
  * the partial ObjectHandler dispatch (collectables, activatables,
  * destructibles, and decorations in source ObjT slot order), DoorRoutine, LiftRoutine,
  * CalcPLR1InLine's object observation workspace, then a retained whole-level
