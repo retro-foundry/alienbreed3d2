@@ -31,7 +31,10 @@ authority for all game behavior and data formats.
   bitmap metric records as endian-safe read views, preserving mode-dependent
   frame bytes until the owning object/runtime routine is ported. Tests compare
   every decoded field and frame against `test.lnk`; this is catalog
-  preparation only, not sprite emission or animation.
+  preparation only, not sprite emission or animation. The same layer decodes
+  every four-word `ShootT` entry; `DEFAULTGAME` obtains its initial ammunition
+  class through that checked source record, without implementing firing or
+  projectiles.
 - [x] Staged `ab3:`, `tkg1:`, `tkg2:`, and `sfx:` resource paths resolve to
   source assets without case-sensitive host assumptions. The `sfx:` entries
   have an exact one-for-one `media/ab3dsfx/samples/` mapping, verified for all

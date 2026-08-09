@@ -35,7 +35,9 @@ first game's software renderer:
   replayable oracle fixture;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload) while keeping host save storage
-  unported;
+  unported. The default starting ammunition class is read through the checked
+  four-word `ShootT` record used by `newplayershoot.s`, rather than an ad-hoc
+  GLFT byte offset;
 - drives the source single-player main menu, including the two-page level
   selector and level start handoff. Master/slave multiplayer is explicitly
   unavailable; custom options and the two-page raw-key control rebinding menu

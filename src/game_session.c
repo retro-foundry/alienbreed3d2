@@ -85,21 +85,19 @@ static void game_session_encode_inventory(uint8_t *destination, const GameInvent
 int game_session_default(GameSession *session, const GameLink *game_link,
                          char *error, size_t error_size)
 {
-    const uint8_t *shoot_definitions;
-    size_t shoot_definitions_size;
+    GameShootDefinition shoot_definition;
     uint16_t initial_ammunition_type;
 
     if (!session || !game_link ||
-        !game_link_table(game_link, GAME_LINK_TABLE_SHOOT_DEFINITIONS,
-                         &shoot_definitions, &shoot_definitions_size) ||
-        shoot_definitions_size < 2) {
+        !game_link_get_shoot_definition(game_link, 0u, &shoot_definition,
+                                        error, error_size)) {
         game_session_set_error(error, error_size, "could not read the initial GLFT shoot definition");
         return 0;
     }
 
     /* controlloop.s:DEFAULTGAME clears these contiguous InvCT/InvIT fields. */
     memset(session, 0, sizeof(*session));
-    initial_ammunition_type = game_session_read_be16(shoot_definitions);
+    initial_ammunition_type = shoot_definition.bullet_type;
     if (initial_ammunition_type >= GAME_SESSION_AMMUNITION_COUNT) {
         game_session_set_error(error, error_size,
                                "initial GLFT shoot definition names an invalid ammunition type");

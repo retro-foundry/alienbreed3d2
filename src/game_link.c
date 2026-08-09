@@ -14,11 +14,11 @@ enum {
     GLFT_LEVEL_NAME_SIZE = 40,
     GLFT_PATH_SIZE = 64,
     GLFT_SFX_PATH_SIZE = 60,
-    GLFT_BULLET_COUNT = 20,
-    GLFT_GUN_COUNT = 10,
+    GLFT_BULLET_COUNT = GAME_LINK_BULLET_COUNT,
+    GLFT_GUN_COUNT = GAME_LINK_GUN_COUNT,
     GLFT_ALIEN_COUNT = 20,
     GLFT_BULLET_DEFINITION_SIZE = 300,
-    GLFT_SHOOT_DEFINITION_SIZE = 8,
+    GLFT_SHOOT_DEFINITION_SIZE = GAME_LINK_SHOOT_DEFINITION_SIZE,
     GLFT_ALIEN_DEFINITION_SIZE = 42,
     GLFT_OBJECT_DEFINITION_SIZE = GAME_LINK_OBJECT_DEFINITION_SIZE,
     GLFT_OBJECT_ANIMATION_SIZE = GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT *
@@ -299,6 +299,30 @@ int game_link_get_object_frame_data(const GameLink *link, uint16_t object_index,
     frame.strip_count = game_link_read_be16(source + 4u);
     frame.line_count = game_link_read_be16(source + 6u);
     *out_frame = frame;
+    return 1;
+}
+
+int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
+                                   GameShootDefinition *out_definition,
+                                   char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    const uint8_t *source;
+    GameShootDefinition definition;
+
+    if (!out_definition || gun_index >= GAME_LINK_GUN_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_SHOOT_DEFINITIONS, &bytes, &size) ||
+        size != (size_t)GAME_LINK_GUN_COUNT * GAME_LINK_SHOOT_DEFINITION_SIZE) {
+        game_link_set_error(error, error_size, "shoot definition is outside the GLFT table");
+        return 0;
+    }
+    source = bytes + (size_t)gun_index * GAME_LINK_SHOOT_DEFINITION_SIZE;
+    definition.bullet_type = game_link_read_be16(source + 0u);
+    definition.delay = game_link_read_be16(source + 2u);
+    definition.bullet_count = game_link_read_be16(source + 4u);
+    definition.sound_effect = game_link_read_be16(source + 6u);
+    *out_definition = definition;
     return 1;
 }
 
