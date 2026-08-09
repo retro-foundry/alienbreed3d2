@@ -23,7 +23,7 @@ authority for all game behavior and data formats.
 
 ## Current completed foundation
 
-### Latest milestone: GLFT catalog and level music
+### Latest milestone: source-backed campaign bootstrap
 
 - [x] `src/game_link.*` provides a bounds-checked view of every `GLFT` table
   from `defs.i`, preserving big-endian definition data for the subsystem that
@@ -48,9 +48,11 @@ authority for all game behavior and data formats.
   shoot-definition table; no multiplayer state is represented.
 - [ ] Port the actual SDL-driven menu commands and all source preferences/
   saved-game formats before treating the diagnostic window as a playable menu.
-- [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases
-  and every `ZoneT` in all campaign levels into endian-safe native views. It
-  keeps the unproven edge span raw and does not consume PVS lists or portals.
+- [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
+  including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
+  offset table, plus every `ZoneT` in all campaign levels into endian-safe
+  native views. It keeps the unproven edge span raw and does not consume PVS
+  lists or portals.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates, floor-relative standing height, zone, and enemy flags. A
   loaded level now produces a camera and HUD command; geometry/material/sprite
@@ -92,10 +94,11 @@ authority for all game behavior and data formats.
      from `c/game_preferences.c`, `c/game_progress.c`, and `data/game_data.s`.
      Keep native files separate from source assets and version their format.
 
-3. **Level runtime and visibility data**
-   - Materialize the `TLBT`, `TLGT`, `ZoneT`, `EdgeT`, `PVST`, door, lift,
-     switch, control-point, object, and clip structures as endian-safe native
-     views or owned structures.
+3. **Level runtime and source data**
+   - Materialize the `TLBT`, `TLGT`, `ZoneT`, `EdgeT`, door, lift, switch,
+     control-point, object, and clip structures as endian-safe native views or
+     owned structures when gameplay or whole-level scene production requires
+     them. Do not materialize `PVST` data for rendering.
    - Port level initialization in `hires.s:Game_Begin`. Do not port PVS
      errata, portal visibility, or `Zone_OrderZones` as a rendering dependency;
      the GPU path may draw the whole level at once.

@@ -45,7 +45,9 @@ static int level_runtime_range_is_valid(uint32_t offset, size_t length, size_t t
 }
 
 int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_data,
-                       const LevelBootstrap *level, LevelRuntime *out_runtime,
+                       const LevelBootstrap *level,
+                       const LevelGraphicsBootstrap *graphics_header,
+                       LevelRuntime *out_runtime,
                        char *error, size_t error_size)
 {
     LevelRuntime runtime;
@@ -55,7 +57,7 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     uint16_t zone_index;
 
     if (!level_data || !level_data->bytes || !graphics_data || !graphics_data->bytes ||
-        !level || !out_runtime) {
+        !level || !graphics_header || !out_runtime) {
         level_runtime_set_error(error, error_size, "level runtime received null source data");
         return 0;
     }
@@ -86,14 +88,19 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
                                       (size_t)level->zone_count * LEVEL_RUNTIME_ZONE_BORDER_BYTES,
                                       level_data->size) ||
         zone_offsets_table_bytes > SIZE_MAX ||
-        !level_runtime_range_is_valid(AB3D2_TLGT_SIZE, (size_t)zone_offsets_table_bytes,
+        !level_runtime_range_is_valid(graphics_header->zone_adds_table_offset,
+                                      (size_t)zone_offsets_table_bytes,
+                                      graphics_data->size) ||
+        !level_runtime_range_is_valid(graphics_header->zone_graph_adds_offset,
+                                      (size_t)level->zone_count * 2u * sizeof(uint32_t),
                                       graphics_data->size)) {
         level_runtime_set_error(error, error_size, "Game_Begin level table range is outside its source file");
         return 0;
     }
 
     for (zone_index = 0; zone_index < level->zone_count; ++zone_index) {
-        uint32_t zone_offset = level_runtime_read_be32(graphics_data->bytes + AB3D2_TLGT_SIZE +
+        uint32_t zone_offset = level_runtime_read_be32(
+            graphics_data->bytes + graphics_header->zone_adds_table_offset +
                                                         (size_t)zone_index * sizeof(uint32_t));
         if (!level_runtime_range_is_valid(zone_offset, LEVEL_RUNTIME_ZONE_SIZE, level_data->size)) {
             level_runtime_set_error(error, error_size,
@@ -110,7 +117,9 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     runtime.control_point_coordinates_offset = AB3D2_LEVEL_MESSAGE_BYTES + AB3D2_TLBT_SIZE;
     runtime.point_brightness_offset = (uint32_t)point_brightness_offset;
     runtime.zone_border_points_offset = (uint32_t)zone_border_points_offset;
-    runtime.zone_offsets_table_offset = AB3D2_TLGT_SIZE;
+    /* hires.s:Game_Begin takes this base from TLGT_ZoneAddsOffset_l (byte 16). */
+    runtime.zone_graph_adds_offset = graphics_header->zone_graph_adds_offset;
+    runtime.zone_offsets_table_offset = graphics_header->zone_adds_table_offset;
     runtime.edge_data_span = (int32_t)level->object_data_offset -
                              (int32_t)level->floor_line_offset;
     runtime.exit_zone_id = level_runtime_read_be16s(level_data->bytes + level->floor_line_offset - 2u);

@@ -19,6 +19,7 @@ typedef struct {
     uint32_t control_point_coordinates_offset;
     uint32_t point_brightness_offset;
     uint32_t zone_border_points_offset;
+    uint32_t zone_graph_adds_offset;
     uint32_t zone_offsets_table_offset;
     /* hires.s:Game_Begin stores TLBT_ObjectDataOffset - TLBT_FloorLineOffset. */
     int32_t edge_data_span;
@@ -50,7 +51,9 @@ typedef struct {
 } LevelZone;
 
 int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_data,
-                       const LevelBootstrap *level, LevelRuntime *out_runtime,
+                       const LevelBootstrap *level,
+                       const LevelGraphicsBootstrap *graphics_header,
+                       LevelRuntime *out_runtime,
                        char *error, size_t error_size);
 int level_runtime_get_zone(const LevelRuntime *runtime, uint16_t zone_index,
                            LevelZone *out_zone, char *error, size_t error_size);

@@ -164,6 +164,10 @@ int main(int argc, char **argv)
             game.session.active_level_index != level_index || game.level.zone_count == 0 ||
             game.level_music.size == 0 ||
             game.level_runtime.zone_count != game.level.zone_count ||
+            game.level_runtime.zone_offsets_table_offset !=
+                game.level_graphics_header.zone_adds_table_offset ||
+            game.level_runtime.zone_graph_adds_offset !=
+                game.level_graphics_header.zone_graph_adds_offset ||
             level_runtime_get_zone(&game.level_runtime, game.level_runtime.zone_count,
                                    &zone, error, sizeof(error))) {
             fprintf(stderr, "campaign level %u could not be loaded: %s\n", level_index, error);

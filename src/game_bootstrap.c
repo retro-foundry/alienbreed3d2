@@ -216,7 +216,8 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         !level_graphics_bootstrap_parse(&game->level_graphics,
                                         &game->level_graphics_header, error, error_size) ||
         !level_runtime_init(&game->level_data, &game->level_graphics, &game->level,
-                            &game->level_runtime, error, error_size) ||
+                            &game->level_graphics_header, &game->level_runtime,
+                            error, error_size) ||
         !player_runtime_init_single_player(&game->level, &game->level_runtime, &game->player,
                                            error, error_size)) {
         game_bootstrap_release_level(game);
