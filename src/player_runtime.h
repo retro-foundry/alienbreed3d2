@@ -39,6 +39,8 @@ typedef struct {
     uint16_t snap_yaw;
     int16_t snap_yaw_speed;
     int16_t look_offset;
+    /* newanims.s:LiftRoutine -> modules/player.s:plr_Fall handoff. */
+    int16_t floor_speed;
     uint16_t bobble;
     int16_t add_to_bobble;
     uint16_t health;
@@ -46,6 +48,7 @@ typedef struct {
     uint8_t ducked;
     uint8_t squished;
     uint8_t stood_in_top;
+    uint8_t stood_on_lift;
     uint8_t used;
     /* hires.s snapshots Used_b to Plr1_TmpSpcTap then clears Used_b each tick. */
     uint8_t tmp_used;

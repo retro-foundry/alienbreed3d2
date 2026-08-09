@@ -226,6 +226,9 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
             NULL, error, error_size) ||
         !mechanism_runtime_update_doors_single_player(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
+            &game->player, 1u, error, error_size) ||
+        !mechanism_runtime_update_lifts_single_player(
+            &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
             &game->player, 1u, error, error_size)) {
         return 0;
     }

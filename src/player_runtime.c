@@ -677,7 +677,8 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
         }
         y = player_runtime_add32(y, correction);
     } else if (target_y == y) {
-        velocity = 0;
+        /* LiftRoutine's signed word speed is applied as a 32-bit << 6 here. */
+        velocity = (int32_t)player->floor_speed * 64;
         player->decelerate = UINT8_MAX;
         player->bobble = game_math_wrap_angle_address(
             (uint16_t)((uint32_t)player->bobble + (uint16_t)player->add_to_bobble));

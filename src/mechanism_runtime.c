@@ -12,6 +12,7 @@ enum {
     MECHANISM_DOOR_RAISE_ON_TIMEOUT = 4,
     MECHANISM_DOOR_RAISE_NEVER = 5,
     /* defs.i:ZoneT_Roof_l and c/zone_liftable.h:ZLiftable offsets. */
+    MECHANISM_ZONE_FLOOR_OFFSET = 2,
     MECHANISM_ZONE_ROOF_OFFSET = 6,
     MECHANISM_LIFTABLE_SIZE = 36,
     MECHANISM_LIFTABLE_POSITION_OFFSET = 22,
@@ -83,8 +84,9 @@ static int mechanism_runtime_get_door_header(LevelDynamicState *dynamic_level,
         MECHANISM_LIFTABLE_SIZE, out_header);
 }
 
-static int mechanism_runtime_write_door_roof(LevelDynamicState *dynamic_level,
-                                              int16_t zone_id, int32_t scaled_position)
+static int mechanism_runtime_write_zone_height(LevelDynamicState *dynamic_level,
+                                               int16_t zone_id, uint32_t height_offset,
+                                               int32_t scaled_position)
 {
     uint8_t *zone_offset_bytes;
     uint8_t *roof_bytes;
@@ -102,13 +104,35 @@ static int mechanism_runtime_write_door_roof(LevelDynamicState *dynamic_level,
         return 0;
     }
     zone_offset = mechanism_runtime_read_be32(zone_offset_bytes);
-    if (zone_offset > UINT32_MAX - MECHANISM_ZONE_ROOF_OFFSET ||
+    if (height_offset > UINT32_MAX || zone_offset > UINT32_MAX - height_offset ||
         !level_dynamic_state_get_level_range(dynamic_level,
-                                             zone_offset + MECHANISM_ZONE_ROOF_OFFSET,
+                                             zone_offset + height_offset,
                                              4u, &roof_bytes)) {
         return 0;
     }
     mechanism_runtime_write_be32(roof_bytes, (uint32_t)scaled_position);
+    return 1;
+}
+
+static int mechanism_runtime_player_is_in_liftable_zone(const LevelDynamicState *dynamic_level,
+                                                         const PlayerRuntime *player,
+                                                         int16_t liftable_zone_index,
+                                                         int *out_is_in_zone,
+                                                         char *error, size_t error_size)
+{
+    LevelZone player_zone;
+    LevelZone liftable_zone;
+
+    if (!dynamic_level || !player || !out_is_in_zone || liftable_zone_index < 0 ||
+        player->zone_index >= dynamic_level->runtime.zone_count ||
+        (uint16_t)liftable_zone_index >= dynamic_level->runtime.zone_count ||
+        !level_runtime_get_zone(&dynamic_level->runtime, player->zone_index, &player_zone,
+                                error, error_size) ||
+        !level_runtime_get_zone(&dynamic_level->runtime, (uint16_t)liftable_zone_index,
+                                &liftable_zone, error, error_size)) {
+        return 0;
+    }
+    *out_is_in_zone = player_zone.id == liftable_zone.id;
     return 1;
 }
 
@@ -217,6 +241,117 @@ static int mechanism_runtime_update_door_walls(LevelDynamicState *dynamic_level,
     return 1;
 }
 
+static int mechanism_runtime_update_lift_graphics(LevelDynamicState *dynamic_level,
+                                                   const LevelMechanisms *mechanisms,
+                                                   uint16_t lift_index,
+                                                   const LevelLiftable *lift,
+                                                   int16_t position,
+                                                   int32_t scaled_position,
+                                                   char *error, size_t error_size)
+{
+    uint8_t *graphics_bytes;
+    int16_t position_shifted = mechanism_runtime_asr16_2(position);
+    uint16_t rounded_position = (uint16_t)((uint16_t)position_shifted << 2);
+    uint16_t scroll = (uint16_t)(0u - (uint16_t)position_shifted) & 0x00ffu;
+
+    if (!level_dynamic_state_get_graphics_range(
+            dynamic_level, lift->graphics_offset + MECHANISM_DOOR_GRAPHICS_POSITION_OFFSET,
+            2u, &graphics_bytes)) {
+        mechanism_runtime_set_error(error, error_size,
+                                    "source lift graphics position is outside the mutable data");
+        return 0;
+    }
+    mechanism_runtime_write_be16(graphics_bytes, rounded_position);
+    for (uint16_t wall_index = 0u; wall_index < lift->wall_count; ++wall_index) {
+        LevelLiftableWall wall;
+        uint8_t *wall_graphics_bytes;
+
+        if (!level_mechanisms_get_lift_wall(mechanisms, lift_index, wall_index, &wall,
+                                            error, error_size) ||
+            !level_dynamic_state_get_graphics_range(
+                dynamic_level,
+                wall.graphics_offset + MECHANISM_DOOR_WALL_GRAPHICS_SCROLL_OFFSET,
+                2u, &wall_graphics_bytes)) {
+            mechanism_runtime_set_error(error, error_size,
+                                        "source lift wall graphics is outside the mutable data");
+            return 0;
+        }
+        mechanism_runtime_write_be16(wall_graphics_bytes,
+                                     (uint16_t)(wall.unknown_long + scroll));
+        if (!level_dynamic_state_get_graphics_range(
+                dynamic_level, wall.graphics_offset + 20u, 4u, &wall_graphics_bytes)) {
+            mechanism_runtime_set_error(error, error_size,
+                                        "source lift wall position is outside the mutable data");
+            return 0;
+        }
+        mechanism_runtime_write_be32(wall_graphics_bytes, (uint32_t)scaled_position);
+    }
+    return 1;
+}
+
+static int mechanism_runtime_update_lift_walls(LevelDynamicState *dynamic_level,
+                                                const LevelMechanisms *mechanisms,
+                                                uint16_t lift_index,
+                                                const LevelLiftable *lift,
+                                                uint16_t requested_flags,
+                                                uint16_t stored_flags,
+                                                int *out_activated,
+                                                char *error, size_t error_size)
+{
+    int activated = 0;
+
+    for (uint16_t wall_index = 0u; wall_index < lift->wall_count; ++wall_index) {
+        LevelLiftableWall wall;
+        uint16_t previous_flags;
+
+        if (!level_mechanisms_get_lift_wall(mechanisms, lift_index, wall_index, &wall,
+                                            error, error_size) ||
+            wall.edge_index < 0 ||
+            !level_dynamic_state_get_edge_flags(dynamic_level, (uint16_t)wall.edge_index,
+                                                &previous_flags) ||
+            !level_dynamic_state_set_edge_flags(dynamic_level, (uint16_t)wall.edge_index,
+                                                stored_flags)) {
+            mechanism_runtime_set_error(error, error_size,
+                                        "source lift wall references an invalid mutable EdgeT");
+            return 0;
+        }
+        if ((previous_flags & requested_flags) != 0u) {
+            activated = 1;
+        }
+    }
+    if (activated != 0) {
+        *out_activated = 1;
+    }
+    return 1;
+}
+
+static uint16_t mechanism_runtime_lift_request_mask(uint8_t condition,
+                                                     const PlayerRuntime *player,
+                                                     int player_stood_on_lift,
+                                                     int16_t requested_speed,
+                                                     int16_t *out_velocity)
+{
+    if (!out_velocity) {
+        return 0u;
+    }
+    switch (condition) {
+    case 0u:
+        if (player->tmp_used == 0u) {
+            return 0u;
+        }
+        *out_velocity = requested_speed;
+        return player_stood_on_lift != 0 ? 0x8000u : 0x0100u;
+    case 1u:
+        *out_velocity = requested_speed;
+        return player_stood_on_lift != 0 ? 0x8000u : 0x0900u;
+    case 2u:
+        *out_velocity = requested_speed;
+        return 0x8000u;
+    default:
+        return 0u;
+    }
+}
+
 void mechanism_runtime_init(MechanismRuntime *runtime)
 {
     if (runtime) {
@@ -294,8 +429,13 @@ int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
         }
 
         /* DoorRoutine's player-in-door safety branch precedes its lock check. */
-        safety_open = door.zone_id >= 0 && player->zone_index == (uint16_t)door.zone_id &&
-            door_open == 0 && new_velocity >= 0;
+        if (!mechanism_runtime_player_is_in_liftable_zone(dynamic_level, player, door.zone_id,
+                                                          &safety_open, error, error_size)) {
+            mechanism_runtime_set_error(error, error_size,
+                                        "source door has an invalid player/zone relationship");
+            return 0;
+        }
+        safety_open = safety_open != 0 && door_open == 0 && new_velocity >= 0;
         if (safety_open != 0) {
             requested_flags = 0x8000u;
             requested_velocity = -16;
@@ -310,7 +450,9 @@ int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
                                      (uint16_t)moved_position);
         mechanism_runtime_write_be16(header + MECHANISM_LIFTABLE_VELOCITY_OFFSET,
                                      (uint16_t)new_velocity);
-        if (!mechanism_runtime_write_door_roof(dynamic_level, door.zone_id, scaled_position) ||
+        if (!mechanism_runtime_write_zone_height(dynamic_level, door.zone_id,
+                                                 MECHANISM_ZONE_ROOF_OFFSET,
+                                                 scaled_position) ||
             !mechanism_runtime_update_door_graphics(dynamic_level, mechanisms, door_index, &door,
                                                     moved_position, scaled_position,
                                                     error, error_size) ||
@@ -336,5 +478,116 @@ int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
 
     /* DoorRoutine clears Anim_DoorAndLiftLocks_l after its 999 terminator. */
     runtime->door_and_lift_locks = 0u;
+    return 1;
+}
+
+int mechanism_runtime_update_lifts_single_player(MechanismRuntime *runtime,
+                                                 LevelDynamicState *dynamic_level,
+                                                 const LevelMechanisms *mechanisms,
+                                                 PlayerRuntime *player,
+                                                 uint16_t frame_ticks,
+                                                 char *error, size_t error_size)
+{
+    if (!runtime || !dynamic_level || !mechanisms || !player ||
+        dynamic_level->runtime.graphics_bytes != dynamic_level->graphics_bytes ||
+        mechanisms->lift_count > LEVEL_MECHANISMS_MAX_LIFTS) {
+        mechanism_runtime_set_error(error, error_size,
+                                    "source lift update received invalid runtime state");
+        return 0;
+    }
+
+    /* objmoveanim clears these immediately before newanims.s:LiftRoutine. */
+    player->floor_speed = 0;
+    player->stood_on_lift = 0u;
+    for (uint16_t lift_index = 0u; lift_index < mechanisms->lift_count; ++lift_index) {
+        LevelLiftable lift;
+        uint8_t *header;
+        int16_t position;
+        int16_t velocity;
+        int16_t moved_position;
+        int16_t new_velocity;
+        int16_t requested_velocity = 0;
+        int32_t scaled_position;
+        uint16_t requested_flags = 0u;
+        int lift_at_bottom;
+        int lift_at_top;
+        int player_stood_on_lift;
+        int activated = 0;
+        int locked;
+
+        if (!level_mechanisms_get_lift(mechanisms, lift_index, &lift, error, error_size) ||
+            !mechanism_runtime_get_door_header(dynamic_level, &lift, &header) ||
+            !mechanism_runtime_player_is_in_liftable_zone(dynamic_level, player, lift.zone_id,
+                                                          &player_stood_on_lift,
+                                                          error, error_size)) {
+            mechanism_runtime_set_error(error, error_size,
+                                        "source lift header or player/zone relationship is invalid");
+            return 0;
+        }
+        position = mechanism_runtime_read_be16s(header + MECHANISM_LIFTABLE_POSITION_OFFSET);
+        velocity = mechanism_runtime_read_be16s(header + MECHANISM_LIFTABLE_VELOCITY_OFFSET);
+        runtime->lift_heights[lift_index] = position;
+        moved_position = (int16_t)(uint16_t)((uint16_t)position +
+            (uint16_t)((int32_t)velocity * (int16_t)frame_ticks));
+        new_velocity = velocity;
+        lift_at_bottom = moved_position >= lift.bottom;
+        if (lift_at_bottom != 0) {
+            moved_position = lift.bottom;
+            new_velocity = 0;
+        }
+        lift_at_top = moved_position <= lift.top;
+        if (lift_at_top != 0) {
+            moved_position = lift.top;
+            new_velocity = 0;
+        }
+
+        player->stood_on_lift = player_stood_on_lift != 0 ? UINT8_MAX : 0u;
+        if (player_stood_on_lift != 0) {
+            /* LiftRoutine keeps the pre-clamp source word as PlrT_FloorSpd_w. */
+            player->floor_speed = velocity;
+        }
+        if (lift_at_top != 0) {
+            requested_flags = mechanism_runtime_lift_request_mask(
+                lift.lower_condition, player, player_stood_on_lift, lift.closing_speed,
+                &requested_velocity);
+        } else if (lift_at_bottom != 0) {
+            requested_flags = mechanism_runtime_lift_request_mask(
+                lift.raise_condition, player, player_stood_on_lift,
+                mechanism_runtime_neg16(lift.opening_speed), &requested_velocity);
+        }
+        locked = (runtime->lift_only_locks & (uint16_t)(1u << lift_index)) != 0u;
+        if (locked != 0) {
+            requested_flags = 0u;
+        }
+
+        scaled_position = (int32_t)mechanism_runtime_asr16_2(moved_position) * 256;
+        mechanism_runtime_write_be16(header + MECHANISM_LIFTABLE_POSITION_OFFSET,
+                                     (uint16_t)moved_position);
+        mechanism_runtime_write_be16(header + MECHANISM_LIFTABLE_VELOCITY_OFFSET,
+                                     (uint16_t)new_velocity);
+        if (!mechanism_runtime_write_zone_height(dynamic_level, lift.zone_id,
+                                                 MECHANISM_ZONE_FLOOR_OFFSET,
+                                                 scaled_position) ||
+            !mechanism_runtime_update_lift_graphics(dynamic_level, mechanisms, lift_index,
+                                                    &lift, moved_position, scaled_position,
+                                                    error, error_size) ||
+            !mechanism_runtime_update_lift_walls(dynamic_level, mechanisms, lift_index, &lift,
+                                                 requested_flags,
+                                                 locked != 0 ? 0u : 0x8000u,
+                                                 &activated, error, error_size)) {
+            if (error && error_size > 0u && error[0] == '\0') {
+                mechanism_runtime_set_error(error, error_size, "source lift update failed");
+            }
+            return 0;
+        }
+        if (activated != 0) {
+            mechanism_runtime_write_be16(header + MECHANISM_LIFTABLE_VELOCITY_OFFSET,
+                                         (uint16_t)requested_velocity);
+        }
+    }
+
+    /* LiftRoutine clears Anim_LiftOnlyLocks_w after its 999 terminator. */
+    runtime->lift_only_locks = 0u;
+    /* TODO(port): newanims.s:DoWaterAnims, called after the lift stream. */
     return 1;
 }

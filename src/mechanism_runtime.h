@@ -11,8 +11,10 @@
 /* newanims.s:DoorRoutine's persistent non-level-data globals. */
 typedef struct {
     uint16_t door_open_timers[LEVEL_MECHANISMS_MAX_DOORS];
+    int16_t lift_heights[LEVEL_MECHANISMS_MAX_LIFTS];
     uint16_t current_door_state;
     uint16_t door_and_lift_locks;
+    uint16_t lift_only_locks;
 } MechanismRuntime;
 
 void mechanism_runtime_init(MechanismRuntime *runtime);
@@ -26,6 +28,14 @@ int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
                                                  LevelDynamicState *dynamic_level,
                                                  const LevelMechanisms *mechanisms,
                                                  const PlayerRuntime *player,
+                                                 uint16_t frame_ticks,
+                                                 char *error, size_t error_size);
+
+/* Single-player newanims.s:LiftRoutine, excluding its later water-animation pass. */
+int mechanism_runtime_update_lifts_single_player(MechanismRuntime *runtime,
+                                                 LevelDynamicState *dynamic_level,
+                                                 const LevelMechanisms *mechanisms,
+                                                 PlayerRuntime *player,
                                                  uint16_t frame_ticks,
                                                  char *error, size_t error_size);
 

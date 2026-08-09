@@ -1463,6 +1463,93 @@ int main(int argc, char **argv)
                 }
             }
         }
+        {
+            LevelLiftable lift;
+            LevelLiftableWall lift_wall;
+            PlayerRuntime lift_player = game.player;
+            LevelZone lift_player_zone;
+            LevelZone lift_zone;
+            uint8_t *lift_header;
+            uint8_t *lift_graphics;
+            uint16_t activation_flags;
+            int16_t expected_velocity;
+            uint16_t observed_edge_flags;
+            uint16_t lift_index = 0u;
+            int player_stood_on_lift;
+
+            while (lift_index < game.level_mechanisms.lift_count &&
+                   (!level_mechanisms_get_lift(&game.level_mechanisms, lift_index, &lift,
+                                               error, sizeof(error)) ||
+                    lift.wall_count == 0u || lift.raise_condition > 2u)) {
+                ++lift_index;
+            }
+            if (lift_index < game.level_mechanisms.lift_count) {
+                if (game.level_runtime.zone_count > 1u &&
+                    lift_player.zone_index == (uint16_t)lift.zone_id) {
+                    lift_player.zone_index =
+                        (uint16_t)(((uint32_t)lift_player.zone_index + 1u) %
+                                   game.level_runtime.zone_count);
+                }
+                if (!level_mechanisms_get_lift_wall(&game.level_mechanisms, lift_index, 0u,
+                                                    &lift_wall, error, sizeof(error)) ||
+                    lift_wall.edge_index < 0 || lift.wall_data_offset < 36u ||
+                    !level_dynamic_state_get_graphics_range(
+                        &game.dynamic_level, lift.wall_data_offset - 36u, 36u,
+                        &lift_header) ||
+                    !level_dynamic_state_get_graphics_range(
+                        &game.dynamic_level, lift.graphics_offset + 2u, 2u,
+                        &lift_graphics) ||
+                    !level_runtime_get_zone(&game.dynamic_level.runtime, lift_player.zone_index,
+                                            &lift_player_zone, error, sizeof(error)) ||
+                    !level_runtime_get_zone(&game.dynamic_level.runtime, (uint16_t)lift.zone_id,
+                                            &lift_zone, error, sizeof(error))) {
+                    fprintf(stderr, "campaign level %u lift runtime fixture is invalid: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                player_stood_on_lift = lift_player_zone.id == lift_zone.id;
+                lift_player.tmp_used = UINT8_MAX;
+                switch (lift.raise_condition) {
+                case 0u:
+                    activation_flags = player_stood_on_lift != 0 ? 0x8000u : 0x0100u;
+                    break;
+                case 1u:
+                    activation_flags = player_stood_on_lift != 0 ? 0x8000u : 0x0900u;
+                    break;
+                default:
+                    activation_flags = 0x8000u;
+                    break;
+                }
+                expected_velocity =
+                    (int16_t)(uint16_t)(0u - (uint16_t)lift.opening_speed);
+                write_be16(lift_header + 22u, (uint16_t)lift.bottom);
+                write_be16(lift_header + 24u, 0u);
+                mechanism_runtime_init(&game.mechanism_runtime);
+                if (!level_dynamic_state_set_edge_flags(
+                        &game.dynamic_level, (uint16_t)lift_wall.edge_index, activation_flags) ||
+                    !mechanism_runtime_update_lifts_single_player(
+                        &game.mechanism_runtime, &game.dynamic_level, &game.level_mechanisms,
+                        &lift_player, 1u, error, sizeof(error)) ||
+                    game.mechanism_runtime.lift_heights[lift_index] != lift.bottom ||
+                    (int16_t)read_be16(lift_header + 22u) != lift.bottom ||
+                    (int16_t)read_be16(lift_header + 24u) != expected_velocity ||
+                    (int16_t)read_be16(lift_graphics) !=
+                        (int16_t)((uint16_t)source_asr16_2(lift.bottom) << 2) ||
+                    !level_runtime_get_zone(&game.dynamic_level.runtime, (uint16_t)lift.zone_id,
+                                            &lift_zone, error, sizeof(error)) ||
+                    lift_zone.floor != (int32_t)source_asr16_2(lift.bottom) * 256 ||
+                    !level_dynamic_state_get_edge_flags(
+                        &game.dynamic_level, (uint16_t)lift_wall.edge_index,
+                        &observed_edge_flags) ||
+                    observed_edge_flags != 0x8000u) {
+                    fprintf(stderr, "campaign level %u LiftRoutine update is inconsistent: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+        }
         for (mechanism_index = 0u; mechanism_index < LEVEL_MECHANISMS_SWITCH_COUNT;
              ++mechanism_index) {
             const uint8_t *switch_source = game.level_mechanisms.graphics_bytes +
