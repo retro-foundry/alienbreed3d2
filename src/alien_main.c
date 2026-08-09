@@ -52,3 +52,81 @@ int alien_main_route(ObjectRuntime *objects, uint32_t slot_index,
     }
     return 1;
 }
+
+int alien_main_select_behavior(AlienMainRoute route, const AlienSetup *setup,
+                               AlienMainBehavior *out_behavior,
+                               char *error, size_t error_size)
+{
+    int16_t behavior_mode;
+
+    if (!setup || !out_behavior) {
+        alien_main_set_error(error, error_size,
+                             "AI mode selector received invalid source setup state");
+        return 0;
+    }
+    if (route == ALIEN_MAIN_ROUTE_RETREAT) {
+        /* modules/ai.s:ai_DoRetreat is an immediate RTS. */
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_NONE;
+        return 1;
+    }
+    if (route == ALIEN_MAIN_ROUTE_DIE) {
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_DIE;
+        return 1;
+    }
+    if (route == ALIEN_MAIN_ROUTE_TAKE_DAMAGE) {
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_TAKE_DAMAGE;
+        return 1;
+    }
+    if (route == ALIEN_MAIN_ROUTE_DEFAULT) {
+        behavior_mode = setup->default_mode;
+        if (behavior_mode < 1) {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_PROWL_RANDOM;
+        } else if (behavior_mode == 1) {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_PROWL_RANDOM_FLYING;
+        } else {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_NONE;
+        }
+        return 1;
+    }
+    if (route == ALIEN_MAIN_ROUTE_RESPONSE) {
+        behavior_mode = setup->response_mode;
+        if (behavior_mode < 1) {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_CHARGE;
+        } else if (behavior_mode == 1) {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_CHARGE_TO_SIDE;
+        } else if (behavior_mode < 3) {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_ATTACK_WITH_GUN;
+        } else if (behavior_mode == 3) {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_CHARGE_FLYING;
+        } else if (behavior_mode < 5) {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_CHARGE_TO_SIDE_FLYING;
+        } else if (behavior_mode == 5) {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_ATTACK_WITH_GUN_FLYING;
+        } else {
+            *out_behavior = ALIEN_MAIN_BEHAVIOR_NONE;
+        }
+        return 1;
+    }
+
+    if (route != ALIEN_MAIN_ROUTE_FOLLOWUP) {
+        alien_main_set_error(error, error_size,
+                             "AI mode selector received an unknown main-routine route");
+        return 0;
+    }
+    /* The only remaining main route is ai_DoFollowup. */
+    behavior_mode = setup->followup_mode;
+    if (behavior_mode < 1) {
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_PAUSE_BRIEFLY;
+    } else if (behavior_mode == 1) {
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_APPROACH;
+    } else if (behavior_mode < 3) {
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_APPROACH_TO_SIDE;
+    } else if (behavior_mode == 3) {
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_APPROACH_FLYING;
+    } else if (behavior_mode < 5) {
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_APPROACH_TO_SIDE_FLYING;
+    } else {
+        *out_behavior = ALIEN_MAIN_BEHAVIOR_NONE;
+    }
+    return 1;
+}

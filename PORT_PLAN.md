@@ -619,6 +619,10 @@ preserves the initial `ObjT_YPos_w = -20` write and signed-byte
 `EntT_CurrentMode_b` selection among the source default, response, followup,
 retreat, death, and damage branches. It does not activate a partial alien:
 each selected branch remains with its complete owning mode routine.
+Its `ai_DoDefault`, `ai_DoResponse`, and `ai_DoFollowup` mode-word selectors
+are also mapped to their named prowl, charge, attack, pause, and approach
+destinations from the decoded `AlienT` setup. The native path keeps those
+destinations uncalled until their complete movement/attack routines are ready.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

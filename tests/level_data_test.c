@@ -4755,6 +4755,7 @@ int main(int argc, char **argv)
         };
         uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime main_objects = {0};
+        AlienSetup selection_setup = {0};
 
         main_objects.slot_bytes = slot_bytes;
         main_objects.slot_count = 1u;
@@ -4768,6 +4769,91 @@ int main(int argc, char **argv)
                 route != expected_routes[mode_index] ||
                 read_be16(slot_bytes + 2u) != UINT16_C(0xffec)) {
                 fprintf(stderr, "AI_MainRoutine mode dispatch is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        for (int16_t mode = -1; mode <= 2; ++mode) {
+            AlienMainBehavior behavior;
+            AlienMainBehavior expected_behavior = mode < 1 ?
+                ALIEN_MAIN_BEHAVIOR_PROWL_RANDOM :
+                (mode == 1 ? ALIEN_MAIN_BEHAVIOR_PROWL_RANDOM_FLYING :
+                             ALIEN_MAIN_BEHAVIOR_NONE);
+
+            selection_setup.default_mode = mode;
+            if (!alien_main_select_behavior(ALIEN_MAIN_ROUTE_DEFAULT, &selection_setup,
+                                            &behavior, error, sizeof(error)) ||
+                behavior != expected_behavior) {
+                fprintf(stderr, "ai_DoDefault mode selection is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        {
+            static const AlienMainBehavior expected_response[] = {
+                ALIEN_MAIN_BEHAVIOR_CHARGE,
+                ALIEN_MAIN_BEHAVIOR_CHARGE,
+                ALIEN_MAIN_BEHAVIOR_CHARGE_TO_SIDE,
+                ALIEN_MAIN_BEHAVIOR_ATTACK_WITH_GUN,
+                ALIEN_MAIN_BEHAVIOR_CHARGE_FLYING,
+                ALIEN_MAIN_BEHAVIOR_CHARGE_TO_SIDE_FLYING,
+                ALIEN_MAIN_BEHAVIOR_ATTACK_WITH_GUN_FLYING,
+                ALIEN_MAIN_BEHAVIOR_NONE,
+                ALIEN_MAIN_BEHAVIOR_NONE
+            };
+
+            for (int16_t mode = -1; mode <= 7; ++mode) {
+                AlienMainBehavior behavior;
+
+                selection_setup.response_mode = mode;
+                if (!alien_main_select_behavior(ALIEN_MAIN_ROUTE_RESPONSE, &selection_setup,
+                                                &behavior, error, sizeof(error)) ||
+                    behavior != expected_response[(uint16_t)(mode + 1)]) {
+                    fprintf(stderr, "ai_DoResponse mode selection is inconsistent: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+        }
+        {
+            static const AlienMainBehavior expected_followup[] = {
+                ALIEN_MAIN_BEHAVIOR_PAUSE_BRIEFLY,
+                ALIEN_MAIN_BEHAVIOR_PAUSE_BRIEFLY,
+                ALIEN_MAIN_BEHAVIOR_APPROACH,
+                ALIEN_MAIN_BEHAVIOR_APPROACH_TO_SIDE,
+                ALIEN_MAIN_BEHAVIOR_APPROACH_FLYING,
+                ALIEN_MAIN_BEHAVIOR_APPROACH_TO_SIDE_FLYING,
+                ALIEN_MAIN_BEHAVIOR_NONE,
+                ALIEN_MAIN_BEHAVIOR_NONE,
+                ALIEN_MAIN_BEHAVIOR_NONE
+            };
+
+            for (int16_t mode = -1; mode <= 7; ++mode) {
+                AlienMainBehavior behavior;
+
+                selection_setup.followup_mode = mode;
+                if (!alien_main_select_behavior(ALIEN_MAIN_ROUTE_FOLLOWUP, &selection_setup,
+                                                &behavior, error, sizeof(error)) ||
+                    behavior != expected_followup[(uint16_t)(mode + 1)]) {
+                    fprintf(stderr, "ai_DoFollowup mode selection is inconsistent: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+        }
+        {
+            AlienMainBehavior behavior;
+
+            if (!alien_main_select_behavior(ALIEN_MAIN_ROUTE_RETREAT, &selection_setup,
+                                            &behavior, error, sizeof(error)) ||
+                behavior != ALIEN_MAIN_BEHAVIOR_NONE ||
+                !alien_main_select_behavior(ALIEN_MAIN_ROUTE_DIE, &selection_setup,
+                                            &behavior, error, sizeof(error)) ||
+                behavior != ALIEN_MAIN_BEHAVIOR_DIE ||
+                !alien_main_select_behavior(ALIEN_MAIN_ROUTE_TAKE_DAMAGE, &selection_setup,
+                                            &behavior, error, sizeof(error)) ||
+                behavior != ALIEN_MAIN_BEHAVIOR_TAKE_DAMAGE) {
+                fprintf(stderr, "AI_MainRoutine fixed mode selection is inconsistent: %s\n", error);
                 game_bootstrap_destroy(&game);
                 return 1;
             }
