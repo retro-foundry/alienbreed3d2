@@ -4,6 +4,7 @@
 #include "alien_runtime.h"
 #include "alien_animation.h"
 #include "alien_decision.h"
+#include "alien_death.h"
 #include "alien_flight.h"
 #include "alien_memory.h"
 #include "alien_perception.h"
@@ -4740,6 +4741,130 @@ int main(int argc, char **argv)
                    slot_bytes[11u] != auxiliary_frame.byte_1 ||
                    read_be16(slot_bytes + 6u) != auxiliary_frame.word_2) {
             fprintf(stderr, "ai_DoWalkAnim glare auxiliary is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_DoDie frees only after the authored end frame. */
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime death_objects = {0};
+        ObjectAnimationRuntime death_animation_runtime;
+        AlienSetup death_setup = {0};
+        AlienDeathState death_state;
+        GameAlienDefinition death_definition;
+        GameAlienAnimationFrame death_frame;
+        GameObjectAnimationFrame death_auxiliary_frame;
+        LevelZone death_zone;
+        uint16_t death_alien = UINT16_MAX;
+        uint16_t death_option = UINT16_MAX;
+        uint16_t death_frame_index = UINT16_MAX;
+
+        for (uint16_t alien_index = 0u; alien_index < GAME_LINK_ALIEN_COUNT; ++alien_index) {
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &death_definition, error, sizeof(error))) {
+                fprintf(stderr, "could not read ai_DoDie source alien: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if ((int16_t)death_definition.auxiliary_type < 0 ||
+                (int16_t)death_definition.auxiliary_type >= GAME_LINK_OBJECT_COUNT) {
+                continue;
+            }
+            for (uint16_t option_index = 1u;
+                 option_index < GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT &&
+                 death_alien == UINT16_MAX;
+                 ++option_index) {
+                for (uint16_t frame_index = 0u;
+                     frame_index < GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT;
+                     ++frame_index) {
+                    if (!game_link_get_alien_animation_frame(
+                            &game.game_link_catalog, alien_index, option_index, frame_index,
+                            &death_frame, error, sizeof(error))) {
+                        fprintf(stderr, "could not read ai_DoDie source frame: %s\n", error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    if ((int8_t)death_frame.bytes[8u] < 0 || death_frame.bytes[8u] >=
+                        GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT ||
+                        !game_link_get_object_animation_frame(
+                            &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                            (uint16_t)death_definition.auxiliary_type, death_frame.bytes[8u],
+                            &death_auxiliary_frame, error, sizeof(error))) {
+                        continue;
+                    }
+                    death_alien = alien_index;
+                    death_option = option_index;
+                    death_frame_index = frame_index;
+                    break;
+                }
+            }
+        }
+        if (death_alien == UINT16_MAX ||
+            !game_link_get_alien_definition(&game.game_link_catalog, death_alien,
+                                            &death_definition, error, sizeof(error)) ||
+            !level_runtime_get_zone(&game.dynamic_level.runtime, game.player.zone_index,
+                                    &death_zone, error, sizeof(error))) {
+            fprintf(stderr, "could not establish ai_DoDie source fixture: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        death_objects.slot_bytes = slot_bytes;
+        death_objects.slot_count = 2u;
+        death_objects.active_slot_count = 2u;
+        write_be16(slot_bytes + 0u, 1u);
+        write_be16(slot_bytes + 12u, 4u);
+        write_be16(slot_bytes + 64u + 0u, 2u);
+        write_be16(slot_bytes + 64u + 4u, 100u);
+        write_be16(slot_bytes + 64u + 12u, game.player.zone_index);
+        write_be16(slot_bytes + 64u + 26u, game.player.zone_index);
+        write_be16(slot_bytes + 64u + 40u, death_frame_index);
+        slot_bytes[64u + 16u] = 6u;
+        slot_bytes[64u + 18u] = 11u;
+        slot_bytes[64u + 54u] = (uint8_t)death_alien;
+        slot_bytes[64u + 62u] = UINT8_MAX;
+        object_animation_runtime_init(&death_animation_runtime);
+        death_animation_runtime.workspace[1u][1u] = UINT8_MAX;
+        death_animation_runtime.workspace[1u][2u] = (uint8_t)death_option;
+        death_animation_runtime.workspace[1u][3u] = UINT8_MAX;
+        death_setup.alien_type = death_alien;
+        death_setup.zone_id = game.player.zone_index;
+        death_setup.thing_height = (int32_t)(int16_t)death_definition.height * 128;
+        death_setup.auxiliary_object_type = (int16_t)death_definition.auxiliary_type;
+        death_setup.vector_object_flag = (uint8_t)death_definition.graphics_type;
+        if (!alien_death_update(
+                &death_objects, 1u, &death_animation_runtime, &game.game_link_catalog,
+                &game.math, &game.dynamic_level.runtime, &death_setup, game.player.yaw,
+                &death_state, error, sizeof(error)) ||
+            death_state.got_out != UINT8_MAX ||
+            death_state.animation.finished != UINT8_MAX ||
+            (int16_t)read_be16(slot_bytes + 64u + 12u) != -1 ||
+            (int16_t)read_be16(slot_bytes + 64u + 26u) != -1 ||
+            slot_bytes[64u + 16u] != 0u || slot_bytes[64u + 62u] != 0u ||
+            (int16_t)read_be16(slot_bytes + 12u) != -1 ||
+            (int16_t)read_be16(slot_bytes + 26u) != -1) {
+            fprintf(stderr, "ai_DoDie completion state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(slot_bytes + 64u + 12u, game.player.zone_index);
+        write_be16(slot_bytes + 64u + 26u, game.player.zone_index);
+        slot_bytes[64u + 18u] = 11u;
+        slot_bytes[64u + 62u] = UINT8_MAX;
+        death_animation_runtime.workspace[1u][1u] = UINT8_MAX;
+        death_animation_runtime.workspace[1u][2u] = (uint8_t)death_option;
+        death_animation_runtime.workspace[1u][3u] = 0u;
+        if (!alien_death_update(
+                &death_objects, 1u, &death_animation_runtime, &game.game_link_catalog,
+                &game.math, &game.dynamic_level.runtime, &death_setup, game.player.yaw,
+                &death_state, error, sizeof(error)) ||
+            death_state.got_out != 0u || death_state.animation.finished != 0u ||
+            slot_bytes[64u + 18u] != 0u ||
+            read_be16(slot_bytes + 64u + 12u) != death_zone.id ||
+            read_be16(slot_bytes + 64u + 26u) != death_zone.id ||
+            read_be16(slot_bytes + 12u) != death_zone.id ||
+            read_be16(slot_bytes + 26u) != death_zone.id) {
+            fprintf(stderr, "ai_DoDie active-frame state is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }

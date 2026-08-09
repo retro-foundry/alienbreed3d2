@@ -598,6 +598,13 @@ they publish the transient action/finished/facing values and source display
 descriptors without drawing pixels. This helper remains uncalled until a
 complete translated AI mode owns those transient results; it does not turn on
 partial alien dispatch.
+`modules/ai.s:ai_DoDie` is also available behind that same uncalled mode
+boundary. It updates the source animation/room state, holds hit points at
+zero while the death animation is active, then performs `FREE_ENT`, resets
+the object type/worry bytes, returns the source `ai_GetOut_w` result, and
+synchronizes a live preceding auxiliary slot. Death selection, splat/spawn
+creation, brightness, and the complete AI dispatcher remain with their owning
+source routines.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
