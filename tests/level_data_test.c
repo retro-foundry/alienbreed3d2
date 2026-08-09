@@ -12,6 +12,7 @@
 #include "level_draw_graph.h"
 #include "object_collectables.h"
 #include "object_handler.h"
+#include "object_movement.h"
 #include "object_projectiles.h"
 #include "object_scene.h"
 #include "object_visibility.h"
@@ -3299,6 +3300,108 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+    }
+    {
+        /*
+         * objectmove.s:MoveObject fixture for the zero-extension trace used
+         * by newplayershoot.s:plr1_HitscanFailed. A solid edge stops at its
+         * source contact point; opening the same edge then crosses zone 0 to
+         * zone 1 and computes the source lower/top layer from the crossing.
+         */
+        uint8_t level_bytes[256u] = {0};
+        uint8_t graphics_bytes[16u] = {0};
+        LevelRuntime movement_level = {0};
+        LevelDynamicState movement_state = {0};
+        ObjectMovementTrace movement_trace = {0};
+        uint16_t edge_flags = 0u;
+
+        movement_level.level_bytes = level_bytes;
+        movement_level.level_size = sizeof(level_bytes);
+        movement_level.graphics_bytes = graphics_bytes;
+        movement_level.graphics_size = sizeof(graphics_bytes);
+        movement_level.zone_offsets_table_offset = 0u;
+        movement_level.edge_table_offset = 200u;
+        movement_level.edge_count = 1u;
+        movement_level.zone_count = 2u;
+        write_be32(graphics_bytes + 0u, 0u);
+        write_be32(graphics_bytes + 4u, 100u);
+        write_be16(level_bytes + 0u, 0u);
+        write_be16(level_bytes + 100u, 1u);
+        write_be32(level_bytes + 102u, 10000u);
+        write_be32(level_bytes + 106u, 0u);
+        write_be32(level_bytes + 110u, 10000u);
+        write_be32(level_bytes + 114u, 0u);
+        write_be16(level_bytes + 32u, 64u);
+        write_be16(level_bytes + 132u, 64u);
+        write_be16(level_bytes + 64u, 0u);
+        write_be16(level_bytes + 66u, UINT16_MAX);
+        write_be16(level_bytes + 164u, UINT16_MAX);
+        write_be16(level_bytes + 200u, 10u);
+        write_be16(level_bytes + 202u, 20u);
+        write_be16(level_bytes + 204u, 0u);
+        write_be16(level_bytes + 206u, UINT16_C(0xffec));
+        write_be16(level_bytes + 208u, UINT16_MAX);
+        write_be16(level_bytes + 210u, 20u);
+        if (!level_dynamic_state_init(&movement_state, &movement_level,
+                                      error, sizeof(error))) {
+            fprintf(stderr, "could not initialize MoveObject source fixture: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        movement_trace.zone_index = 0u;
+        movement_trace.old_x = 0;
+        movement_trace.old_z = 10;
+        movement_trace.new_x = 20;
+        movement_trace.new_z = 10;
+        /* Tests MoveObject's full-long DIVS height interpolation, not a word delta. */
+        movement_trace.old_y = 1000;
+        movement_trace.new_y = 66536;
+        movement_trace.wall_flags = 0x0400u;
+        movement_trace.away_from_wall = -1;
+        movement_trace.exit_first = UINT8_MAX;
+        if (!object_movement_trace_zero_extension(&movement_state, &movement_trace,
+                                                  error, sizeof(error)) ||
+            movement_trace.hit_wall != UINT8_MAX || movement_trace.new_x != 10 ||
+            movement_trace.new_z != 10 || movement_trace.wall_hit_height != 33776 ||
+            movement_trace.wall_x_size != 0 || movement_trace.wall_z_size != 0 ||
+            movement_trace.wall_length != 0 ||
+            !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
+            edge_flags != 0x0400u) {
+            fprintf(stderr, "MoveObject zero-extension wall trace is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(movement_state.level_bytes + 208u, 1u);
+        if (!level_dynamic_state_set_edge_flags(&movement_state, 0u, 0u)) {
+            fprintf(stderr, "could not reset MoveObject source fixture edge flags\n");
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memset(&movement_trace, 0, sizeof(movement_trace));
+        movement_trace.zone_index = 0u;
+        movement_trace.old_x = 0;
+        movement_trace.old_z = 10;
+        movement_trace.new_x = 20;
+        movement_trace.new_z = 10;
+        movement_trace.old_y = 1000;
+        movement_trace.new_y = 1000;
+        movement_trace.away_from_wall = -1;
+        if (!object_movement_trace_zero_extension(&movement_state, &movement_trace,
+                                                  error, sizeof(error)) ||
+            movement_trace.hit_wall != 0u || movement_trace.zone_index != 1u ||
+            movement_trace.stood_in_top != 0u || movement_trace.new_x != 20 ||
+            movement_trace.new_z != 10 ||
+            !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
+            edge_flags != 0u) {
+            fprintf(stderr, "MoveObject zero-extension zone crossing is inconsistent: %s\n",
+                    error);
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        level_dynamic_state_destroy(&movement_state);
     }
     {
         /*

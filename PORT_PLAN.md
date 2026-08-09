@@ -158,9 +158,16 @@ authority for all game behavior and data formats.
   `newplayershoot.s:firefive`, which creates a non-hitscan volley directly in
   the source player-shot pool: exact centred firing angles, speed/vertical
   clamp, launch coordinates, and projectile bytes are covered by regression
-  tests. These helpers are not wired into input yet: source cooldown,
-  ammunition, hit probability, miss raycast/effect, moving-projectile update,
-  and sound still belong to the remaining `Plr1_Shot` path.
+  tests. `src/object_movement.*` now translates the zero-extension
+  `objectmove.s:MoveObject` workspace used by
+  `newplayershoot.s:plr1_HitscanFailed`: primary edge contact, source height
+  opening tests, edge flag writes, exit-first contact coordinates, and bounded
+  joined-zone/layer transitions all retain the source word/long arithmetic.
+  Its byte-layout regression covers both a solid exit-first impact and a
+  passable joined-zone crossing. Extended-edge movement is deliberately not
+  implied by this helper. These helpers are not wired into input yet: source
+  cooldown, ammunition, hit probability, miss-effect spawn, moving-projectile
+  update, and sound still belong to the remaining `Plr1_Shot` path.
   `src/game_random.*` now retains `objectmove.s:GetRand`'s
   exact seeded 16-bit rotate/add sequence for the upcoming probability and AI
   paths. `GameBootstrap` owns and initializes that `Rand1` state once per
@@ -387,9 +394,11 @@ authority for all game behavior and data formats.
      selection. `CalcPLR1InLine` now publishes its source-shaped object
      observation workspace without a renderer dependency, while
      `objectmove.s:CanItBeSeen` supplies the separate PVST/clip/joined-zone
-     gameplay visibility query an alien update will consume. Next: source
-     `Obj_DoCollision`, the remaining alien/projectile-flight `ObjectHandler`
-     paths, and the remaining firing/miss/projectile portion of
+     gameplay visibility query an alien update will consume.
+     `object_movement.*` independently preserves the zero-extension
+     `MoveObject` trace needed by `plr1_HitscanFailed`; next is that miss
+     effect's object-pool write, followed by source `Obj_DoCollision`, the
+     remaining alien/projectile-flight `ObjectHandler` paths, and the rest of
      `newplayershoot.s`.
      Source object render descriptors are now emitted independently of those
      pending simulation branches.
@@ -468,9 +477,12 @@ projectile dispatch remain unported. The reusable `CanItBeSeen` query now
 retains source gameplay PVST/clip/height behavior but is deliberately not
 wired until the owning alien path is translated. `firefive` now creates the
 source non-hitscan launch state, but its later `ItsABullet` movement/collision
-path is still absent, so it too remains unwired. Translate each remaining
-bounded slice directly from the maintained source and add source-derived
-regressions for its state changes and ordering.
+path is still absent, so it too remains unwired. `object_movement.*` now
+provides the exact zero-extension `MoveObject` path for
+`plr1_HitscanFailed`, including its exit-first wall contact and joined-zone
+state; its object-pool miss effect has not yet been connected. Translate each
+remaining bounded slice directly from the maintained source and add
+source-derived regressions for its state changes and ordering.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their

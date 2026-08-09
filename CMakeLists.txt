@@ -48,6 +48,7 @@ set(AB3D2_CORE_SOURCES
   src/object_activatables.c
   src/object_collectables.c
   src/object_handler.c
+  src/object_movement.c
   src/object_observation.c
   src/object_passives.c
   src/object_projectiles.c
