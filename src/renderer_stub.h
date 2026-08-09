@@ -1,0 +1,13 @@
+#ifndef AB3D2_RENDERER_STUB_H
+#define AB3D2_RENDERER_STUB_H
+
+#include "scene_frame.h"
+
+typedef struct RendererStub RendererStub;
+
+RendererStub *renderer_stub_create(void);
+void renderer_stub_destroy(RendererStub *renderer);
+int renderer_stub_handle_events(RendererStub *renderer);
+void renderer_stub_present(RendererStub *renderer, const SceneFrame *frame);
+
+#endif
