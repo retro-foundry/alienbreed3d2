@@ -72,6 +72,9 @@ authority for all game behavior and data formats.
   AI navigation and the `EdgeT` collision records reached by each zone's
   primary edge-index list exactly through the first negative source marker;
   source extended-edge markers remain distinct for the later collision port.
+  `src/level_navigation.*` now resolves both 100x100 `twolev` maps through
+  `objectmove.s:GetNextCPt`, including its `only-see` high bit, but does not
+  invent a caller or AI route behavior.
   The maintained `Game_Begin` EdgeT-span calculation is retained as raw state
   only because shipped offsets do not form a table extent. It does not consume
   PVS lists or portals.
@@ -117,6 +120,8 @@ authority for all game behavior and data formats.
   it, so no movement behavior is approximated.
 - `src/level_bootstrap.*` decodes the big-endian `TLBT` and `TLGT` headers used
   by `hires.s:Game_Begin`.
+- `src/level_navigation.*` maps the walk/fly link lookup in
+  `objectmove.s:GetNextCPt`; no AI or movement routine consumes it yet.
 - `src/scene_frame.*` and `src/renderer_stub.*` establish the renderer seam.
 - `tests/level_data_test.c` validates the staged data and every campaign level.
 

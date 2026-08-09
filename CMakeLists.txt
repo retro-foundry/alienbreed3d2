@@ -34,6 +34,7 @@ set(AB3D2_CORE_SOURCES
   src/game_resources.c
   src/game_session.c
   src/level_bootstrap.c
+  src/level_navigation.c
   src/level_runtime.c
   src/player_runtime.c
   src/scene_frame.c

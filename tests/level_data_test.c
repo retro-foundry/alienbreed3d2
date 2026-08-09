@@ -32,6 +32,7 @@ int main(int argc, char **argv)
     LevelZone zone;
     LevelEdge edge;
     LevelControlPoint control_point;
+    LevelNavigationLink navigation_link;
     LevelObjectSlot object_slot;
     LevelObjectPoint object_point;
     uint32_t zone_edge_count;
@@ -441,6 +442,12 @@ int main(int argc, char **argv)
                 game.level_graphics_header.zone_adds_table_offset ||
             game.level_runtime.zone_graph_adds_offset !=
                 game.level_graphics_header.zone_graph_adds_offset ||
+            !level_navigation_get_next(&game.level_navigation, 0u, 0u, 0,
+                                       &navigation_link, error, sizeof(error)) ||
+            navigation_link.next_control_point != 0u || navigation_link.only_see != 0u ||
+            level_navigation_get_next(&game.level_navigation,
+                                      LEVEL_NAVIGATION_CONTROL_POINT_LIMIT, 0u, 0,
+                                      &navigation_link, error, sizeof(error)) ||
             game.level_runtime.object_point_count != (uint32_t)game.level.object_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
             game.level_runtime.control_point_count != game.level.control_point_count ||
@@ -476,6 +483,38 @@ int main(int argc, char **argv)
             fprintf(stderr, "campaign level %u could not be loaded: %s\n", level_index, error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        for (uint8_t current_control_point = 0u;
+             current_control_point < LEVEL_NAVIGATION_CONTROL_POINT_LIMIT;
+             ++current_control_point) {
+            for (uint8_t target_control_point = 0u;
+                 target_control_point < LEVEL_NAVIGATION_CONTROL_POINT_LIMIT;
+                 ++target_control_point) {
+                size_t navigation_offset = (size_t)current_control_point *
+                    LEVEL_NAVIGATION_CONTROL_POINT_LIMIT + target_control_point;
+                uint8_t walk_link = game.level_navigation.walk_links[navigation_offset];
+                uint8_t fly_link = game.level_navigation.fly_links[navigation_offset];
+                if (!level_navigation_get_next(&game.level_navigation,
+                                               current_control_point, target_control_point, 0,
+                                               &navigation_link, error, sizeof(error)) ||
+                    (current_control_point != target_control_point &&
+                     (navigation_link.next_control_point != (uint8_t)(walk_link & 0x7fu) ||
+                      navigation_link.only_see !=
+                          ((walk_link & 0x80u) != 0u ? UINT8_MAX : 0u))) ||
+                    !level_navigation_get_next(&game.level_navigation,
+                                               current_control_point, target_control_point, 1,
+                                               &navigation_link, error, sizeof(error)) ||
+                    (current_control_point != target_control_point &&
+                     (navigation_link.next_control_point != (uint8_t)(fly_link & 0x7fu) ||
+                      navigation_link.only_see !=
+                          ((fly_link & 0x80u) != 0u ? UINT8_MAX : 0u)))) {
+                    fprintf(stderr,
+                            "campaign level %u navigation map %u to %u is invalid: %s\n",
+                            level_index, current_control_point, target_control_point, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
         }
         for (zone_index = 0; zone_index < game.level_runtime.zone_count; ++zone_index) {
             if (!level_runtime_get_zone(&game.level_runtime, zone_index, &zone,
