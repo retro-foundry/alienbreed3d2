@@ -7,6 +7,7 @@
 #include "object_scene.h"
 #include "player_entity.h"
 #include "player_shoot.h"
+#include "object_worry.h"
 
 #define AB3D2_LEVEL_COUNT 16u
 
@@ -249,6 +250,9 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
         !mechanism_runtime_update_lifts_single_player(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
             &game->player, 1u, error, error_size) ||
+        !object_worry_update_single_player(
+            &game->object_runtime, &game->dynamic_level.runtime, &game->player,
+            &game->alien_runtime, error, error_size) ||
         !object_observation_update_single_player(
             &game->object_observation, &game->object_runtime, &game->player, &game->math,
             error, error_size) ||

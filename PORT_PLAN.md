@@ -208,6 +208,14 @@ authority for all game behavior and data formats.
   `ItsAnAlien:.no_enemies` removal branch is source-translated for state tests
   without adding master/slave support. It does not activate or approximate
   alien AI.
+- [x] `src/object_worry.*` now translates the later `hires.s:.doallrooms2`
+  and `.doallobs` single-player pass. It reconstructs the source's eight-long
+  `Sys_Workspace` bitset from the player zone's signed-terminated PVST and
+  marks visible objects with `ShotT_Worry_b |= $7f`; a non-visible normal
+  alien is marked only when its source team workspace has a non-negative
+  `AI_WorkT_SeenBy_w`. It runs after ObjectHandler/door/lift work to prepare
+  the following source update. This is gameplay activation only and remains
+  entirely separate from the PVS-free renderer.
 - [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
   `PVST` records for gameplay-only consumers. Every record and target is
   validated across all A-P levels. `src/object_visibility.*` now directly

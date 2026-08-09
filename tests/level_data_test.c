@@ -17,6 +17,7 @@
 #include "object_projectiles.h"
 #include "object_scene.h"
 #include "object_visibility.h"
+#include "object_worry.h"
 #include "player_entity.h"
 #include "player_shoot.h"
 #include "scene_frame.h"
@@ -3756,6 +3757,109 @@ int main(int argc, char **argv)
                 &spawned_count, error, sizeof(error)) || spawned_count != 0u) {
             fprintf(stderr, "firefive source projectile pool exhaustion is inconsistent: %s\n",
                     error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        uint8_t slot_bytes[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime worry_objects = {0};
+        AlienRuntime worry_alien_runtime;
+        PlayerRuntime worry_player = game.player;
+        uint16_t viewer_zone_index = UINT16_MAX;
+        uint16_t visible_zone_index = UINT16_MAX;
+        uint16_t hidden_zone_index = UINT16_MAX;
+
+        if (game.dynamic_level.runtime.zone_count > 256u) {
+            fprintf(stderr, "source worry fixture exceeds Sys_Workspace capacity\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint16_t candidate_viewer = 0u;
+             candidate_viewer < game.dynamic_level.runtime.zone_count;
+             ++candidate_viewer) {
+            uint8_t visible_zone_bits[32u] = {0};
+            uint16_t candidate_visible = UINT16_MAX;
+            uint16_t candidate_hidden = UINT16_MAX;
+            int pvs_terminated = 0;
+
+            for (uint32_t pvs_entry_index = 0u;
+                 pvs_entry_index <= game.dynamic_level.runtime.level_size / 8u;
+                 ++pvs_entry_index) {
+                LevelPotentialVisibility entry;
+
+                if (!level_runtime_get_zone_potential_visibility(
+                        &game.dynamic_level.runtime, candidate_viewer, pvs_entry_index,
+                        &entry, error, sizeof(error))) {
+                    fprintf(stderr, "source worry PVST fixture is invalid: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (entry.zone_index < 0) {
+                    pvs_terminated = 1;
+                    break;
+                }
+                visible_zone_bits[(uint16_t)entry.zone_index >> 3u] |=
+                    (uint8_t)(UINT8_C(1) << ((uint16_t)entry.zone_index & 7u));
+                if (candidate_visible == UINT16_MAX) {
+                    candidate_visible = (uint16_t)entry.zone_index;
+                }
+            }
+            if (pvs_terminated == 0 || candidate_visible == UINT16_MAX) {
+                continue;
+            }
+            for (uint16_t candidate_target = 0u;
+                 candidate_target < game.dynamic_level.runtime.zone_count;
+                 ++candidate_target) {
+                if ((visible_zone_bits[candidate_target >> 3u] &
+                     (uint8_t)(UINT8_C(1) << (candidate_target & 7u))) == 0u) {
+                    candidate_hidden = candidate_target;
+                    break;
+                }
+            }
+            if (candidate_hidden != UINT16_MAX) {
+                viewer_zone_index = candidate_viewer;
+                visible_zone_index = candidate_visible;
+                hidden_zone_index = candidate_hidden;
+                break;
+            }
+        }
+        if (viewer_zone_index == UINT16_MAX || visible_zone_index == UINT16_MAX ||
+            hidden_zone_index == UINT16_MAX) {
+            fprintf(stderr, "source worry fixture could not find visible and hidden zones\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        worry_objects.slot_bytes = slot_bytes;
+        worry_objects.slot_count = 3u;
+        worry_objects.active_slot_count = 3u;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 12u, visible_zone_index);
+        slot_bytes[16u] = 1u;
+        slot_bytes[62u] = 0x80u;
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 1u);
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, hidden_zone_index);
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 21u] = 0u;
+        write_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        alien_runtime_init(&worry_alien_runtime);
+        alien_runtime_begin_level(&worry_alien_runtime);
+        worry_player.zone_index = viewer_zone_index;
+        if (!object_worry_update_single_player(
+                &worry_objects, &game.dynamic_level.runtime, &worry_player,
+                &worry_alien_runtime, error, sizeof(error)) ||
+            slot_bytes[62u] != UINT8_MAX ||
+            slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 62u] != 0u) {
+            fprintf(stderr, "source PVST worry activation is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        worry_alien_runtime.team_workspace[0u][4u] = 0;
+        if (!object_worry_update_single_player(
+                &worry_objects, &game.dynamic_level.runtime, &worry_player,
+                &worry_alien_runtime, error, sizeof(error)) ||
+            slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 62u] != 0x7fu) {
+            fprintf(stderr, "source team worry activation is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
