@@ -1900,7 +1900,13 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
-        game.level_runtime.exit_zone_id = (int16_t)game.player.zone_index;
+        if (!level_runtime_get_zone(&game.level_runtime, game.player.zone_index,
+                                    &zone, error, sizeof(error))) {
+            fprintf(stderr, "source player-zone fixture is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game.level_runtime.exit_zone_id = (int16_t)zone.id;
         if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
             game.session.level_finished == 0u ||
             memcmp(&game.session.campaign_inventory, &game.session.player1_inventory,

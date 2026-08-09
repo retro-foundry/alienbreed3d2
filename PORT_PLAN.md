@@ -174,7 +174,8 @@ authority for all game behavior and data formats.
   static `EdgeT` sequences from `objectmove.s:MoveObject`; there is no PVS or
   portal-rendering dependency. Its `TmpX/Y/Z/Height` snapshot now retains the
   source game-loop values consumed by the first object interaction path.
-  Reaching the loaded level's authored `Lvl_ExitZoneID_w` now follows
+  Reaching the loaded level's authored `Lvl_ExitZoneID_w` (compared to
+  `ZoneT_ID_w`, rather than a native zone-table index) now follows
   `hires.s:game_main_loop` into the direct-mode end-level handoff and preserves
   the single-player campaign inventory; it does not fabricate a replacement
   completion screen or menu.

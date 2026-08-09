@@ -198,6 +198,8 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
 int game_bootstrap_update_single_player(GameBootstrap *game,
                                         char *error, size_t error_size)
 {
+    LevelZone player_zone;
+
     if (!game || game->level_data.size == 0u) {
         if (error && error_size > 0u) {
             (void)snprintf(error, error_size,
@@ -223,9 +225,13 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     }
     /* Game_AddToInventory changes Plr1_Inventory; health drives next control tick. */
     game->player.health = game->session.player1_inventory.health;
-    /* hires.s:game_main_loop enters endlevel on the single-player exit ZoneT ID. */
+    /* hires.s compares Lvl_ExitZoneID_w with the current ZoneT_ID_w, not its index. */
+    if (!level_runtime_get_zone(&game->level_runtime, game->player.zone_index,
+                                &player_zone, error, error_size)) {
+        return 0;
+    }
     if (game->level_runtime.exit_zone_id >= 0 &&
-        game->player.zone_index == (uint16_t)game->level_runtime.exit_zone_id) {
+        player_zone.id == (uint16_t)game->level_runtime.exit_zone_id) {
         game_session_finish_single_player(&game->session, 1);
     }
     return 1;
