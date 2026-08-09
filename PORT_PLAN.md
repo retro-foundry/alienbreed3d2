@@ -289,8 +289,10 @@ without pixels or multiplayer code.
 The next milestone is source-backed dynamic single-player state. Before writing
 native movement, collision, falling, interaction, projectiles, AI, animation,
 or sprite-frame selection, capture a focused original-runtime oracle fixture
-for each routine boundary. At a minimum, record an input sequence, entry/exit
-RAM window, relevant registers/flags, and expected state for:
+for each routine boundary. Follow the byte-exact capture contract in
+[`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md): at a minimum, record an
+input sequence, entry/exit RAM window, relevant registers/flags, and expected
+state for:
 
 - `modules/player.s:plr_KeyboardControl` plus `plr1control.s:Plr1_Fall`;
 - `hires.s:Plr1_Control` plus the `objectmove.s:Obj_DoCollision`/`MoveObject`
