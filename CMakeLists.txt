@@ -44,6 +44,7 @@ set(AB3D2_CORE_SOURCES
   src/level_runtime.c
   src/level_static_scene.c
   src/mechanism_runtime.c
+  src/object_activatables.c
   src/object_collectables.c
   src/object_runtime.c
   src/player_runtime.c

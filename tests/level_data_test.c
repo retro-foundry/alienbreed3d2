@@ -9,6 +9,7 @@
 #include "game_save.h"
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
+#include "object_activatables.h"
 #include "object_collectables.h"
 #include "scene_frame.h"
 
@@ -1243,6 +1244,78 @@ int main(int argc, char **argv)
             if (game.level_runtime.edge_count != 0u) {
                 dynamic_level_byte[0] = (uint8_t)(original_edge_flags >> 8);
                 dynamic_level_byte[1] = (uint8_t)original_edge_flags;
+            }
+        }
+        {
+            uint32_t activatable_slot_index = 0u;
+            uint8_t *activatable_slot = NULL;
+            uint8_t *activatable_point = NULL;
+            GameObjectDefinition activatable_definition;
+            GameObjectAnimationFrame activatable_frame;
+
+            while (activatable_slot_index < game.object_runtime.active_slot_count &&
+                   (!object_runtime_get_slot_bytes(&game.object_runtime, activatable_slot_index,
+                                                   &activatable_slot) ||
+                    activatable_slot[16u] != 1u ||
+                    !game_link_get_object_definition(
+                        &game.game_link_catalog, activatable_slot[54u],
+                        &activatable_definition, error, sizeof(error)) ||
+                    activatable_definition.behaviour != 1u)) {
+                ++activatable_slot_index;
+            }
+            if (activatable_slot_index < game.object_runtime.active_slot_count) {
+                PlayerRuntime activatable_player = game.player;
+                GameInventory activatable_inventory = game.session.player1_inventory;
+                LevelZone activatable_zone;
+                uint16_t activatable_point_index = read_be16(activatable_slot + 0u);
+
+                if (!object_runtime_get_point_bytes(&game.object_runtime,
+                                                    activatable_point_index,
+                                                    &activatable_point) ||
+                    !level_runtime_get_zone(&game.dynamic_level.runtime,
+                                            activatable_player.zone_index, &activatable_zone,
+                                            error, sizeof(error)) ||
+                    !game_link_get_object_animation_frame(
+                        &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                        activatable_slot[54u], 0u, &activatable_frame,
+                        error, sizeof(error))) {
+                    fprintf(stderr, "campaign level %u activatable fixture is invalid: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                write_be16(activatable_slot + 12u, activatable_player.zone_index);
+                write_be16(activatable_slot + 34u, 0u);
+                write_be16(activatable_slot + 40u, 0u);
+                activatable_slot[55u] = 0u;
+                activatable_slot[62u] = 0x80u;
+                activatable_slot[63u] = activatable_player.stood_in_top;
+                activatable_player.tmp_x = (int16_t)read_be16(activatable_point + 0u);
+                activatable_player.tmp_z = (int16_t)read_be16(activatable_point + 4u);
+                {
+                    int32_t object_vertical = activatable_zone.floor >= 0 ?
+                        activatable_zone.floor / 128 :
+                        -((-(int64_t)activatable_zone.floor + 127) / 128);
+
+                    object_vertical += (int16_t)activatable_frame.signed_byte_4 * 2;
+                    activatable_player.tmp_y = object_vertical * 128 -
+                        activatable_player.tmp_height / 2;
+                }
+                activatable_player.tmp_used = UINT8_MAX;
+                if (!object_activatables_update_single_player(
+                        &game.object_runtime, &game.dynamic_level.runtime,
+                        &game.game_link_catalog, &activatable_player,
+                        &activatable_inventory, &game.inventory_limits, 1u,
+                        error, sizeof(error)) ||
+                    activatable_slot[55u] != UINT8_MAX ||
+                    read_be16(activatable_slot + 34u) != 0u ||
+                    read_be16(activatable_slot + 40u) != 0u ||
+                    activatable_slot[62u] != 0x80u) {
+                    fprintf(stderr, "campaign level %u Activatable update is inconsistent: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
             }
         }
         for (uint8_t current_control_point = 0u;

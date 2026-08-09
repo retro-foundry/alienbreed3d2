@@ -204,8 +204,13 @@ authority for all game behavior and data formats.
   floor height, lift wall/graphics displacement, per-lift source height table,
   trigger edges, and the `FloorSpd_w` handoff consumed by the next player-fall
   update; it does not yet include `DoWaterAnims`. Dynamic `Obj_DoCollision`,
-  activatables, switches, water animation, enemies, projectiles, animations,
-  sounds, and sprites remain absent until their owning routines are ported.
+  `src/object_activatables.*` ports the `ItsAnObject`/`Activatable` subset:
+  source floor/ceiling placement, default/action six-byte frame records,
+  player collision, operate-to-toggle state, active timeout, and inventory
+  grant attempt. It deliberately does not infer object locks, destructibles,
+  decorations, aliens, or projectiles. Dynamic `Obj_DoCollision`, switches,
+  water animation, destructibles, decorations, enemies, projectiles, sounds,
+  and sprites remain absent until their owning routines are ported.
   `SceneCamera.look_offset` now carries
   the source small-screen look value for the future GPU backend. Walls, floors,
   ceilings, and water continue to submit source-defined material and geometry
@@ -305,9 +310,9 @@ authority for all game behavior and data formats.
      Horizontal movement, falling, and static `MoveObject` collision now use
      that table and the maintained fixed-point update order, not a generated
      trigonometric approximation. The current interaction scope includes the
-     tested collectable path, `DoorRoutine`, and `LiftRoutine`; next: source
-     `Obj_DoCollision`, activatables, switches/water animation, and
-     `newplayershoot.s`.
+     tested collectable path, `DoorRoutine`, `LiftRoutine`, and the bounded
+     `Activatable` path; next: source `Obj_DoCollision`, full source-order
+     object handling, switches/water animation, and `newplayershoot.s`.
    - Keep optional modern bindings outside core simulation state. The native
      menu is intentionally not on the gameplay-first launch path for now; do
      not extend it while the direct Level A path is the active milestone.
@@ -366,9 +371,9 @@ selection while menu work is deferred; this allows the gameplay loop to enter
 authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
-objects, apply `Obj_DoCollision`, activate switches, emit sprites, and create
-projectiles. The door/lift slices are complete; translate each remaining bounded
-slice directly from the
+objects, apply `Obj_DoCollision`, complete source-order object handling,
+activate switches, emit sprites, and create projectiles. The door/lift and
+bounded activatable slices are complete; translate each remaining bounded slice directly from the
 maintained source and add source-derived regressions for its state changes and
 ordering. When an original-runtime fixture becomes available, follow the
 optional byte-exact capture contract in
