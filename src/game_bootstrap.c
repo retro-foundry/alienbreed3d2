@@ -22,6 +22,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     memset(&game->level, 0, sizeof(game->level));
     memset(&game->level_graphics_header, 0, sizeof(game->level_graphics_header));
     memset(&game->level_runtime, 0, sizeof(game->level_runtime));
+    memset(&game->player, 0, sizeof(game->player));
 }
 
 static int game_bootstrap_load_level_file(const char *data_root, const char *level_directory,
@@ -215,7 +216,9 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         !level_graphics_bootstrap_parse(&game->level_graphics,
                                         &game->level_graphics_header, error, error_size) ||
         !level_runtime_init(&game->level_data, &game->level_graphics, &game->level,
-                            &game->level_runtime, error, error_size)) {
+                            &game->level_runtime, error, error_size) ||
+        !player_runtime_init_single_player(&game->level, &game->level_runtime, &game->player,
+                                           error, error_size)) {
         game_bootstrap_release_level(game);
         return 0;
     }
@@ -240,14 +243,26 @@ void game_bootstrap_destroy(GameBootstrap *game)
 
 int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame *frame)
 {
-    static const char status[] = "AB3D2 PC: source assets loaded; GPU renderer pending";
+    static const char menu_status[] = "AB3D2 PC: single-player menu state ready; GPU renderer pending";
+    static const char level_status[] = "AB3D2 PC: source level loaded; GPU renderer pending";
     SceneCommand command;
 
     if (!game || !frame || game->game_link.size == 0 || game->story_text.size == 0) {
         return 0;
     }
+    if (game->level_data.size != 0) {
+        command.type = SCENE_COMMAND_CAMERA;
+        command.data.camera.position.x = game->player.x;
+        command.data.camera.position.y = game->player.y;
+        command.data.camera.position.z = game->player.z;
+        command.data.camera.yaw = game->player.yaw;
+        command.data.camera.look_offset = 0;
+        if (!scene_frame_submit(frame, &command)) {
+            return 0;
+        }
+    }
     command.type = SCENE_COMMAND_HUD_TEXT;
-    command.data.hud_text.text = status;
+    command.data.hud_text.text = game->level_data.size != 0 ? level_status : menu_status;
     command.data.hud_text.x = 0;
     command.data.hud_text.y = 0;
     command.data.hud_text.style_id = 0;

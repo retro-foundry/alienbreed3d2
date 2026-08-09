@@ -51,6 +51,10 @@ authority for all game behavior and data formats.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases
   and every `ZoneT` in all campaign levels into endian-safe native views. It
   keeps the unproven edge span raw and does not consume PVS lists or portals.
+- [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
+  coordinates, floor-relative standing height, zone, and enemy flags. A
+  loaded level now produces a camera and HUD command; geometry/material/sprite
+  commands await an evidence-backed draw-graph decoder.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an

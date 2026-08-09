@@ -9,6 +9,7 @@
 #include "game_session.h"
 #include "level_bootstrap.h"
 #include "level_runtime.h"
+#include "player_runtime.h"
 #include "scene_frame.h"
 
 typedef struct {
@@ -32,6 +33,7 @@ typedef struct {
     LevelBootstrap level;
     LevelGraphicsBootstrap level_graphics_header;
     LevelRuntime level_runtime;
+    PlayerRuntime player;
 } GameBootstrap;
 
 /*

@@ -180,6 +180,22 @@ int main(int argc, char **argv)
             }
         }
     }
+    if (!level_runtime_get_zone(&game.level_runtime, game.level.player1_start_zone,
+                                &zone, error, sizeof(error)) ||
+        game.player.x != game.level.player1_start_x ||
+        game.player.z != game.level.player1_start_z ||
+        game.player.y != zone.floor - 12 * 1024 || game.player.height != 12 * 1024 ||
+        game.player.default_enemy_flags != 0x23u || !scene_frame_init(&frame, 2) ||
+        !game_bootstrap_submit_diagnostic_frame(&game, &frame) || frame.count != 2 ||
+        frame.commands[0].type != SCENE_COMMAND_CAMERA ||
+        frame.commands[0].data.camera.position.x != game.player.x ||
+        frame.commands[1].type != SCENE_COMMAND_HUD_TEXT) {
+        fprintf(stderr, "Plr_Initialise camera state is inconsistent: %s\n", error);
+        scene_frame_destroy(&frame);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    scene_frame_destroy(&frame);
     game.session.player1_inventory.health = 199u;
     game_session_finish_single_player(&game.session, 0);
     if (game.session.campaign_inventory.health != 200u) {
