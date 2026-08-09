@@ -1878,6 +1878,39 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    /* hires.s:game_main_loop ends a single-player level on Lvl_ExitZoneID_w. */
+    if (!game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error)) ||
+        !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||
+        game.level_runtime.exit_zone_id < 0 ||
+        !level_runtime_get_zone(&game.level_runtime,
+                                (uint16_t)game.level_runtime.exit_zone_id,
+                                &zone, error, sizeof(error))) {
+        fprintf(stderr, "could not load source exit-zone fixture: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    {
+        int16_t authored_exit_zone_id = game.level_runtime.exit_zone_id;
+
+        /* Settle any authored spawn teleport before exercising post-control comparison. */
+        game.level_runtime.exit_zone_id = -1;
+        game_input_init(&game.input);
+        if (!game_bootstrap_update_single_player(&game, error, sizeof(error))) {
+            fprintf(stderr, "source exit-zone setup is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game.level_runtime.exit_zone_id = (int16_t)game.player.zone_index;
+        if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
+            game.session.level_finished == 0u ||
+            memcmp(&game.session.campaign_inventory, &game.session.player1_inventory,
+                   sizeof(game.session.campaign_inventory)) != 0) {
+            fprintf(stderr, "source exit-zone completion is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game.level_runtime.exit_zone_id = authored_exit_zone_id;
+    }
     game_bootstrap_destroy(&game);
     (void)remove(save_path);
     return 0;

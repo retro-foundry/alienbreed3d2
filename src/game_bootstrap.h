@@ -71,8 +71,9 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
                                                 char *error, size_t error_size);
 /*
  * Single-player source order: plr_KeyboardControl, Plr1_Control, then the
- * currently ported Collectable branch of ObjectHandler. Other object classes
- * remain outside this focused update.
+ * currently ported Collectable branch of ObjectHandler, then the source
+ * single-player exit-zone completion check. Other object classes remain
+ * outside this focused update.
  */
 int game_bootstrap_update_single_player(GameBootstrap *game,
                                         char *error, size_t error_size);

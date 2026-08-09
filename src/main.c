@@ -270,6 +270,14 @@ int main(int argc, char **argv)
         if (!game_bootstrap_update_single_player(&game, error, sizeof(error))) {
             fprintf(stderr, "[GAME] %s\n", error);
             renderer_stub_set_status(renderer, error);
+        } else if (game.session.level_finished != 0u) {
+            (void)snprintf(status, sizeof(status),
+                           "Level %c complete | campaign inventory preserved",
+                           (char)('A' + game.active_level_index));
+            fprintf(stdout, "[GAME] %s\n", status);
+            renderer_stub_set_status(renderer, status);
+            /* The source returns to its menu after endlevel; direct mode exits instead. */
+            renderer_stub_request_quit(renderer);
         } else {
             (void)snprintf(status, sizeof(status),
                            "Level %c | zone %u | x=%" PRId32 " y=%" PRId32

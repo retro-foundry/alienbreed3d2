@@ -174,6 +174,10 @@ authority for all game behavior and data formats.
   static `EdgeT` sequences from `objectmove.s:MoveObject`; there is no PVS or
   portal-rendering dependency. Its `TmpX/Y/Z/Height` snapshot now retains the
   source game-loop values consumed by the first object interaction path.
+  Reaching the loaded level's authored `Lvl_ExitZoneID_w` now follows
+  `hires.s:game_main_loop` into the direct-mode end-level handoff and preserves
+  the single-player campaign inventory; it does not fabricate a replacement
+  completion screen or menu.
   `src/object_collectables.*` ports the single-player `ItsAnObject`/
   `Collectable`, `Plr1_CheckObjectCollide`, and `Plr1_CollectItem` subset for
   a same-zone/layer candidate: floor/roof placement, source word-coordinate

@@ -205,6 +205,10 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
         }
         return 0;
     }
+    /* endlevel returns through controlloop only once per successful level. */
+    if (game->session.level_finished != 0u) {
+        return 1;
+    }
     if (!player_runtime_update_discrete_controls(&game->player, &game->input,
                                                  &game->controls, &game->level_runtime,
                                                  error, error_size) ||
@@ -219,6 +223,11 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     }
     /* Game_AddToInventory changes Plr1_Inventory; health drives next control tick. */
     game->player.health = game->session.player1_inventory.health;
+    /* hires.s:game_main_loop enters endlevel on the single-player exit ZoneT ID. */
+    if (game->level_runtime.exit_zone_id >= 0 &&
+        game->player.zone_index == (uint16_t)game->level_runtime.exit_zone_id) {
+        game_session_finish_single_player(&game->session, 1);
+    }
     return 1;
 }
 
