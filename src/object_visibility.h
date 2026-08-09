@@ -1,0 +1,36 @@
+#ifndef AB3D2_OBJECT_VISIBILITY_H
+#define AB3D2_OBJECT_VISIBILITY_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "asset_io.h"
+#include "level_runtime.h"
+
+/*
+ * Source-word inputs consumed by objectmove.s:CanItBeSeen. This is gameplay
+ * line-of-sight state: it does not participate in complete-level rendering.
+ */
+typedef struct {
+    uint16_t viewer_zone_index;
+    int16_t viewer_x;
+    int16_t viewer_z;
+    int16_t viewer_y;
+    uint8_t viewer_in_upper_zone;
+    uint16_t target_zone_index;
+    int16_t target_x;
+    int16_t target_z;
+    int16_t target_y;
+    uint8_t target_in_upper_zone;
+} ObjectVisibilityQuery;
+
+/*
+ * Direct native translation of objectmove.s:CanItBeSeen's PVST, clip, and
+ * joined-zone height tests. `out_can_see` is source-style 0 or 0xff.
+ */
+int object_visibility_can_see(const LevelRuntime *level, const AssetBlob *clips,
+                              const ObjectVisibilityQuery *query,
+                              uint8_t *out_can_see,
+                              char *error, size_t error_size);
+
+#endif

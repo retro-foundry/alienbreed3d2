@@ -14,6 +14,7 @@
 #include "object_handler.h"
 #include "object_projectiles.h"
 #include "object_scene.h"
+#include "object_visibility.h"
 #include "player_entity.h"
 #include "player_shoot.h"
 #include "scene_frame.h"
@@ -3165,6 +3166,113 @@ int main(int argc, char **argv)
             (int16_t)read_be16(slot_bytes + 12u) != -1 ||
             (int16_t)read_be16(slot_bytes + 26u) != -1) {
             fprintf(stderr, "ItsABullet source impact release is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /*
+         * objectmove.s:CanItBeSeen fixture: authored PVST target zone 1,
+         * empty left/right clip lists, then a single edge joining the two
+         * lower layers at source height 10 << 7.
+         */
+        uint8_t level_bytes[256u] = {0};
+        uint8_t graphics_bytes[64u] = {0};
+        uint8_t clip_bytes[6u] = {0xffu, 0xffu, 0xffu, 0xffu, 0u, 0u};
+        AssetBlob clips = {clip_bytes, 4u};
+        LevelRuntime visibility_level = {0};
+        ObjectVisibilityQuery visibility_query = {0};
+        uint8_t can_see = 0u;
+
+        visibility_level.level_bytes = level_bytes;
+        visibility_level.level_size = sizeof(level_bytes);
+        visibility_level.graphics_bytes = graphics_bytes;
+        visibility_level.graphics_size = sizeof(graphics_bytes);
+        visibility_level.world_point_count = 1u;
+        visibility_level.world_points_offset = 232u;
+        visibility_level.zone_graph_adds_offset = 8u;
+        visibility_level.zone_offsets_table_offset = 0u;
+        visibility_level.edge_table_offset = 200u;
+        visibility_level.edge_count = 1u;
+        visibility_level.zone_count = 2u;
+        write_be32(graphics_bytes + 0u, 0u);
+        write_be32(graphics_bytes + 4u, 100u);
+        write_be32(graphics_bytes + 8u, 24u);
+        write_be32(graphics_bytes + 16u, 26u);
+        write_be16(graphics_bytes + 24u, 0u);
+        write_be16(graphics_bytes + 26u, 1u);
+        for (uint32_t zone_index = 0u; zone_index < 2u; ++zone_index) {
+            uint32_t zone_offset = zone_index * 100u;
+
+            write_be16(level_bytes + zone_offset + 0u, (uint16_t)zone_index);
+            write_be32(level_bytes + zone_offset + 2u, 2560u);
+            write_be16(level_bytes + zone_offset + 32u, 64u);
+            write_be16(level_bytes + zone_offset + 48u, UINT16_MAX);
+        }
+        write_be16(level_bytes + 48u, 1u);
+        write_be16(level_bytes + 50u, 0u);
+        write_be16(level_bytes + 56u, UINT16_MAX);
+        write_be16(level_bytes + 64u, 0u);
+        write_be16(level_bytes + 66u, UINT16_MAX);
+        write_be16(level_bytes + 164u, UINT16_MAX);
+        write_be16(level_bytes + 200u, 10u);
+        write_be16(level_bytes + 202u, 20u);
+        write_be16(level_bytes + 204u, 0u);
+        write_be16(level_bytes + 206u, UINT16_C(0xffec));
+        write_be16(level_bytes + 208u, 1u);
+        write_be16(level_bytes + 210u, 20u);
+        visibility_query.viewer_zone_index = 0u;
+        visibility_query.viewer_x = 0;
+        visibility_query.viewer_z = 10;
+        visibility_query.viewer_y = 10;
+        visibility_query.target_zone_index = 1u;
+        visibility_query.target_x = 20;
+        visibility_query.target_z = 10;
+        visibility_query.target_y = 10;
+        error[0] = '\0';
+        if (!object_visibility_can_see(&visibility_level, &clips, &visibility_query,
+                                       &can_see, error, sizeof(error)) ||
+            can_see != UINT8_MAX) {
+            fprintf(stderr, "CanItBeSeen PVST/clip/join fixture is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        visibility_query.target_zone_index = 0u;
+        visibility_query.target_in_upper_zone = 0u;
+        if (!object_visibility_can_see(&visibility_level, &clips, &visibility_query,
+                                       &can_see, error, sizeof(error)) ||
+            can_see != UINT8_MAX) {
+            fprintf(stderr, "CanItBeSeen same-zone lower layer is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        visibility_query.target_in_upper_zone = UINT8_MAX;
+        if (!object_visibility_can_see(&visibility_level, &clips, &visibility_query,
+                                       &can_see, error, sizeof(error)) || can_see != 0u) {
+            fprintf(stderr, "CanItBeSeen same-zone layer split is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        visibility_query.viewer_zone_index = 1u;
+        visibility_query.target_zone_index = 0u;
+        visibility_query.target_in_upper_zone = 0u;
+        if (!object_visibility_can_see(&visibility_level, &clips, &visibility_query,
+                                       &can_see, error, sizeof(error)) || can_see != 0u) {
+            fprintf(stderr, "CanItBeSeen PVST negative terminator is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        visibility_query.viewer_zone_index = 0u;
+        visibility_query.target_zone_index = 1u;
+        write_be16(level_bytes + 232u, 10u);
+        write_be16(level_bytes + 234u, 0u);
+        write_be16(clip_bytes + 0u, 0u);
+        write_be16(clip_bytes + 2u, UINT16_MAX);
+        write_be16(clip_bytes + 4u, UINT16_MAX);
+        clips.size = sizeof(clip_bytes);
+        if (!object_visibility_can_see(&visibility_level, &clips, &visibility_query,
+                                       &can_see, error, sizeof(error)) || can_see != 0u) {
+            fprintf(stderr, "CanItBeSeen left clip rejection is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }

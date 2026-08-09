@@ -164,9 +164,13 @@ authority for all game behavior and data formats.
   consumed until the owning shot/AI routine is fully translated.
 - [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
   `PVST` records for gameplay-only consumers. Every record and target is
-  validated across all A-P levels. The future `CanItBeSeen` port can therefore
-  use authored potential-zone/clip data without making the complete-level GPU
-  renderer depend on PVS, portal traversal, or renderer clipping.
+  validated across all A-P levels. `src/object_visibility.*` now directly
+  translates `objectmove.s:CanItBeSeen`: the source target-zone PVST lookup,
+  signed left/right clip-point tests, and joined-zone crossing height/layer
+  tests. Its focused byte-layout fixture covers a visible authored target,
+  PVST rejection, clip rejection, and same-zone layer handling. This is an
+  alien/gameplay helper only; it does not make the complete-level GPU renderer
+  depend on PVS, portal traversal, or renderer clipping.
 - [x] `src/object_scene.*` translates the non-raster `ObjT` descriptor boundary
   used by `objdrawhires.s:Draw_Objects` and `draw_Object`. Each live source
   slot produces one unprojected `SceneSprite` command in source slot order:
@@ -377,7 +381,9 @@ authority for all game behavior and data formats.
      tested collectable, activatable, destructible, and decoration paths,
      `DoorRoutine`, `LiftRoutine`, and the source edge-gated next-weapon
      selection. `CalcPLR1InLine` now publishes its source-shaped object
-     observation workspace without a renderer dependency. Next: source
+     observation workspace without a renderer dependency, while
+     `objectmove.s:CanItBeSeen` supplies the separate PVST/clip/joined-zone
+     gameplay visibility query an alien update will consume. Next: source
      `Obj_DoCollision`, the remaining alien/projectile-flight `ObjectHandler`
      paths, and the remaining firing/miss/projectile portion of
      `newplayershoot.s`.
@@ -454,9 +460,11 @@ preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator, and
 activatable, destructible, and decoration branches. The destructible/decorative
 path has no inferred AI worry, narrative, or lock behavior; the stationary
 hitscan-impact projectile dispatch is now present, while alien and moving-
-projectile dispatch remain unported. Translate each remaining bounded slice
-directly from the maintained source and add source-derived regressions for its
-state changes and ordering.
+projectile dispatch remain unported. The reusable `CanItBeSeen` query now
+retains source gameplay PVST/clip/height behavior but is deliberately not
+wired until the owning alien path is translated. Translate each remaining
+bounded slice directly from the maintained source and add source-derived
+regressions for its state changes and ordering.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their
