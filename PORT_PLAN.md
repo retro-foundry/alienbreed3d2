@@ -16,6 +16,10 @@ authority for all game behavior and data formats.
   framebuffers, copper lists, C2P, or a specific modern graphics API.
 - The current SDL window is diagnostic-only. A modern GPU backend is a later
   replacement for that consumer, not a software-rendering interim step.
+- The future GPU renderer may draw a complete loaded level in one submission.
+  Preserve source geometry and gameplay state, but do not port PVS errata,
+  portal traversal, or zone-order rendering merely for visibility culling.
+  Those are optional native renderer optimisations, not parity requirements.
 
 ## Current completed foundation
 
@@ -59,10 +63,11 @@ authority for all game behavior and data formats.
    - Materialize the `TLBT`, `TLGT`, `ZoneT`, `EdgeT`, `PVST`, door, lift,
      switch, control-point, object, and clip structures as endian-safe native
      views or owned structures.
-   - Port level initialization in `hires.s:Game_Begin`, then PVS errata and
-     edge/door/lift visibility from `c/zone_errata.c`, `c/zone_edge_pvs.c`,
-     and `c/zone_liftable_pvs.c`.
-   - Preserve zone ordering and update order from `orderzones.s:Zone_OrderZones`.
+   - Port level initialization in `hires.s:Game_Begin`. Do not port PVS
+     errata, portal visibility, or `Zone_OrderZones` as a rendering dependency;
+     the GPU path may draw the whole level at once.
+   - Retain zone/edge data only where gameplay or a later optional culling
+     optimisation demonstrably needs it.
 
 4. **Input, player, movement, and interaction**
    - Map native SDL events to the source control bytes; port the single-player
@@ -84,10 +89,12 @@ authority for all game behavior and data formats.
 
 6. **Scene production and GPU renderer**
    - Translate the non-raster scene construction path around
-     `newaliencontrol.s:ViewpointToDraw`, `DrawDisplay`,
-     `Zone_OrderZones`, and `objdrawhires.s` into `SceneFrame` commands.
+     `newaliencontrol.s:ViewpointToDraw`, `DrawDisplay`, and `objdrawhires.s`
+     into `SceneFrame` commands; do not carry over the software renderer's PVS
+     or portal traversal.
    - Submit unprojected world geometry, source material IDs, sprite frames,
      camera state, and HUD/message intent. The simulation must not emit pixels.
+     A renderer is allowed to draw all loaded level geometry every frame.
    - Select and implement the modern GPU API separately, consuming only the
      public scene-frame contract. It owns resource upload, shaders, projection,
      culling implementation, presentation, and diagnostics.
