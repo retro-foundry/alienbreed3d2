@@ -20,6 +20,8 @@ enum {
     GAME_LINK_LEVEL_COUNT = 16,
     GAME_LINK_OBJECT_COUNT = 30,
     GAME_LINK_SFX_COUNT = 64,
+    /* modules/res.s:RES_NUM_SFX; the original loader consumes slots 0-58. */
+    GAME_LINK_SFX_LOAD_COUNT = 59,
     GAME_LINK_WALL_COUNT = 16,
     GAME_LINK_SIZE = 86268
 };
@@ -97,8 +99,8 @@ int game_link_copy_story_path(const GameLink *link, char *out_path, size_t out_p
                               char *error, size_t error_size);
 
 /*
- * Maps only source volumes staged by tools/stage_media.py. Unsupported volumes
- * (such as the legacy external sfx: disk) fail explicitly rather than guessing.
+ * Maps source volumes staged by tools/stage_media.py. The `sfx:` volume maps
+ * directly to the shipped media/ab3dsfx/ tree; other volumes fail explicitly.
  */
 int game_link_resolve_staged_path(const char *volume_path,
                                   char *out_relative_path, size_t out_path_size,

@@ -109,7 +109,12 @@ int main(int argc, char **argv)
         strcmp(text, "TKG1:WALLINC/STONEWALL.256WAD") != 0 ||
         !game_link_copy_sfx_path(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
         strcmp(text, "sfx:samples/scream.fib") != 0 ||
-        game_link_resolve_staged_path(text, text, sizeof(text), error, sizeof(error))) {
+        !game_link_resolve_staged_path(text, text, sizeof(text), error, sizeof(error)) ||
+        strcmp(text, "ab3dsfx/samples/scream.fib") != 0 ||
+        !game_link_copy_sfx_path(&game_link, 1, text, sizeof(text), error, sizeof(error)) ||
+        strcmp(text, "sfx:samples/fire!.fib") != 0 ||
+        game_link_copy_sfx_path(&game_link, GAME_LINK_SFX_LOAD_COUNT, text, sizeof(text),
+                                error, sizeof(error))) {
         fprintf(stderr, "GLFT catalog parsing is inconsistent: %s\n", error);
         asset_blob_release(&game_link_blob);
         return 1;
@@ -118,6 +123,27 @@ int main(int argc, char **argv)
 
     if (!game_bootstrap_init(&game, argv[1], error, sizeof(error))) {
         fprintf(stderr, "%s\n", error);
+        return 1;
+    }
+    if (game.shared_resources.floor_texture.size != 65536u ||
+        game.shared_resources.texture_maps.size != 131072u ||
+        game.shared_resources.texture_palette.size != 16384u ||
+        game.shared_resources.object_count != 14u ||
+        game.shared_resources.vector_count != 22u ||
+        game.shared_resources.wall_texture_count != 13u ||
+        /* Res_LoadSoundFx scans 59 slots and skips 13 empty entries. */
+        game.shared_resources.sound_effect_count != 46u ||
+        game.shared_resources.backdrop_image.size == 0) {
+        fprintf(stderr,
+                "source-defined shared resources are inconsistent "
+                "(floor=%zu maps=%zu palette=%zu objects=%u vectors=%u walls=%u sfx=%u backdrop=%zu)\n",
+                game.shared_resources.floor_texture.size,
+                game.shared_resources.texture_maps.size,
+                game.shared_resources.texture_palette.size,
+                game.shared_resources.object_count, game.shared_resources.vector_count,
+                game.shared_resources.wall_texture_count, game.shared_resources.sound_effect_count,
+                game.shared_resources.backdrop_image.size);
+        game_bootstrap_destroy(&game);
         return 1;
     }
     for (level_index = 0; level_index < 16u; ++level_index) {

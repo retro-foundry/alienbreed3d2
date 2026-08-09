@@ -28,16 +28,20 @@ authority for all game behavior and data formats.
 - [x] `src/game_link.*` provides a bounds-checked view of every `GLFT` table
   from `defs.i`, preserving big-endian definition data for the subsystem that
   will own it later.
-- [x] Staged `ab3:`, `tkg1:`, and `tkg2:` resource paths resolve to their
-  source assets without case-sensitive host assumptions. Legacy external
-  volumes, including `sfx:`, are rejected until their original distribution
-  mapping is evidenced; no similarly named asset is substituted.
+- [x] Staged `ab3:`, `tkg1:`, `tkg2:`, and `sfx:` resource paths resolve to
+  source assets without case-sensitive host assumptions. The `sfx:` entries
+  have an exact one-for-one `media/ab3dsfx/samples/` mapping, verified for all
+  59 slots scanned by `Res_LoadSoundFx`.
 - [x] `modules/res.s:Res_LoadLevelData` level-music step now runs before each
   Level A-P map/data bundle. Tests cover the GLFT layout, known table entries,
   path resolution, and all campaign music loads.
-- [ ] Load optional floor, wall, and properties assets when their exact source
-  ownership is ported. PVS errata is explicitly out of scope because the GPU
-  renderer will draw complete loaded levels.
+- [x] `src/game_resources.*` preserves the raw assets queued by
+  `controlloop.s:Game_Start`: sounds, walls, floor/texture maps/palette,
+  sprite WAD/PTR/palettes, vector models, and backdrop. It does not import
+  software-renderer interpretation.
+- [x] `Res_LoadLevelData` optional floor, properties, errata, and `wall_0-F`
+  files are loaded when present. PVS errata remains uninterpreted and out of
+  scope for GPU visibility because complete levels are drawn at once.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an

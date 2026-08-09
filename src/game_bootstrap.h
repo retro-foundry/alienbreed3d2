@@ -5,12 +5,14 @@
 
 #include "asset_io.h"
 #include "game_link.h"
+#include "game_resources.h"
 #include "level_bootstrap.h"
 #include "scene_frame.h"
 
 typedef struct {
     AssetBlob game_link;
     GameLink game_link_catalog;
+    GameSharedResources shared_resources;
     AssetBlob story_text;
     uint16_t active_level_index;
     AssetBlob level_map;
@@ -19,6 +21,11 @@ typedef struct {
     AssetBlob level_data;
     AssetBlob level_graphics;
     AssetBlob level_clips;
+    /* modules/res.s:Res_LoadLevelData optional per-level source overrides. */
+    AssetBlob level_floor_override;
+    AssetBlob level_property_overrides;
+    AssetBlob level_errata;
+    AssetBlob level_wall_overrides[GAME_LINK_WALL_COUNT];
     LevelBootstrap level;
     LevelGraphicsBootstrap level_graphics_header;
 } GameBootstrap;

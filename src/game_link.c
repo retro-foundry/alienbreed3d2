@@ -118,7 +118,8 @@ static void game_link_set_error(char *error, size_t error_size, const char *mess
 
 static int game_link_copy_field(const GameLink *link, GameLinkTable table,
                                 uint16_t index, size_t entry_size, uint16_t entry_count,
-                                int trim_spaces, char *out_text, size_t out_text_size,
+                                int trim_spaces, int allow_empty,
+                                char *out_text, size_t out_text_size,
                                 char *error, size_t error_size)
 {
     const uint8_t *bytes;
@@ -149,7 +150,7 @@ static int game_link_copy_field(const GameLink *link, GameLinkTable table,
             --text_size;
         }
     }
-    if (text_size == 0 || text_size >= out_text_size) {
+    if ((!allow_empty && text_size == 0) || text_size >= out_text_size) {
         game_link_set_error(error, error_size, "game-link text does not fit the destination");
         return 0;
     }
@@ -162,7 +163,7 @@ static int game_link_copy_single_path(const GameLink *link, GameLinkTable table,
                                       size_t entry_size, char *out_path, size_t out_path_size,
                                       char *error, size_t error_size)
 {
-    return game_link_copy_field(link, table, 0, entry_size, 1, 0,
+    return game_link_copy_field(link, table, 0, entry_size, 1, 0, 1,
                                 out_path, out_path_size, error, error_size);
 }
 
@@ -201,7 +202,7 @@ int game_link_copy_level_name(const GameLink *link, uint16_t level_index,
                               char *error, size_t error_size)
 {
     return game_link_copy_field(link, GAME_LINK_TABLE_LEVEL_NAMES, level_index,
-                                GLFT_LEVEL_NAME_SIZE, GAME_LINK_LEVEL_COUNT, 1,
+                                GLFT_LEVEL_NAME_SIZE, GAME_LINK_LEVEL_COUNT, 1, 0,
                                 out_text, out_text_size, error, error_size);
 }
 
@@ -210,7 +211,7 @@ int game_link_copy_level_music_path(const GameLink *link, uint16_t level_index,
                                     char *error, size_t error_size)
 {
     return game_link_copy_field(link, GAME_LINK_TABLE_LEVEL_MUSIC, level_index,
-                                GLFT_PATH_SIZE, GAME_LINK_LEVEL_COUNT, 0,
+                                GLFT_PATH_SIZE, GAME_LINK_LEVEL_COUNT, 0, 1,
                                 out_path, out_path_size, error, error_size);
 }
 
@@ -219,7 +220,7 @@ int game_link_copy_object_graphics_path(const GameLink *link, uint16_t object_in
                                         char *error, size_t error_size)
 {
     return game_link_copy_field(link, GAME_LINK_TABLE_OBJECT_GRAPHICS_NAMES, object_index,
-                                GLFT_PATH_SIZE, GAME_LINK_OBJECT_COUNT, 0,
+                                GLFT_PATH_SIZE, GAME_LINK_OBJECT_COUNT, 0, 1,
                                 out_path, out_path_size, error, error_size);
 }
 
@@ -227,8 +228,17 @@ int game_link_copy_sfx_path(const GameLink *link, uint16_t sfx_index,
                             char *out_path, size_t out_path_size,
                             char *error, size_t error_size)
 {
+    /*
+     * Res_LoadSoundFx uses RES_NUM_SFX=59 and advances a0 by 64 bytes, even
+     * though defs.i expresses the same 3,840-byte range as NUM_SFX * 60.
+     * Preserve the executable loader's record stride for actual sound paths.
+     */
+    if (sfx_index >= GAME_LINK_SFX_LOAD_COUNT) {
+        game_link_set_error(error, error_size, "game-link sound index is outside Res_LoadSoundFx");
+        return 0;
+    }
     return game_link_copy_field(link, GAME_LINK_TABLE_SFX_FILENAMES, sfx_index,
-                                GLFT_SFX_PATH_SIZE, GAME_LINK_SFX_COUNT, 0,
+                                GLFT_PATH_SIZE, 60, 0, 1,
                                 out_path, out_path_size, error, error_size);
 }
 
@@ -237,7 +247,7 @@ int game_link_copy_vector_path(const GameLink *link, uint16_t object_index,
                                char *error, size_t error_size)
 {
     return game_link_copy_field(link, GAME_LINK_TABLE_VECTOR_NAMES, object_index,
-                                GLFT_PATH_SIZE, GAME_LINK_OBJECT_COUNT, 0,
+                                GLFT_PATH_SIZE, GAME_LINK_OBJECT_COUNT, 0, 1,
                                 out_path, out_path_size, error, error_size);
 }
 
@@ -246,7 +256,7 @@ int game_link_copy_wall_graphics_path(const GameLink *link, uint16_t wall_index,
                                       char *error, size_t error_size)
 {
     return game_link_copy_field(link, GAME_LINK_TABLE_WALL_GRAPHICS_NAMES, wall_index,
-                                GLFT_PATH_SIZE, GAME_LINK_WALL_COUNT, 0,
+                                GLFT_PATH_SIZE, GAME_LINK_WALL_COUNT, 0, 1,
                                 out_path, out_path_size, error, error_size);
 }
 
@@ -281,27 +291,36 @@ int game_link_copy_story_path(const GameLink *link, char *out_path, size_t out_p
                                       out_path, out_path_size, error, error_size);
 }
 
-static int game_link_volume_is_staged(const char *volume, size_t volume_size)
+static const char *game_link_staged_volume_prefix(const char *volume, size_t volume_size)
 {
-    static const char *const staged_volumes[] = {"ab3", "tkg1", "tkg2"};
+    static const struct {
+        const char *volume;
+        const char *relative_prefix;
+    } staged_volumes[] = {
+        {"ab3", ""},
+        {"tkg1", ""},
+        {"tkg2", ""},
+        /* test.lnk:sfx:samples/... matches media/ab3dsfx/samples/... exactly. */
+        {"sfx", "ab3dsfx/"}
+    };
     size_t index;
     size_t candidate;
 
     for (index = 0; index < sizeof(staged_volumes) / sizeof(staged_volumes[0]); ++index) {
-        size_t length = strlen(staged_volumes[index]);
+        size_t length = strlen(staged_volumes[index].volume);
         if (length != volume_size) {
             continue;
         }
         for (candidate = 0; candidate < length; ++candidate) {
-            if (tolower((unsigned char)volume[candidate]) != staged_volumes[index][candidate]) {
+            if (tolower((unsigned char)volume[candidate]) != staged_volumes[index].volume[candidate]) {
                 break;
             }
         }
         if (candidate == length) {
-            return 1;
+            return staged_volumes[index].relative_prefix;
         }
     }
-    return 0;
+    return NULL;
 }
 
 int game_link_resolve_staged_path(const char *volume_path,
@@ -310,31 +329,42 @@ int game_link_resolve_staged_path(const char *volume_path,
 {
     const char *separator;
     const char *source;
+    const char *prefix;
+    char source_copy[256];
     size_t source_size;
-    size_t result_size = 0;
-    size_t segment_start = 0;
+    size_t prefix_size;
+    size_t result_size;
+    size_t source_index;
+    size_t segment_start;
 
     if (!volume_path || !out_relative_path || out_path_size == 0 ||
         !(separator = strchr(volume_path, ':')) || separator == volume_path || !separator[1] ||
-        strchr(separator + 1, ':') || !game_link_volume_is_staged(volume_path,
-                                                                   (size_t)(separator - volume_path))) {
+        strchr(separator + 1, ':') || !(prefix = game_link_staged_volume_prefix(
+            volume_path, (size_t)(separator - volume_path)))) {
         game_link_set_error(error, error_size, "game-link resource uses an unstaged or malformed volume");
         return 0;
     }
 
     source = separator + 1;
     source_size = strlen(source);
-    if (source[0] == '/' || source[0] == '\\' || source_size >= out_path_size) {
+    prefix_size = strlen(prefix);
+    if (source_size >= sizeof(source_copy) || source[0] == '/' || source[0] == '\\' ||
+        prefix_size > out_path_size || source_size >= out_path_size - prefix_size) {
         game_link_set_error(error, error_size, "game-link resource path is absolute or too long");
         return 0;
     }
-    while (result_size < source_size) {
-        unsigned char character = (unsigned char)source[result_size];
+    memcpy(source_copy, source, source_size + 1);
+    memcpy(out_relative_path, prefix, prefix_size);
+    result_size = prefix_size;
+    segment_start = result_size;
+    for (source_index = 0; source_index < source_size; ++source_index) {
+        unsigned char character = (unsigned char)source_copy[source_index];
         if (character == '\\') {
             character = '/';
         }
+        /* test.lnk contains the legal source filename sfx:samples/fire!.fib. */
         if (!(isalnum(character) || character == '.' || character == '_' || character == '-' ||
-              character == '/')) {
+              character == '!' || character == '/')) {
             game_link_set_error(error, error_size, "game-link resource path has unsupported characters");
             return 0;
         }

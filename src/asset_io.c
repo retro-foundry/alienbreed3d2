@@ -39,8 +39,9 @@ int asset_io_join(const char *data_root, const char *relative_path,
     return written >= 0 && (size_t)written < out_path_size;
 }
 
-int asset_io_load(const char *data_root, const char *relative_path,
-                  AssetBlob *out_blob, char *error, size_t error_size)
+static int asset_io_load_internal(const char *data_root, const char *relative_path,
+                                  AssetBlob *out_blob, int allow_missing,
+                                  int *out_found, char *error, size_t error_size)
 {
     char path[1024];
     FILE *file = NULL;
@@ -48,6 +49,9 @@ int asset_io_load(const char *data_root, const char *relative_path,
     size_t size;
     uint8_t *bytes = NULL;
 
+    if (out_found) {
+        *out_found = 0;
+    }
     if (!out_blob) {
         asset_io_set_error(error, error_size, "asset output pointer is null");
         return 0;
@@ -62,6 +66,9 @@ int asset_io_load(const char *data_root, const char *relative_path,
 
     file = fopen(path, "rb");
     if (!file) {
+        if (allow_missing && errno == ENOENT) {
+            return 1;
+        }
         if (error && error_size > 0) {
             (void)snprintf(error, error_size, "required asset '%s' cannot be opened: %s",
                            path, strerror(errno));
@@ -144,7 +151,29 @@ int asset_io_load(const char *data_root, const char *relative_path,
 
     out_blob->bytes = bytes;
     out_blob->size = size;
+    if (out_found) {
+        *out_found = 1;
+    }
     return 1;
+}
+
+int asset_io_load(const char *data_root, const char *relative_path,
+                  AssetBlob *out_blob, char *error, size_t error_size)
+{
+    return asset_io_load_internal(data_root, relative_path, out_blob, 0, NULL,
+                                  error, error_size);
+}
+
+int asset_io_load_optional(const char *data_root, const char *relative_path,
+                           AssetBlob *out_blob, int *out_found,
+                           char *error, size_t error_size)
+{
+    if (!out_found) {
+        asset_io_set_error(error, error_size, "optional asset found flag is null");
+        return 0;
+    }
+    return asset_io_load_internal(data_root, relative_path, out_blob, 1, out_found,
+                                  error, error_size);
 }
 
 void asset_blob_release(AssetBlob *blob)

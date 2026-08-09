@@ -13,6 +13,12 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     asset_blob_release(&game->level_data);
     asset_blob_release(&game->level_graphics);
     asset_blob_release(&game->level_clips);
+    asset_blob_release(&game->level_floor_override);
+    asset_blob_release(&game->level_property_overrides);
+    asset_blob_release(&game->level_errata);
+    for (uint16_t wall_index = 0; wall_index < GAME_LINK_WALL_COUNT; ++wall_index) {
+        asset_blob_release(&game->level_wall_overrides[wall_index]);
+    }
     memset(&game->level, 0, sizeof(game->level));
     memset(&game->level_graphics_header, 0, sizeof(game->level_graphics_header));
 }
@@ -41,6 +47,34 @@ static int game_bootstrap_load_level_file(const char *data_root, const char *lev
     return 0;
 }
 
+static int game_bootstrap_load_optional_level_file(const char *data_root,
+                                                   const char *level_directory,
+                                                   const char *file_name, AssetBlob *out_blob,
+                                                   char *error, size_t error_size)
+{
+    char relative_path[128];
+    char load_error[256];
+    int found;
+    int written = snprintf(relative_path, sizeof(relative_path), "%s/%s",
+                           level_directory, file_name);
+
+    if (written < 0 || (size_t)written >= sizeof(relative_path)) {
+        if (error && error_size > 0) {
+            (void)snprintf(error, error_size, "optional level asset path is too long");
+        }
+        return 0;
+    }
+    if (!asset_io_load_optional(data_root, relative_path, out_blob, &found,
+                                load_error, sizeof(load_error))) {
+        if (error && error_size > 0) {
+            (void)snprintf(error, error_size, "failed to load optional %s: %s",
+                           relative_path, load_error);
+        }
+        return 0;
+    }
+    return 1;
+}
+
 int game_bootstrap_init(GameBootstrap *game, const char *data_root,
                         char *error, size_t error_size)
 {
@@ -63,6 +97,11 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     if (!asset_io_load(data_root, "includes/text_file", &game->story_text, error, error_size)) {
         goto fail;
     }
+    /* controlloop.s:Game_Start queues Res_LoadSoundFx through Res_LoadObjects. */
+    if (!game_shared_resources_load(&game->shared_resources, &game->game_link_catalog,
+                                    data_root, error, error_size)) {
+        goto fail;
+    }
     /* controlloop.s:DEFAULTGAME begins the single-player campaign at index 0. */
     if (!game_bootstrap_load_level(game, data_root, 0, error, error_size)) {
         goto fail;
@@ -78,8 +117,10 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                               uint16_t level_index, char *error, size_t error_size)
 {
     char level_directory[32];
+    char wall_file_name[32];
     char source_music_path[64];
     char staged_music_path[64];
+    uint16_t wall_index;
     int written;
 
     if (!game || !data_root) {
@@ -131,7 +172,27 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                                         &game->level_graphics, error, error_size) ||
         !game_bootstrap_load_level_file(data_root, level_directory, "twolev.clips",
                                         &game->level_clips, error, error_size) ||
-        !level_bootstrap_parse(&game->level_data, &game->level, error, error_size) ||
+        !game_bootstrap_load_optional_level_file(data_root, level_directory, "floortile",
+                                                 &game->level_floor_override, error, error_size) ||
+        !game_bootstrap_load_optional_level_file(data_root, level_directory, "properties.dat",
+                                                 &game->level_property_overrides, error, error_size) ||
+        !game_bootstrap_load_optional_level_file(data_root, level_directory, "errata.dat",
+                                                 &game->level_errata, error, error_size)) {
+        game_bootstrap_release_level(game);
+        return 0;
+    }
+    /* Res_LoadLevelData tests wall_0.256wad through wall_F.256wad in order. */
+    for (wall_index = 0; wall_index < GAME_LINK_WALL_COUNT; ++wall_index) {
+        written = snprintf(wall_file_name, sizeof(wall_file_name), "wall_%x.256wad", wall_index);
+        if (written < 0 || (size_t)written >= sizeof(wall_file_name) ||
+            !game_bootstrap_load_optional_level_file(data_root, level_directory, wall_file_name,
+                                                     &game->level_wall_overrides[wall_index],
+                                                     error, error_size)) {
+            game_bootstrap_release_level(game);
+            return 0;
+        }
+    }
+    if (!level_bootstrap_parse(&game->level_data, &game->level, error, error_size) ||
         !level_graphics_bootstrap_parse(&game->level_graphics,
                                         &game->level_graphics_header, error, error_size)) {
         game_bootstrap_release_level(game);
@@ -147,6 +208,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     if (!game) {
         return;
     }
+    game_shared_resources_destroy(&game->shared_resources);
     asset_blob_release(&game->game_link);
     memset(&game->game_link_catalog, 0, sizeof(game->game_link_catalog));
     asset_blob_release(&game->story_text);
