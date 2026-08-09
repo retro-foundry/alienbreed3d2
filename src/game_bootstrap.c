@@ -288,6 +288,9 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                                            error, error_size) ||
         !level_static_scene_build(&game->level_runtime,
                                   game->shared_resources.wall_texture_count,
+                                  game->level_floor_override.size != 0u
+                                      ? game->level_floor_override.size
+                                      : game->shared_resources.floor_texture.size,
                                   &game->static_scene, error, error_size)) {
         game_bootstrap_release_level(game);
         return 0;
@@ -319,15 +322,20 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
     static const char menu_status[] = "AB3D2 PC: single-player menu state ready; GPU renderer pending";
     static const char level_status[] = "AB3D2 PC: source level loaded; GPU renderer pending";
     SceneCommand command;
+    size_t primitive_count;
     size_t required_commands;
 
     if (!game || !frame || game->game_link.size == 0 || game->story_text.size == 0) {
         return 0;
     }
-    if (game->static_scene.wall_count > (SIZE_MAX - 2u) / 2u) {
+    if (game->static_scene.flat_count > SIZE_MAX - game->static_scene.wall_count) {
         return 0;
     }
-    required_commands = 2u + (size_t)game->static_scene.wall_count * 2u;
+    primitive_count = (size_t)game->static_scene.wall_count + game->static_scene.flat_count;
+    if (primitive_count > (SIZE_MAX - 2u) / 2u) {
+        return 0;
+    }
+    required_commands = 2u + primitive_count * 2u;
     if (!scene_frame_reserve(frame, required_commands)) {
         return 0;
     }
@@ -346,6 +354,7 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             const LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
 
             command.type = SCENE_COMMAND_MATERIAL;
+            command.data.material.source = SCENE_MATERIAL_SOURCE_WALL_TEXTURE;
             command.data.material.source_asset_id = wall->material_id;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
@@ -353,8 +362,32 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             command.type = SCENE_COMMAND_GEOMETRY;
             command.data.geometry.vertices = wall->vertices;
             command.data.geometry.vertex_count = 6u;
+            command.data.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
+            command.data.geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_WALL;
             command.data.geometry.material_id = wall->material_id;
             command.data.geometry.source_record_id = wall->source_record_offset;
+            command.data.geometry.flags = SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED;
+            if (!scene_frame_submit(frame, &command)) {
+                return 0;
+            }
+        }
+        for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count;
+             ++flat_index) {
+            const LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
+
+            command.type = SCENE_COMMAND_MATERIAL;
+            command.data.material.source = SCENE_MATERIAL_SOURCE_FLOOR_TEXTURE;
+            command.data.material.source_asset_id = flat->material_id;
+            if (!scene_frame_submit(frame, &command)) {
+                return 0;
+            }
+            command.type = SCENE_COMMAND_GEOMETRY;
+            command.data.geometry.vertices = flat->vertices;
+            command.data.geometry.vertex_count = flat->vertex_count;
+            command.data.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_POLYGON_BOUNDARY;
+            command.data.geometry.primitive = flat->primitive;
+            command.data.geometry.material_id = flat->material_id;
+            command.data.geometry.source_record_id = flat->source_record_offset;
             command.data.geometry.flags = SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;

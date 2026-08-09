@@ -21,7 +21,15 @@ typedef struct {
     int16_t look_offset;
 } SceneCamera;
 
+typedef enum {
+    /* modules/res.s:Res_LoadWallTextures, indexed by Draw_Wall's texture word. */
+    SCENE_MATERIAL_SOURCE_WALL_TEXTURE,
+    /* Res_LoadFloorsAndTextures/floortile, addressed by Draw_Flats byte offset. */
+    SCENE_MATERIAL_SOURCE_FLOOR_TEXTURE
+} SceneMaterialSource;
+
 typedef struct {
+    SceneMaterialSource source;
     uint32_t source_asset_id;
 } SceneMaterial;
 
@@ -37,10 +45,25 @@ enum {
     SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED = 1u << 0
 };
 
-/* Triangle-list vertices owned by the scene producer until the frame ends. */
+typedef enum {
+    SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST,
+    /* Source polygon boundary order; the GPU backend must triangulate safely. */
+    SCENE_GEOMETRY_TOPOLOGY_POLYGON_BOUNDARY
+} SceneGeometryTopology;
+
+typedef enum {
+    SCENE_GEOMETRY_PRIMITIVE_WALL,
+    SCENE_GEOMETRY_PRIMITIVE_FLOOR,
+    SCENE_GEOMETRY_PRIMITIVE_CEILING,
+    SCENE_GEOMETRY_PRIMITIVE_WATER
+} SceneGeometryPrimitive;
+
+/* Vertices are owned by the scene producer until the frame ends. */
 typedef struct {
     const SceneVertex *vertices;
     uint32_t vertex_count;
+    SceneGeometryTopology topology;
+    SceneGeometryPrimitive primitive;
     uint32_t material_id;
     uint32_t source_record_id;
     uint32_t flags;

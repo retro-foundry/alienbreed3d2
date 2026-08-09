@@ -99,6 +99,7 @@ int main(int argc, char **argv)
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
+    uint32_t static_flat_index;
     uint16_t flat_point_index;
     uint16_t flat_raw_point_word;
     uint16_t flat_world_point_index;
@@ -897,6 +898,68 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        for (static_flat_index = 0u; static_flat_index < game.static_scene.flat_count;
+             ++static_flat_index) {
+            const LevelStaticFlatScene *scene_flat =
+                &game.static_scene.flats[static_flat_index];
+            const uint8_t *source;
+            LevelDrawGraphRecord flat_record;
+
+            if (scene_flat->source_record_offset > game.level_runtime.graphics_size ||
+                6u > game.level_runtime.graphics_size - scene_flat->source_record_offset) {
+                fprintf(stderr, "campaign level %u static flat %u has an invalid source range\n",
+                        level_index, static_flat_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            source = game.level_runtime.graphics_bytes + scene_flat->source_record_offset;
+            flat_record.raw_tag = read_be16(source);
+            flat_record.type = (uint8_t)flat_record.raw_tag;
+            flat_record.source_offset = scene_flat->source_record_offset;
+            flat_record.byte_count = 16u + (uint32_t)read_be16(source + 4u) * 2u;
+            if ((flat_record.type != LEVEL_DRAW_GRAPH_TYPE_FLOOR &&
+                 flat_record.type != LEVEL_DRAW_GRAPH_TYPE_CEILING &&
+                 flat_record.type != LEVEL_DRAW_GRAPH_TYPE_WATER) ||
+                !level_draw_graph_read_flat(&game.level_runtime, &flat_record, &draw_flat,
+                                            error, sizeof(error)) ||
+                scene_flat->vertices == NULL ||
+                scene_flat->vertex_count != draw_flat.point_count ||
+                scene_flat->material_id != draw_flat.texture_offset ||
+                scene_flat->texture_scale != draw_flat.texture_scale ||
+                scene_flat->brightness_offset != draw_flat.brightness_offset ||
+                (flat_record.type == LEVEL_DRAW_GRAPH_TYPE_FLOOR &&
+                 scene_flat->primitive != SCENE_GEOMETRY_PRIMITIVE_FLOOR) ||
+                (flat_record.type == LEVEL_DRAW_GRAPH_TYPE_CEILING &&
+                 scene_flat->primitive != SCENE_GEOMETRY_PRIMITIVE_CEILING) ||
+                (flat_record.type == LEVEL_DRAW_GRAPH_TYPE_WATER &&
+                 scene_flat->primitive != SCENE_GEOMETRY_PRIMITIVE_WATER)) {
+                fprintf(stderr, "campaign level %u static flat %u is invalid: %s\n",
+                        level_index, static_flat_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            for (flat_point_index = 0u; flat_point_index < draw_flat.point_count;
+                 ++flat_point_index) {
+                if (!level_draw_graph_get_flat_point(&game.level_runtime, &draw_flat,
+                                                    flat_point_index, &flat_raw_point_word,
+                                                    &flat_world_point_index,
+                                                    error, sizeof(error)) ||
+                    !level_runtime_get_world_point(&game.level_runtime, flat_world_point_index,
+                                                   &world_point, error, sizeof(error)) ||
+                    scene_flat->vertices[flat_point_index].position.x != world_point.x ||
+                    scene_flat->vertices[flat_point_index].position.y !=
+                        (int32_t)draw_flat.height * 64 ||
+                    scene_flat->vertices[flat_point_index].position.z != world_point.z ||
+                    scene_flat->vertices[flat_point_index].texture_u != 0 ||
+                    scene_flat->vertices[flat_point_index].texture_v != 0) {
+                    fprintf(stderr,
+                            "campaign level %u static flat %u point %u is invalid: %s\n",
+                            level_index, static_flat_index, flat_point_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+        }
         for (uint32_t object_index = 0;
              object_index < game.level_runtime.object_record_count; ++object_index) {
             if (!level_runtime_get_object_record(&game.level_runtime, object_index,
@@ -937,19 +1000,45 @@ int main(int argc, char **argv)
         game.player.height != 12 * 1024 ||
         game.player.default_enemy_flags != 0x23u || !scene_frame_init(&frame, 2) ||
         !game_bootstrap_submit_diagnostic_frame(&game, &frame) ||
-        frame.count != 2u + (size_t)game.static_scene.wall_count * 2u ||
+        frame.count != 2u +
+            ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u ||
         frame.commands[0].type != SCENE_COMMAND_CAMERA ||
         frame.commands[0].data.camera.position.x != game.player.x ||
-        game.static_scene.wall_count == 0u ||
+        game.static_scene.wall_count == 0u || game.static_scene.flat_count == 0u ||
         frame.commands[1].type != SCENE_COMMAND_MATERIAL ||
+        frame.commands[1].data.material.source != SCENE_MATERIAL_SOURCE_WALL_TEXTURE ||
         frame.commands[1].data.material.source_asset_id != game.static_scene.walls[0].material_id ||
         frame.commands[2].type != SCENE_COMMAND_GEOMETRY ||
         frame.commands[2].data.geometry.vertices != game.static_scene.walls[0].vertices ||
         frame.commands[2].data.geometry.vertex_count != 6u ||
+        frame.commands[2].data.geometry.topology != SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST ||
+        frame.commands[2].data.geometry.primitive != SCENE_GEOMETRY_PRIMITIVE_WALL ||
         frame.commands[2].data.geometry.material_id != game.static_scene.walls[0].material_id ||
         frame.commands[2].data.geometry.source_record_id !=
             game.static_scene.walls[0].source_record_offset ||
         frame.commands[2].data.geometry.flags != SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED ||
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].type !=
+            SCENE_COMMAND_MATERIAL ||
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source !=
+            SCENE_MATERIAL_SOURCE_FLOOR_TEXTURE ||
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_asset_id !=
+            game.static_scene.flats[0].material_id ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].type !=
+            SCENE_COMMAND_GEOMETRY ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.vertices !=
+            game.static_scene.flats[0].vertices ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.vertex_count !=
+            game.static_scene.flats[0].vertex_count ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.topology !=
+            SCENE_GEOMETRY_TOPOLOGY_POLYGON_BOUNDARY ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.primitive !=
+            game.static_scene.flats[0].primitive ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.material_id !=
+            game.static_scene.flats[0].material_id ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.source_record_id !=
+            game.static_scene.flats[0].source_record_offset ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.flags !=
+            SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED ||
         frame.commands[frame.count - 1u].type != SCENE_COMMAND_HUD_TEXT) {
         fprintf(stderr, "Plr_Initialise camera state is inconsistent: %s\n", error);
         scene_frame_destroy(&frame);

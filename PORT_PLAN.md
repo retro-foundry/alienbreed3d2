@@ -111,10 +111,12 @@ authority for all game behavior and data formats.
   record plus every `Draw_Flats` height, source point word (including its high
   flag bits), skipped word, scale, floor-texture byte offset, and brightness
   offset; it validates each reference in all campaign levels.
-  `src/level_static_scene.*` expands every source wall into
-  triangle-list world geometry and emits its source texture ID as a material
-  command; it intentionally flags UVs as unresolved rather than fabricating a
-  software-renderer approximation. Neither step uses PVS/portal traversal.
+  `src/level_static_scene.*` expands every source wall into triangle-list
+  world geometry and submits floor, ceiling, and water records as source-order
+  polygon boundaries. Materials explicitly distinguish wall texture indexes
+  from active floortile byte offsets; every surface intentionally flags UVs as
+  unresolved rather than fabricating a software-renderer approximation.
+  Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its
   floor-relative standing and target heights, zone, and enemy flags. A loaded
@@ -126,16 +128,16 @@ authority for all game behavior and data formats.
   horizontal/vertical movement remains gated on that complete sequence.
   Flat and sprite scene emission remain distinct follow-up slices; walls now
   submit source-defined material and geometry commands.
-- [ ] Before emitting textured world geometry, establish the source-to-GPU
-  material mapping for each primitive. `src/level_draw_graph.*` has now proven
-  every active cursor boundary in the shipped streams: type 3 and other
-  ignored tags advance by their tag word exactly as maintained
+- [ ] Before resolving textured world geometry, establish the source-to-GPU
+  texture-coordinate mapping for each primitive. `src/level_draw_graph.*` has
+  now proven every active cursor boundary in the shipped streams: type 3 and
+  other ignored tags advance by their tag word exactly as maintained
   `draw_zone_graph.s` does. `hireswall.s` establishes wall endpoints, vertical
   bounds, and material ID, but its screen-space perspective texture-coordinate
   calculation must not be replaced by invented UVs. Decode that mapping or
   capture an original-runtime fixture before clearing the unresolved-UV flag
-  on wall commands; likewise turn the now-decoded flat texture byte offset
-  into an explicit source-asset material mapping, and establish object/sprite
+  on wall commands; `Draw_Flats`' scale and floor-texture byte offset must
+  likewise become an evidence-backed GPU mapping. Establish object/sprite
   semantics before emitting their scene commands. Do not use a software-renderer
   fallback.
 
