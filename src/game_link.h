@@ -20,7 +20,9 @@ typedef struct {
 enum {
     GAME_LINK_OBJECT_DEFINITION_SIZE = 40,
     GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE = 6,
-    GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT = 20
+    GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT = 20,
+    GAME_LINK_OBJECT_FRAME_DATA_SIZE = 8,
+    GAME_LINK_OBJECT_FRAME_DATA_COUNT = 32
 };
 
 /*
@@ -64,6 +66,19 @@ typedef enum {
     GAME_LINK_OBJECT_ANIMATION_DEFAULT,
     GAME_LINK_OBJECT_ANIMATION_ACTION
 } GameObjectAnimationKind;
+
+/*
+ * One GLFT_FrameData_l entry. objdrawhires.s indexes the table as 32
+ * eight-byte records per object. It uses the high word of the first long as a
+ * PTR-table index and the low word as its initial down-strip; words +4/+6 are
+ * the strip and line counts used to scale the selected bitmap frame.
+ */
+typedef struct {
+    uint16_t pointer_table_index;
+    uint16_t down_strip;
+    uint16_t strip_count;
+    uint16_t line_count;
+} GameObjectFrameData;
 
 enum {
     GAME_LINK_LEVEL_COUNT = 16,
@@ -128,6 +143,9 @@ int game_link_get_object_animation_frame(const GameLink *link,
                                          uint16_t object_index, uint16_t frame_index,
                                          GameObjectAnimationFrame *out_frame,
                                          char *error, size_t error_size);
+int game_link_get_object_frame_data(const GameLink *link, uint16_t object_index,
+                                    uint16_t frame_index, GameObjectFrameData *out_frame,
+                                    char *error, size_t error_size);
 
 /* Fixed 40-byte labels have no NUL terminator in the shipped game link. */
 int game_link_copy_level_name(const GameLink *link, uint16_t level_index,

@@ -27,7 +27,8 @@ enum {
     GLFT_GUN_GIVE_SIZE = 24,
     GLFT_ALIEN_ANIMATION_SIZE = 2420,
     GLFT_NAME_SIZE = 20,
-    GLFT_FRAME_DATA_SIZE = 7680,
+    GLFT_FRAME_DATA_SIZE = GAME_LINK_OBJECT_COUNT * GAME_LINK_OBJECT_FRAME_DATA_COUNT *
+                           GAME_LINK_OBJECT_FRAME_DATA_SIZE,
     GLFT_TEXTURE_PATH_SIZE = 192,
     GLFT_ECHO_SIZE = 60
 };
@@ -270,6 +271,33 @@ int game_link_get_object_animation_frame(const GameLink *link,
     frame.word_2 = game_link_read_be16(source + 2u);
     frame.signed_byte_4 = (int8_t)source[4u];
     frame.next_timer1 = source[5u];
+    *out_frame = frame;
+    return 1;
+}
+
+int game_link_get_object_frame_data(const GameLink *link, uint16_t object_index,
+                                    uint16_t frame_index, GameObjectFrameData *out_frame,
+                                    char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    const uint8_t *source;
+    GameObjectFrameData frame;
+
+    if (!out_frame || object_index >= GAME_LINK_OBJECT_COUNT ||
+        frame_index >= GAME_LINK_OBJECT_FRAME_DATA_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_FRAME_DATA, &bytes, &size) ||
+        size != (size_t)GAME_LINK_OBJECT_COUNT * GAME_LINK_OBJECT_FRAME_DATA_COUNT *
+                    GAME_LINK_OBJECT_FRAME_DATA_SIZE) {
+        game_link_set_error(error, error_size, "object frame data is outside the GLFT table");
+        return 0;
+    }
+    source = bytes + ((size_t)object_index * GAME_LINK_OBJECT_FRAME_DATA_COUNT + frame_index) *
+        GAME_LINK_OBJECT_FRAME_DATA_SIZE;
+    frame.pointer_table_index = game_link_read_be16(source + 0u);
+    frame.down_strip = game_link_read_be16(source + 2u);
+    frame.strip_count = game_link_read_be16(source + 4u);
+    frame.line_count = game_link_read_be16(source + 6u);
     *out_frame = frame;
     return 1;
 }

@@ -83,6 +83,15 @@ static int object_animation_frame_matches_source(const GameObjectAnimationFrame 
         frame->signed_byte_4 == (int8_t)source[4u] && frame->next_timer1 == source[5u];
 }
 
+static int object_frame_data_matches_source(const GameObjectFrameData *frame,
+                                            const uint8_t *source)
+{
+    return frame && source && frame->pointer_table_index == read_be16(source + 0u) &&
+        frame->down_strip == read_be16(source + 2u) &&
+        frame->strip_count == read_be16(source + 4u) &&
+        frame->line_count == read_be16(source + 6u);
+}
+
 int main(int argc, char **argv)
 {
     AssetBlob level_data = {0};
@@ -98,14 +107,17 @@ int main(int argc, char **argv)
     const uint8_t *object_definition_bytes;
     const uint8_t *object_default_animation_bytes;
     const uint8_t *object_action_animation_bytes;
+    const uint8_t *object_frame_data_bytes;
     size_t table_size;
     size_t object_definition_size;
     size_t object_default_animation_size;
     size_t object_action_animation_size;
+    size_t object_frame_data_size;
     uint16_t level_index;
     uint16_t zone_index;
     uint16_t object_definition_index;
     uint16_t object_animation_index;
+    uint16_t object_frame_data_index;
     int16_t trig_value;
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
@@ -130,6 +142,7 @@ int main(int argc, char **argv)
     LevelObjectPoint object_point;
     GameObjectDefinition object_definition;
     GameObjectAnimationFrame object_animation_frame;
+    GameObjectFrameData object_frame_data;
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
     uint32_t world_point_index;
@@ -240,6 +253,11 @@ int main(int argc, char **argv)
         !game_link_table(&game_link, GAME_LINK_TABLE_OBJECT_ACTION_ANIMATIONS,
                          &object_action_animation_bytes, &object_action_animation_size) ||
         object_action_animation_size != object_default_animation_size ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_FRAME_DATA,
+                         &object_frame_data_bytes, &object_frame_data_size) ||
+        object_frame_data_size != (size_t)GAME_LINK_OBJECT_COUNT *
+                                      GAME_LINK_OBJECT_FRAME_DATA_COUNT *
+                                      GAME_LINK_OBJECT_FRAME_DATA_SIZE ||
         !game_link_copy_level_name(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
         strcmp(text, "      LEVEL  A") != 0 ||
         !game_link_copy_object_name(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
@@ -303,6 +321,25 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        for (object_frame_data_index = 0u;
+             object_frame_data_index < GAME_LINK_OBJECT_FRAME_DATA_COUNT;
+             ++object_frame_data_index) {
+            size_t frame_data_offset = ((size_t)object_definition_index *
+                                        GAME_LINK_OBJECT_FRAME_DATA_COUNT +
+                                        object_frame_data_index) *
+                                       GAME_LINK_OBJECT_FRAME_DATA_SIZE;
+
+            if (!game_link_get_object_frame_data(&game_link, object_definition_index,
+                                                 object_frame_data_index,
+                                                 &object_frame_data, error, sizeof(error)) ||
+                !object_frame_data_matches_source(&object_frame_data,
+                                                  object_frame_data_bytes + frame_data_offset)) {
+                fprintf(stderr, "GLFT frame data %u frame %u is inconsistent: %s\n",
+                        object_definition_index, object_frame_data_index, error);
+                asset_blob_release(&game_link_blob);
+                return 1;
+            }
+        }
     }
     if (game_link_get_object_definition(&game_link, GAME_LINK_OBJECT_COUNT,
                                         &object_definition, error, sizeof(error)) ||
@@ -311,7 +348,9 @@ int main(int argc, char **argv)
                                              &object_animation_frame, error, sizeof(error)) ||
         game_link_get_object_animation_frame(&game_link, (GameObjectAnimationKind)2,
                                              0u, 0u, &object_animation_frame,
-                                             error, sizeof(error))) {
+                                             error, sizeof(error)) ||
+        game_link_get_object_frame_data(&game_link, 0u, GAME_LINK_OBJECT_FRAME_DATA_COUNT,
+                                        &object_frame_data, error, sizeof(error))) {
         fprintf(stderr, "GLFT object-record bounds checks are inconsistent\n");
         asset_blob_release(&game_link_blob);
         return 1;

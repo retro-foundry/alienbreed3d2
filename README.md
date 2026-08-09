@@ -28,10 +28,11 @@ first game's software renderer:
   `modules/res.s:Res_LoadLevelData` does, carrying the selected source bytes
   for later backend-owned conversion/upload; texture-coordinate conversion is
   deliberately still unresolved;
-- exposes the 30 source `ODefT` object definitions and both 20-frame,
-  six-byte object animation tables as endian-safe read views. Their
-  mode-dependent bytes remain data only: sprites are not emitted until the
-  original `ObjectHandler` update sequence has a replayable oracle fixture;
+- exposes the 30 source `ODefT` object definitions, both 20-frame six-byte
+  object animation tables, and the 32 eight-byte bitmap metrics per object as
+  endian-safe read views. Their mode-dependent bytes remain data only: sprites
+  are not emitted until the original `ObjectHandler` update sequence has a
+  replayable oracle fixture;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload) while keeping host save storage
   unported;

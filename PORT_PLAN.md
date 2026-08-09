@@ -26,11 +26,12 @@ authority for all game behavior and data formats.
 ### Latest milestone: PVS-free whole-level scene production
 
 - [x] `src/game_link.*` provides a bounds-checked view of every `GLFT` table
-  from `defs.i`. It now decodes all 30 `ODefT` records plus both source
-  20-by-6-byte object animation tables as endian-safe read views, preserving
-  mode-dependent frame bytes until the owning object/runtime routine is
-  ported. Tests compare every decoded field and frame against `test.lnk`;
-  this is catalog preparation only, not sprite emission or animation.
+  from `defs.i`. It now decodes all 30 `ODefT` records, both source 20-by-6-
+  byte object animation tables, and all 30-by-32-by-8-byte `GLFT_FrameData_l`
+  bitmap metric records as endian-safe read views, preserving mode-dependent
+  frame bytes until the owning object/runtime routine is ported. Tests compare
+  every decoded field and frame against `test.lnk`; this is catalog
+  preparation only, not sprite emission or animation.
 - [x] Staged `ab3:`, `tkg1:`, `tkg2:`, and `sfx:` resource paths resolve to
   source assets without case-sensitive host assumptions. The `sfx:` entries
   have an exact one-for-one `media/ab3dsfx/samples/` mapping, verified for all
