@@ -7,9 +7,9 @@
 #include "level_dynamic_state.h"
 
 /*
- * Source workspace consumed by objectmove.s:MoveObject when Obj_ExtLen_w is
- * zero. newplayershoot.s:plr1_HitscanFailed uses exactly this configuration
- * to trace a miss through the authored collision graph.
+ * Source workspace consumed by objectmove.s:MoveObject. `extension_length`
+ * is Obj_ExtLen_w: zero is used by newplayershoot.s:plr1_HitscanFailed, while
+ * ItsAnAlien derives 40, 80, or 160 from its authored AlienT girth.
  */
 typedef struct {
     uint16_t zone_index;
@@ -22,6 +22,7 @@ typedef struct {
     int32_t thing_height;
     int32_t step_up;
     int32_t step_down;
+    int16_t extension_length;
     uint16_t wall_flags;
     int8_t away_from_wall;
     uint8_t stood_in_top;
@@ -35,9 +36,17 @@ typedef struct {
 } ObjectMovementTrace;
 
 /*
- * Direct objectmove.s:MoveObject translation for Obj_ExtLen_w == 0. It
- * mutates the source EdgeT flags in `dynamic_level` and returns the source
- * collision point, height, top/lower layer, and final zone through `trace`.
+ * Direct objectmove.s:MoveObject translation. It mutates the source EdgeT
+ * flags in `dynamic_level` and returns the source collision point, height,
+ * top/lower layer, and final zone through `trace`.
+ */
+int object_movement_trace(LevelDynamicState *dynamic_level, ObjectMovementTrace *trace,
+                          char *error, size_t error_size);
+
+/*
+ * Compatibility boundary for source callers that require Obj_ExtLen_w == 0.
+ * It rejects non-zero trace extensions rather than silently changing caller
+ * collision semantics.
  */
 int object_movement_trace_zero_extension(LevelDynamicState *dynamic_level,
                                          ObjectMovementTrace *trace,

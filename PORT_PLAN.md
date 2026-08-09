@@ -114,8 +114,9 @@ authority for all game behavior and data formats.
   source's inclusive `TLBT_NumPoints` final index, the eight-byte control-point
   records used by source AI navigation, and the `EdgeT` collision records
   reached by each zone's primary edge-index list exactly through the first
-  negative source marker; source extended-edge markers remain distinct for the
-  later collision port. It also exposes every lower/upper draw-graph stream
+  negative source marker; its distinct extended-edge sequence is likewise
+  exposed for `MoveObject` callers with a non-zero `Obj_ExtLen_w`. It also
+  exposes every lower/upper draw-graph stream
   root from `TLGT_ZoneGraphAddsOffset_l`; these roots are complete-level scene
   inputs, not PVS traversal state.
   It also exposes the ten leading fixed 160-byte message payloads exactly as
@@ -166,14 +167,14 @@ authority for all game behavior and data formats.
   the mutable level state needed by that trace, so non-hitscan player volleys
   now advance in the live game loop. Brightness, impact audio, and
   `ComputeBlast` remain unported rather than substituted. `src/object_movement.*`
-  now translates the zero-extension
-  `objectmove.s:MoveObject` workspace used by
-  `newplayershoot.s:plr1_HitscanFailed`: primary edge contact, source height
-  opening tests, edge flag writes, exit-first contact coordinates, and bounded
-  joined-zone/layer transitions all retain the source word/long arithmetic.
-  Its byte-layout regression covers both a solid exit-first impact and a
-  passable joined-zone crossing. Extended-edge movement is deliberately not
-  implied by this helper. `src/player_shoot.*` now also translates
+  now translates `objectmove.s:MoveObject`'s primary and non-zero-`Obj_ExtLen_w`
+  extended-edge passes: source height-opening checks, edge flag writes,
+  exit-first contact coordinates, and bounded joined-zone/layer transitions all
+  retain the source word/long arithmetic. Its regression covers a solid
+  exit-first impact, a passable joined-zone crossing, and the authored first
+  alien-girth extension (`40`) through `checkotherwalls`. The explicit
+  zero-extension wrapper remains the bounded `newplayershoot.s` caller.
+  `src/player_shoot.*` now also translates
   `plr1_HitscanFailed` itself: it advances `GetRand` once for the vertical
   spread, repeats the source ray through that zero-extension trace, and writes
   its stationary miss effect to the first free player-shot slot without
@@ -465,8 +466,9 @@ authority for all game behavior and data formats.
      observation workspace without a renderer dependency, while
      `objectmove.s:CanItBeSeen` supplies the separate PVST/clip/joined-zone
      gameplay visibility query an alien update will consume.
-     `object_movement.*` and `player_shoot.*` now preserve the complete
-     zero-extension `MoveObject` trace and its `plr1_HitscanFailed` pool write.
+     `object_movement.*` now preserves `MoveObject`'s source primary and
+     extended-edge passes; `player_shoot.*` uses its explicit zero-extension
+     trace for the `plr1_HitscanFailed` pool write.
      Next: source `Obj_DoCollision`, the remaining alien `ObjectHandler`
      paths, mouse input, and
      audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
@@ -593,10 +595,10 @@ is wired into `ObjectHandler`.
 retains source gameplay PVST/clip/height behavior but is deliberately not
 wired until the owning alien path is translated. `firefive` now creates the
 source non-hitscan launch state, and its `ItsABullet` movement/collision path
-is now live. `object_movement.*` now
-provides the exact zero-extension `MoveObject` path for
-`plr1_HitscanFailed`, including its exit-first wall contact and joined-zone
-state, while `player_shoot.*` now consumes it to create the source miss effect.
+is now live. `object_movement.*` now provides the exact `MoveObject` path,
+including non-zero `Obj_ExtLen_w` primary/extended-edge collision, its
+exit-first wall contact, and joined-zone state. `player_shoot.*` consumes the
+explicit zero-extension boundary to create the source miss effect.
 The source fire/cooldown/ammunition control is wired before `ObjectHandler`,
 so the remaining projectile work is blast/audio/brightness rather than launch
 or basic flight/collision.

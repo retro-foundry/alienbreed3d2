@@ -158,12 +158,10 @@ static int player_runtime_extended_edge_vertical_passable(const LevelRuntime *ru
     if (clearance > thing_height) {
         floor_delta = player_runtime_sub32(player_runtime_add32(new_y, thing_height),
                                            joined_zone.floor);
-        if (floor_delta <= 0) {
-            if (player_runtime_sub32(0, floor_delta) < step_down &&
-                new_y < joined_zone.roof) {
-                return 1;
-            }
-        } else if (floor_delta < step_up) {
+        if (((floor_delta <= 0 &&
+             player_runtime_sub32(0, floor_delta) < step_down) ||
+             (floor_delta > 0 && floor_delta < step_up)) &&
+            new_y >= joined_zone.roof) {
             return 1;
         }
     }
@@ -175,11 +173,10 @@ static int player_runtime_extended_edge_vertical_passable(const LevelRuntime *ru
     }
     floor_delta = player_runtime_sub32(player_runtime_add32(new_y, thing_height),
                                        joined_zone.upper_floor);
-    if (floor_delta <= 0) {
-        return player_runtime_sub32(0, floor_delta) < step_down &&
-               new_y < joined_zone.upper_roof;
-    }
-    return floor_delta < step_up;
+    return ((floor_delta <= 0 &&
+             player_runtime_sub32(0, floor_delta) < step_down) ||
+            (floor_delta > 0 && floor_delta < step_up)) &&
+           new_y >= joined_zone.upper_roof;
 }
 
 static int player_runtime_primary_edge_hit(const LevelRuntime *runtime, const LevelEdge *edge,

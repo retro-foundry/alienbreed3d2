@@ -152,7 +152,7 @@ static int object_movement_point_is_on_source_edge(int16_t point_x, int16_t poin
     return 1;
 }
 
-/* objectmove.s:checkwalls through hitthewall, with Obj_ExtLen_w fixed at zero. */
+/* objectmove.s:checkwalls through hitthewall. */
 static int object_movement_check_primary_edge(LevelDynamicState *dynamic_level,
                                               ObjectMovementTrace *trace,
                                               uint32_t edge_index,
@@ -195,7 +195,7 @@ static int object_movement_check_primary_edge(LevelDynamicState *dynamic_level,
     }
     object_movement_shifted_edge(edge, trace->away_from_wall, &shift_x, &shift_z,
                                  &delta_x, &delta_z);
-    denominator = edge->unknown_word;
+    denominator = object_movement_add16(edge->unknown_word, trace->extension_length);
     local_x = object_movement_sub16(
         object_movement_sub16(trace->new_x, edge->x), shift_x);
     local_z = object_movement_sub16(
@@ -324,7 +324,158 @@ static int object_movement_check_primary_edge(LevelDynamicState *dynamic_level,
     return 1;
 }
 
-/* objectmove.s:CheckMoreFloorLines, reached after the no-extension wall pass. */
+/* objectmove.s:checkotherwalls vertical opening checks. */
+static int object_movement_extended_edge_is_passable(const LevelRuntime *runtime,
+                                                     const LevelEdge *edge,
+                                                     const ObjectMovementTrace *trace,
+                                                     int *out_passable,
+                                                     char *error, size_t error_size)
+{
+    LevelZone joined_zone;
+    int32_t clearance;
+    int32_t floor_delta;
+
+    *out_passable = 0;
+    if (edge->join_zone_id < 0) {
+        return 1;
+    }
+    if (!level_runtime_get_zone(runtime, (uint16_t)edge->join_zone_id, &joined_zone,
+                                error, error_size)) {
+        return 0;
+    }
+
+    /*
+     * objectmove.s:checkotherwalls tries the lower opening first, then the
+     * upper opening after every lower-layer failure. The source compares the
+     * destination `newy`, not an interpolated crossing height, in this pass.
+     */
+    clearance = object_movement_sub32(joined_zone.floor, joined_zone.roof);
+    if (clearance > trace->thing_height) {
+        floor_delta = object_movement_sub32(
+            object_movement_add32(trace->new_y, trace->thing_height), joined_zone.floor);
+        if ((floor_delta <= 0 &&
+             object_movement_sub32(0, floor_delta) < trace->step_down) ||
+            (floor_delta > 0 && floor_delta < trace->step_up)) {
+            if (trace->new_y >= joined_zone.roof) {
+                *out_passable = 1;
+                return 1;
+            }
+        }
+    }
+
+    clearance = object_movement_sub32(joined_zone.upper_floor, joined_zone.upper_roof);
+    if (clearance <= trace->thing_height) {
+        return 1;
+    }
+    floor_delta = object_movement_sub32(
+        object_movement_add32(trace->new_y, trace->thing_height), joined_zone.upper_floor);
+    if (((floor_delta <= 0 &&
+          object_movement_sub32(0, floor_delta) < trace->step_down) ||
+         (floor_delta > 0 && floor_delta < trace->step_up)) &&
+        trace->new_y >= joined_zone.upper_roof) {
+        *out_passable = 1;
+    }
+    return 1;
+}
+
+/* objectmove.s:checkotherwalls through .hitthewall. */
+static int object_movement_check_extended_edge(LevelDynamicState *dynamic_level,
+                                               ObjectMovementTrace *trace,
+                                               uint32_t edge_index,
+                                               const LevelEdge *edge,
+                                               int *out_stop,
+                                               char *error, size_t error_size)
+{
+    int passable;
+    int16_t shift_x;
+    int16_t shift_z;
+    int16_t delta_x;
+    int16_t delta_z;
+    int16_t denominator;
+    int16_t local_x;
+    int16_t local_z;
+    int16_t movement_x;
+    int16_t movement_z;
+    int32_t cross;
+    int32_t crossing_test;
+    int32_t travel_cross;
+    int16_t distance;
+    int16_t hit_x;
+    int16_t hit_z;
+
+    *out_stop = 0;
+    if (!object_movement_extended_edge_is_passable(&dynamic_level->runtime, edge, trace,
+                                                   &passable, error, error_size)) {
+        return 0;
+    }
+    if (passable != 0) {
+        return 1;
+    }
+
+    object_movement_shifted_edge(edge, trace->away_from_wall, &shift_x, &shift_z,
+                                 &delta_x, &delta_z);
+    denominator = object_movement_add16(edge->unknown_word, trace->extension_length);
+    local_x = object_movement_sub16(
+        object_movement_sub16(trace->new_x, edge->x), shift_x);
+    local_z = object_movement_sub16(
+        object_movement_sub16(trace->new_z, edge->z), shift_z);
+    cross = object_movement_sub32(object_movement_muls16(delta_z, local_x),
+                                  object_movement_muls16(delta_x, local_z));
+    if (cross >= 0) {
+        return 1;
+    }
+
+    movement_x = object_movement_sub16(trace->new_x, trace->old_x);
+    movement_z = object_movement_sub16(trace->new_z, trace->old_z);
+    local_x = object_movement_sub16(
+        object_movement_sub16(trace->old_x, edge->x), shift_x);
+    local_z = object_movement_sub16(object_movement_add16(edge->z, shift_z), trace->old_z);
+    crossing_test = object_movement_add32(object_movement_muls16(movement_z, local_x),
+                                           object_movement_muls16(movement_x, local_z));
+    travel_cross = object_movement_sub32(object_movement_muls16(delta_x, movement_z),
+                                         object_movement_muls16(delta_z, movement_x));
+    if (travel_cross == 0 ||
+        (travel_cross < 0 && (crossing_test > 0 || travel_cross > crossing_test)) ||
+        (travel_cross > 0 && (crossing_test < 0 || crossing_test > travel_cross))) {
+        return 1;
+    }
+
+    if (!object_movement_divs16(cross, denominator, &distance, error, error_size)) {
+        return 0;
+    }
+    distance = object_movement_sub16(distance, 3);
+    if (!object_movement_divs16(object_movement_muls16(distance, delta_z), denominator,
+                                &hit_x, error, error_size) ||
+        !object_movement_divs16(object_movement_muls16(distance, delta_x), denominator,
+                                &hit_z, error, error_size)) {
+        return 0;
+    }
+    hit_x = object_movement_sub16(trace->new_x, hit_x);
+    hit_z = object_movement_add16(trace->new_z, hit_z);
+    local_x = object_movement_sub16(
+        object_movement_sub16(trace->old_x, edge->x), shift_x);
+    local_z = object_movement_sub16(
+        object_movement_sub16(trace->old_z, edge->z), shift_z);
+    cross = object_movement_sub32(object_movement_muls16(delta_z, local_x),
+                                  object_movement_muls16(delta_x, local_z));
+    if (cross < 0) {
+        return 1;
+    }
+
+    trace->new_x = hit_x;
+    trace->new_z = hit_z;
+    trace->hit_wall = UINT8_MAX;
+    if (!object_movement_or_edge_flags(dynamic_level, edge_index, trace->wall_flags,
+                                       error, error_size)) {
+        return 0;
+    }
+    if (trace->exit_first != 0u) {
+        *out_stop = 1;
+    }
+    return 1;
+}
+
+/* objectmove.s:CheckMoreFloorLines, reached after the wall passes. */
 static int object_movement_cross_joined_zone(const LevelRuntime *runtime,
                                              ObjectMovementTrace *trace,
                                              uint32_t edge_index,
@@ -414,9 +565,8 @@ static int object_movement_cross_joined_zone(const LevelRuntime *runtime,
     return 1;
 }
 
-int object_movement_trace_zero_extension(LevelDynamicState *dynamic_level,
-                                         ObjectMovementTrace *trace,
-                                         char *error, size_t error_size)
+int object_movement_trace(LevelDynamicState *dynamic_level, ObjectMovementTrace *trace,
+                          char *error, size_t error_size)
 {
     const LevelRuntime *runtime;
     uint16_t backup_zone;
@@ -463,6 +613,33 @@ int object_movement_trace_zero_extension(LevelDynamicState *dynamic_level,
                 return 1;
             }
         }
+        if (trace->extension_length != 0) {
+            uint32_t extended_edge_count;
+
+            if (!level_runtime_get_zone_extended_edge_count(runtime, trace->zone_index,
+                                                            &extended_edge_count,
+                                                            error, error_size)) {
+                return 0;
+            }
+            for (uint32_t edge_list_index = 0u;
+                 edge_list_index < extended_edge_count; ++edge_list_index) {
+                uint32_t edge_index;
+                LevelEdge edge;
+                int stop;
+
+                if (!level_runtime_get_zone_extended_edge_index(
+                        runtime, trace->zone_index, edge_list_index, &edge_index,
+                        error, error_size) ||
+                    !level_runtime_get_edge(runtime, edge_index, &edge, error, error_size) ||
+                    !object_movement_check_extended_edge(dynamic_level, trace, edge_index,
+                                                         &edge, &stop, error, error_size)) {
+                    return 0;
+                }
+                if (stop != 0) {
+                    return 1;
+                }
+            }
+        }
         for (uint32_t edge_list_index = 0u; edge_list_index < edge_count; ++edge_list_index) {
             uint32_t edge_index;
 
@@ -488,4 +665,16 @@ int object_movement_trace_zero_extension(LevelDynamicState *dynamic_level,
     trace->new_y = trace->old_y;
     trace->hit_wall = UINT8_MAX;
     return 1;
+}
+
+int object_movement_trace_zero_extension(LevelDynamicState *dynamic_level,
+                                         ObjectMovementTrace *trace,
+                                         char *error, size_t error_size)
+{
+    if (!trace || trace->extension_length != 0) {
+        object_movement_set_error(error, error_size,
+                                  "zero-extension MoveObject trace received Obj_ExtLen_w");
+        return 0;
+    }
+    return object_movement_trace(dynamic_level, trace, error, error_size);
 }

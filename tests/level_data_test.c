@@ -4842,6 +4842,91 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        /*
+         * objectmove.s:checkotherwalls is reached only when Obj_ExtLen_w is
+         * non-zero. Give zone 0 an empty primary list followed by its
+         * extended edge and use the first authored girth extension (40).
+         */
+        write_be16(movement_state.level_bytes + 64u, UINT16_MAX);
+        write_be16(movement_state.level_bytes + 66u, 0u);
+        write_be16(movement_state.level_bytes + 68u, UINT16_C(0xfffe));
+        write_be16(movement_state.level_bytes + 208u, UINT16_MAX);
+        if (!level_dynamic_state_set_edge_flags(&movement_state, 0u, 0u)) {
+            fprintf(stderr, "could not prepare MoveObject extended-edge fixture\n");
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memset(&movement_trace, 0, sizeof(movement_trace));
+        movement_trace.zone_index = 0u;
+        movement_trace.old_x = 0;
+        movement_trace.old_z = 10;
+        movement_trace.new_x = 20;
+        movement_trace.new_z = 10;
+        movement_trace.extension_length = 40;
+        movement_trace.wall_flags = 0x0200u;
+        movement_trace.away_from_wall = -1;
+        movement_trace.exit_first = UINT8_MAX;
+        if (!object_movement_trace(&movement_state, &movement_trace, error, sizeof(error)) ||
+            movement_trace.hit_wall != UINT8_MAX || movement_trace.new_x != 18 ||
+            movement_trace.new_z != 10 ||
+            !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
+            edge_flags != 0x0200u) {
+            fprintf(stderr, "MoveObject extended-edge trace is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* checkotherwalls requires source `newy >= ZoneT_Roof_l` to pass. */
+        write_be16(movement_state.level_bytes + 208u, 1u);
+        if (!level_dynamic_state_set_edge_flags(&movement_state, 0u, 0u)) {
+            fprintf(stderr, "could not reset MoveObject extended-opening fixture\n");
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memset(&movement_trace, 0, sizeof(movement_trace));
+        movement_trace.zone_index = 0u;
+        movement_trace.old_x = 0;
+        movement_trace.old_z = 10;
+        movement_trace.new_x = 20;
+        movement_trace.new_z = 10;
+        movement_trace.new_y = -1;
+        movement_trace.thing_height = 100;
+        movement_trace.step_up = 10000;
+        movement_trace.step_down = 10000;
+        movement_trace.extension_length = 40;
+        movement_trace.wall_flags = 0x0200u;
+        movement_trace.away_from_wall = -1;
+        movement_trace.exit_first = UINT8_MAX;
+        if (!object_movement_trace(&movement_state, &movement_trace, error, sizeof(error)) ||
+            movement_trace.hit_wall != UINT8_MAX || movement_trace.new_x != 18 ||
+            !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
+            edge_flags != 0x0200u) {
+            fprintf(stderr, "MoveObject extended roof opening is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (!level_dynamic_state_set_edge_flags(&movement_state, 0u, 0u)) {
+            fprintf(stderr, "could not reset passable extended-opening fixture\n");
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        movement_trace.new_x = 20;
+        movement_trace.new_z = 10;
+        movement_trace.new_y = 0;
+        if (!object_movement_trace(&movement_state, &movement_trace, error, sizeof(error)) ||
+            movement_trace.hit_wall != 0u || movement_trace.new_x != 20 ||
+            movement_trace.new_z != 10 ||
+            !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
+            edge_flags != 0u) {
+            fprintf(stderr, "MoveObject extended passable opening is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
         level_dynamic_state_destroy(&movement_state);
     }
     {
