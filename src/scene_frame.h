@@ -83,11 +83,58 @@ typedef struct {
     uint32_t flags;
 } SceneGeometry;
 
+/* objdrawhires.s takes one of these three source paths for an ObjT slot. */
+typedef enum {
+    SCENE_SPRITE_SOURCE_OBJECT_BITMAP,
+    SCENE_SPRITE_SOURCE_VECTOR_MODEL,
+    SCENE_SPRITE_SOURCE_GLARE_BITMAP
+} SceneSpriteSource;
+
+enum {
+    /* objdrawhires.s:draw_Bitmap's byte-10 render controls. */
+    SCENE_SPRITE_FLAG_FLIP_HORIZONTAL = 1u << 0,
+    SCENE_SPRITE_FLAG_LIGHT_PALETTE = 1u << 1,
+    SCENE_SPRITE_FLAG_ADDITIVE = 1u << 2,
+    /* ObjT/ShotT byte 63. A backend may use it without treating it as PVS. */
+    SCENE_SPRITE_FLAG_UPPER_ZONE = 1u << 3
+};
+
+/* GLFT_FrameData_l's eight-byte bitmap-frame record. */
+typedef struct {
+    uint16_t pointer_table_index;
+    uint16_t down_strip;
+    uint16_t strip_count;
+    uint16_t line_count;
+} SceneSpriteFrameMetrics;
+
+/*
+ * Raw source assets and draw descriptor for one active ObjT record.  This is
+ * intentionally unprojected and unsorted: a GPU backend owns projection,
+ * culling, draw order, asset conversion, and upload.  `source_aux_bytes` is
+ * the matching bitmap PTR data; vector and glare paths leave unsupported
+ * fields zero/null rather than emulating the Amiga rasterizer.
+ */
 typedef struct {
     SceneWorldPoint position;
-    uint32_t sprite_asset_id;
+    SceneSpriteSource source;
+    uint32_t source_asset_id;
+    uint32_t source_record_id;
     uint16_t frame_index;
-    uint16_t flags;
+    uint16_t yaw;
+    uint16_t source_brightness;
+    int16_t source_aux_offset_x;
+    int16_t source_aux_offset_y;
+    uint8_t source_width;
+    uint8_t source_height;
+    uint8_t source_effect;
+    uint8_t flags;
+    SceneSpriteFrameMetrics frame_metrics;
+    const uint8_t *source_bytes;
+    size_t source_byte_count;
+    const uint8_t *source_aux_bytes;
+    size_t source_aux_byte_count;
+    const uint8_t *source_palette_bytes;
+    size_t source_palette_byte_count;
 } SceneSprite;
 
 typedef struct {

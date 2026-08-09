@@ -33,10 +33,10 @@ authority for all game behavior and data formats.
 - [x] `src/game_link.*` provides a bounds-checked view of every `GLFT` table
   from `defs.i`. It now decodes all 30 `ODefT` records, both source 20-by-6-
   byte object animation tables, and all 30-by-32-by-8-byte `GLFT_FrameData_l`
-  bitmap metric records as endian-safe read views, preserving mode-dependent
-  frame bytes until the owning object/runtime routine is ported. Tests compare
-  every decoded field and frame against `test.lnk`; this is catalog
-  preparation only, not sprite emission or animation. The same layer decodes
+  bitmap metric records as endian-safe read views. Tests compare every decoded
+  field and frame against `test.lnk`; `src/object_scene.*` now consumes the
+  source-selected frame records for active scene commands, while gameplay
+  animation remains owned by its original update routine. The same layer decodes
   every four-word `ShootT` entry; `DEFAULTGAME` obtains its initial ammunition
   class through that checked source record, without implementing firing or
   projectiles. All 20 42-byte `AlienT` entries are likewise decoded and every
@@ -145,6 +145,19 @@ authority for all game behavior and data formats.
   the original sine table and fixed source capacities. It is refreshed after
   the source-order object/mechanism update for the next shot decision and
   uses neither PVS nor portals; `newplayershoot.s` itself remains pending.
+- [x] `src/object_scene.*` translates the non-raster `ObjT` descriptor boundary
+  used by `objdrawhires.s:Draw_Objects` and `draw_Object`. Each live source
+  slot produces one unprojected `SceneSprite` command in source slot order:
+  bitmap, vector-model, and signed-graphics glare paths remain distinct;
+  WAD/PTR/vector bytes, the exact selected palette, source frame number, and
+  `GLFT_FrameData_l` bitmap metrics are attached for backend-owned conversion.
+  It also preserves the source word-coordinate position, height scale,
+  brightness, yaw, AUX offsets, upper-zone bit, and bitmap flip/light/additive
+  controls. The command producer deliberately does not carry over current-zone
+  selection, layer passes, depth sorting, clip rectangles, PVS, portals, or a
+  software rasterizer: it submits every live object for the future complete-
+  level GPU renderer. Tests compare every emitted descriptor to the mutable
+  source slot and selected raw assets.
 - [x] `src/level_mechanisms.*` decodes the `TLGT` door/lift streams as the
   exact `ZLiftableT` plus variable `ZDoorWall` sequence used by
   `newanims.s:DoorRoutine` and `LiftRoutine`, bounded by their source
@@ -232,8 +245,10 @@ authority for all game behavior and data formats.
   worry-gated decoration placement/default animation. It deliberately leaves
   object locks, destructible narrative messages, and AI worry selection out
   of scope until their owning systems exist. Dynamic `Obj_DoCollision`,
-  switches, enemies, projectiles, sounds, and sprites remain
-  absent until their owning routines are ported.
+  switches, enemies, projectiles, and sounds remain absent until their owning
+  routines are ported. Active source object render descriptors are emitted,
+  but no new animation, enemy, or projectile behavior is inferred to make
+  them move.
   `SceneCamera.look_offset` now carries
   the source small-screen look value for the future GPU backend. Walls, floors,
   ceilings, and water continue to submit source-defined material and geometry
@@ -251,9 +266,9 @@ authority for all game behavior and data formats.
   calculation must not be replaced by invented UVs. Decode that mapping or
   capture an original-runtime fixture before clearing the unresolved-UV flag
   on wall commands; `Draw_Flats`' scale and floor-texture byte offset must
-  likewise become an evidence-backed GPU mapping. Establish object/sprite
-  semantics before emitting their scene commands. Do not use a software-renderer
-  fallback.
+  likewise become an evidence-backed GPU mapping. The active-object sprite
+  descriptor boundary is now evidenced and emitted; a backend still needs to
+  decode WAD/PTR/vector contents without a software-renderer fallback.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an
@@ -338,7 +353,8 @@ authority for all game behavior and data formats.
      selection. `CalcPLR1InLine` now publishes its source-shaped object
      observation workspace without a renderer dependency. Next: source
      `Obj_DoCollision`, the remaining alien/projectile `ObjectHandler` paths,
-     `newplayershoot.s`, and source sprites.
+     and `newplayershoot.s`. Source object render descriptors are now emitted
+     independently of those pending simulation branches.
      `SwitchRoutine` remains absent:
      the maintained `objmoveanim` loop comments out its call, so it must not
      be activated as a native gameplay change.
@@ -365,7 +381,8 @@ authority for all game behavior and data formats.
      tag-only records). Decode each primitive's material mapping only after
      its source coordinate use is demonstrated; never infer UVs or flat-tail
      meaning from neighbouring geometry.
-   - Submit unprojected world geometry, source material IDs, sprite frames,
+   - Submit unprojected world geometry, source material IDs, active source
+     object/sprite descriptors and frames,
      camera state, and HUD/message intent. The simulation must not emit pixels.
      A renderer is allowed to draw all loaded level geometry every frame.
    - Select and implement the modern GPU API separately, consuming only the
@@ -401,8 +418,10 @@ authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
 objects, apply `Obj_DoCollision`, complete the remaining source-order object
-handling, activate switches, emit sprites, and create projectiles. The
-door/lift and bounded object slices are complete. `src/object_handler.*` now
+handling, activate switches, and create projectiles. The door/lift and bounded
+object slices are complete. `src/object_scene.*` now emits the raw render
+descriptor for every live source object without renderer visibility logic,
+while `src/object_handler.*` now
 preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator, and
 `ObjT_ZoneID_w` to `EntT_ZoneID_w` copy for the translated collectable,
 activatable, destructible, and decoration branches. The destructible/decorative

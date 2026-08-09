@@ -50,6 +50,7 @@ set(AB3D2_CORE_SOURCES
   src/object_observation.c
   src/object_passives.c
   src/object_runtime.c
+  src/object_scene.c
   src/player_entity.c
   src/player_runtime.c
   src/scene_frame.c

@@ -11,6 +11,7 @@
 #include "level_draw_graph.h"
 #include "object_collectables.h"
 #include "object_handler.h"
+#include "object_scene.h"
 #include "player_entity.h"
 #include "scene_frame.h"
 
@@ -61,6 +62,130 @@ static uint32_t read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
            ((uint32_t)source[2] << 8) | source[3];
+}
+
+static int scene_sprite_commands_match_source(const SceneFrame *frame,
+                                              size_t first_command,
+                                              const GameBootstrap *game,
+                                              uint32_t expected_count,
+                                              char *error, size_t error_size)
+{
+    uint32_t command_count = 0u;
+
+    if (!frame || !game || first_command > frame->count ||
+        expected_count > frame->count - first_command) {
+        return 0;
+    }
+    for (uint32_t slot_index = 0u;
+         slot_index < game->object_runtime.active_slot_count; ++slot_index) {
+        const uint8_t *slot = game->object_runtime.slot_bytes +
+            (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+        const uint8_t *point;
+        const SceneSprite *sprite;
+        int16_t point_index = (int16_t)read_be16(slot + 0u);
+        int16_t zone_id = (int16_t)read_be16(slot + 12u);
+        int16_t graphics_type = (int16_t)read_be16(slot + 8u);
+        uint16_t asset_index;
+        uint8_t expected_flags = slot[63u] != 0u ? SCENE_SPRITE_FLAG_UPPER_ZONE : 0u;
+
+        if (point_index < 0) {
+            break;
+        }
+        if (zone_id < 0) {
+            continue;
+        }
+        if ((uint16_t)point_index >= game->object_runtime.point_count ||
+            command_count >= expected_count ||
+            first_command + command_count >= frame->count ||
+            frame->commands[first_command + command_count].type != SCENE_COMMAND_SPRITE) {
+            return 0;
+        }
+        point = game->object_runtime.point_bytes +
+            (size_t)(uint16_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+        sprite = &frame->commands[first_command + command_count].data.sprite;
+        if (sprite->source_record_id != slot_index ||
+            sprite->position.x != (int16_t)read_be16(point + 0u) ||
+            sprite->position.y != (int32_t)(int16_t)read_be16(slot + 4u) * 128 ||
+            sprite->position.z != (int16_t)read_be16(point + 4u) ||
+            sprite->source_brightness != read_be16(slot + 2u) ||
+            sprite->yaw != read_be16(slot + 30u) ||
+            sprite->source_aux_offset_x != (int16_t)read_be16(slot + 44u) ||
+            sprite->source_aux_offset_y != (int16_t)read_be16(slot + 46u)) {
+            return 0;
+        }
+        if (slot[6u] == UINT8_MAX) {
+            asset_index = (uint16_t)graphics_type;
+            if (asset_index >= game->shared_resources.vector_count ||
+                sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
+                sprite->source_asset_id != asset_index ||
+                sprite->frame_index != read_be16(slot + 10u) ||
+                sprite->source_bytes != game->shared_resources.vector_models[asset_index].bytes ||
+                sprite->source_byte_count != game->shared_resources.vector_models[asset_index].size ||
+                sprite->source_aux_bytes != NULL || sprite->source_aux_byte_count != 0u ||
+                sprite->source_palette_bytes != NULL || sprite->source_palette_byte_count != 0u ||
+                sprite->source_width != 0u || sprite->source_height != 0u ||
+                sprite->source_effect != 0u || sprite->flags != expected_flags ||
+                sprite->frame_metrics.pointer_table_index != 0u ||
+                sprite->frame_metrics.down_strip != 0u ||
+                sprite->frame_metrics.strip_count != 0u ||
+                sprite->frame_metrics.line_count != 0u) {
+                return 0;
+            }
+        } else {
+            GameObjectFrameData source_frame;
+            uint16_t frame_index;
+            int glare = graphics_type < 0;
+
+            asset_index = glare != 0 ?
+                (uint16_t)(0u - (uint16_t)graphics_type) : (uint16_t)graphics_type;
+            frame_index = glare != 0 ? read_be16(slot + 10u) : slot[11u];
+            if (asset_index >= game->shared_resources.object_count ||
+                !game_link_get_object_frame_data(&game->game_link_catalog, asset_index,
+                                                  frame_index, &source_frame,
+                                                  error, error_size) ||
+                sprite->source != (glare != 0 ? SCENE_SPRITE_SOURCE_GLARE_BITMAP :
+                                                SCENE_SPRITE_SOURCE_OBJECT_BITMAP) ||
+                sprite->source_asset_id != asset_index || sprite->frame_index != frame_index ||
+                sprite->source_bytes != game->shared_resources.object_wads[asset_index].bytes ||
+                sprite->source_byte_count != game->shared_resources.object_wads[asset_index].size ||
+                sprite->source_aux_bytes != game->shared_resources.object_ptrs[asset_index].bytes ||
+                sprite->source_aux_byte_count != game->shared_resources.object_ptrs[asset_index].size ||
+                sprite->source_width != slot[6u] || sprite->source_height != slot[7u] ||
+                sprite->frame_metrics.pointer_table_index != source_frame.pointer_table_index ||
+                sprite->frame_metrics.down_strip != source_frame.down_strip ||
+                sprite->frame_metrics.strip_count != source_frame.strip_count ||
+                sprite->frame_metrics.line_count != source_frame.line_count) {
+                return 0;
+            }
+            if (glare != 0) {
+                if (sprite->source_palette_bytes != game->shared_resources.texture_palette.bytes ||
+                    sprite->source_palette_byte_count != game->shared_resources.texture_palette.size ||
+                    sprite->source_effect != 0u || sprite->flags != expected_flags) {
+                    return 0;
+                }
+            } else {
+                uint8_t effect = slot[10u];
+                uint8_t effect_class = (uint8_t)(effect & 0x7fu);
+
+                if ((effect & 0x80u) != 0u) {
+                    expected_flags |= SCENE_SPRITE_FLAG_FLIP_HORIZONTAL;
+                }
+                if (effect_class >= 2u) {
+                    expected_flags |= effect_class < 6u ? SCENE_SPRITE_FLAG_LIGHT_PALETTE :
+                                                         SCENE_SPRITE_FLAG_ADDITIVE;
+                }
+                if (sprite->source_palette_bytes !=
+                        game->shared_resources.object_palettes[asset_index].bytes ||
+                    sprite->source_palette_byte_count !=
+                        game->shared_resources.object_palettes[asset_index].size ||
+                    sprite->source_effect != effect || sprite->flags != expected_flags) {
+                    return 0;
+                }
+            }
+        }
+        ++command_count;
+    }
+    return command_count == expected_count;
 }
 
 static int object_observation_matches_source(const ObjectObservation *observation,
@@ -382,6 +507,7 @@ int main(int argc, char **argv)
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
     uint32_t static_flat_index;
+    uint32_t active_sprite_count;
     uint16_t flat_point_index;
     uint16_t flat_raw_point_word;
     uint16_t flat_world_point_index;
@@ -1244,6 +1370,25 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        if (!scene_frame_init(&frame, 1u) ||
+            !object_scene_count_active(&game.object_runtime, &active_sprite_count,
+                                       error, sizeof(error)) ||
+            !game_bootstrap_submit_diagnostic_frame(&game, &frame) ||
+            frame.count != 2u +
+                ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u +
+                active_sprite_count ||
+            !scene_sprite_commands_match_source(
+                &frame, 1u +
+                    ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u,
+                &game, active_sprite_count, error, sizeof(error)) ||
+            frame.commands[frame.count - 1u].type != SCENE_COMMAND_HUD_TEXT) {
+            fprintf(stderr, "campaign level %u source-object scene handoff is invalid: %s\n",
+                    level_index, error);
+            scene_frame_destroy(&frame);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        scene_frame_destroy(&frame);
         {
             const uint8_t *source_slot;
             const uint8_t *source_point;
@@ -2311,7 +2456,9 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
-    if (!level_runtime_get_zone(&game.level_runtime, game.level.player1_start_zone,
+    if (!object_scene_count_active(&game.object_runtime, &active_sprite_count,
+                                   error, sizeof(error)) ||
+        !level_runtime_get_zone(&game.level_runtime, game.level.player1_start_zone,
                                 &zone, error, sizeof(error)) ||
         game.player.x != game.level.player1_start_x ||
         game.player.z != game.level.player1_start_z ||
@@ -2322,7 +2469,8 @@ int main(int argc, char **argv)
         game.player.default_enemy_flags != 0x23u || !scene_frame_init(&frame, 2) ||
         !game_bootstrap_submit_diagnostic_frame(&game, &frame) ||
         frame.count != 2u +
-            ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u ||
+            ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u +
+            active_sprite_count ||
         frame.commands[0].type != SCENE_COMMAND_CAMERA ||
         frame.commands[0].data.camera.position.x != game.player.x ||
         game.static_scene.wall_count == 0u || game.static_scene.flat_count == 0u ||
@@ -2375,6 +2523,9 @@ int main(int argc, char **argv)
             game.static_scene.flats[0].source_record_offset ||
         frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.flags !=
             SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED ||
+        !scene_sprite_commands_match_source(
+            &frame, 1u + ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u,
+            &game, active_sprite_count, error, sizeof(error)) ||
         frame.commands[frame.count - 1u].type != SCENE_COMMAND_HUD_TEXT) {
         fprintf(stderr, "Plr_Initialise camera state is inconsistent: %s\n", error);
         scene_frame_destroy(&frame);

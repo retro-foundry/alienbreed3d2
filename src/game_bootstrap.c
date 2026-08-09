@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "object_handler.h"
+#include "object_scene.h"
 #include "player_entity.h"
 
 #define AB3D2_LEVEL_COUNT 16u
@@ -453,6 +454,7 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
     static const char level_status[] = "AB3D2 PC: source level loaded; GPU renderer pending";
     SceneCommand command;
     size_t primitive_count;
+    uint32_t sprite_count;
     size_t required_commands;
 
     if (!game || !frame || game->game_link.size == 0 || game->story_text.size == 0) {
@@ -462,10 +464,12 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
         return 0;
     }
     primitive_count = (size_t)game->static_scene.wall_count + game->static_scene.flat_count;
-    if (primitive_count > (SIZE_MAX - 2u) / 2u) {
+    if (!object_scene_count_active(&game->object_runtime, &sprite_count, NULL, 0u) ||
+        primitive_count > (SIZE_MAX - 2u) / 2u ||
+        sprite_count > SIZE_MAX - (2u + primitive_count * 2u)) {
         return 0;
     }
-    required_commands = 2u + primitive_count * 2u;
+    required_commands = 2u + primitive_count * 2u + sprite_count;
     if (!scene_frame_reserve(frame, required_commands)) {
         return 0;
     }
@@ -546,6 +550,10 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
+        }
+        if (!object_scene_submit_active(&game->object_runtime, &game->game_link_catalog,
+                                        &game->shared_resources, frame, NULL, 0u)) {
+            return 0;
         }
     }
     command.type = SCENE_COMMAND_HUD_TEXT;

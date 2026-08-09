@@ -26,7 +26,10 @@ first game's software renderer:
   refreshes its commands from the mutable graph after source door, lift, and
   water updates;
 - defines a GPU-neutral frame command interface for cameras, materials,
-  geometry, sprites, and HUD text. Material commands retain the source asset
+  geometry, sprites, and HUD text. Every live source object now emits an
+  unprojected bitmap/vector/glare descriptor in source slot order, with its
+  selected raw WAD/PTR/vector asset bytes, palette, frame data, and source draw
+  controls. Material commands retain the source asset
   class and select shared versus per-level floor/wall overrides exactly as
   `modules/res.s:Res_LoadLevelData` does, carrying the selected source bytes
   and source palette bytes for later backend-owned conversion/upload. Wall
@@ -35,9 +38,8 @@ first game's software renderer:
   conversion is deliberately still unresolved;
 - exposes the 30 source `ODefT` object definitions, both 20-frame six-byte
   object animation tables, and the 32 eight-byte bitmap metrics per object as
-  endian-safe read views. Their mode-dependent bytes remain data only: sprites
-  are not emitted until the original `ObjectHandler` update sequence has a
-  replayable oracle fixture;
+  endian-safe read views. Object commands expose the source-selected mode and
+  frame; pending AI/projectile paths do not receive invented animation;
 - exposes all 20 `AlienT` records used by `ItsAnAlien` and validates every
   loaded alien-slot type against that catalog, without starting an AI update;
 - exposes all 20 `BulT` records, including their source animation/pop payload
