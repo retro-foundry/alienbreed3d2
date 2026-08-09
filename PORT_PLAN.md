@@ -148,14 +148,21 @@ authority for all game behavior and data formats.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its
   floor-relative standing and target heights, zone, and enemy flags. A loaded
-  level now produces a camera and HUD command. Its exact non-spatial
-  `plr_KeyboardControl` operate, crouch, and fire branches now consume the
-  source raw-key state, including `$ff` latches and crouch-key consumption;
-  they deliberately do not move the player. The source advances snap state
-  before `hires.s:Plr1_Control` collision-validates and commits it, so native
-  horizontal/vertical movement remains gated on that complete sequence.
-  Sprite scene emission remains a distinct follow-up slice; walls, floors,
-  ceilings, and water now submit source-defined material and geometry commands.
+  level now produces a camera and HUD command. The source raw-key branches for
+  operate, crouch, fire, forward/back, turn, run, force-sidestep, sidestep,
+  and jump now feed the same snap-state order used by
+  `modules/player.s:plr_KeyboardControl` and `plr1control.s:Plr1_Fall`.
+  `hires.s:Plr1_Control` commits that state through source fixed-point
+  arithmetic, teleports, floor/roof transitions, and the primary plus extended
+  static `EdgeT` sequences from `objectmove.s:MoveObject`; there is no PVS or
+  portal-rendering dependency. Dynamic `Obj_DoCollision`, pickups, doors,
+  lifts, enemies, projectiles, and sprites remain deliberately absent until
+  their owning object routines are ported. Walls, floors, ceilings, and water
+  continue to submit source-defined material and geometry commands.
+- [x] The desktop entry point now starts the source default single-player
+  session directly in Level A rather than routing through the native menu. The
+  minimal status presenter exposes live level, zone, and camera coordinates;
+  this is a gameplay-first temporary path, not a replacement menu or renderer.
 - [ ] Before resolving textured world geometry, establish the source-to-GPU
   texture-coordinate mapping for each primitive. `src/level_draw_graph.*` has
   now proven every active cursor boundary in the shipped streams: type 3 and
@@ -189,9 +196,9 @@ authority for all game behavior and data formats.
   `controlloop.s`; its raw-key state remains in-memory until a source-compatible
   host preference-file policy is defined.
 - `src/game_input.*` maps `hires.s:key_interrupt` into a pure native raw-key
-  state boundary. Its non-spatial `modules/player.s:plr_KeyboardControl`
-  operate/crouch/fire branches consume it; spatial movement remains absent
-  until the collision/update sequence is validated.
+  state boundary. `src/player_runtime.*` consumes it through the single-player
+  keyboard/fall/static-collision sequence; source object collision and
+  interaction are still pending.
 - `src/level_bootstrap.*` decodes the big-endian `TLBT` and `TLGT` headers used
   by `hires.s:Game_Begin`.
 - `src/level_navigation.*` maps the walk/fly link lookup in
@@ -244,10 +251,12 @@ authority for all game behavior and data formats.
    - `src/game_math.*` now loads and validates the exact 16,384-byte
      `amiga/media/includes/bigsine` payload that `data/tables_data.s` incbins;
      it preserves `AMOD_A` address wrapping and big-endian sine/cosine reads.
-     Horizontal movement still awaits the source collision/update order, not a
-     generated trigonometric approximation.
-   - Port menu controls and in-game messages before adding convenience inputs.
-     Any optional modern binding must remain outside core simulation state.
+     Horizontal movement, falling, and static `MoveObject` collision now use
+     that table and the maintained fixed-point update order, not a generated
+     trigonometric approximation. Next: source `Obj_DoCollision`, mechanisms,
+     interaction, and `newplayershoot.s`.
+   - Keep optional modern bindings outside core simulation state. The native
+     menu is intentionally not on the gameplay-first launch path for now.
 
 5. **Objects, animation, AI, audio, and progression**
    - Port runtime object initialization, animation, doors/lifts/switches, and
@@ -290,25 +299,25 @@ authority for all game behavior and data formats.
 - Keep unported behavior absent and marked `TODO(port): <source>:<routine>`;
   never replace it with fabricated gameplay or a software renderer.
 
-## Next evidence-backed milestone
+## Next gameplay milestone
 
-The campaign bootstrap/whole-level scene milestone is complete: the native
-executable enters the original single-player menu, selects every campaign
-level, loads source-defined resources, initializes its source-backed
-level/player state, and produces PVS-free camera/material/geometry/HUD commands
-without pixels or multiplayer code.
+The campaign bootstrap/whole-level scene milestone is complete. The native
+executable now enters the source default single-player session directly in
+Level A, loads source-defined resources, runs source-backed player movement,
+falling, teleport/zone transitions, and static edge collision, and produces
+PVS-free camera/material/geometry/HUD commands without pixels or multiplayer
+code.
 
-The next milestone is source-backed dynamic single-player state. Before writing
-native movement, collision, falling, interaction, projectiles, AI, animation,
-or sprite-frame selection, capture a focused original-runtime oracle fixture
-for each routine boundary. Follow the byte-exact capture contract in
-[`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md): at a minimum, record an
-input sequence, entry/exit RAM window, relevant registers/flags, and expected
-state for:
+The next milestone is source-backed dynamic world state: initialize and update
+objects, apply `Obj_DoCollision`, activate doors/lifts/switches, emit sprites,
+and create projectiles. Capture a focused original-runtime oracle fixture for
+each dynamic routine boundary before relying on it for parity. Follow the
+byte-exact capture contract in [`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md):
+at a minimum, record an input sequence, entry/exit RAM window, relevant
+registers/flags, and expected state for:
 
-- `modules/player.s:plr_KeyboardControl` plus `plr1control.s:Plr1_Fall`;
-- `hires.s:Plr1_Control` plus the `objectmove.s:Obj_DoCollision`/`MoveObject`
-  sequence; and
+- `hires.s:Plr1_Control` through its `Obj_DoCollision` call with active
+  dynamic objects;
 - `newanims.s:ObjectHandler` through the object frame consumed by
   `objdrawhires.s:Draw_Objects`.
 
@@ -322,5 +331,6 @@ The local capture audit is recorded in
 [`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md#current-local-capture-gate).
 The maintained assembly source can be assembled, but the source-faithful debug
 executable cannot yet be built or run with the locally available GCC/SDI and
-Amiga boot-media prerequisites. This is an evidence-collection dependency, not
-permission to infer dynamic behavior or use an older binary as an oracle.
+Amiga boot-media prerequisites. This is an evidence-collection dependency for
+the remaining dynamic-object work, not permission to infer behavior or use an
+older binary as an oracle.

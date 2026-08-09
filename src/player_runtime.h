@@ -5,6 +5,8 @@
 #include <stdint.h>
 
 #include "game_input.h"
+#include "game_math.h"
+#include "game_preferences.h"
 #include "level_runtime.h"
 
 /* Single-player subset of modules/player.s:Plr_Initialise. */
@@ -22,8 +24,16 @@ typedef struct {
     int32_t snap_height;
     int32_t snap_target_height;
     int32_t snap_squished_height;
+    int32_t snap_x_speed;
+    int32_t snap_y_velocity;
+    int32_t snap_z_speed;
     uint16_t zone_index;
     uint16_t yaw;
+    uint16_t snap_yaw;
+    int16_t snap_yaw_speed;
+    uint16_t bobble;
+    int16_t add_to_bobble;
+    uint16_t health;
     uint32_t default_enemy_flags;
     uint8_t ducked;
     uint8_t squished;
@@ -32,6 +42,7 @@ typedef struct {
     uint8_t fire;
     uint8_t clicked;
     uint8_t previous_use_key_state;
+    uint8_t decelerate;
 } PlayerRuntime;
 
 int player_runtime_init_single_player(const LevelBootstrap *level,
@@ -49,5 +60,18 @@ int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *in
                                             const GameControls *controls,
                                             const LevelRuntime *runtime,
                                             char *error, size_t error_size);
+
+/*
+ * Single-player spatial sequence from modules/player.s, plr1control.s, and
+ * hires.s:Plr1_Control.  It retains the source snap-state order, falling,
+ * fixed-point keyboard motion, and static EdgeT/zone collision.  Dynamic
+ * Obj_DoCollision remains owned by the later object-runtime slice.
+ */
+int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
+                                  const GameControls *controls,
+                                  const GamePreferences *preferences,
+                                  const GameMath *math,
+                                  const LevelRuntime *runtime,
+                                  char *error, size_t error_size);
 
 #endif

@@ -139,6 +139,107 @@ static int level_runtime_get_primary_zone_edge_list(const LevelRuntime *runtime,
     return 0;
 }
 
+/*
+ * The maintained MoveObject primary pass stops at its first negative list
+ * word.  When Obj_ExtLen_w is non-zero it continues reading from that point,
+ * ignores negative markers, and terminates only at -2.  Keep the resulting
+ * non-negative indexes separate: callers need to preserve the two different
+ * collision calculations used by the source routine.
+ */
+static int level_runtime_get_extended_zone_edge_list(const LevelRuntime *runtime,
+                                                     uint16_t zone_index,
+                                                     uint32_t requested_index,
+                                                     uint32_t *out_count,
+                                                     uint32_t *out_edge_index,
+                                                     uint32_t *out_highest_edge_index,
+                                                     char *error, size_t error_size)
+{
+    uint32_t zone_offset;
+    int64_t list_offset;
+    uint32_t count = 0u;
+    uint32_t highest_edge_index = 0u;
+    int found_primary_terminator = 0;
+
+    if (!runtime || !runtime->level_bytes || !runtime->graphics_bytes ||
+        zone_index >= runtime->zone_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested extended edge list is outside the runtime view");
+        return 0;
+    }
+    zone_offset = level_runtime_read_be32(runtime->graphics_bytes +
+                                           runtime->zone_offsets_table_offset +
+                                           (size_t)zone_index * sizeof(uint32_t));
+    if (!level_runtime_range_is_valid(zone_offset, LEVEL_RUNTIME_ZONE_SIZE, runtime->level_size)) {
+        level_runtime_set_error(error, error_size,
+                                "requested extended edge list has a malformed zone");
+        return 0;
+    }
+    list_offset = (int64_t)zone_offset +
+        (int64_t)level_runtime_read_be16s(runtime->level_bytes + zone_offset + 32u);
+    if (list_offset < 0 || (uint64_t)list_offset > UINT32_MAX ||
+        !level_runtime_range_is_valid((uint32_t)list_offset, sizeof(uint16_t),
+                                      runtime->level_size)) {
+        level_runtime_set_error(error, error_size,
+                                "ZoneT extended edge-list offset is outside the level data");
+        return 0;
+    }
+
+    while (level_runtime_range_is_valid((uint32_t)list_offset, sizeof(uint16_t),
+                                        runtime->level_size)) {
+        int16_t edge_index = level_runtime_read_be16s(runtime->level_bytes + list_offset);
+
+        list_offset += sizeof(uint16_t);
+        if (!found_primary_terminator) {
+            if (edge_index < 0) {
+                found_primary_terminator = 1;
+                if (edge_index == -2) {
+                    if (out_count) {
+                        *out_count = 0u;
+                    }
+                    if (out_highest_edge_index) {
+                        *out_highest_edge_index = 0u;
+                    }
+                    return 1;
+                }
+            }
+            continue;
+        }
+        if (edge_index == -2) {
+            if (out_count) {
+                *out_count = count;
+            }
+            if (out_highest_edge_index) {
+                *out_highest_edge_index = highest_edge_index;
+            }
+            return 1;
+        }
+        if (edge_index < 0) {
+            continue;
+        }
+        if (!level_runtime_range_is_valid(runtime->edge_table_offset +
+                                          (size_t)(uint16_t)edge_index * LEVEL_RUNTIME_EDGE_SIZE,
+                                          LEVEL_RUNTIME_EDGE_SIZE, runtime->level_size)) {
+            level_runtime_set_error(error, error_size,
+                                    "ZoneT extended edge list references an EdgeT outside its table");
+            return 0;
+        }
+        if (out_edge_index && count == requested_index) {
+            *out_edge_index = (uint32_t)(uint16_t)edge_index;
+        }
+        if (count == 0u || (uint32_t)(uint16_t)edge_index > highest_edge_index) {
+            highest_edge_index = (uint32_t)(uint16_t)edge_index;
+        }
+        if (count == UINT32_MAX) {
+            level_runtime_set_error(error, error_size, "ZoneT extended edge list is too long");
+            return 0;
+        }
+        ++count;
+    }
+    level_runtime_set_error(error, error_size,
+                            "ZoneT extended edge list has no source -2 terminator");
+    return 0;
+}
+
 int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_data,
                        const LevelBootstrap *level,
                        const LevelGraphicsBootstrap *graphics_header,
@@ -155,8 +256,8 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     uint64_t object_point_bytes;
     int64_t edge_data_span;
     uint32_t object_record_count;
-    uint32_t highest_primary_edge_index;
-    int has_primary_edge;
+    uint32_t highest_edge_index;
+    int has_edge;
     size_t object_list_end;
     uint16_t zone_index;
 
@@ -342,11 +443,13 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     runtime.exit_zone_id = level_runtime_read_be16s(level_data->bytes + level->floor_line_offset - 2u);
     runtime.zone_count = level->zone_count;
 
-    highest_primary_edge_index = 0;
-    has_primary_edge = 0;
+    highest_edge_index = 0;
+    has_edge = 0;
     for (zone_index = 0; zone_index < runtime.zone_count; ++zone_index) {
         uint32_t primary_edge_count;
         uint32_t zone_highest_edge_index;
+        uint32_t extended_edge_count;
+        uint32_t extended_highest_edge_index;
         if (!level_runtime_get_primary_zone_edge_list(&runtime, zone_index, NULL,
                                                       &primary_edge_count,
                                                       &zone_highest_edge_index,
@@ -354,13 +457,24 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
             return 0;
         }
         if (primary_edge_count != 0u &&
-            (!has_primary_edge || zone_highest_edge_index > highest_primary_edge_index)) {
-            highest_primary_edge_index = zone_highest_edge_index;
-            has_primary_edge = 1;
+            (!has_edge || zone_highest_edge_index > highest_edge_index)) {
+            highest_edge_index = zone_highest_edge_index;
+            has_edge = 1;
+        }
+        if (!level_runtime_get_extended_zone_edge_list(&runtime, zone_index, 0u,
+                                                       &extended_edge_count, NULL,
+                                                       &extended_highest_edge_index,
+                                                       error, error_size)) {
+            return 0;
+        }
+        if (extended_edge_count != 0u &&
+            (!has_edge || extended_highest_edge_index > highest_edge_index)) {
+            highest_edge_index = extended_highest_edge_index;
+            has_edge = 1;
         }
     }
-    if (has_primary_edge) {
-        runtime.edge_count = highest_primary_edge_index + 1u;
+    if (has_edge) {
+        runtime.edge_count = highest_edge_index + 1u;
     }
     for (uint32_t edge_index = 0; edge_index < runtime.edge_count; ++edge_index) {
         const uint8_t *edge_source = level_data->bytes + runtime.edge_table_offset +
@@ -410,6 +524,43 @@ int level_runtime_get_zone_edge_index(const LevelRuntime *runtime, uint16_t zone
     }
     *out_edge_index = level_runtime_read_be16(runtime->level_bytes + list_offset +
                                                (size_t)list_index * sizeof(uint16_t));
+    return 1;
+}
+
+int level_runtime_get_zone_extended_edge_count(const LevelRuntime *runtime,
+                                               uint16_t zone_index,
+                                               uint32_t *out_count,
+                                               char *error, size_t error_size)
+{
+    if (!out_count) {
+        level_runtime_set_error(error, error_size, "extended edge-count output is null");
+        return 0;
+    }
+    return level_runtime_get_extended_zone_edge_list(runtime, zone_index, 0u, out_count, NULL,
+                                                      NULL, error, error_size);
+}
+
+int level_runtime_get_zone_extended_edge_index(const LevelRuntime *runtime,
+                                               uint16_t zone_index,
+                                               uint32_t list_index,
+                                               uint32_t *out_edge_index,
+                                               char *error, size_t error_size)
+{
+    uint32_t edge_count;
+
+    if (!out_edge_index) {
+        level_runtime_set_error(error, error_size, "extended edge-index output is null");
+        return 0;
+    }
+    if (!level_runtime_get_extended_zone_edge_list(runtime, zone_index, list_index, &edge_count,
+                                                    out_edge_index, NULL, error, error_size)) {
+        return 0;
+    }
+    if (list_index >= edge_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested zone edge is outside the extended source list");
+        return 0;
+    }
     return 1;
 }
 

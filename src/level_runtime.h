@@ -170,6 +170,22 @@ int level_runtime_get_zone_edge_count(const LevelRuntime *runtime, uint16_t zone
 int level_runtime_get_zone_edge_index(const LevelRuntime *runtime, uint16_t zone_index,
                                       uint32_t list_index, uint32_t *out_edge_index,
                                       char *error, size_t error_size);
+/*
+ * objectmove.s:MoveObject resumes after the primary negative marker when an
+ * object has a non-zero Obj_ExtLen_w.  It skips any further negative markers
+ * and stops at -2.  Player movement uses this second sequence with an
+ * extension length of 40, so retain it as a separate source view instead of
+ * flattening it into the primary list.
+ */
+int level_runtime_get_zone_extended_edge_count(const LevelRuntime *runtime,
+                                               uint16_t zone_index,
+                                               uint32_t *out_count,
+                                               char *error, size_t error_size);
+int level_runtime_get_zone_extended_edge_index(const LevelRuntime *runtime,
+                                               uint16_t zone_index,
+                                               uint32_t list_index,
+                                               uint32_t *out_edge_index,
+                                               char *error, size_t error_size);
 int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
                            LevelEdge *out_edge, char *error, size_t error_size);
 int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t control_point_index,

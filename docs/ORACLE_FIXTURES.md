@@ -1,9 +1,13 @@
 # Dynamic oracle fixture contract
 
 The original Amiga execution is the authority for movement, collision, falling,
-object updates, projectile updates, timers, and sprite selection. Do not port
-one of those routines from source inspection alone when its observable state
-depends on preceding routines or 68000 register/flag behaviour.
+object updates, projectile updates, timers, and sprite selection. The native
+player's maintained-source keyboard/fall/static-`MoveObject` path is now a
+direct fixed-point translation with a campaign regression. Capture fixtures
+when the original executable becomes available to validate it. Do not port a
+dynamic object, projectile, timer, or sprite routine from source inspection
+alone when its observable state depends on preceding routines or 68000
+register/flag behaviour.
 
 `amiga/ab3d2_source/Makefile` can build a debug (`FLAVOR=dev`) executable with
 debug information. Capture fixtures from that maintained source and the same
@@ -55,14 +59,14 @@ bytes, or convert a source sentinel into a host null value.
 
 ## Required first fixtures
 
-### Player keyboard, fall, and collision
+### Player keyboard, fall, and dynamic collision
 
 Capture one fixture for each of these entry/exit sequences:
 
 1. `modules/player.s:plr_KeyboardControl` followed by
    `plr1control.s:Plr1_Fall`;
-2. `hires.s:Plr1_Control` through its call to
-   `objectmove.s:Obj_DoCollision`/`MoveObject`; and
+2. `hires.s:Plr1_Control` through its call to `objectmove.s:Obj_DoCollision`
+   with active dynamic object slots; and
 3. a boundary case for each branch that changes a player snap position, angle,
    vertical velocity, floor/roof state, crouch state, or current zone.
 

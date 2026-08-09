@@ -334,6 +334,9 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         return 0;
     }
 
+    /* game_DoneMenu copies the selected single-player inventory before Game_Begin. */
+    game->player.health = game->session.player1_inventory.health;
+
     game->active_level_index = level_index;
     return 1;
 }

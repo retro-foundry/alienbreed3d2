@@ -1578,6 +1578,40 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
+    /*
+     * modules/player.s:plr_KeyboardControl then Plr1_Fall, followed by
+     * hires.s:Plr1_Control/MoveObject.  The first grounded tick enables
+     * deceleration; the second consumes the forward/turn controls into the
+     * source fixed-point snap state.
+     */
+    controlled_player = game.player;
+    controlled_player.health = 200u;
+    game_input_init(&control_input);
+    if (!game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_FORWARDS], 1,
+                                error, sizeof(error)) ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_TURN_RIGHT], 1,
+                                error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
+                                       &game.preferences, &game.math, &game.level_runtime,
+                                       error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
+                                       &game.preferences, &game.math, &game.level_runtime,
+                                       error, sizeof(error)) ||
+        controlled_player.decelerate == 0u ||
+        controlled_player.snap_yaw_speed == 0 ||
+        controlled_player.snap_z_speed == 0) {
+        fprintf(stderr, "source player spatial update is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
     game.session.player1_inventory.health = 199u;
     game_session_finish_single_player(&game.session, 0);
     if (game.session.campaign_inventory.health != 200u) {

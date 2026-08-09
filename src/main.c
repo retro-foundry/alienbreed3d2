@@ -1,11 +1,11 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "game_bootstrap.h"
-#include "game_menu.h"
 #include "renderer_stub.h"
 
 static int make_default_data_root(char *out_root, size_t out_root_size)
@@ -19,45 +19,6 @@ static int make_default_data_root(char *out_root, size_t out_root_size)
     written = snprintf(out_root, out_root_size, "%sdata", base_path);
     SDL_free(base_path);
     return written >= 0 && (size_t)written < out_root_size;
-}
-
-/* Keep mutable source-format saves beside the executable, not in staged media. */
-static int make_default_save_path(char *out_path, size_t out_path_size)
-{
-    char *base_path = SDL_GetBasePath();
-    int written;
-
-    if (!base_path) {
-        return 0;
-    }
-    written = snprintf(out_path, out_path_size, "%sboot.dat", base_path);
-    SDL_free(base_path);
-    return written >= 0 && (size_t)written < out_path_size;
-}
-
-static int menu_input_from_key(SDL_Keycode key, GameMenuInput *out_input)
-{
-    if (!out_input) {
-        return 0;
-    }
-    switch (key) {
-    case SDLK_UP:
-        *out_input = GAME_MENU_INPUT_UP;
-        return 1;
-    case SDLK_DOWN:
-        *out_input = GAME_MENU_INPUT_DOWN;
-        return 1;
-    case SDLK_RETURN:
-    case SDLK_KP_ENTER:
-    case SDLK_SPACE:
-        *out_input = GAME_MENU_INPUT_ACTIVATE;
-        return 1;
-    case SDLK_ESCAPE:
-        *out_input = GAME_MENU_INPUT_BACK;
-        return 1;
-    default:
-        return 0;
-    }
 }
 
 /*
@@ -176,27 +137,23 @@ static int raw_key_from_scancode(SDL_Scancode scancode, uint8_t *out_raw_key)
 int main(int argc, char **argv)
 {
     char data_root[1024];
-    char save_path[1024];
     char error[256];
+    char status[160];
     const char *configured_data_root = NULL;
-    const char *configured_save_path = NULL;
     GameBootstrap game;
-    GameMenu menu;
     SceneFrame frame;
     RendererStub *renderer = NULL;
 
     for (int argument_index = 1; argument_index < argc; argument_index += 2) {
         if (argument_index + 1 >= argc) {
-            fprintf(stderr, "usage: %s [--data-root <directory>] [--save-path <boot.dat>]\n",
+            fprintf(stderr, "usage: %s [--data-root <directory>]\n",
                     argv[0]);
             return 2;
         }
         if (strcmp(argv[argument_index], "--data-root") == 0 && !configured_data_root) {
             configured_data_root = argv[argument_index + 1];
-        } else if (strcmp(argv[argument_index], "--save-path") == 0 && !configured_save_path) {
-            configured_save_path = argv[argument_index + 1];
         } else {
-            fprintf(stderr, "usage: %s [--data-root <directory>] [--save-path <boot.dat>]\n",
+            fprintf(stderr, "usage: %s [--data-root <directory>]\n",
                     argv[0]);
             return 2;
         }
@@ -215,15 +172,6 @@ int main(int argc, char **argv)
         }
         configured_data_root = data_root;
     }
-    if (!configured_save_path) {
-        if (!make_default_save_path(save_path, sizeof(save_path))) {
-            fprintf(stderr, "[PLATFORM] SDL_GetBasePath failed: %s\n", SDL_GetError());
-            SDL_Quit();
-            return 1;
-        }
-        configured_save_path = save_path;
-    }
-
     if (!game_bootstrap_init(&game, configured_data_root, error, sizeof(error))) {
         fprintf(stderr, "[ASSET] %s\n", error);
         SDL_Quit();
@@ -243,25 +191,25 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!game_menu_init(&menu, &game, configured_save_path, error, sizeof(error))) {
-        fprintf(stderr, "[MENU] %s\n", error);
+    /* Gameplay-first bootstrap: source default session enters Level A directly. */
+    if (!game_bootstrap_start_selected_single_player(&game, configured_data_root,
+                                                     error, sizeof(error))) {
+        fprintf(stderr, "[GAME] %s\n", error);
         renderer_stub_destroy(renderer);
         scene_frame_destroy(&frame);
         game_bootstrap_destroy(&game);
         SDL_Quit();
         return 1;
     }
-    renderer_stub_set_status(renderer, game_menu_status(&menu));
+    renderer_stub_set_status(renderer, "Level A active; static collision; GPU renderer pending");
 
     fprintf(stdout,
-            "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes single-player menu ready\n",
+            "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes Level A active\n",
             game.game_link.size, game.story_text.size);
     while (renderer_stub_is_running(renderer)) {
         SDL_Event event;
 
         while (SDL_PollEvent(&event)) {
-            GameMenuInput input;
-            int should_quit;
             uint8_t raw_key;
 
             if (event.type == SDL_QUIT) {
@@ -278,41 +226,26 @@ int main(int argc, char **argv)
                     continue;
                 }
             }
-            if (event.type != SDL_KEYDOWN || event.key.repeat) {
-                continue;
-            }
-            if (menu.screen == GAME_MENU_SCREEN_CAPTURE_CONTROL) {
-                if (raw_key_from_scancode(event.key.keysym.scancode, &raw_key) &&
-                    !game_menu_capture_control_key(&menu, &game, raw_key,
-                                                   error, sizeof(error))) {
-                    fprintf(stderr, "[MENU] %s\n", error);
-                    renderer_stub_set_status(renderer, error);
-                } else {
-                    renderer_stub_set_status(renderer, game_menu_status(&menu));
-                }
-                continue;
-            }
-            if (!menu_input_from_key(event.key.keysym.sym, &input)) {
-                continue;
-            }
-            if (!game_menu_handle_input(&menu, &game, configured_data_root, input,
-                                        &should_quit, error, sizeof(error))) {
-                fprintf(stderr, "[MENU] %s\n", error);
-                renderer_stub_set_status(renderer, error);
-                continue;
-            }
-            renderer_stub_set_status(renderer, game_menu_status(&menu));
-            if (should_quit) {
+            if (event.type == SDL_KEYDOWN && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
                 renderer_stub_request_quit(renderer);
                 break;
             }
         }
-        if (menu.screen == GAME_MENU_SCREEN_LEVEL_ACTIVE &&
-            !player_runtime_update_discrete_controls(&game.player, &game.input,
+        if (!player_runtime_update_discrete_controls(&game.player, &game.input,
                                                      &game.controls, &game.level_runtime,
-                                                     error, sizeof(error))) {
+                                                     error, sizeof(error)) ||
+            !player_runtime_update_spatial(&game.player, &game.input, &game.controls,
+                                           &game.preferences, &game.math, &game.level_runtime,
+                                           error, sizeof(error))) {
             fprintf(stderr, "[GAME] %s\n", error);
             renderer_stub_set_status(renderer, error);
+        } else {
+            (void)snprintf(status, sizeof(status),
+                           "Level %c | zone %u | x=%" PRId32 " y=%" PRId32
+                           " z=%" PRId32 " | GPU renderer pending",
+                           (char)('A' + game.active_level_index), game.player.zone_index,
+                           game.player.x, game.player.y, game.player.z);
+            renderer_stub_set_status(renderer, status);
         }
         scene_frame_begin(&frame);
         if (!game_bootstrap_submit_diagnostic_frame(&game, &frame)) {
