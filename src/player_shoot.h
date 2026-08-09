@@ -31,4 +31,18 @@ int player_shoot_find_target_single_player(const ObjectRuntime *objects,
                                            PlayerShotTarget *out_target,
                                            char *error, size_t error_size);
 
+/*
+ * newplayershoot.s:plr1_HitscanSucceded.  Creates the source impact ObjT
+ * when a player-shot slot is free, then applies the source byte-sized damage
+ * and impact direction to the selected target.  Hit probability, misses, and
+ * projectile updates remain separate source paths.
+ */
+int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
+                                       const PlayerShotTarget *target,
+                                       uint16_t bullet_type,
+                                       const GameBulletDefinition *bullet,
+                                       int16_t player_sine, int16_t player_cosine,
+                                       uint8_t *out_impact_spawned,
+                                       char *error, size_t error_size);
+
 #endif

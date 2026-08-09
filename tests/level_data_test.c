@@ -27,6 +27,14 @@ static void write_be16(uint8_t *target, uint16_t value)
     target[1] = (uint8_t)value;
 }
 
+static void write_be32(uint8_t *target, uint32_t value)
+{
+    target[0] = (uint8_t)(value >> 24);
+    target[1] = (uint8_t)(value >> 16);
+    target[2] = (uint8_t)(value >> 8);
+    target[3] = (uint8_t)value;
+}
+
 static int16_t source_asr16_2(int16_t value)
 {
     if (value >= 0) {
@@ -2937,6 +2945,80 @@ int main(int argc, char **argv)
                 &shot_objects, &shot_observation, &shot_player, &shot_bullet,
                 &shot_target, error, sizeof(error)) || shot_target.found != 0u) {
             fprintf(stderr, "Plr1_Shot sight gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        uint8_t slot_bytes[(1u + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT) *
+                           OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[(1u + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT) *
+                            OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime hit_objects = {0};
+        GameBulletDefinition hit_bullet = {0};
+        PlayerShotTarget hit_target = {0};
+        uint8_t impact_spawned = 0u;
+
+        hit_objects.slot_bytes = slot_bytes;
+        hit_objects.slot_count = 1u + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+        hit_objects.active_slot_count = 1u;
+        hit_objects.player_shot_first_slot = 1u;
+        hit_objects.point_bytes = point_bytes;
+        hit_objects.point_count = 1u + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 4u, 4u);
+        write_be16(slot_bytes + 12u, 0u);
+        slot_bytes[19u] = 250u;
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            uint8_t *shot_slot = slot_bytes +
+                (size_t)(1u + shot_index) * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            write_be16(shot_slot + 0u, (uint16_t)(1u + shot_index));
+            write_be16(shot_slot + 12u, UINT16_MAX);
+        }
+        write_be32(point_bytes + 0u, UINT32_C(0x12345678));
+        write_be32(point_bytes + 4u, UINT32_C(0x9abcdef0));
+        hit_target.found = UINT8_MAX;
+        hit_target.slot_index = 0u;
+        hit_target.point_index = 0u;
+        hit_bullet.hit_damage = 6u;
+        if (!player_shoot_apply_hitscan_success(
+                &hit_objects, &hit_target, 7u, &hit_bullet, 16384, -16384,
+                &impact_spawned, error, sizeof(error)) || impact_spawned != UINT8_MAX ||
+            slot_bytes[19u] != 0u ||
+            read_be16(slot_bytes + 42u) != 2u ||
+            (int16_t)read_be16(slot_bytes + 44u) != -2 ||
+            slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] != 2u ||
+            slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 30u] != 1u ||
+            slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 31u] != 7u ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u) != 0u ||
+            slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 52u] != 0u ||
+            read_be32(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u) != 512u ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) != 0u ||
+            slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 62u] != UINT8_MAX ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u) != 4u ||
+            read_be32(point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u) !=
+                UINT32_C(0x12345678) ||
+            read_be32(point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u) !=
+                UINT32_C(0x9abcdef0)) {
+            fprintf(stderr, "plr1_HitscanSucceded source mutation is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            write_be16(slot_bytes +
+                           (size_t)(1u + shot_index) * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                       0u);
+        }
+        slot_bytes[19u] = 1u;
+        impact_spawned = UINT8_MAX;
+        if (!player_shoot_apply_hitscan_success(
+                &hit_objects, &hit_target, 7u, &hit_bullet, 16384, -16384,
+                &impact_spawned, error, sizeof(error)) || impact_spawned != 0u ||
+            slot_bytes[19u] != 1u) {
+            fprintf(stderr, "plr1_HitscanSucceded pool exhaustion is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }

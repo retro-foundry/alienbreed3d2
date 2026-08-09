@@ -147,10 +147,13 @@ authority for all game behavior and data formats.
   uses neither PVS nor portals. `src/player_shoot.*` now translates
   `newplayershoot.s:Plr1_Shot`'s closest eligible target selection and
   fixed-point vertical auto-aim calculation from that workspace, including
-  AUX handling, target flags, sight gate, and tie selection. It deliberately
-  has no firing side effects yet: source cooldown, ammunition, randomness,
-  hit/miss effects, projectile creation, and sound still belong to the
-  remaining `Plr1_Shot` path.
+  AUX handling, target flags, sight gate, and tie selection. Its bounded
+  `plr1_HitscanSucceded` companion now allocates the source impact ObjT from
+  the player-shot pool, copies its source point, and applies byte-sized damage
+  plus impact direction. These helpers are not wired into input yet: source
+  cooldown, ammunition, randomness, hit probability, miss raycast/effect,
+  moving-projectile creation, and sound still belong to the remaining
+  `Plr1_Shot` path.
 - [x] `src/object_scene.*` translates the non-raster `ObjT` descriptor boundary
   used by `objdrawhires.s:Draw_Objects` and `draw_Object`. Each live source
   slot produces one unprojected `SceneSprite` command in source slot order:
