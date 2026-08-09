@@ -114,8 +114,9 @@ authority for all game behavior and data formats.
   `src/level_static_scene.*` expands every source wall into triangle-list
   world geometry and submits floor, ceiling, and water records as source-order
   polygon boundaries. Materials explicitly distinguish wall texture indexes
-  from active floortile byte offsets; every surface intentionally flags UVs as
-  unresolved rather than fabricating a software-renderer approximation.
+  from floortile byte offsets and identify the active shared versus per-level
+  override source; every surface intentionally flags UVs as unresolved rather
+  than fabricating a software-renderer approximation.
   Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its
@@ -161,8 +162,9 @@ authority for all game behavior and data formats.
   `controlloop.s`; its raw-key state remains in-memory until a source-compatible
   host preference-file policy is defined.
 - `src/game_input.*` maps `hires.s:key_interrupt` into a pure native raw-key
-  state boundary. `modules/player.s:plr_KeyboardControl` has not yet consumed
-  it, so no movement behavior is approximated.
+  state boundary. Its non-spatial `modules/player.s:plr_KeyboardControl`
+  operate/crouch/fire branches consume it; spatial movement remains absent
+  until the collision/update sequence is validated.
 - `src/level_bootstrap.*` decodes the big-endian `TLBT` and `TLGT` headers used
   by `hires.s:Game_Begin`.
 - `src/level_navigation.*` maps the walk/fly link lookup in

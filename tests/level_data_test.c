@@ -112,6 +112,10 @@ int main(int argc, char **argv)
     PlayerRuntime controlled_player;
     GameMenu menu;
     int should_quit;
+    uint8_t override_marker;
+    AssetBlob saved_floor_override;
+    AssetBlob saved_wall_override;
+    int override_sources_ok;
     char error[256];
 
     if (argc != 2) {
@@ -1006,7 +1010,7 @@ int main(int argc, char **argv)
         frame.commands[0].data.camera.position.x != game.player.x ||
         game.static_scene.wall_count == 0u || game.static_scene.flat_count == 0u ||
         frame.commands[1].type != SCENE_COMMAND_MATERIAL ||
-        frame.commands[1].data.material.source != SCENE_MATERIAL_SOURCE_WALL_TEXTURE ||
+        frame.commands[1].data.material.source != SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE ||
         frame.commands[1].data.material.source_asset_id != game.static_scene.walls[0].material_id ||
         frame.commands[2].type != SCENE_COMMAND_GEOMETRY ||
         frame.commands[2].data.geometry.vertices != game.static_scene.walls[0].vertices ||
@@ -1020,7 +1024,7 @@ int main(int argc, char **argv)
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].type !=
             SCENE_COMMAND_MATERIAL ||
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source !=
-            SCENE_MATERIAL_SOURCE_FLOOR_TEXTURE ||
+            SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE ||
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_asset_id !=
             game.static_scene.flats[0].material_id ||
         frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].type !=
@@ -1041,6 +1045,27 @@ int main(int argc, char **argv)
             SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED ||
         frame.commands[frame.count - 1u].type != SCENE_COMMAND_HUD_TEXT) {
         fprintf(stderr, "Plr_Initialise camera state is inconsistent: %s\n", error);
+        scene_frame_destroy(&frame);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    saved_floor_override = game.level_floor_override;
+    saved_wall_override = game.level_wall_overrides[game.static_scene.walls[0].material_id];
+    override_marker = 0u;
+    game.level_floor_override.bytes = &override_marker;
+    game.level_floor_override.size = 1u;
+    game.level_wall_overrides[game.static_scene.walls[0].material_id].bytes = &override_marker;
+    game.level_wall_overrides[game.static_scene.walls[0].material_id].size = 1u;
+    scene_frame_begin(&frame);
+    override_sources_ok = game_bootstrap_submit_diagnostic_frame(&game, &frame) &&
+        frame.commands[1].data.material.source ==
+            SCENE_MATERIAL_SOURCE_LEVEL_WALL_TEXTURE_OVERRIDE &&
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source ==
+            SCENE_MATERIAL_SOURCE_LEVEL_FLOOR_TEXTURE_OVERRIDE;
+    game.level_floor_override = saved_floor_override;
+    game.level_wall_overrides[game.static_scene.walls[0].material_id] = saved_wall_override;
+    if (!override_sources_ok) {
+        fprintf(stderr, "Res_LoadLevelData material override selection is inconsistent\n");
         scene_frame_destroy(&frame);
         game_bootstrap_destroy(&game);
         return 1;

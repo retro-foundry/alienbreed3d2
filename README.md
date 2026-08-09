@@ -19,9 +19,14 @@ first game's software renderer:
   `twolev.graph.bin`, and clip stream for every campaign level (`A`–`P`). The
   `TLBT` and `TLGT` headers follow `amiga/ab3d2_source/defs.i` exactly; both
   source 100x100 navigation maps plus the static door/lift/switch records are
-  also decoded, without yet running AI or mechanism animation;
+  also decoded, without yet running AI or mechanism animation. Every source
+  wall plus floor, ceiling, and water boundary is submitted as whole-level
+  GPU-neutral geometry, without PVS or portal traversal;
 - defines a GPU-neutral frame command interface for cameras, materials,
-  geometry, sprites, and HUD text;
+  geometry, sprites, and HUD text. Material commands retain the source asset
+  class and select shared versus per-level floor/wall overrides exactly as
+  `modules/res.s:Res_LoadLevelData` does; texture-coordinate conversion is
+  deliberately still unresolved;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload) while keeping host save storage
   unported;
@@ -29,8 +34,9 @@ first game's software renderer:
   selector and level start handoff. Master/slave multiplayer is explicitly
   unavailable; custom options and the two-page raw-key control rebinding menu
   change source-backed in-memory preference bytes. Native SDL events also feed
-  the source-shaped raw-key map; player movement has not yet consumed it.
-  Preference persistence and load/save remain pending;
+  the source-shaped raw-key map; the source operate, crouch, and fire branches
+  consume it, while movement/collision remains pending. Preference persistence
+  and load/save remain pending;
 - opens a diagnostic SDL window whose title presents the current menu/level
   status and command count. It does not rasterize the game scene.
 

@@ -23,9 +23,13 @@ typedef struct {
 
 typedef enum {
     /* modules/res.s:Res_LoadWallTextures, indexed by Draw_Wall's texture word. */
-    SCENE_MATERIAL_SOURCE_WALL_TEXTURE,
+    SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE,
+    /* modules/res.s:Res_LoadLevelData optional wall_N.256wad replacement. */
+    SCENE_MATERIAL_SOURCE_LEVEL_WALL_TEXTURE_OVERRIDE,
     /* Res_LoadFloorsAndTextures/floortile, addressed by Draw_Flats byte offset. */
-    SCENE_MATERIAL_SOURCE_FLOOR_TEXTURE
+    SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE,
+    /* Res_LoadLevelData's optional per-level floortile replacement. */
+    SCENE_MATERIAL_SOURCE_LEVEL_FLOOR_TEXTURE_OVERRIDE
 } SceneMaterialSource;
 
 typedef struct {
