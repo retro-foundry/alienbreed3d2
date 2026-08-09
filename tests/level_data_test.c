@@ -1,7 +1,9 @@
 #include <stdio.h>
+#include <string.h>
 
 #include "asset_io.h"
 #include "game_bootstrap.h"
+#include "game_link.h"
 #include "level_bootstrap.h"
 #include "scene_frame.h"
 
@@ -14,7 +16,12 @@ int main(int argc, char **argv)
     SceneFrame frame;
     SceneCommand command;
     GameBootstrap game;
+    GameLink game_link;
+    AssetBlob game_link_blob = {0};
+    const uint8_t *table_bytes;
+    size_t table_size;
     uint16_t level_index;
+    char text[128];
     char error[256];
 
     if (argc != 2) {
@@ -84,13 +91,39 @@ int main(int argc, char **argv)
     asset_blob_release(&graphics_data);
     asset_blob_release(&level_data);
 
+    if (!asset_io_load(argv[1], "includes/test.lnk", &game_link_blob, error, sizeof(error)) ||
+        !game_link_init(&game_link_blob, &game_link, error, sizeof(error)) ||
+        game_link_blob.size != GAME_LINK_SIZE ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_BULLET_DEFINITIONS,
+                         &table_bytes, &table_size) ||
+        table_bytes == NULL || table_size != 20u * 300u ||
+        !game_link_copy_level_name(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
+        strcmp(text, "      LEVEL  A") != 0 ||
+        !game_link_copy_level_music_path(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
+        strcmp(text, "tkg2:music/packedtest") != 0 ||
+        !game_link_resolve_staged_path(text, text, sizeof(text), error, sizeof(error)) ||
+        strcmp(text, "music/packedtest") != 0 ||
+        !game_link_copy_object_graphics_path(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
+        strcmp(text, "TKG1:INCLUDES/ALIEN2") != 0 ||
+        !game_link_copy_wall_graphics_path(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
+        strcmp(text, "TKG1:WALLINC/STONEWALL.256WAD") != 0 ||
+        !game_link_copy_sfx_path(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
+        strcmp(text, "sfx:samples/scream.fib") != 0 ||
+        game_link_resolve_staged_path(text, text, sizeof(text), error, sizeof(error))) {
+        fprintf(stderr, "GLFT catalog parsing is inconsistent: %s\n", error);
+        asset_blob_release(&game_link_blob);
+        return 1;
+    }
+    asset_blob_release(&game_link_blob);
+
     if (!game_bootstrap_init(&game, argv[1], error, sizeof(error))) {
         fprintf(stderr, "%s\n", error);
         return 1;
     }
     for (level_index = 0; level_index < 16u; ++level_index) {
         if (!game_bootstrap_load_level(&game, argv[1], level_index, error, sizeof(error)) ||
-            game.active_level_index != level_index || game.level.zone_count == 0) {
+            game.active_level_index != level_index || game.level.zone_count == 0 ||
+            game.level_music.size == 0) {
             fprintf(stderr, "campaign level %u could not be loaded: %s\n", level_index, error);
             game_bootstrap_destroy(&game);
             return 1;

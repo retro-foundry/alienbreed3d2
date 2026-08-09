@@ -26,6 +26,7 @@ FetchContent_MakeAvailable(SDL2)
 set(AB3D2_CORE_SOURCES
   src/asset_io.c
   src/game_bootstrap.c
+  src/game_link.c
   src/level_bootstrap.c
   src/scene_frame.c
   # Reused =SB= decoder from the first PC port. It matches

@@ -9,6 +9,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
 {
     asset_blob_release(&game->level_map);
     asset_blob_release(&game->level_fly_map);
+    asset_blob_release(&game->level_music);
     asset_blob_release(&game->level_data);
     asset_blob_release(&game->level_graphics);
     asset_blob_release(&game->level_clips);
@@ -55,6 +56,9 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     if (!asset_io_load(data_root, "includes/test.lnk", &game->game_link, error, error_size)) {
         goto fail;
     }
+    if (!game_link_init(&game->game_link, &game->game_link_catalog, error, error_size)) {
+        goto fail;
+    }
     /* controlloop.s:Game_Start: Game_StoryFile_vb */
     if (!asset_io_load(data_root, "includes/text_file", &game->story_text, error, error_size)) {
         goto fail;
@@ -74,6 +78,8 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                               uint16_t level_index, char *error, size_t error_size)
 {
     char level_directory[32];
+    char source_music_path[64];
+    char staged_music_path[64];
     int written;
 
     if (!game || !data_root) {
@@ -105,10 +111,20 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
     }
 
     game_bootstrap_release_level(game);
+
+    /* modules/res.s:Res_LoadLevelData reads GLFT_LevelMusic_l before twolev.bin. */
+    if (!game_link_copy_level_music_path(&game->game_link_catalog, level_index,
+                                         source_music_path, sizeof(source_music_path),
+                                         error, error_size) ||
+        !game_link_resolve_staged_path(source_music_path, staged_music_path,
+                                       sizeof(staged_music_path), error, error_size)) {
+        return 0;
+    }
     if (!game_bootstrap_load_level_file(data_root, level_directory, "twolev.map",
                                         &game->level_map, error, error_size) ||
         !game_bootstrap_load_level_file(data_root, level_directory, "twolev.flymap",
                                         &game->level_fly_map, error, error_size) ||
+        !asset_io_load(data_root, staged_music_path, &game->level_music, error, error_size) ||
         !game_bootstrap_load_level_file(data_root, level_directory, "twolev.bin",
                                         &game->level_data, error, error_size) ||
         !game_bootstrap_load_level_file(data_root, level_directory, "twolev.graph.bin",
@@ -132,6 +148,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
         return;
     }
     asset_blob_release(&game->game_link);
+    memset(&game->game_link_catalog, 0, sizeof(game->game_link_catalog));
     asset_blob_release(&game->story_text);
     game_bootstrap_release_level(game);
     game->active_level_index = 0;

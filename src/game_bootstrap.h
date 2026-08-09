@@ -4,15 +4,18 @@
 #include <stddef.h>
 
 #include "asset_io.h"
+#include "game_link.h"
 #include "level_bootstrap.h"
 #include "scene_frame.h"
 
 typedef struct {
     AssetBlob game_link;
+    GameLink game_link_catalog;
     AssetBlob story_text;
     uint16_t active_level_index;
     AssetBlob level_map;
     AssetBlob level_fly_map;
+    AssetBlob level_music;
     AssetBlob level_data;
     AssetBlob level_graphics;
     AssetBlob level_clips;
