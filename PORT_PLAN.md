@@ -610,6 +610,10 @@ one `GetRand & 31` signed comparison exactly. It takes the source player-zone
 ID and `Plr1_RoomBright_w` explicitly, rather than inventing a brightness
 value while the native point-brightness producer is still absent, so it too
 waits for its owning AI modes.
+`modules/ai.s:ai_CalcSqrt` is now available for the later hitscan-attack
+impact calculation. Its starting-bit selection, three signed word-precision
+refinements, and coarse source result are retained instead of using a host
+square-root routine.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,

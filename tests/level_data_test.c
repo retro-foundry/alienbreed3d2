@@ -7,6 +7,7 @@
 #include "alien_death.h"
 #include "alien_dark.h"
 #include "alien_flight.h"
+#include "alien_math.h"
 #include "alien_memory.h"
 #include "alien_perception.h"
 #include "alien_setup.h"
@@ -4615,6 +4616,21 @@ int main(int argc, char **argv)
                               &dark_random, &dark_result, error, sizeof(error)) ||
             dark_result != -1 || dark_random.state != expected_dark_random.state) {
             fprintf(stderr, "ai_CheckForDark bright source gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_CalcSqrt's zero and three-refinement source paths. */
+        int16_t square_root;
+
+        if (!alien_math_calc_sqrt(0, &square_root, error, sizeof(error)) || square_root != 0 ||
+            !alien_math_calc_sqrt(1, &square_root, error, sizeof(error)) || square_root != 1 ||
+            !alien_math_calc_sqrt(10000, &square_root, error, sizeof(error)) ||
+            square_root != 101 ||
+            !alien_math_calc_sqrt(40000, &square_root, error, sizeof(error)) ||
+            square_root != 201) {
+            fprintf(stderr, "ai_CalcSqrt source approximation is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
