@@ -21,6 +21,8 @@ enum {
     GAME_LINK_SHOOT_DEFINITION_SIZE = 8,
     GAME_LINK_BULLET_DEFINITION_SIZE = 300,
     GAME_LINK_BULLET_ANIMATION_DATA_SIZE = 120,
+    GAME_LINK_BULLET_ANIMATION_FRAME_SIZE = 6,
+    GAME_LINK_BULLET_ANIMATION_FRAME_COUNT = 20,
     GAME_LINK_ALIEN_DEFINITION_SIZE = 42,
     GAME_LINK_OBJECT_DEFINITION_SIZE = 40,
     GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE = 6,
@@ -142,6 +144,24 @@ typedef struct {
     const uint8_t *pop_data;
 } GameBulletDefinition;
 
+/*
+ * One six-byte record in BulT_AnimData_vb or BulT_PopData_vb. ItsABullet
+ * branches on the graphic type before assigning these fields, so retain raw
+ * source offsets until projectile updates have an oracle fixture.
+ */
+typedef struct {
+    uint8_t byte_0;
+    uint8_t byte_1;
+    uint16_t word_2;
+    uint8_t byte_4;
+    uint8_t byte_5;
+} GameBulletAnimationFrame;
+
+typedef enum {
+    GAME_LINK_BULLET_ANIMATION_FLIGHT,
+    GAME_LINK_BULLET_ANIMATION_POP
+} GameBulletAnimationKind;
+
 enum {
     GAME_LINK_LEVEL_COUNT = 16,
     GAME_LINK_OBJECT_COUNT = 30,
@@ -220,6 +240,11 @@ int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
 int game_link_get_bullet_definition(const GameLink *link, uint16_t bullet_index,
                                     GameBulletDefinition *out_definition,
                                     char *error, size_t error_size);
+int game_link_get_bullet_animation_frame(const GameLink *link,
+                                         GameBulletAnimationKind kind,
+                                         uint16_t bullet_index, uint16_t frame_index,
+                                         GameBulletAnimationFrame *out_frame,
+                                         char *error, size_t error_size);
 
 /* Fixed 40-byte labels have no NUL terminator in the shipped game link. */
 int game_link_copy_level_name(const GameLink *link, uint16_t level_index,

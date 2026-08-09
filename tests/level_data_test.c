@@ -151,6 +151,14 @@ static int bullet_definition_matches_source(const GameBulletDefinition *definiti
         definition->pop_data == source + 180u;
 }
 
+static int bullet_animation_frame_matches_source(const GameBulletAnimationFrame *frame,
+                                                 const uint8_t *source)
+{
+    return frame && source && frame->byte_0 == source[0u] &&
+        frame->byte_1 == source[1u] && frame->word_2 == read_be16(source + 2u) &&
+        frame->byte_4 == source[4u] && frame->byte_5 == source[5u];
+}
+
 int main(int argc, char **argv)
 {
     AssetBlob level_data = {0};
@@ -184,6 +192,7 @@ int main(int argc, char **argv)
     uint16_t shoot_definition_index;
     uint16_t alien_definition_index;
     uint16_t bullet_definition_index;
+    uint16_t bullet_animation_index;
     int16_t trig_value;
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
@@ -212,6 +221,7 @@ int main(int argc, char **argv)
     GameShootDefinition shoot_definition;
     GameAlienDefinition alien_definition;
     GameBulletDefinition bullet_definition;
+    GameBulletAnimationFrame bullet_animation_frame;
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
     uint32_t world_point_index;
@@ -373,6 +383,30 @@ int main(int argc, char **argv)
             asset_blob_release(&game_link_blob);
             return 1;
         }
+        for (bullet_animation_index = 0u;
+             bullet_animation_index < GAME_LINK_BULLET_ANIMATION_FRAME_COUNT;
+             ++bullet_animation_index) {
+            size_t frame_offset = (size_t)bullet_animation_index *
+                                  GAME_LINK_BULLET_ANIMATION_FRAME_SIZE;
+
+            if (!game_link_get_bullet_animation_frame(
+                    &game_link, GAME_LINK_BULLET_ANIMATION_FLIGHT,
+                    bullet_definition_index, bullet_animation_index,
+                    &bullet_animation_frame, error, sizeof(error)) ||
+                !bullet_animation_frame_matches_source(&bullet_animation_frame,
+                                                       bullet_definition.animation_data + frame_offset) ||
+                !game_link_get_bullet_animation_frame(
+                    &game_link, GAME_LINK_BULLET_ANIMATION_POP,
+                    bullet_definition_index, bullet_animation_index,
+                    &bullet_animation_frame, error, sizeof(error)) ||
+                !bullet_animation_frame_matches_source(&bullet_animation_frame,
+                                                       bullet_definition.pop_data + frame_offset)) {
+                fprintf(stderr, "GLFT bullet animation %u frame %u is inconsistent: %s\n",
+                        bullet_definition_index, bullet_animation_index, error);
+                asset_blob_release(&game_link_blob);
+                return 1;
+            }
+        }
     }
     for (alien_definition_index = 0u;
          alien_definition_index < GAME_LINK_ALIEN_COUNT;
@@ -479,7 +513,13 @@ int main(int argc, char **argv)
         game_link_get_alien_definition(&game_link, GAME_LINK_ALIEN_COUNT,
                                        &alien_definition, error, sizeof(error)) ||
         game_link_get_bullet_definition(&game_link, GAME_LINK_BULLET_COUNT,
-                                        &bullet_definition, error, sizeof(error))) {
+                                        &bullet_definition, error, sizeof(error)) ||
+        game_link_get_bullet_animation_frame(&game_link, GAME_LINK_BULLET_ANIMATION_FLIGHT,
+                                             0u, GAME_LINK_BULLET_ANIMATION_FRAME_COUNT,
+                                             &bullet_animation_frame, error, sizeof(error)) ||
+        game_link_get_bullet_animation_frame(&game_link, (GameBulletAnimationKind)2,
+                                             0u, 0u, &bullet_animation_frame,
+                                             error, sizeof(error))) {
         fprintf(stderr, "GLFT definition bounds checks are inconsistent\n");
         asset_blob_release(&game_link_blob);
         return 1;

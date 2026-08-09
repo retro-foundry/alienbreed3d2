@@ -75,6 +75,10 @@ enum {
 };
 
 _Static_assert(GLFT_SIZE == 86268, "GLFT layout must match defs.i");
+_Static_assert(GAME_LINK_BULLET_ANIMATION_DATA_SIZE ==
+                   GAME_LINK_BULLET_ANIMATION_FRAME_COUNT *
+                       GAME_LINK_BULLET_ANIMATION_FRAME_SIZE,
+               "BulT animation payload must contain fixed six-byte records");
 
 static const GameLinkTableRange game_link_ranges[GAME_LINK_TABLE_COUNT] = {
     [GAME_LINK_TABLE_LEVEL_NAMES] = {GLFT_LEVEL_NAMES_OFFSET, GLFT_LEVEL_COUNT * GLFT_LEVEL_NAME_SIZE},
@@ -407,6 +411,44 @@ int game_link_get_bullet_definition(const GameLink *link, uint16_t bullet_index,
     definition.animation_data = source + 60u;
     definition.pop_data = source + 180u;
     *out_definition = definition;
+    return 1;
+}
+
+int game_link_get_bullet_animation_frame(const GameLink *link,
+                                         GameBulletAnimationKind kind,
+                                         uint16_t bullet_index, uint16_t frame_index,
+                                         GameBulletAnimationFrame *out_frame,
+                                         char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    const uint8_t *source;
+    GameBulletAnimationFrame frame;
+    size_t animation_offset;
+
+    if (kind == GAME_LINK_BULLET_ANIMATION_FLIGHT) {
+        animation_offset = 60u;
+    } else if (kind == GAME_LINK_BULLET_ANIMATION_POP) {
+        animation_offset = 180u;
+    } else {
+        game_link_set_error(error, error_size, "bullet animation kind is not defined by the GLFT");
+        return 0;
+    }
+    if (!out_frame || bullet_index >= GAME_LINK_BULLET_COUNT ||
+        frame_index >= GAME_LINK_BULLET_ANIMATION_FRAME_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_BULLET_DEFINITIONS, &bytes, &size) ||
+        size != (size_t)GAME_LINK_BULLET_COUNT * GAME_LINK_BULLET_DEFINITION_SIZE) {
+        game_link_set_error(error, error_size, "bullet animation frame is outside the GLFT table");
+        return 0;
+    }
+    source = bytes + (size_t)bullet_index * GAME_LINK_BULLET_DEFINITION_SIZE + animation_offset +
+        (size_t)frame_index * GAME_LINK_BULLET_ANIMATION_FRAME_SIZE;
+    frame.byte_0 = source[0u];
+    frame.byte_1 = source[1u];
+    frame.word_2 = game_link_read_be16(source + 2u);
+    frame.byte_4 = source[4u];
+    frame.byte_5 = source[5u];
+    *out_frame = frame;
     return 1;
 }
 

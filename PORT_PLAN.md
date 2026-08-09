@@ -38,7 +38,9 @@ authority for all game behavior and data formats.
   loaded alien slot is validated against that catalog, without inferring AI
   behaviour or updating an alien. All 20 300-byte `BulT` records now expose
   their exact leading longword values and source animation/pop payloads, with
-  no projectile creation, timing, collision, or rendering inferred from them.
+  all 20 six-byte frame records in each payload validated against `test.lnk`.
+  No projectile creation, timing, collision, or rendering is inferred from
+  them.
 - [x] Staged `ab3:`, `tkg1:`, `tkg2:`, and `sfx:` resource paths resolve to
   source assets without case-sensitive host assumptions. The `sfx:` entries
   have an exact one-for-one `media/ab3dsfx/samples/` mapping, verified for all
