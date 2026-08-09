@@ -162,6 +162,11 @@ authority for all game behavior and data formats.
   paths. `GameBootstrap` owns and initializes that `Rand1` state once per
   source game session, so it persists across campaign-level loads; it is not
   consumed until the owning shot/AI routine is fully translated.
+- [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
+  `PVST` records for gameplay-only consumers. Every record and target is
+  validated across all A-P levels. The future `CanItBeSeen` port can therefore
+  use authored potential-zone/clip data without making the complete-level GPU
+  renderer depend on PVS, portal traversal, or renderer clipping.
 - [x] `src/object_scene.*` translates the non-raster `ObjT` descriptor boundary
   used by `objdrawhires.s:Draw_Objects` and `draw_Object`. Each live source
   slot produces one unprojected `SceneSprite` command in source slot order:

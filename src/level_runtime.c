@@ -6,6 +6,9 @@
 
 enum {
     LEVEL_RUNTIME_ZONE_SIZE = 50,
+    /* defs.i:ZoneT_PotVisibleZoneList_vw and PVST_SizeOf_l. */
+    LEVEL_RUNTIME_ZONE_PVS_OFFSET = 48,
+    LEVEL_RUNTIME_PVS_SIZE = 8,
     LEVEL_RUNTIME_POINT_SIZE = 4,
     LEVEL_RUNTIME_ZONE_BORDER_BYTES = 80,
     /* defs.i:EdgeT_SizeOf_l. */
@@ -722,6 +725,47 @@ int level_runtime_get_zone(const LevelRuntime *runtime, uint16_t zone_index,
     zone.floor_noise = level_runtime_read_be16(source + 44u);
     zone.upper_floor_noise = level_runtime_read_be16(source + 46u);
     *out_zone = zone;
+    return 1;
+}
+
+int level_runtime_get_zone_potential_visibility(
+    const LevelRuntime *runtime, uint16_t zone_index, uint32_t entry_index,
+    LevelPotentialVisibility *out_entry, char *error, size_t error_size)
+{
+    uint32_t zone_offset;
+    uint64_t entry_offset;
+    const uint8_t *source;
+    LevelPotentialVisibility entry;
+
+    if (!runtime || !runtime->level_bytes || !runtime->graphics_bytes || !out_entry ||
+        zone_index >= runtime->zone_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested ZoneT potential-visibility entry is invalid");
+        return 0;
+    }
+    zone_offset = level_runtime_read_be32(runtime->graphics_bytes +
+                                           runtime->zone_offsets_table_offset +
+                                           (size_t)zone_index * sizeof(uint32_t));
+    entry_offset = (uint64_t)zone_offset + LEVEL_RUNTIME_ZONE_PVS_OFFSET +
+        (uint64_t)entry_index * LEVEL_RUNTIME_PVS_SIZE;
+    if (entry_offset > UINT32_MAX ||
+        !level_runtime_range_is_valid((uint32_t)entry_offset, LEVEL_RUNTIME_PVS_SIZE,
+                                      runtime->level_size)) {
+        level_runtime_set_error(error, error_size,
+                                "ZoneT potential-visibility list is outside level data");
+        return 0;
+    }
+    source = runtime->level_bytes + (uint32_t)entry_offset;
+    entry.zone_index = level_runtime_read_be16s(source + 0u);
+    entry.clip_id = level_runtime_read_be16s(source + 2u);
+    entry.word_2 = level_runtime_read_be16s(source + 4u);
+    entry.word_3 = level_runtime_read_be16s(source + 6u);
+    if (entry.zone_index >= 0 && (uint16_t)entry.zone_index >= runtime->zone_count) {
+        level_runtime_set_error(error, error_size,
+                                "ZoneT potential-visibility list references an invalid zone");
+        return 0;
+    }
+    *out_entry = entry;
     return 1;
 }
 

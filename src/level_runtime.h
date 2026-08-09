@@ -7,9 +7,9 @@
 #include "level_bootstrap.h"
 
 /*
- * Non-owning native view of the Game_Begin table resolution. It intentionally
- * excludes the PVST list: the PC renderer draws complete loaded levels and
- * does not use the Amiga PVS/portal traversal as a rendering prerequisite.
+ * Non-owning native view of the Game_Begin table resolution. The renderer
+ * draws complete loaded levels and does not consume PVST, but gameplay
+ * `objectmove.s:CanItBeSeen` has a distinct source dependency on its raw list.
  */
 typedef struct {
     const uint8_t *level_bytes;
@@ -71,6 +71,14 @@ typedef struct {
     uint16_t floor_noise;
     uint16_t upper_floor_noise;
 } LevelZone;
+
+/* defs.i:PVST, read by objectmove.s:CanItBeSeen (not renderer culling). */
+typedef struct {
+    int16_t zone_index;
+    int16_t clip_id;
+    int16_t word_2;
+    int16_t word_3;
+} LevelPotentialVisibility;
 
 /*
  * TLGT_ZoneGraphAddsOffset_l entry used by draw_zone_graph.s. The lower
@@ -156,6 +164,12 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
                        char *error, size_t error_size);
 int level_runtime_get_zone(const LevelRuntime *runtime, uint16_t zone_index,
                            LevelZone *out_zone, char *error, size_t error_size);
+/* Reads one of ZoneT+48's signed-zone-terminated PVST records. */
+int level_runtime_get_zone_potential_visibility(const LevelRuntime *runtime,
+                                                uint16_t zone_index,
+                                                uint32_t entry_index,
+                                                LevelPotentialVisibility *out_entry,
+                                                char *error, size_t error_size);
 int level_runtime_get_zone_draw_graph_streams(const LevelRuntime *runtime, uint16_t zone_index,
                                               LevelDrawGraphStreams *out_streams,
                                               char *error, size_t error_size);

@@ -481,6 +481,7 @@ int main(int argc, char **argv)
         0x22u, 0x33u, 0x28u, 0x40u, 0x0cu, 0x0bu, 0x29u, 0x0du, 0x00u
     };
     LevelZone zone;
+    LevelPotentialVisibility potential_visibility;
     LevelDrawGraphStreams draw_graph_streams;
     LevelDrawGraphRecord draw_graph_record;
     LevelDrawWall draw_wall;
@@ -1415,6 +1416,41 @@ int main(int argc, char **argv)
             scene_frame_destroy(&frame);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        for (uint16_t pvs_zone_index = 0u; pvs_zone_index < game.level_runtime.zone_count;
+             ++pvs_zone_index) {
+            int pvs_terminated = 0;
+
+            for (uint32_t pvs_entry_index = 0u;
+                 pvs_entry_index < game.level_runtime.level_size / 8u;
+                 ++pvs_entry_index) {
+                if (!level_runtime_get_zone_potential_visibility(
+                        &game.level_runtime, pvs_zone_index, pvs_entry_index,
+                        &potential_visibility, error, sizeof(error))) {
+                    fprintf(stderr, "campaign level %u PVST entry is invalid: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (potential_visibility.zone_index < 0) {
+                    pvs_terminated = 1;
+                    break;
+                }
+                if (!level_runtime_get_zone_draw_graph_streams(
+                        &game.level_runtime, (uint16_t)potential_visibility.zone_index,
+                        &draw_graph_streams, error, sizeof(error))) {
+                    fprintf(stderr, "campaign level %u PVST target is invalid: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+            if (!pvs_terminated) {
+                fprintf(stderr, "campaign level %u PVST has no source terminator\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
         scene_frame_destroy(&frame);
         {
