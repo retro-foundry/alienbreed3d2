@@ -20,8 +20,9 @@ enum {
     GLFT_BULLET_DEFINITION_SIZE = 300,
     GLFT_SHOOT_DEFINITION_SIZE = 8,
     GLFT_ALIEN_DEFINITION_SIZE = 42,
-    GLFT_OBJECT_DEFINITION_SIZE = 40,
-    GLFT_OBJECT_ANIMATION_SIZE = 120,
+    GLFT_OBJECT_DEFINITION_SIZE = GAME_LINK_OBJECT_DEFINITION_SIZE,
+    GLFT_OBJECT_ANIMATION_SIZE = GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT *
+                                 GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE,
     GLFT_AMMO_GIVE_SIZE = 44,
     GLFT_GUN_GIVE_SIZE = 24,
     GLFT_ALIEN_ANIMATION_SIZE = 2420,
@@ -116,6 +117,11 @@ static void game_link_set_error(char *error, size_t error_size, const char *mess
     }
 }
 
+static uint16_t game_link_read_be16(const uint8_t *source)
+{
+    return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
+}
+
 static int game_link_copy_field(const GameLink *link, GameLinkTable table,
                                 uint16_t index, size_t entry_size, uint16_t entry_count,
                                 int trim_spaces, int allow_empty,
@@ -197,12 +203,92 @@ int game_link_table(const GameLink *link, GameLinkTable table,
     return 1;
 }
 
+int game_link_get_object_definition(const GameLink *link, uint16_t object_index,
+                                    GameObjectDefinition *out_definition,
+                                    char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    const uint8_t *source;
+    GameObjectDefinition definition;
+
+    if (!out_definition || object_index >= GAME_LINK_OBJECT_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_OBJECT_DEFINITIONS, &bytes, &size) ||
+        size != (size_t)GAME_LINK_OBJECT_COUNT * GAME_LINK_OBJECT_DEFINITION_SIZE) {
+        game_link_set_error(error, error_size, "object definition is outside the GLFT table");
+        return 0;
+    }
+    source = bytes + (size_t)object_index * GAME_LINK_OBJECT_DEFINITION_SIZE;
+    definition.behaviour = game_link_read_be16(source + 0u);
+    definition.graphics_type = game_link_read_be16(source + 2u);
+    definition.active_timeout = (int16_t)game_link_read_be16(source + 4u);
+    definition.hit_points = game_link_read_be16(source + 6u);
+    definition.explosive_force = game_link_read_be16(source + 8u);
+    definition.impassible = game_link_read_be16(source + 10u);
+    definition.default_animation_length = game_link_read_be16(source + 12u);
+    definition.collision_radius = game_link_read_be16(source + 14u);
+    definition.collision_height = game_link_read_be16(source + 16u);
+    definition.floor_ceiling = game_link_read_be16(source + 18u);
+    definition.lock_to_wall = game_link_read_be16(source + 20u);
+    definition.active_animation_length = game_link_read_be16(source + 22u);
+    definition.sound_effect = (int16_t)game_link_read_be16(source + 24u);
+    *out_definition = definition;
+    return 1;
+}
+
+int game_link_get_object_animation_frame(const GameLink *link,
+                                         GameObjectAnimationKind kind,
+                                         uint16_t object_index, uint16_t frame_index,
+                                         GameObjectAnimationFrame *out_frame,
+                                         char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    const uint8_t *source;
+    GameLinkTable table;
+    GameObjectAnimationFrame frame;
+
+    if (kind == GAME_LINK_OBJECT_ANIMATION_DEFAULT) {
+        table = GAME_LINK_TABLE_OBJECT_DEFINITION_ANIMATIONS;
+    } else if (kind == GAME_LINK_OBJECT_ANIMATION_ACTION) {
+        table = GAME_LINK_TABLE_OBJECT_ACTION_ANIMATIONS;
+    } else {
+        game_link_set_error(error, error_size, "object animation kind is not defined by the GLFT");
+        return 0;
+    }
+    if (!out_frame || object_index >= GAME_LINK_OBJECT_COUNT ||
+        frame_index >= GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT ||
+        !game_link_table(link, table, &bytes, &size) ||
+        size != (size_t)GAME_LINK_OBJECT_COUNT * GLFT_OBJECT_ANIMATION_SIZE) {
+        game_link_set_error(error, error_size, "object animation frame is outside the GLFT table");
+        return 0;
+    }
+    source = bytes + (size_t)object_index * GLFT_OBJECT_ANIMATION_SIZE +
+             (size_t)frame_index * GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE;
+    frame.byte_0 = source[0u];
+    frame.byte_1 = source[1u];
+    frame.word_2 = game_link_read_be16(source + 2u);
+    frame.signed_byte_4 = (int8_t)source[4u];
+    frame.next_timer1 = source[5u];
+    *out_frame = frame;
+    return 1;
+}
+
 int game_link_copy_level_name(const GameLink *link, uint16_t level_index,
                               char *out_text, size_t out_text_size,
                               char *error, size_t error_size)
 {
     return game_link_copy_field(link, GAME_LINK_TABLE_LEVEL_NAMES, level_index,
                                 GLFT_LEVEL_NAME_SIZE, GAME_LINK_LEVEL_COUNT, 1, 0,
+                                out_text, out_text_size, error, error_size);
+}
+
+int game_link_copy_object_name(const GameLink *link, uint16_t object_index,
+                               char *out_text, size_t out_text_size,
+                               char *error, size_t error_size)
+{
+    return game_link_copy_field(link, GAME_LINK_TABLE_OBJECT_NAMES, object_index,
+                                GLFT_NAME_SIZE, GAME_LINK_OBJECT_COUNT, 1, 1,
                                 out_text, out_text_size, error, error_size);
 }
 

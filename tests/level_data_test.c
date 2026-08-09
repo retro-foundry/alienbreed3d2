@@ -56,6 +56,33 @@ static int liftable_matches_source(const LevelMechanisms *mechanisms,
         liftable->lower_condition == source[35u];
 }
 
+static int object_definition_matches_source(const GameObjectDefinition *definition,
+                                            const uint8_t *source)
+{
+    return definition && source &&
+        definition->behaviour == read_be16(source + 0u) &&
+        definition->graphics_type == read_be16(source + 2u) &&
+        definition->active_timeout == (int16_t)read_be16(source + 4u) &&
+        definition->hit_points == read_be16(source + 6u) &&
+        definition->explosive_force == read_be16(source + 8u) &&
+        definition->impassible == read_be16(source + 10u) &&
+        definition->default_animation_length == read_be16(source + 12u) &&
+        definition->collision_radius == read_be16(source + 14u) &&
+        definition->collision_height == read_be16(source + 16u) &&
+        definition->floor_ceiling == read_be16(source + 18u) &&
+        definition->lock_to_wall == read_be16(source + 20u) &&
+        definition->active_animation_length == read_be16(source + 22u) &&
+        definition->sound_effect == (int16_t)read_be16(source + 24u);
+}
+
+static int object_animation_frame_matches_source(const GameObjectAnimationFrame *frame,
+                                                 const uint8_t *source)
+{
+    return frame && source && frame->byte_0 == source[0u] &&
+        frame->byte_1 == source[1u] && frame->word_2 == read_be16(source + 2u) &&
+        frame->signed_byte_4 == (int8_t)source[4u] && frame->next_timer1 == source[5u];
+}
+
 int main(int argc, char **argv)
 {
     AssetBlob level_data = {0};
@@ -68,9 +95,17 @@ int main(int argc, char **argv)
     GameLink game_link;
     AssetBlob game_link_blob = {0};
     const uint8_t *table_bytes;
+    const uint8_t *object_definition_bytes;
+    const uint8_t *object_default_animation_bytes;
+    const uint8_t *object_action_animation_bytes;
     size_t table_size;
+    size_t object_definition_size;
+    size_t object_default_animation_size;
+    size_t object_action_animation_size;
     uint16_t level_index;
     uint16_t zone_index;
+    uint16_t object_definition_index;
+    uint16_t object_animation_index;
     int16_t trig_value;
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
@@ -93,6 +128,8 @@ int main(int argc, char **argv)
     LevelSwitch switch_record;
     LevelObjectSlot object_slot;
     LevelObjectPoint object_point;
+    GameObjectDefinition object_definition;
+    GameObjectAnimationFrame object_animation_frame;
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
     uint32_t world_point_index;
@@ -191,8 +228,21 @@ int main(int argc, char **argv)
         !game_link_table(&game_link, GAME_LINK_TABLE_BULLET_DEFINITIONS,
                          &table_bytes, &table_size) ||
         table_bytes == NULL || table_size != 20u * 300u ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_OBJECT_DEFINITIONS,
+                         &object_definition_bytes, &object_definition_size) ||
+        object_definition_size != (size_t)GAME_LINK_OBJECT_COUNT *
+                                      GAME_LINK_OBJECT_DEFINITION_SIZE ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_OBJECT_DEFINITION_ANIMATIONS,
+                         &object_default_animation_bytes, &object_default_animation_size) ||
+        object_default_animation_size != (size_t)GAME_LINK_OBJECT_COUNT *
+                                            GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT *
+                                            GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_OBJECT_ACTION_ANIMATIONS,
+                         &object_action_animation_bytes, &object_action_animation_size) ||
+        object_action_animation_size != object_default_animation_size ||
         !game_link_copy_level_name(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
         strcmp(text, "      LEVEL  A") != 0 ||
+        !game_link_copy_object_name(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
         !game_link_copy_level_music_path(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
         strcmp(text, "tkg2:music/packedtest") != 0 ||
         !game_link_resolve_staged_path(text, text, sizeof(text), error, sizeof(error)) ||
@@ -210,6 +260,59 @@ int main(int argc, char **argv)
         game_link_copy_sfx_path(&game_link, GAME_LINK_SFX_LOAD_COUNT, text, sizeof(text),
                                 error, sizeof(error))) {
         fprintf(stderr, "GLFT catalog parsing is inconsistent: %s\n", error);
+        asset_blob_release(&game_link_blob);
+        return 1;
+    }
+    for (object_definition_index = 0u;
+         object_definition_index < GAME_LINK_OBJECT_COUNT;
+         ++object_definition_index) {
+        if (!game_link_get_object_definition(&game_link, object_definition_index,
+                                             &object_definition, error, sizeof(error)) ||
+            !object_definition_matches_source(
+                &object_definition,
+                object_definition_bytes + (size_t)object_definition_index *
+                    GAME_LINK_OBJECT_DEFINITION_SIZE)) {
+            fprintf(stderr, "GLFT object definition %u is inconsistent: %s\n",
+                    object_definition_index, error);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+        for (object_animation_index = 0u;
+             object_animation_index < GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT;
+             ++object_animation_index) {
+            size_t frame_offset = ((size_t)object_definition_index *
+                                   GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT +
+                                   object_animation_index) *
+                                  GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE;
+
+            if (!game_link_get_object_animation_frame(
+                    &game_link, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                    object_definition_index, object_animation_index,
+                    &object_animation_frame, error, sizeof(error)) ||
+                !object_animation_frame_matches_source(&object_animation_frame,
+                                                       object_default_animation_bytes + frame_offset) ||
+                !game_link_get_object_animation_frame(
+                    &game_link, GAME_LINK_OBJECT_ANIMATION_ACTION,
+                    object_definition_index, object_animation_index,
+                    &object_animation_frame, error, sizeof(error)) ||
+                !object_animation_frame_matches_source(&object_animation_frame,
+                                                       object_action_animation_bytes + frame_offset)) {
+                fprintf(stderr, "GLFT object animation %u frame %u is inconsistent: %s\n",
+                        object_definition_index, object_animation_index, error);
+                asset_blob_release(&game_link_blob);
+                return 1;
+            }
+        }
+    }
+    if (game_link_get_object_definition(&game_link, GAME_LINK_OBJECT_COUNT,
+                                        &object_definition, error, sizeof(error)) ||
+        game_link_get_object_animation_frame(&game_link, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                                             0u, GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT,
+                                             &object_animation_frame, error, sizeof(error)) ||
+        game_link_get_object_animation_frame(&game_link, (GameObjectAnimationKind)2,
+                                             0u, 0u, &object_animation_frame,
+                                             error, sizeof(error))) {
+        fprintf(stderr, "GLFT object-record bounds checks are inconsistent\n");
         asset_blob_release(&game_link_blob);
         return 1;
     }

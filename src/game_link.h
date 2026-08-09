@@ -16,6 +16,55 @@ typedef struct {
     size_t size;
 } GameLink;
 
+/* defs.i:ODefT_SizeOf_l and O_FrameStoreSize/O_AnimSize. */
+enum {
+    GAME_LINK_OBJECT_DEFINITION_SIZE = 40,
+    GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE = 6,
+    GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT = 20
+};
+
+/*
+ * Native read view of defs.i:ODefT. `active_timeout` and `sound_effect` are
+ * signed because newaliencontrol.s tests both fields for a negative sentinel.
+ * Other values preserve their UWORD source representation until their owning
+ * gameplay routine establishes more specific semantics.
+ */
+typedef struct {
+    uint16_t behaviour;
+    uint16_t graphics_type;
+    int16_t active_timeout;
+    uint16_t hit_points;
+    uint16_t explosive_force;
+    uint16_t impassible;
+    uint16_t default_animation_length;
+    uint16_t collision_radius;
+    uint16_t collision_height;
+    uint16_t floor_ceiling;
+    uint16_t lock_to_wall;
+    uint16_t active_animation_length;
+    int16_t sound_effect;
+} GameObjectDefinition;
+
+/*
+ * One six-byte O_FrameStore record. DEFANIMOBJ and ACTANIMOBJ use these
+ * fields differently for bitmap, vector, and glare graphics, so only the
+ * signed byte-four operation and next Timer1 value are named here. The first
+ * four bytes deliberately retain source-offset names until sprite semantics
+ * are established by the ObjectHandler-to-Draw_Objects oracle fixture.
+ */
+typedef struct {
+    uint8_t byte_0;
+    uint8_t byte_1;
+    uint16_t word_2;
+    int8_t signed_byte_4;
+    uint8_t next_timer1;
+} GameObjectAnimationFrame;
+
+typedef enum {
+    GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+    GAME_LINK_OBJECT_ANIMATION_ACTION
+} GameObjectAnimationKind;
+
 enum {
     GAME_LINK_LEVEL_COUNT = 16,
     GAME_LINK_OBJECT_COUNT = 30,
@@ -67,10 +116,26 @@ int game_link_init(const AssetBlob *blob, GameLink *out_link,
 int game_link_table(const GameLink *link, GameLinkTable table,
                     const uint8_t **out_bytes, size_t *out_size);
 
+/*
+ * Endian-safe GLFT object records used by newaliencontrol.s:ItsAnObject,
+ * DEFANIMOBJ, and ACTANIMOBJ. These readers have no runtime side effects.
+ */
+int game_link_get_object_definition(const GameLink *link, uint16_t object_index,
+                                    GameObjectDefinition *out_definition,
+                                    char *error, size_t error_size);
+int game_link_get_object_animation_frame(const GameLink *link,
+                                         GameObjectAnimationKind kind,
+                                         uint16_t object_index, uint16_t frame_index,
+                                         GameObjectAnimationFrame *out_frame,
+                                         char *error, size_t error_size);
+
 /* Fixed 40-byte labels have no NUL terminator in the shipped game link. */
 int game_link_copy_level_name(const GameLink *link, uint16_t level_index,
                               char *out_text, size_t out_text_size,
                               char *error, size_t error_size);
+int game_link_copy_object_name(const GameLink *link, uint16_t object_index,
+                               char *out_text, size_t out_text_size,
+                               char *error, size_t error_size);
 
 /* Resource entries are source C strings padded to a fixed GLFT table size. */
 int game_link_copy_level_music_path(const GameLink *link, uint16_t level_index,
