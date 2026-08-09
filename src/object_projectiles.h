@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "game_link.h"
+#include "level_dynamic_state.h"
 #include "object_runtime.h"
 
 /*
@@ -16,12 +17,15 @@ int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_
                                           char *error, size_t error_size);
 
 /*
- * newanims.s:ItsABullet's `notpopping` BulT_AnimData_vb descriptor/frame
- * path for a live projectile. Motion, surface collision, blasts, lighting,
- * and audio remain with the later portions of that same source routine.
+ * newanims.s:ItsABullet's live (`notpopping`) path. It advances the source
+ * lifetime, descriptor/frame, floor/roof response, zero-extension MoveObject
+ * trace, wall response, and direct target collision in source order. Audio,
+ * brightness, and ComputeBlast remain owned by their unported source paths.
  */
 int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint32_t slot_index,
+                                                     LevelDynamicState *dynamic_level,
                                                      const GameLink *game_link,
+                                                     uint16_t frame_ticks,
                                                      char *error, size_t error_size);
 
 #endif

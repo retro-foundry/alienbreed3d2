@@ -1756,7 +1756,7 @@ int main(int argc, char **argv)
                 }
                 activatable_player.tmp_used = UINT8_MAX;
                 if (!object_handler_update_single_player(
-                        &game.object_runtime, &game.dynamic_level.runtime,
+                        &game.object_runtime, &game.dynamic_level,
                         &game.game_link_catalog, &activatable_player,
                         &activatable_inventory, &game.inventory_limits, 1u,
                         NULL, error, sizeof(error)) ||
@@ -1813,7 +1813,7 @@ int main(int argc, char **argv)
                     passive_height = source_asr32_7(passive_height) +
                         (int16_t)passive_frame.signed_byte_4 * 2;
                     if (!object_handler_update_single_player(
-                            &game.object_runtime, &game.dynamic_level.runtime,
+                            &game.object_runtime, &game.dynamic_level,
                             &game.game_link_catalog, &game.player,
                             &game.session.player1_inventory, &game.inventory_limits, 1u,
                             NULL, error, sizeof(error)) ||
@@ -1851,7 +1851,7 @@ int main(int argc, char **argv)
                     passive_height = source_asr32_7(passive_height) +
                         (int16_t)passive_frame.signed_byte_4 * 2;
                     if (!object_handler_update_single_player(
-                            &game.object_runtime, &game.dynamic_level.runtime,
+                            &game.object_runtime, &game.dynamic_level,
                             &game.game_link_catalog, &game.player,
                             &game.session.player1_inventory, &game.inventory_limits, 1u,
                             NULL, error, sizeof(error)) ||
@@ -3387,7 +3387,8 @@ int main(int argc, char **argv)
                 &game.game_link_catalog, GAME_LINK_BULLET_ANIMATION_FLIGHT,
                 projectile_bullet_index, 0u, &projectile_frame, error, sizeof(error)) ||
             !object_projectiles_update_flight_animation_slot(
-                &projectile_objects, 0u, &game.game_link_catalog, error, sizeof(error)) ||
+                &projectile_objects, 0u, &game.dynamic_level, &game.game_link_catalog, 1u,
+                error, sizeof(error)) ||
             read_be16(slot_bytes + 6u) != projectile_frame.word_2 ||
             slot_bytes[11u] != projectile_frame.byte_1 ||
             slot_bytes[52u] != ((int16_t)(uint16_t)projectile_bullet.animation_frames < 1 ?
@@ -3417,7 +3418,7 @@ int main(int argc, char **argv)
         }
         slot_bytes[52u] = 0u;
         if (!object_handler_update_single_player(
-                &projectile_objects, &game.dynamic_level.runtime, &game.game_link_catalog,
+                &projectile_objects, &game.dynamic_level, &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             slot_bytes[52u] != ((int16_t)(uint16_t)projectile_bullet.animation_frames < 1 ?
@@ -3426,6 +3427,233 @@ int main(int argc, char **argv)
                     error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        {
+            /*
+             * ItsABullet moves through a Vec2L segment before testing the
+             * source object list. This isolated one-zone source layout makes
+             * that segment hit a type-zero target at its midpoint.
+             */
+            uint8_t flight_level_bytes[64u] = {0};
+            uint8_t flight_graphics_bytes[4u] = {0};
+            uint8_t flight_slot_bytes[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+            uint8_t flight_point_bytes[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+            LevelRuntime flight_level = {0};
+            LevelDynamicState flight_dynamic = {0};
+            ObjectRuntime flight_objects = {0};
+            int16_t expected_target_height = source_asr32_7(
+                (int16_t)(uint16_t)projectile_bullet.gravity);
+
+            flight_level.level_bytes = flight_level_bytes;
+            flight_level.level_size = sizeof(flight_level_bytes);
+            flight_level.graphics_bytes = flight_graphics_bytes;
+            flight_level.graphics_size = sizeof(flight_graphics_bytes);
+            flight_level.zone_offsets_table_offset = 0u;
+            flight_level.zone_count = 1u;
+            write_be32(flight_graphics_bytes, 0u);
+            write_be16(flight_level_bytes + 0u, 0u);
+            write_be32(flight_level_bytes + 2u, 100000u);
+            write_be32(flight_level_bytes + 6u, 100000u);
+            write_be32(flight_level_bytes + 10u, 100000u);
+            write_be32(flight_level_bytes + 14u, 100000u);
+            write_be16(flight_level_bytes + 32u, 48u);
+            write_be16(flight_level_bytes + 48u, UINT16_MAX);
+            if (!level_dynamic_state_init(&flight_dynamic, &flight_level, error, sizeof(error))) {
+                fprintf(stderr, "could not initialize ItsABullet source fixture: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            flight_objects.slot_bytes = flight_slot_bytes;
+            flight_objects.slot_count = 3u;
+            flight_objects.active_slot_count = 3u;
+            flight_objects.point_bytes = flight_point_bytes;
+            flight_objects.point_count = 2u;
+            write_be16(flight_slot_bytes + 0u, 0u);
+            write_be16(flight_slot_bytes + 12u, 0u);
+            flight_slot_bytes[16u] = 2u;
+            flight_slot_bytes[28u] = 7u;
+            flight_slot_bytes[31u] = (uint8_t)projectile_bullet_index;
+            write_be16(flight_slot_bytes + 58u, UINT16_MAX);
+            write_be32(flight_slot_bytes + 18u, UINT32_C(0x00640000));
+            write_be32(flight_slot_bytes + 36u, 1u);
+            write_be32(flight_point_bytes + 0u, 0u);
+            write_be32(flight_point_bytes + 4u, 0u);
+            write_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 1u);
+            write_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                       (uint16_t)expected_target_height);
+            write_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+            flight_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+            flight_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] = 3u;
+            write_be32(flight_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u,
+                       UINT32_C(0x00320000));
+            write_be32(flight_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u, 0u);
+            write_be16(flight_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                       UINT16_MAX);
+            if (!object_projectiles_update_flight_animation_slot(
+                    &flight_objects, 0u, &flight_dynamic, &game.game_link_catalog, 1u,
+                    error, sizeof(error)) ||
+                read_be16(flight_slot_bytes + 12u) != 0u ||
+                read_be16(flight_slot_bytes + 26u) != 0u ||
+                read_be32(flight_point_bytes + 0u) != UINT32_C(0x00640000) ||
+                read_be32(flight_point_bytes + 4u) != 0u ||
+                flight_slot_bytes[30u] != 1u || flight_slot_bytes[52u] != 0u ||
+                flight_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 10u ||
+                read_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) != 100u ||
+                read_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u) != 0u) {
+                fprintf(stderr, "ItsABullet source movement/target collision is inconsistent: %s\n",
+                        error);
+                level_dynamic_state_destroy(&flight_dynamic);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            level_dynamic_state_destroy(&flight_dynamic);
+        }
+        {
+            /* Source-shaped BulT variants exercise the remaining ItsABullet branches. */
+            uint8_t flight_link_bytes[GAME_LINK_SIZE];
+            uint8_t flight_level_bytes[96u] = {0};
+            uint8_t flight_graphics_bytes[4u] = {0};
+            uint8_t flight_slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+            uint8_t flight_point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+            const uint8_t *bullet_table;
+            size_t bullet_table_size;
+            size_t bullet_table_offset;
+            uint8_t *bullet_definition;
+            GameLink flight_link = game.game_link_catalog;
+            LevelRuntime flight_level = {0};
+            LevelDynamicState flight_dynamic = {0};
+            ObjectRuntime flight_objects = {0};
+
+            if (!game_link_table(&game.game_link_catalog, GAME_LINK_TABLE_BULLET_DEFINITIONS,
+                                 &bullet_table, &bullet_table_size) ||
+                bullet_table_size != GAME_LINK_BULLET_COUNT * GAME_LINK_BULLET_DEFINITION_SIZE) {
+                fprintf(stderr, "could not locate ItsABullet source definition table\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            bullet_table_offset = (size_t)(bullet_table - game.game_link_catalog.bytes);
+            memcpy(flight_link_bytes, game.game_link_catalog.bytes, sizeof(flight_link_bytes));
+            flight_link.bytes = flight_link_bytes;
+            bullet_definition = flight_link_bytes + bullet_table_offset +
+                (size_t)projectile_bullet_index * GAME_LINK_BULLET_DEFINITION_SIZE;
+            /* BulT: non-hitscan, zero gravity, no finite life unless stated below. */
+            write_be32(bullet_definition + 0u, 0u);
+            write_be32(bullet_definition + 4u, 0u);
+            write_be32(bullet_definition + 8u, UINT32_MAX);
+            write_be32(bullet_definition + 16u, 1u);
+            write_be32(bullet_definition + 20u, 0u);
+            flight_level.level_bytes = flight_level_bytes;
+            flight_level.level_size = sizeof(flight_level_bytes);
+            flight_level.graphics_bytes = flight_graphics_bytes;
+            flight_level.graphics_size = sizeof(flight_graphics_bytes);
+            flight_level.zone_offsets_table_offset = 0u;
+            flight_level.edge_table_offset = 64u;
+            flight_level.edge_count = 1u;
+            flight_level.zone_count = 1u;
+            write_be32(flight_graphics_bytes, 0u);
+            write_be16(flight_level_bytes + 0u, 0u);
+            write_be32(flight_level_bytes + 2u, 100000u);
+            write_be32(flight_level_bytes + 6u, 200000u);
+            write_be32(flight_level_bytes + 10u, 100000u);
+            write_be32(flight_level_bytes + 14u, 200000u);
+            write_be16(flight_level_bytes + 32u, 48u);
+            write_be16(flight_level_bytes + 48u, 0u);
+            write_be16(flight_level_bytes + 50u, UINT16_MAX);
+            /* The same vertical solid edge used by the MoveObject source fixture. */
+            write_be16(flight_level_bytes + 64u, 10u);
+            write_be16(flight_level_bytes + 66u, 20u);
+            write_be16(flight_level_bytes + 68u, 0u);
+            write_be16(flight_level_bytes + 70u, UINT16_C(0xffec));
+            write_be16(flight_level_bytes + 72u, UINT16_MAX);
+            write_be16(flight_level_bytes + 74u, 20u);
+            if (!level_dynamic_state_init(&flight_dynamic, &flight_level, error, sizeof(error))) {
+                fprintf(stderr, "could not initialize ItsABullet collision fixture: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            flight_objects.slot_bytes = flight_slot_bytes;
+            flight_objects.slot_count = 2u;
+            flight_objects.active_slot_count = 2u;
+            flight_objects.point_bytes = flight_point_bytes;
+            flight_objects.point_count = 1u;
+            write_be16(flight_slot_bytes + 0u, 0u);
+            write_be16(flight_slot_bytes + 12u, 0u);
+            flight_slot_bytes[16u] = 2u;
+            flight_slot_bytes[31u] = (uint8_t)projectile_bullet_index;
+            write_be16(flight_slot_bytes + 58u, UINT16_MAX);
+            write_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, UINT16_MAX);
+            write_be32(flight_point_bytes + 0u, 0u);
+            write_be32(flight_point_bytes + 4u, UINT32_C(0x000a0000));
+            write_be32(flight_slot_bytes + 18u, UINT32_C(0x00140000));
+            if (!object_projectiles_update_flight_animation_slot(
+                    &flight_objects, 0u, &flight_dynamic, &flight_link, 1u,
+                    error, sizeof(error)) ||
+                flight_slot_bytes[30u] != 0u ||
+                read_be32(flight_point_bytes + 0u) != UINT32_C(0x000a0000) ||
+                read_be16(flight_slot_bytes + 18u) != UINT16_C(0xffec)) {
+                fprintf(stderr, "ItsABullet source horizontal bounce is inconsistent: %s\n",
+                        error);
+                level_dynamic_state_destroy(&flight_dynamic);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            write_be32(bullet_definition + 16u, 0u);
+            flight_slot_bytes[30u] = 0u;
+            flight_slot_bytes[52u] = 0u;
+            write_be32(flight_slot_bytes + 18u, UINT32_C(0x00140000));
+            write_be32(flight_slot_bytes + 44u, 0u);
+            write_be32(flight_point_bytes + 0u, 0u);
+            if (!object_projectiles_update_flight_animation_slot(
+                    &flight_objects, 0u, &flight_dynamic, &flight_link, 1u,
+                    error, sizeof(error)) ||
+                flight_slot_bytes[30u] != 1u ||
+                read_be32(flight_point_bytes + 0u) != UINT32_C(0x000a0000) ||
+                read_be32(flight_slot_bytes + 44u) != (uint32_t)-320) {
+                fprintf(stderr,
+                        "ItsABullet source horizontal impact is inconsistent: %s "
+                        "(status %u, x %08x, acc-y %08x)\n",
+                        error, flight_slot_bytes[30u], read_be32(flight_point_bytes + 0u),
+                        read_be32(flight_slot_bytes + 44u));
+                level_dynamic_state_destroy(&flight_dynamic);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            /* Floor response uses BulT_BounceVert_l rather than ShotT's roof flag byte. */
+            write_be32(bullet_definition + 20u, 1u);
+            flight_slot_bytes[30u] = 0u;
+            flight_slot_bytes[52u] = 0u;
+            write_be32(flight_slot_bytes + 18u, 0u);
+            write_be16(flight_slot_bytes + 42u, 256u);
+            write_be32(flight_slot_bytes + 44u, 99000u);
+            if (!object_projectiles_update_flight_animation_slot(
+                    &flight_objects, 0u, &flight_dynamic, &flight_link, 1u,
+                    error, sizeof(error)) ||
+                flight_slot_bytes[30u] != 0u ||
+                read_be16(flight_slot_bytes + 42u) != UINT16_C(0xff80) ||
+                read_be32(flight_slot_bytes + 44u) != 98592u) {
+                fprintf(stderr, "ItsABullet source floor bounce is inconsistent: %s\n", error);
+                level_dynamic_state_destroy(&flight_dynamic);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            /* A finite source lifetime marks the same impact state after movement. */
+            write_be32(bullet_definition + 8u, 0u);
+            write_be32(bullet_definition + 20u, 0u);
+            flight_slot_bytes[30u] = 0u;
+            flight_slot_bytes[52u] = 0u;
+            write_be16(flight_slot_bytes + 58u, 1u);
+            write_be16(flight_slot_bytes + 42u, 0u);
+            write_be32(flight_slot_bytes + 44u, 0u);
+            if (!object_projectiles_update_flight_animation_slot(
+                    &flight_objects, 0u, &flight_dynamic, &flight_link, 1u,
+                    error, sizeof(error)) ||
+                flight_slot_bytes[30u] != 1u || read_be16(flight_slot_bytes + 58u) != 1u) {
+                fprintf(stderr, "ItsABullet source lifetime expiry is inconsistent: %s\n", error);
+                level_dynamic_state_destroy(&flight_dynamic);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            level_dynamic_state_destroy(&flight_dynamic);
         }
         if (!player_shoot_spawn_projectile_volley(
                 &projectile_objects, &game.math, &projectile_player,

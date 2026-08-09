@@ -139,7 +139,7 @@ authority for all game behavior and data formats.
   without applying any update. The original `Game_Begin` player-shot,
   alien-shot, player-one, and player-two offsets now resolve to checked ranges
   in that owned `ObjT` array, including all 20 slots in each projectile pool.
-  Alien AI, projectile flight/collision, and audio remain unported; the
+  Alien AI and audio remain unported; the
   bounded object paths listed below retain their own source-owned updates.
   `src/object_observation.*` independently translates the source
   `CalcPLR1InLine` workspace over that mutable ObjT/object-point state using
@@ -158,7 +158,15 @@ authority for all game behavior and data formats.
   `newplayershoot.s:firefive`, which creates a non-hitscan volley directly in
   the source player-shot pool: exact centred firing angles, speed/vertical
   clamp, launch coordinates, and projectile bytes are covered by regression
-  tests. `src/object_movement.*` now translates the zero-extension
+  tests. `src/object_projectiles.*` now also translates the live
+  `ItsABullet:notpopping` path: signed lifetime comparison/tick, source frame
+  descriptor, roof/floor bounce or impact, fixed-point Vec2L/vertical motion,
+  zero-extension `MoveObject` contact, horizontal reflection or impact, and
+  the source direct-target segment test/damage write. `ObjectHandler` supplies
+  the mutable level state needed by that trace, so non-hitscan player volleys
+  now advance in the live game loop. Brightness, impact audio, and
+  `ComputeBlast` remain unported rather than substituted. `src/object_movement.*`
+  now translates the zero-extension
   `objectmove.s:MoveObject` workspace used by
   `newplayershoot.s:plr1_HitscanFailed`: primary edge contact, source height
   opening tests, edge flag writes, exit-first contact coordinates, and bounded
@@ -180,9 +188,9 @@ authority for all game behavior and data formats.
   addition, arithmetic divide-by-64, and signed `BGT` decision after one
   `GetRand` advance. The native controller currently has no mouse path, so its
   explicit `Plr1_Mouse_b` equivalent is false; the source preference branch is
-  retained for a later mouse controller. Original shot audio and moving-
-  projectile simulation remain absent, while the existing projectile launch
-  state and stationary hit-scan pop dispatch are live.
+  retained for a later mouse controller. Original shot audio remains absent,
+  while projectile launch, moving-flight/collision, and stationary hit-scan
+  pop dispatch are live.
   `src/game_random.*` now retains `objectmove.s:GetRand`'s
   exact seeded 16-bit rotate/add sequence for the upcoming probability and AI
   paths. `GameBootstrap` owns and initializes that `Rand1` state once per
@@ -417,8 +425,8 @@ authority for all game behavior and data formats.
      gameplay visibility query an alien update will consume.
      `object_movement.*` and `player_shoot.*` now preserve the complete
      zero-extension `MoveObject` trace and its `plr1_HitscanFailed` pool write.
-     Next: source `Obj_DoCollision`, the remaining alien/projectile-flight
-     `ObjectHandler` paths, moving-projectile collision, mouse input, and
+     Next: source `Obj_DoCollision`, the remaining alien `ObjectHandler`
+     paths, mouse input, and
      audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; it intentionally
      does not synthesize the unported sound effect.
@@ -485,30 +493,33 @@ selection while menu work is deferred; this allows the gameplay loop to enter
 authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
-objects, apply `Obj_DoCollision`, complete the remaining source-order object
-handling, activate switches, and advance created projectiles. The door/lift and
+objects, apply `Obj_DoCollision`, and complete the remaining source-order alien
+handling. The door/lift and
 bounded object slices are complete. `src/object_scene.*` now emits the raw render
 descriptor for every live source object without renderer visibility logic,
 while `src/object_handler.*` now
 preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator, and
 `ObjT_ZoneID_w` to `EntT_ZoneID_w` copy for the translated collectable,
 activatable, destructible, and decoration branches. The destructible/decorative
-path has no inferred AI worry, narrative, or lock behavior; the stationary
-hitscan-impact projectile dispatch is now present, while alien and moving-
-  projectile dispatch remain unported. `src/object_projectiles.*` now also
-  retains `ItsABullet:notpopping`'s source `BulT_AnimData_vb` graphics
-  descriptor and animation-frame cycle for each live launched projectile;
-  flight motion/collision, blast, lighting, and audio remain in the later
-  source branches and are not replaced. The reusable `CanItBeSeen` query now
+path has no inferred AI worry, narrative, or lock behavior; the projectile
+dispatch is now present while alien dispatch remains unported.
+`src/object_projectiles.*` now runs
+  each live `ItsABullet:notpopping` projectile through the source lifetime,
+  graphics descriptor/frame, vertical response, fixed-point movement,
+  zero-extension wall trace/reflection-or-impact, and direct-target hit path;
+  that state is dispatched from `ObjectHandler` using the mutable level.
+  Brightness, blast damage, and audio remain in their later source branches
+  and are not replaced. The reusable `CanItBeSeen` query now
 retains source gameplay PVST/clip/height behavior but is deliberately not
 wired until the owning alien path is translated. `firefive` now creates the
-source non-hitscan launch state, but its later `ItsABullet` movement/collision
-path is still absent, so it too remains unwired. `object_movement.*` now
+source non-hitscan launch state, and its `ItsABullet` movement/collision path
+is now live. `object_movement.*` now
 provides the exact zero-extension `MoveObject` path for
 `plr1_HitscanFailed`, including its exit-first wall contact and joined-zone
 state, while `player_shoot.*` now consumes it to create the source miss effect.
-The source fire/cooldown/ammunition control is now wired before `ObjectHandler`,
-so the remaining projectile work is flight/collision rather than launch.
+The source fire/cooldown/ammunition control is wired before `ObjectHandler`,
+so the remaining projectile work is blast/audio/brightness rather than launch
+or basic flight/collision.
 Translate each remaining bounded slice directly from the maintained source and
 add source-derived regressions for its state changes and ordering.
 

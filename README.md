@@ -50,7 +50,9 @@ first game's software renderer:
   entity is also republished each update from `GLFT_GunObjects_l`, so firing
   updates its real object state. The bounded stationary impact state created by
   `plr1_HitscanSucceded` advances its original `ItsABullet` pop frames and
-  releases its source slot; projectile flight/collision remains unported;
+  releases its source slot. Live `firefive` projectiles now retain the source
+  lifetime, fixed-point movement, floor/roof/wall response, and direct target
+  collision path; brightness, blast, and audio remain unported;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload). The native Load Position and Save
   Position menus use the original six-record, 420-byte `boot.dat` layout at a
@@ -63,8 +65,8 @@ first game's software renderer:
   Master/slave multiplayer is explicitly unavailable. Native SDL events feed
   the source-shaped raw-key map, player movement/falling/static collision,
   collectables, doors, lifts, water updates, and the source single-player
-  weapon cooldown/ammunition/hitscan/projectile-launch path; enemy,
-  projectile-flight, mouse-input, and audio paths remain in progress;
+  weapon cooldown/ammunition/hitscan/projectile-launch/flight path; enemy,
+  mouse-input, blast/brightness, and audio paths remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

@@ -236,7 +236,7 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
             &game->player, &game->session.player1_inventory, &game->game_link_catalog,
             &game->preferences, &game->math, &game->random, 1u, error, error_size) ||
         !object_handler_update_single_player(
-            &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
+            &game->object_runtime, &game->dynamic_level, &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,
             1u, NULL, error, error_size) ||
         !mechanism_runtime_update_doors_single_player(

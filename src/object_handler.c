@@ -41,20 +41,22 @@ static void object_handler_write_be16(uint8_t *target, uint16_t value)
 }
 
 int object_handler_update_single_player(
-    ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
     uint32_t *out_collected_count, char *error, size_t error_size)
 {
+    const LevelRuntime *level;
     uint32_t collected_count = 0u;
 
-    if (!objects || !level || !game_link || !player || !inventory || !limits ||
+    if (!objects || !dynamic_level || !game_link || !player || !inventory || !limits ||
         objects->active_slot_count > objects->slot_count ||
-        player->zone_index >= level->zone_count) {
+        player->zone_index >= dynamic_level->runtime.zone_count) {
         object_handler_set_error(error, error_size,
                                  "ObjectHandler received invalid single-player state");
         return 0;
     }
+    level = &dynamic_level->runtime;
     for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
         uint8_t *slot;
         GameObjectDefinition definition;
@@ -78,8 +80,9 @@ int object_handler_update_single_player(
                  !object_projectiles_update_impact_slot(objects, slot_index, game_link,
                                                         error, error_size)) ||
                 (popping == 0u &&
-                 !object_projectiles_update_flight_animation_slot(objects, slot_index, game_link,
-                                                                   error, error_size))) {
+                 !object_projectiles_update_flight_animation_slot(
+                     objects, slot_index, dynamic_level, game_link, frame_ticks,
+                     error, error_size))) {
                 return 0;
             }
             continue;

@@ -1,17 +1,34 @@
 #include "object_projectiles.h"
 
+#include <limits.h>
 #include <stdio.h>
+
+#include "object_movement.h"
 
 enum {
     /* defs.i:ObjT/EntT/ShotT fields used by newanims.s:ItsABullet. */
+    OBJECT_PROJECTILE_POINT_INDEX = 0u,
+    OBJECT_PROJECTILE_VERTICAL_POSITION = 4u,
     OBJECT_PROJECTILE_GRAPHICS_WORD = 6u,
     OBJECT_PROJECTILE_GRAPHICS_LONG = 8u,
     OBJECT_PROJECTILE_ZONE_ID = 12u,
     OBJECT_PROJECTILE_TYPE_ID = 16u,
+    OBJECT_PROJECTILE_VELOCITY_X = 18u,
+    OBJECT_PROJECTILE_VELOCITY_Z = 22u,
     OBJECT_PROJECTILE_ENTITY_ZONE_ID = 26u,
+    OBJECT_PROJECTILE_POWER = 28u,
     OBJECT_PROJECTILE_STATUS = 30u,
     OBJECT_PROJECTILE_SIZE = 31u,
+    OBJECT_PROJECTILE_ENTITY_HIT_POINTS = 18u,
+    OBJECT_PROJECTILE_ENTITY_DAMAGE_TAKEN = 19u,
+    OBJECT_PROJECTILE_ENTITY_ENEMY_FLAGS = 36u,
+    OBJECT_PROJECTILE_VELOCITY_Y = 42u,
+    OBJECT_PROJECTILE_ACCUMULATED_Y = 44u,
     OBJECT_PROJECTILE_ANIMATION = 52u,
+    OBJECT_PROJECTILE_GRAVITY = 54u,
+    OBJECT_PROJECTILE_LIFETIME = 58u,
+    OBJECT_PROJECTILE_FLAGS = 60u,
+    OBJECT_PROJECTILE_IN_UPPER_ZONE = 63u,
     OBJECT_TYPE_PROJECTILE = 2u
 };
 
@@ -32,6 +49,17 @@ static int16_t object_projectiles_read_be16s(const uint8_t *source)
     return (int16_t)object_projectiles_read_be16(source);
 }
 
+static uint32_t object_projectiles_read_be32(const uint8_t *source)
+{
+    return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
+           ((uint32_t)source[2] << 8) | source[3];
+}
+
+static int32_t object_projectiles_read_be32s(const uint8_t *source)
+{
+    return (int32_t)object_projectiles_read_be32(source);
+}
+
 static void object_projectiles_write_be16(uint8_t *target, uint16_t value)
 {
     target[0] = (uint8_t)(value >> 8);
@@ -44,6 +72,110 @@ static void object_projectiles_write_be32(uint8_t *target, uint32_t value)
     target[1] = (uint8_t)(value >> 16);
     target[2] = (uint8_t)(value >> 8);
     target[3] = (uint8_t)value;
+}
+
+/* 68000 ADD/SUB on longwords and words retain their wraparound result. */
+static int32_t object_projectiles_add32(int32_t left, int32_t right)
+{
+    return (int32_t)((uint32_t)left + (uint32_t)right);
+}
+
+static int32_t object_projectiles_sub32(int32_t left, int32_t right)
+{
+    return (int32_t)((uint32_t)left - (uint32_t)right);
+}
+
+static int16_t object_projectiles_add16(int16_t left, int16_t right)
+{
+    return (int16_t)((uint16_t)left + (uint16_t)right);
+}
+
+static int16_t object_projectiles_sub16(int16_t left, int16_t right)
+{
+    return (int16_t)((uint16_t)left - (uint16_t)right);
+}
+
+static int16_t object_projectiles_neg16(int16_t value)
+{
+    return (int16_t)(0u - (uint16_t)value);
+}
+
+static int32_t object_projectiles_neg32(int32_t value)
+{
+    return (int32_t)(0u - (uint32_t)value);
+}
+
+static int32_t object_projectiles_muls16(int16_t left, int16_t right)
+{
+    return (int32_t)left * (int32_t)right;
+}
+
+static int32_t object_projectiles_asr32(int32_t value, unsigned int count)
+{
+    if (value >= 0) {
+        return value >> count;
+    }
+    return -((-(int64_t)value + ((INT64_C(1) << count) - 1)) >> count);
+}
+
+static int16_t object_projectiles_asr16(int16_t value, unsigned int count)
+{
+    return (int16_t)object_projectiles_asr32(value, count);
+}
+
+/* move.w to the first word of a big-endian Vec2L/velocity longword. */
+static int32_t object_projectiles_replace_high_word(int32_t value, int16_t high_word)
+{
+    return (int32_t)(((uint32_t)(uint16_t)high_word << 16) |
+                     ((uint32_t)value & UINT32_C(0x0000ffff)));
+}
+
+static int16_t object_projectiles_high_word(int32_t value)
+{
+    return (int16_t)((uint32_t)value >> 16);
+}
+
+static int object_projectiles_divs16(int32_t dividend, int16_t divisor,
+                                     int16_t *out_quotient,
+                                     char *error, size_t error_size)
+{
+    int32_t quotient;
+
+    if (!out_quotient || divisor == 0 ||
+        (dividend == INT32_MIN && divisor == -1)) {
+        object_projectiles_set_error(error, error_size,
+                                     "ItsABullet DIVS received invalid source operands");
+        return 0;
+    }
+    quotient = dividend / divisor;
+    if (quotient < INT16_MIN || quotient > INT16_MAX) {
+        object_projectiles_set_error(error, error_size,
+                                     "ItsABullet DIVS quotient exceeds a source word");
+        return 0;
+    }
+    *out_quotient = (int16_t)quotient;
+    return 1;
+}
+
+/*
+ * ItsABullet splits a Vec2L velocity into signed high and unsigned low words,
+ * then combines MULS/MULU products with SWAP/CLR.W. The discarded high half
+ * of the signed product is intentional source arithmetic.
+ */
+static int32_t object_projectiles_velocity_delta(int32_t velocity, uint16_t frame_ticks)
+{
+    int32_t high_product = object_projectiles_muls16(
+        object_projectiles_high_word(velocity), (int16_t)frame_ticks);
+    uint32_t high_part = (uint32_t)(uint16_t)high_product << 16;
+    uint32_t low_part = (uint32_t)(uint16_t)velocity * (uint16_t)frame_ticks;
+
+    return (int32_t)(high_part + low_part);
+}
+
+static void object_projectiles_mark_impact(uint8_t *slot)
+{
+    slot[OBJECT_PROJECTILE_ANIMATION] = 0u;
+    slot[OBJECT_PROJECTILE_STATUS] = 1u;
 }
 
 static void object_projectiles_apply_animation_descriptor(
@@ -118,28 +250,222 @@ int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_
     return 1;
 }
 
+/* newanims.s:ItsABullet:.checkloop through .hitnasty. */
+static int object_projectiles_check_direct_target_collision(
+    ObjectRuntime *objects, uint32_t projectile_slot_index, const GameLink *game_link,
+    int16_t old_x, int16_t old_z, int16_t new_x, int16_t new_z, uint8_t moving,
+    char *error, size_t error_size)
+{
+    uint8_t *projectile_slot;
+    int16_t x_difference;
+    int16_t z_difference;
+    int32_t length_squared;
+    int16_t range = 1;
+    int32_t range_squared;
+    uint32_t enemy_flags;
+
+    if (!object_runtime_get_slot_bytes(objects, projectile_slot_index, &projectile_slot)) {
+        object_projectiles_set_error(error, error_size,
+                                     "ItsABullet projectile slot is outside source state");
+        return 0;
+    }
+    x_difference = object_projectiles_sub16(new_x, old_x);
+    z_difference = object_projectiles_sub16(new_z, old_z);
+    length_squared = object_projectiles_add32(
+        object_projectiles_muls16(x_difference, x_difference),
+        object_projectiles_muls16(z_difference, z_difference));
+    if (length_squared != 0) {
+        uint32_t highest_bit = 31u;
+
+        while ((length_squared & (UINT32_C(1) << highest_bit)) == 0u) {
+            --highest_bit;
+        }
+        range = (int16_t)(UINT16_C(1) << (highest_bit >> 1u));
+        /* The source's initial estimate and three repeat passes are all word DIVS. */
+        for (uint32_t approximation_pass = 0u; approximation_pass < 4u;
+             ++approximation_pass) {
+            int32_t error_term = object_projectiles_sub32(
+                object_projectiles_muls16(range, range), length_squared);
+            int16_t quotient;
+
+            error_term = object_projectiles_asr32(error_term, 1u);
+            if (!object_projectiles_divs16(error_term, range, &quotient, error, error_size)) {
+                return 0;
+            }
+            range = object_projectiles_sub16(range, quotient);
+            if (range <= 0) {
+                range = 1;
+            }
+        }
+    }
+    range_squared = object_projectiles_muls16(
+        object_projectiles_add16(range, 80), object_projectiles_add16(range, 80));
+    enemy_flags = object_projectiles_read_be32(
+        projectile_slot + OBJECT_PROJECTILE_ENTITY_ENEMY_FLAGS);
+
+    for (uint32_t candidate_index = 0u; candidate_index < objects->active_slot_count;
+         ++candidate_index) {
+        uint8_t *candidate_slot;
+        uint8_t candidate_type;
+        uint16_t candidate_point_index;
+        uint8_t *candidate_point;
+        int16_t candidate_x;
+        int16_t candidate_z;
+        int16_t from_old_x;
+        int16_t from_old_z;
+        int16_t from_new_x;
+        int16_t from_new_z;
+        int16_t cross_distance;
+        int32_t cross;
+        int32_t old_distance_squared;
+        int32_t new_distance_squared;
+
+        if (!object_runtime_get_slot_bytes(objects, candidate_index, &candidate_slot)) {
+            object_projectiles_set_error(error, error_size,
+                                         "ItsABullet target slot is outside source state");
+            return 0;
+        }
+        if (object_projectiles_read_be16s(candidate_slot + OBJECT_PROJECTILE_POINT_INDEX) < 0) {
+            break;
+        }
+        if (object_projectiles_read_be16s(candidate_slot + OBJECT_PROJECTILE_ZONE_ID) < 0 ||
+            (projectile_slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u) !=
+                (candidate_slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u)) {
+            continue;
+        }
+        candidate_type = candidate_slot[OBJECT_PROJECTILE_TYPE_ID];
+        if ((enemy_flags & (UINT32_C(1) << (candidate_type & 31u))) == 0u) {
+            continue;
+        }
+        if (candidate_type == 1u) {
+            GameObjectDefinition definition;
+
+            if (!game_link_get_object_definition(game_link, candidate_slot[54u], &definition,
+                                                 error, error_size)) {
+                return 0;
+            }
+            if (definition.behaviour != 2u) {
+                continue;
+            }
+        }
+        if (candidate_slot[OBJECT_PROJECTILE_ENTITY_HIT_POINTS] == 0u) {
+            continue;
+        }
+        if (moving != 0u) {
+            int16_t height_difference = object_projectiles_sub16(
+                object_projectiles_read_be16s(candidate_slot + OBJECT_PROJECTILE_VERTICAL_POSITION),
+                object_projectiles_read_be16s(projectile_slot + OBJECT_PROJECTILE_VERTICAL_POSITION));
+
+            if (height_difference < 0) {
+                height_difference = object_projectiles_neg16(height_difference);
+            }
+            if (height_difference > 50) {
+                continue;
+            }
+        }
+        candidate_point_index = object_projectiles_read_be16(candidate_slot +
+                                                               OBJECT_PROJECTILE_POINT_INDEX);
+        if (!object_runtime_get_point_bytes(objects, candidate_point_index, &candidate_point)) {
+            object_projectiles_set_error(error, error_size,
+                                         "ItsABullet target has an invalid source point");
+            return 0;
+        }
+        candidate_x = object_projectiles_high_word(object_projectiles_read_be32s(candidate_point));
+        candidate_z = object_projectiles_high_word(
+            object_projectiles_read_be32s(candidate_point + 4u));
+        from_new_x = object_projectiles_sub16(candidate_x, new_x);
+        from_old_x = object_projectiles_sub16(candidate_x, old_x);
+        from_new_z = object_projectiles_sub16(candidate_z, new_z);
+        from_old_z = object_projectiles_sub16(candidate_z, old_z);
+        cross = object_projectiles_sub32(
+            object_projectiles_muls16(from_old_x, z_difference),
+            object_projectiles_muls16(from_old_z, x_difference));
+        if (cross <= 0) {
+            cross = object_projectiles_neg32(cross);
+        }
+        if (!object_projectiles_divs16(cross, range, &cross_distance, error, error_size)) {
+            return 0;
+        }
+        if (cross_distance > ((int8_t)candidate_type <= 1 ? 80 : 40)) {
+            continue;
+        }
+        old_distance_squared = object_projectiles_add32(
+            object_projectiles_muls16(from_old_x, from_old_x),
+            object_projectiles_muls16(from_old_z, from_old_z));
+        if (old_distance_squared > range_squared) {
+            continue;
+        }
+        new_distance_squared = object_projectiles_add32(
+            object_projectiles_muls16(from_new_x, from_new_x),
+            object_projectiles_muls16(from_new_z, from_new_z));
+        if (new_distance_squared > range_squared) {
+            continue;
+        }
+        candidate_slot[OBJECT_PROJECTILE_ENTITY_DAMAGE_TAKEN] =
+            (uint8_t)(candidate_slot[OBJECT_PROJECTILE_ENTITY_DAMAGE_TAKEN] +
+                      projectile_slot[OBJECT_PROJECTILE_POWER]);
+        object_projectiles_write_be16(candidate_slot + OBJECT_PROJECTILE_VELOCITY_Y,
+                                      object_projectiles_read_be16(
+                                          projectile_slot + OBJECT_PROJECTILE_VELOCITY_X));
+        object_projectiles_write_be16(candidate_slot + OBJECT_PROJECTILE_ACCUMULATED_Y,
+                                      object_projectiles_read_be16(
+                                          projectile_slot + OBJECT_PROJECTILE_VELOCITY_Z));
+        object_projectiles_mark_impact(projectile_slot);
+        return 1;
+    }
+    return 1;
+}
+
 int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint32_t slot_index,
+                                                     LevelDynamicState *dynamic_level,
                                                      const GameLink *game_link,
+                                                     uint16_t frame_ticks,
                                                      char *error, size_t error_size)
 {
     uint8_t *slot;
+    uint8_t *point;
     uint16_t bullet_index;
     uint16_t frame_index;
     uint16_t next_frame;
     GameBulletDefinition bullet;
     GameBulletAnimationFrame frame;
+    LevelZone zone;
+    uint16_t point_index;
+    int16_t zone_index;
+    int32_t old_x;
+    int32_t old_z;
+    int32_t new_x;
+    int32_t new_z;
+    int32_t old_y;
+    int32_t new_y;
+    uint8_t moving = 0u;
+    uint8_t timed_out = 0u;
+    ObjectMovementTrace trace = {0};
 
-    if (!objects || !game_link || slot_index >= objects->active_slot_count ||
+    if (!objects || !dynamic_level || !game_link ||
+        !dynamic_level->level_bytes ||
+        dynamic_level->runtime.level_bytes != dynamic_level->level_bytes ||
+        dynamic_level->runtime.graphics_bytes != dynamic_level->graphics_bytes ||
+        slot_index >= objects->active_slot_count ||
         objects->active_slot_count > objects->slot_count ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
         object_projectiles_set_error(error, error_size,
                                      "ItsABullet flight received an invalid source slot");
         return 0;
     }
+    /* ItsABullet copies ObjT_ZoneID to EntT_ZoneID before its negative return. */
+    object_projectiles_write_be16(slot + OBJECT_PROJECTILE_ENTITY_ZONE_ID,
+                                  object_projectiles_read_be16(
+                                      slot + OBJECT_PROJECTILE_ZONE_ID));
     if (slot[OBJECT_PROJECTILE_TYPE_ID] != OBJECT_TYPE_PROJECTILE ||
-        object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_ZONE_ID) < 0 ||
+        (zone_index = object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_ZONE_ID)) < 0 ||
         slot[OBJECT_PROJECTILE_STATUS] != 0u) {
         return 1;
+    }
+    if ((uint16_t)zone_index >= dynamic_level->runtime.zone_count) {
+        object_projectiles_set_error(error, error_size,
+                                     "ItsABullet projectile zone is outside source level state");
+        return 0;
     }
     bullet_index = slot[OBJECT_PROJECTILE_SIZE];
     frame_index = slot[OBJECT_PROJECTILE_ANIMATION];
@@ -149,11 +475,228 @@ int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint
                                               error, error_size)) {
         return 0;
     }
+    /* ItsABullet compares lifetime through word operands after signed long sentinels. */
+    if (object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_LIFETIME) >= 0 &&
+        (int32_t)bullet.lifetime >= 0) {
+        if ((int16_t)bullet.lifetime >=
+            object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_LIFETIME)) {
+            object_projectiles_write_be16(
+                slot + OBJECT_PROJECTILE_LIFETIME,
+                (uint16_t)object_projectiles_add16(
+                    object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_LIFETIME),
+                    (int16_t)frame_ticks));
+        } else {
+            /* The source defers the pop-state write until after flight collision. */
+            timed_out = UINT8_MAX;
+        }
+    }
     object_projectiles_apply_animation_descriptor(slot, bullet.graphics_type, &frame);
     next_frame = (uint16_t)(frame_index + 1u);
     /* cmp.w BulT_AnimFrames_l+2,d2 / ble.s notdoneanim. */
     slot[OBJECT_PROJECTILE_ANIMATION] =
         (int16_t)next_frame > (int16_t)(uint16_t)bullet.animation_frames ?
         0u : (uint8_t)next_frame;
+
+    if (!level_runtime_get_zone(&dynamic_level->runtime, (uint16_t)zone_index, &zone,
+                                error, error_size)) {
+        return 0;
+    }
+    /* ZoneT+8 selects the upper floor/roof pair for an upper-layer projectile. */
+    if (object_projectiles_sub32(slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u ?
+                                     zone.upper_roof : zone.roof,
+                                 object_projectiles_read_be32s(
+                                     slot + OBJECT_PROJECTILE_ACCUMULATED_Y)) < 10 * 128) {
+        if ((slot[OBJECT_PROJECTILE_FLAGS + 1u] & 1u) != 0u) {
+            object_projectiles_write_be16(
+                slot + OBJECT_PROJECTILE_VELOCITY_Y,
+                (uint16_t)object_projectiles_neg16(object_projectiles_read_be16s(
+                    slot + OBJECT_PROJECTILE_VELOCITY_Y)));
+            object_projectiles_write_be32(
+                slot + OBJECT_PROJECTILE_ACCUMULATED_Y,
+                (uint32_t)object_projectiles_add32(
+                    slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u ? zone.upper_roof : zone.roof,
+                    10 * 128));
+            if (bullet.gravity != 0u) {
+                object_projectiles_write_be32(
+                    slot + OBJECT_PROJECTILE_VELOCITY_X,
+                    (uint32_t)object_projectiles_asr32(object_projectiles_read_be32s(
+                        slot + OBJECT_PROJECTILE_VELOCITY_X), 1u));
+                object_projectiles_write_be32(
+                    slot + OBJECT_PROJECTILE_VELOCITY_Z,
+                    (uint32_t)object_projectiles_asr32(object_projectiles_read_be32s(
+                        slot + OBJECT_PROJECTILE_VELOCITY_Z), 1u));
+            }
+        } else {
+            object_projectiles_mark_impact(slot);
+        }
+    }
+    if (object_projectiles_sub32(slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u ?
+                                     zone.upper_floor : zone.floor,
+                                 object_projectiles_read_be32s(
+                                     slot + OBJECT_PROJECTILE_ACCUMULATED_Y)) <= 10 * 128) {
+        if (bullet.bounce_vertical != 0u &&
+            object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_VELOCITY_Y) >= 0) {
+            object_projectiles_write_be16(
+                slot + OBJECT_PROJECTILE_VELOCITY_Y,
+                (uint16_t)object_projectiles_neg16(object_projectiles_asr16(
+                    object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_VELOCITY_Y), 1u)));
+            object_projectiles_write_be32(
+                slot + OBJECT_PROJECTILE_ACCUMULATED_Y,
+                (uint32_t)object_projectiles_sub32(
+                    slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u ? zone.upper_floor : zone.floor,
+                    10 * 128));
+            if (bullet.gravity != 0u) {
+                object_projectiles_write_be32(
+                    slot + OBJECT_PROJECTILE_VELOCITY_X,
+                    (uint32_t)object_projectiles_asr32(object_projectiles_read_be32s(
+                        slot + OBJECT_PROJECTILE_VELOCITY_X), 1u));
+                object_projectiles_write_be32(
+                    slot + OBJECT_PROJECTILE_VELOCITY_Z,
+                    (uint32_t)object_projectiles_asr32(object_projectiles_read_be32s(
+                        slot + OBJECT_PROJECTILE_VELOCITY_Z), 1u));
+            }
+        } else {
+            object_projectiles_mark_impact(slot);
+        }
+    }
+    point_index = object_projectiles_read_be16(slot + OBJECT_PROJECTILE_POINT_INDEX);
+    if (!object_runtime_get_point_bytes(objects, point_index, &point)) {
+        object_projectiles_set_error(error, error_size,
+                                     "ItsABullet projectile has an invalid source point");
+        return 0;
+    }
+    old_x = object_projectiles_read_be32s(point);
+    old_z = object_projectiles_read_be32s(point + 4u);
+    new_x = object_projectiles_add32(
+        old_x, object_projectiles_velocity_delta(
+                   object_projectiles_read_be32s(slot + OBJECT_PROJECTILE_VELOCITY_X),
+                   frame_ticks));
+    new_z = object_projectiles_add32(
+        old_z, object_projectiles_velocity_delta(
+                   object_projectiles_read_be32s(slot + OBJECT_PROJECTILE_VELOCITY_Z),
+                   frame_ticks));
+    old_y = object_projectiles_read_be32s(slot + OBJECT_PROJECTILE_ACCUMULATED_Y);
+    {
+        int32_t vertical_delta = object_projectiles_muls16(
+            object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_VELOCITY_Y),
+            (int16_t)frame_ticks);
+
+        if (bullet.gravity != 0u) {
+            int32_t gravity_delta = object_projectiles_muls16((int16_t)bullet.gravity,
+                                                               (int16_t)frame_ticks);
+            int32_t next_velocity = object_projectiles_add32(
+                object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_VELOCITY_Y),
+                gravity_delta);
+
+            vertical_delta = object_projectiles_add32(vertical_delta, gravity_delta);
+            if (next_velocity >= 10 * 256) {
+                next_velocity = 10 * 256;
+            }
+            object_projectiles_write_be16(slot + OBJECT_PROJECTILE_VELOCITY_Y,
+                                          (uint16_t)next_velocity);
+        }
+        old_y = object_projectiles_read_be32s(slot + OBJECT_PROJECTILE_ACCUMULATED_Y);
+        new_y = object_projectiles_add32(old_y, vertical_delta);
+        object_projectiles_write_be32(slot + OBJECT_PROJECTILE_ACCUMULATED_Y,
+                                      (uint32_t)new_y);
+    }
+    new_y = object_projectiles_sub32(new_y, 5 * 128);
+    object_projectiles_write_be16(slot + OBJECT_PROJECTILE_VERTICAL_POSITION,
+                                  (uint16_t)object_projectiles_asr32(
+                                      object_projectiles_read_be32s(
+                                          slot + OBJECT_PROJECTILE_ACCUMULATED_Y), 7u));
+    trace.zone_index = (uint16_t)zone_index;
+    trace.old_x = object_projectiles_high_word(old_x);
+    trace.old_z = object_projectiles_high_word(old_z);
+    trace.new_x = object_projectiles_high_word(new_x);
+    trace.new_z = object_projectiles_high_word(new_z);
+    trace.old_y = old_y;
+    trace.new_y = new_y;
+    trace.thing_height = 10 * 128;
+    trace.step_down = 0x1000000;
+    trace.wall_flags = 0x0400u;
+    trace.away_from_wall = -1;
+    trace.stood_in_top = slot[OBJECT_PROJECTILE_IN_UPPER_ZONE];
+    trace.wall_bounce = bullet.bounce_horizontal != 0u ? UINT8_MAX : 0u;
+    trace.exit_first = bullet.bounce_horizontal == 0u ? UINT8_MAX : 0u;
+    if (trace.old_x != trace.new_x || trace.old_z != trace.new_z) {
+        moving = UINT8_MAX;
+        if (!object_movement_trace_zero_extension(dynamic_level, &trace, error, error_size)) {
+            return 0;
+        }
+        new_x = object_projectiles_replace_high_word(new_x, trace.new_x);
+        new_z = object_projectiles_replace_high_word(new_z, trace.new_z);
+        new_y = trace.new_y;
+    }
+    slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] = trace.stood_in_top;
+    if (trace.wall_bounce != 0u && trace.hit_wall != 0u) {
+        int16_t reflected_normal;
+        int16_t reflected_component;
+        int16_t velocity_x = object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_VELOCITY_X);
+        int16_t velocity_z = object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_VELOCITY_Z);
+        int32_t numerator = object_projectiles_sub32(
+            object_projectiles_muls16(velocity_z, trace.wall_x_size),
+            object_projectiles_muls16(velocity_x, trace.wall_z_size));
+
+        if (!object_projectiles_divs16(numerator, trace.wall_length, &reflected_normal,
+                                       error, error_size)) {
+            return 0;
+        }
+        if (!object_projectiles_divs16(
+                object_projectiles_muls16(reflected_normal,
+                                          object_projectiles_add16(trace.wall_z_size,
+                                                                     trace.wall_z_size)),
+                trace.wall_length, &reflected_component, error, error_size)) {
+            return 0;
+        }
+        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_VELOCITY_X,
+                                      (uint16_t)object_projectiles_add16(velocity_x,
+                                                                         reflected_component));
+        if (!object_projectiles_divs16(
+                object_projectiles_muls16(reflected_normal,
+                                          object_projectiles_add16(trace.wall_x_size,
+                                                                     trace.wall_x_size)),
+                trace.wall_length, &reflected_component, error, error_size)) {
+            return 0;
+        }
+        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_VELOCITY_Z,
+                                      (uint16_t)object_projectiles_sub16(velocity_z,
+                                                                         reflected_component));
+        if (bullet.gravity != 0u) {
+            object_projectiles_write_be32(
+                slot + OBJECT_PROJECTILE_VELOCITY_X,
+                (uint32_t)object_projectiles_asr32(object_projectiles_read_be32s(
+                    slot + OBJECT_PROJECTILE_VELOCITY_X), 1u));
+            object_projectiles_write_be32(
+                slot + OBJECT_PROJECTILE_VELOCITY_Z,
+                (uint32_t)object_projectiles_asr32(object_projectiles_read_be32s(
+                    slot + OBJECT_PROJECTILE_VELOCITY_Z), 1u));
+        }
+    } else if (trace.wall_bounce == 0u && trace.hit_wall != 0u) {
+        object_projectiles_write_be32(slot + OBJECT_PROJECTILE_ACCUMULATED_Y,
+                                      (uint32_t)trace.wall_hit_height);
+        object_projectiles_write_be16(slot + OBJECT_PROJECTILE_VERTICAL_POSITION,
+                                      (uint16_t)object_projectiles_asr32(trace.wall_hit_height,
+                                                                         7u));
+        object_projectiles_mark_impact(slot);
+    }
+    if (timed_out != 0u) {
+        object_projectiles_mark_impact(slot);
+    }
+    if (!level_runtime_get_zone(&dynamic_level->runtime, trace.zone_index, &zone,
+                                error, error_size)) {
+        return 0;
+    }
+    object_projectiles_write_be16(slot + OBJECT_PROJECTILE_ZONE_ID, zone.id);
+    object_projectiles_write_be16(slot + OBJECT_PROJECTILE_ENTITY_ZONE_ID, zone.id);
+    object_projectiles_write_be32(point, (uint32_t)new_x);
+    object_projectiles_write_be32(point + 4u, (uint32_t)new_z);
+    if (object_projectiles_read_be32(slot + OBJECT_PROJECTILE_ENTITY_ENEMY_FLAGS) != 0u &&
+        !object_projectiles_check_direct_target_collision(
+            objects, slot_index, game_link, object_projectiles_high_word(old_x),
+            object_projectiles_high_word(old_z), object_projectiles_high_word(new_x),
+            object_projectiles_high_word(new_z), moving, error, error_size)) {
+        return 0;
+    }
     return 1;
 }
