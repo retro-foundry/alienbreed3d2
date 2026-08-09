@@ -89,8 +89,8 @@ authority for all game behavior and data formats.
   preserves all 18 persisted `AssignableKeys_vb` bytes, the source defaults,
   and `CHANGECONTROLS`' two-page raw-key rebinding flow through SDL physical
   key capture. `src/game_input.*` now reproduces `hires.s:key_interrupt`'s
-  `KeyMap_vb`/one-shot `lastpressed` state; player control consumption remains
-  pending. Preference persistence remains pending; source-format position
+  `KeyMap_vb`/one-shot `lastpressed` state and the word-wide mouse handoff used
+  by `c/system.c:Sys_ReadMouse`. Preference persistence remains pending; source-format position
   save/load is available when the user supplies a compatible `boot.dat`.
 - [x] `src/game_save.*` now preserves the exact unversioned 420-byte
   `game_LoadPosition`/`game_SavePosition` payload: six 70-byte big-endian
@@ -187,9 +187,10 @@ authority for all game behavior and data formats.
   dispatch. Its per-bullet roll reads the selected live target point's source
   high words, retains word subtraction, signed `MULS`, wrapped longword
   addition, arithmetic divide-by-64, and signed `BGT` decision after one
-  `GetRand` advance. The native controller currently has no mouse path, so its
-  explicit `Plr1_Mouse_b` equivalent is false; the source preference branch is
-  retained for a later mouse controller. Original shot audio remains absent,
+  `GetRand` advance. The native controller now owns the source mouse path:
+  `c/system.c:Sys_ReadMouse`-equivalent relative SDL motion feeds
+  `modules/player.s:plr_MouseControl`, with its angle, pitch, aim-speed,
+  inversion, and source button-to-binding behavior. Original shot audio remains absent,
   while projectile launch, moving-flight/collision, and stationary hit-scan
   pop dispatch are live.
   `src/game_random.*` now retains `objectmove.s:GetRand`'s
@@ -470,8 +471,8 @@ authority for all game behavior and data formats.
      extended-edge passes; `player_shoot.*` uses its explicit zero-extension
      trace for the `plr1_HitscanFailed` pool write.
      Next: bind `Obj_DoCollision`'s caller-owned source `a2` extents in the
-     remaining alien `ObjectHandler` paths, then port mouse input and
-     audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
+     remaining alien `ObjectHandler` paths, then port the audio portions of
+     `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; it intentionally
      does not synthesize the unported sound effect.
      Source object render descriptors are now emitted independently of those

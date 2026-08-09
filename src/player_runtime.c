@@ -52,6 +52,18 @@ static int32_t player_runtime_replace_low_word(int32_t value, int16_t low_word)
     return (int32_t)(((uint32_t)value & UINT32_C(0xffff0000)) | (uint16_t)low_word);
 }
 
+/* add.w source,destination where destination is the low word of a long. */
+static int32_t player_runtime_add_low_word(int32_t value, int16_t addend)
+{
+    return player_runtime_replace_low_word(
+        value, (int16_t)((uint16_t)value + (uint16_t)addend));
+}
+
+static int16_t player_runtime_add16(int16_t left, int16_t right)
+{
+    return (int16_t)((uint16_t)left + (uint16_t)right);
+}
+
 static int32_t player_runtime_muls16(int16_t left, int16_t right)
 {
     return (int32_t)left * (int32_t)right;
@@ -411,6 +423,8 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
     player.tmp_gun_selected = player.gun_selected;
     player.tmp_fire = player.fire;
     player.default_enemy_flags = 0x23u; /* %100011 in Plr_Initialise. */
+    /* hires.s's non-CD32 default control method sets Plr1_Mouse_b. */
+    player.mouse_active = UINT8_MAX;
     *out_player = player;
     return 1;
 }
@@ -867,25 +881,27 @@ static void player_runtime_update_keyboard_look(PlayerRuntime *player, const Gam
 
     /* modules/player.s:plr_KeyboardControl, small-screen View_* branch. */
     if (game_input_is_control_down(input, controls, GAME_CONTROL_LOOK_UP)) {
-        player->aim_speed = player_runtime_sub32(player->aim_speed, 512);
+        player->aim_speed = player_runtime_add_low_word(player->aim_speed, -512);
         look_offset = (int16_t)((int32_t)look_offset - PLAYER_SMALL_VIEW_KEY_LOOK);
         if (look_offset <= -PLAYER_SMALL_VIEW_LOOK_LIMIT) {
-            player->aim_speed = -PLAYER_AIM_SPEED_LIMIT;
+            player->aim_speed = player_runtime_replace_low_word(
+                player->aim_speed, -PLAYER_AIM_SPEED_LIMIT);
             look_offset = -PLAYER_SMALL_VIEW_LOOK_LIMIT;
         }
     }
     if (game_input_is_control_down(input, controls, GAME_CONTROL_LOOK_DOWN)) {
-        player->aim_speed = player_runtime_add32(player->aim_speed, 512);
+        player->aim_speed = player_runtime_add_low_word(player->aim_speed, 512);
         look_offset = (int16_t)((int32_t)look_offset + PLAYER_SMALL_VIEW_KEY_LOOK);
         if (look_offset >= PLAYER_SMALL_VIEW_LOOK_LIMIT) {
-            player->aim_speed = PLAYER_AIM_SPEED_LIMIT;
+            player->aim_speed = player_runtime_replace_low_word(
+                player->aim_speed, PLAYER_AIM_SPEED_LIMIT);
             look_offset = PLAYER_SMALL_VIEW_LOOK_LIMIT;
         }
     }
     if (game_input_is_control_down(input, controls, GAME_CONTROL_CENTRE_VIEW)) {
         if (player->previous_centre_view_key_state == 0u) {
             player->previous_centre_view_key_state = UINT8_MAX;
-            player->aim_speed = 0;
+            player->aim_speed = player_runtime_replace_low_word(player->aim_speed, 0);
             look_offset = 0;
         }
     } else {
@@ -894,7 +910,55 @@ static void player_runtime_update_keyboard_look(PlayerRuntime *player, const Gam
     player->look_offset = look_offset;
 }
 
-int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
+static void player_runtime_update_mouse_controls(PlayerRuntime *player, GameInput *input)
+{
+    int16_t mouse_x;
+    int16_t mouse_y;
+    int16_t mouse_y_delta;
+    int16_t look_offset;
+    int16_t aim_delta;
+
+    if (player->mouse_active == 0u) {
+        return;
+    }
+
+    /*
+     * c/system.c:Sys_ReadMouse advances Vis_AngPos_w by four source angle
+     * bytes for each horizontal counter step.  In this single-player runtime
+     * the committed Plr1_AngPos_w is that previous-frame view angle.
+     */
+    mouse_x = game_input_take_mouse_x(input);
+    player->snap_yaw = game_math_wrap_angle_address(
+        (uint16_t)player_runtime_add16((int16_t)player->yaw,
+                                       (int16_t)((uint16_t)mouse_x << 2u)));
+
+    /* modules/player.s:plr_MouseControl's Sys_MouseY/Sys_OldMouseY path. */
+    mouse_y = input->mouse_y;
+    if (player->invert_mouse != 0u) {
+        mouse_y = (int16_t)(0u - (uint16_t)mouse_y);
+    }
+    mouse_y_delta = player_runtime_add16(
+        mouse_y, (int16_t)(0u - (uint16_t)input->old_mouse_y));
+    input->old_mouse_y = player_runtime_add16(input->old_mouse_y, mouse_y_delta);
+
+    /* Vid_FullScreen_b is clear in the direct PC diagnostic path: .small. */
+    aim_delta = (int16_t)((uint16_t)mouse_y_delta << 7u);
+    player->aim_speed = player_runtime_add_low_word(player->aim_speed, aim_delta);
+    look_offset = player_runtime_add16(player->look_offset, mouse_y_delta);
+    if (look_offset <= -PLAYER_SMALL_VIEW_LOOK_LIMIT) {
+        player->aim_speed = player_runtime_replace_low_word(
+            player->aim_speed, -PLAYER_AIM_SPEED_LIMIT);
+        look_offset = -PLAYER_SMALL_VIEW_LOOK_LIMIT;
+    }
+    if (look_offset >= PLAYER_SMALL_VIEW_LOOK_LIMIT) {
+        player->aim_speed = player_runtime_replace_low_word(
+            player->aim_speed, PLAYER_AIM_SPEED_LIMIT);
+        look_offset = PLAYER_SMALL_VIEW_LOOK_LIMIT;
+    }
+    player->look_offset = look_offset;
+}
+
+int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
                                   const GameControls *controls,
                                   const GamePreferences *preferences,
                                   const GameMath *math,
@@ -926,6 +990,8 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
                                  "spatial update received a different mutable source level");
         return 0;
     }
+    /* hires.s runs Plr1_MouseControl before the optional keyboard controller. */
+    player_runtime_update_mouse_controls(player, input);
     player_runtime_update_keyboard_look(player, input, controls);
     if (!player_runtime_update_keyboard_motion(player, input, controls, preferences, math,
                                                error, error_size) ||

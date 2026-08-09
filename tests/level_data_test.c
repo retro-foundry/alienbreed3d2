@@ -3033,7 +3033,8 @@ int main(int argc, char **argv)
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,
                                        NULL, error, sizeof(error)) ||
-        controlled_player.look_offset != -4 || controlled_player.aim_speed != -512 ||
+        controlled_player.look_offset != -4 ||
+        controlled_player.aim_speed != (int32_t)UINT16_C(0xfe00) ||
         !game_input_set_raw_key(&control_input,
                                 control_defaults.assigned_raw_keys[GAME_CONTROL_LOOK_UP], 0,
                                 error, sizeof(error)) ||
@@ -3051,6 +3052,49 @@ int main(int argc, char **argv)
         fprintf(stderr, "source player keyboard look state is inconsistent: %s\n", error);
         game_bootstrap_destroy(&game);
         return 1;
+    }
+    {
+        PlayerRuntime mouse_player = game.player;
+        GameInput mouse_input;
+        uint16_t expected_mouse_yaw;
+
+        /* c/system.c:Sys_ReadMouse then modules/player.s:plr_MouseControl. */
+        game_input_init(&mouse_input);
+        expected_mouse_yaw = game_math_wrap_angle_address(
+            (uint16_t)((uint16_t)mouse_player.yaw + UINT16_C(5) * UINT16_C(4)));
+        game_input_add_mouse_motion(&mouse_input, 5, -3);
+        if (!player_runtime_update_spatial(&mouse_player, &mouse_input, &control_defaults,
+                                           &game.preferences, &game.math, &game.level_runtime,
+                                           NULL, error, sizeof(error)) ||
+            mouse_player.yaw != expected_mouse_yaw || mouse_player.snap_yaw != expected_mouse_yaw ||
+            mouse_player.look_offset != -3 ||
+            mouse_player.aim_speed != (int32_t)UINT16_C(0xfe80) ||
+            mouse_input.pending_mouse_x != 0 || mouse_input.mouse_y != -3 ||
+            mouse_input.old_mouse_y != -3) {
+            fprintf(stderr,
+                    "source mouse control state is inconsistent: yaw=%u expected=%u snap=%u "
+                    "look=%d aim=%ld x=%d y=%d old_y=%d: %s\n",
+                    (unsigned int)mouse_player.yaw, (unsigned int)expected_mouse_yaw,
+                    (unsigned int)mouse_player.snap_yaw,
+                    mouse_player.look_offset, (long)mouse_player.aim_speed,
+                    mouse_input.pending_mouse_x, mouse_input.mouse_y, mouse_input.old_mouse_y,
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* PlrT_InvMouse_b negates Sys_MouseY before the old-word subtraction. */
+        mouse_player.invert_mouse = UINT8_MAX;
+        game_input_add_mouse_motion(&mouse_input, 0, 4);
+        if (!player_runtime_update_spatial(&mouse_player, &mouse_input, &control_defaults,
+                                           &game.preferences, &game.math, &game.level_runtime,
+                                           NULL, error, sizeof(error)) ||
+            mouse_player.yaw != expected_mouse_yaw || mouse_player.look_offset != -1 ||
+            mouse_player.aim_speed != (int32_t)UINT16_C(0xff80) || mouse_input.mouse_y != 1 ||
+            mouse_input.old_mouse_y != -1) {
+            fprintf(stderr, "source inverted mouse control state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     game.session.player1_inventory.health = 199u;
     game_session_finish_single_player(&game.session, 0);

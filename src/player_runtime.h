@@ -67,6 +67,8 @@ typedef struct {
     uint8_t clicked;
     /* Native controller-mode state corresponding to Plr1_Mouse_b. */
     uint8_t mouse_active;
+    /* modules/player.s:PlrT_InvMouse_b, owned by mouse mode selection. */
+    uint8_t invert_mouse;
     /* modules/player.s:PlrT_GunSelected_b and its next-weapon edge gate. */
     uint8_t gun_selected;
     uint8_t previous_use_key_state;
@@ -98,7 +100,7 @@ int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *in
  * fixed-point keyboard motion, and static EdgeT/zone collision.  Dynamic
  * Obj_DoCollision remains owned by the later object-runtime slice.
  */
-int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
+int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
                                   const GameControls *controls,
                                   const GamePreferences *preferences,
                                   const GameMath *math,

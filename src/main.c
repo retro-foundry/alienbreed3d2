@@ -153,6 +153,28 @@ static int raw_key_from_scancode(SDL_Scancode scancode, uint8_t *out_raw_key)
     return 1;
 }
 
+/* modules/player.s:plr_MouseControl writes button state into these bindings. */
+static int set_mouse_button_source_key(GameBootstrap *game, uint8_t button, int is_pressed,
+                                       char *error, size_t error_size)
+{
+    uint16_t binding;
+
+    if (!game) {
+        return 0;
+    }
+    if (button == SDL_BUTTON_LEFT) {
+        binding = GAME_CONTROL_FIRE;
+    } else if (button == SDL_BUTTON_RIGHT) {
+        binding = game->preferences.original_mouse != 0u ?
+            GAME_CONTROL_FORWARDS : GAME_CONTROL_NEXT_WEAPON;
+    } else {
+        return 1;
+    }
+    return game_input_set_raw_key(&game->input,
+                                  game->controls.assigned_raw_keys[binding], is_pressed,
+                                  error, error_size);
+}
+
 int main(int argc, char **argv)
 {
     char data_root[1024];
@@ -237,6 +259,9 @@ int main(int argc, char **argv)
         return 1;
     }
     renderer_stub_set_status(renderer, "Level active; static collision; GPU renderer pending");
+    if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
+        fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
+    }
 
     fprintf(stdout,
             "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes Level %c active\n",
@@ -257,6 +282,18 @@ int main(int argc, char **argv)
                     !game_input_set_raw_key(&game.input, raw_key,
                                             event.type == SDL_KEYDOWN,
                                             error, sizeof(error))) {
+                    fprintf(stderr, "[INPUT] %s\n", error);
+                    renderer_stub_set_status(renderer, error);
+                    continue;
+                }
+            }
+            if (event.type == SDL_MOUSEMOTION) {
+                game_input_add_mouse_motion(&game.input, event.motion.xrel, event.motion.yrel);
+            }
+            if (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP) {
+                if (!set_mouse_button_source_key(&game, event.button.button,
+                                                 event.type == SDL_MOUSEBUTTONDOWN,
+                                                 error, sizeof(error))) {
                     fprintf(stderr, "[INPUT] %s\n", error);
                     renderer_stub_set_status(renderer, error);
                     continue;

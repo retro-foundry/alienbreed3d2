@@ -59,3 +59,26 @@ uint8_t game_input_take_last_pressed(GameInput *input)
     input->last_pressed_raw_key = 0u;
     return raw_key;
 }
+
+void game_input_add_mouse_motion(GameInput *input, int32_t delta_x, int32_t delta_y)
+{
+    if (!input) {
+        return;
+    }
+    /* Sys_ReadMouse's counters and Sys_MouseY are both consumed as WORDs. */
+    input->pending_mouse_x = (int16_t)((uint16_t)input->pending_mouse_x +
+                                       (uint16_t)delta_x);
+    input->mouse_y = (int16_t)((uint16_t)input->mouse_y + (uint16_t)delta_y);
+}
+
+int16_t game_input_take_mouse_x(GameInput *input)
+{
+    int16_t delta_x;
+
+    if (!input) {
+        return 0;
+    }
+    delta_x = input->pending_mouse_x;
+    input->pending_mouse_x = 0;
+    return delta_x;
+}
