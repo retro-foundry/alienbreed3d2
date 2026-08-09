@@ -68,6 +68,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     mechanism_runtime_init(&game->mechanism_runtime);
     memset(&game->level_runtime, 0, sizeof(game->level_runtime));
     object_runtime_destroy(&game->object_runtime);
+    object_observation_init(&game->object_observation);
     level_static_scene_destroy(&game->static_scene);
     memset(&game->player, 0, sizeof(game->player));
 }
@@ -234,6 +235,9 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
         !mechanism_runtime_update_lifts_single_player(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
             &game->player, 1u, error, error_size) ||
+        !object_observation_update_single_player(
+            &game->object_observation, &game->object_runtime, &game->player, &game->math,
+            error, error_size) ||
         !level_static_scene_apply_runtime(
             &game->static_scene, &game->dynamic_level.runtime,
             game->shared_resources.wall_texture_count,
@@ -403,6 +407,9 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         !player_runtime_init_single_player(&game->level, &game->dynamic_level.runtime,
                                            &game->player,
                                            error, error_size) ||
+        !object_observation_update_single_player(
+            &game->object_observation, &game->object_runtime, &game->player, &game->math,
+            error, error_size) ||
         !level_static_scene_build(&game->level_runtime,
                                   game->shared_resources.wall_texture_count,
                                   game->level_floor_override.bytes != NULL

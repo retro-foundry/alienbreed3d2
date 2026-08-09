@@ -49,10 +49,90 @@ static int32_t source_asr32_6(int32_t value)
     return -((-(int64_t)value + 63) >> 6);
 }
 
+static int16_t source_asr16_1(int16_t value)
+{
+    if (value >= 0) {
+        return (int16_t)(value >> 1);
+    }
+    return (int16_t)-(((-(int32_t)value) + 1) >> 1);
+}
+
 static uint32_t read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
            ((uint32_t)source[2] << 8) | source[3];
+}
+
+static int object_observation_matches_source(const ObjectObservation *observation,
+                                             const ObjectRuntime *objects,
+                                             const PlayerRuntime *player,
+                                             const GameMath *math,
+                                             char *error, size_t error_size)
+{
+    uint32_t slot_index = 0u;
+    uint32_t point_index = 0u;
+    uint32_t output_index = 0u;
+    int16_t sine;
+    int16_t cosine;
+
+    if (!observation || !objects || !objects->slot_bytes || !objects->point_bytes || !player ||
+        !math || !game_math_sine(math, player->yaw, &sine, error, error_size) ||
+        !game_math_cosine(math, player->yaw, &cosine, error, error_size)) {
+        return 0;
+    }
+    while (point_index < objects->point_count) {
+        const uint8_t *slot;
+        const uint8_t *point;
+        int16_t offset_x;
+        int16_t offset_z;
+        uint8_t expected_in_line;
+        uint16_t expected_distance;
+
+        if (slot_index >= objects->slot_count ||
+            output_index >= OBJECT_OBSERVATION_DISTANCE_COUNT ||
+            output_index >= OBJECT_OBSERVATION_IN_LINE_COUNT) {
+            return 0;
+        }
+        slot = objects->slot_bytes + (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+        if (slot[16u] == 3u) {
+            ++slot_index;
+            continue;
+        }
+        point = objects->point_bytes + (size_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+        offset_x = (int16_t)((int32_t)(int16_t)read_be16(point + 0u) -
+                             (int16_t)(uint16_t)player->x);
+        offset_z = (int16_t)((int32_t)(int16_t)read_be16(point + 4u) -
+                             (int16_t)(uint16_t)player->z);
+        expected_in_line = 0u;
+        expected_distance = 0u;
+        if ((int16_t)read_be16(slot + 12u) >= 0) {
+            int32_t horizontal = (int32_t)((uint32_t)((int32_t)offset_x * cosine) -
+                                           (uint32_t)((int32_t)offset_z * sine));
+            int32_t depth = (int32_t)((uint32_t)((int32_t)offset_x * sine) +
+                                      (uint32_t)((int32_t)offset_z * cosine));
+            int16_t horizontal_word;
+            int16_t depth_word;
+
+            horizontal = (int32_t)((uint32_t)horizontal << 1);
+            if (horizontal <= 0) {
+                horizontal = (int32_t)(0u - (uint32_t)horizontal);
+            }
+            horizontal_word = (int16_t)(uint16_t)((uint32_t)horizontal >> 16);
+            depth_word = (int16_t)(uint16_t)(((uint32_t)depth << 2) >> 16);
+            expected_distance = (uint16_t)depth_word;
+            if (depth_word > 0 && source_asr16_1(horizontal_word) <= 80) {
+                expected_in_line = UINT8_MAX;
+            }
+        }
+        if (observation->in_line[output_index] != expected_in_line ||
+            observation->distances[output_index] != expected_distance) {
+            return 0;
+        }
+        ++slot_index;
+        ++point_index;
+        ++output_index;
+    }
+    return 1;
 }
 
 static int liftable_matches_source(const LevelMechanisms *mechanisms,
@@ -1250,6 +1330,17 @@ int main(int argc, char **argv)
                 read_be32(runtime_point + 4u) != (uint32_t)game.player.z) {
                 fprintf(stderr, "campaign level %u Plr1_Use point publication is invalid\n",
                         level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (!object_observation_update_single_player(
+                    &game.object_observation, &game.object_runtime, &game.player, &game.math,
+                    error, sizeof(error)) ||
+                !object_observation_matches_source(
+                    &game.object_observation, &game.object_runtime, &game.player, &game.math,
+                    error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u CalcPLR1InLine state is inconsistent: %s\n",
+                        level_index, error);
                 game_bootstrap_destroy(&game);
                 return 1;
             }
@@ -2610,7 +2701,10 @@ int main(int argc, char **argv)
         /* Settle any authored spawn teleport before exercising post-control comparison. */
         game.dynamic_level.runtime.exit_zone_id = -1;
         game_input_init(&game.input);
-        if (!game_bootstrap_update_single_player(&game, error, sizeof(error))) {
+        if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
+            !object_observation_matches_source(
+                &game.object_observation, &game.object_runtime, &game.player, &game.math,
+                error, sizeof(error))) {
             fprintf(stderr, "source exit-zone setup is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;

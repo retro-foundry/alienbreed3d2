@@ -19,6 +19,7 @@
 #include "level_static_scene.h"
 #include "mechanism_runtime.h"
 #include "object_runtime.h"
+#include "object_observation.h"
 #include "player_runtime.h"
 #include "scene_frame.h"
 
@@ -56,6 +57,7 @@ typedef struct {
     LevelDynamicState dynamic_level;
     MechanismRuntime mechanism_runtime;
     ObjectRuntime object_runtime;
+    ObjectObservation object_observation;
     LevelStaticScene static_scene;
     PlayerRuntime player;
 } GameBootstrap;
@@ -76,10 +78,11 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
 /*
  * Single-player source order: plr_KeyboardControl, Plr1_Control, the partial
  * ObjectHandler dispatch (collectables, activatables, destructibles, and
- * decorations in source ObjT slot order), DoorRoutine, LiftRoutine, then a
- * retained whole-level scene refresh from the mutable graph, followed by the
- * source single-player exit-zone completion check. Alien and projectile paths
- * remain outside this focused update.
+ * decorations in source ObjT slot order), DoorRoutine, LiftRoutine,
+ * CalcPLR1InLine's object observation workspace, then a retained whole-level
+ * scene refresh from the mutable graph, followed by the source single-player
+ * exit-zone completion check. Alien and projectile paths remain outside this
+ * focused update.
  */
 int game_bootstrap_update_single_player(GameBootstrap *game,
                                         char *error, size_t error_size);

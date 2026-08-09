@@ -140,7 +140,11 @@ authority for all game behavior and data formats.
   alien-shot, player-one, and player-two offsets now resolve to checked ranges
   in that owned `ObjT` array, including all 20 slots in each projectile pool.
   No object, animation, projectile, or AI behaviour has been inferred or
-  ported.
+  ported. `src/object_observation.*` independently translates the source
+  `CalcPLR1InLine` workspace over that mutable ObjT/object-point state using
+  the original sine table and fixed source capacities. It is refreshed after
+  the source-order object/mechanism update for the next shot decision and
+  uses neither PVS nor portals; `newplayershoot.s` itself remains pending.
 - [x] `src/level_mechanisms.*` decodes the `TLGT` door/lift streams as the
   exact `ZLiftableT` plus variable `ZDoorWall` sequence used by
   `newanims.s:DoorRoutine` and `LiftRoutine`, bounded by their source
@@ -331,8 +335,10 @@ authority for all game behavior and data formats.
      trigonometric approximation. The current interaction scope includes the
      tested collectable, activatable, destructible, and decoration paths,
      `DoorRoutine`, `LiftRoutine`, and the source edge-gated next-weapon
-     selection. Next: source `Obj_DoCollision`, the remaining alien/projectile
-     `ObjectHandler` paths, `newplayershoot.s`, and source sprites.
+     selection. `CalcPLR1InLine` now publishes its source-shaped object
+     observation workspace without a renderer dependency. Next: source
+     `Obj_DoCollision`, the remaining alien/projectile `ObjectHandler` paths,
+     `newplayershoot.s`, and source sprites.
      `SwitchRoutine` remains absent:
      the maintained `objmoveanim` loop comments out its call, so it must not
      be activated as a native gameplay change.
