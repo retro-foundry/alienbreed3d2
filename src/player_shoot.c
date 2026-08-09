@@ -12,6 +12,7 @@ enum {
     PLAYER_SHOOT_SEES_PLAYER = 17u,
     PLAYER_SHOOT_HIT_POINTS = 18u,
     PLAYER_SHOOT_DAMAGE_TAKEN = 19u,
+    PLAYER_SHOOT_ENTITY_TIMER1 = 34u,
     PLAYER_SHOOT_SHOT_STATUS = 30u,
     PLAYER_SHOOT_SHOT_SIZE = 31u,
     PLAYER_SHOOT_SHOT_ANIMATION = 52u,
@@ -107,6 +108,16 @@ static int32_t player_shoot_add32(int32_t left, int32_t right)
 static int16_t player_shoot_add16(int16_t left, int16_t right)
 {
     return (int16_t)((uint16_t)left + (uint16_t)right);
+}
+
+static int16_t player_shoot_manual_vertical_speed(const PlayerRuntime *player,
+                                                  const GameBulletDefinition *bullet)
+{
+    uint16_t shift_count;
+
+    /* Plr1_Shot:.no_auto_aim / .nothing_to_shoot, including ASR.W's count. */
+    shift_count = (uint16_t)(UINT16_C(8) - (uint16_t)bullet->speed);
+    return player_shoot_asr16_count((int16_t)player->aim_speed, shift_count);
 }
 
 int player_shoot_find_target_single_player(const ObjectRuntime *objects,
@@ -242,6 +253,124 @@ int player_shoot_hitscan_roll_is_hit(const ObjectRuntime *objects,
         6u);
     roll = (int32_t)((uint32_t)(game_random_next(random) & 0x7fffu) << 1);
     *out_hit = roll > distance ? UINT8_MAX : 0u;
+    return 1;
+}
+
+int player_shoot_update_single_player(ObjectRuntime *objects,
+                                      LevelDynamicState *dynamic_level,
+                                      const ObjectObservation *observation,
+                                      PlayerRuntime *player,
+                                      GameInventory *inventory,
+                                      const GameLink *game_link,
+                                      const GamePreferences *preferences,
+                                      const GameMath *math,
+                                      GameRandom *random,
+                                      uint16_t frame_ticks,
+                                      char *error, size_t error_size)
+{
+    GameShootDefinition shoot;
+    GameBulletDefinition bullet;
+    PlayerShotTarget target;
+    uint8_t *weapon_slot;
+    uint16_t ammunition;
+    int16_t vertical_speed;
+    int16_t player_sine;
+    int16_t player_cosine;
+
+    if (!objects || !dynamic_level || !observation || !player || !inventory || !game_link ||
+        !preferences || !math || !random) {
+        player_shoot_set_error(error, error_size, "Plr1_Shot received invalid source state");
+        return 0;
+    }
+    if (player->time_to_shoot != 0) {
+        player->time_to_shoot =
+            (int16_t)((uint16_t)player->time_to_shoot - frame_ticks);
+        if (player->time_to_shoot >= 0) {
+            return 1;
+        }
+        player->time_to_shoot = 0;
+        return 1;
+    }
+    if (player->tmp_gun_selected >= GAME_LINK_GUN_COUNT ||
+        !game_link_get_shoot_definition(game_link, player->tmp_gun_selected, &shoot,
+                                        error, error_size) ||
+        shoot.bullet_type >= GAME_INVENTORY_AMMUNITION_COUNT ||
+        !game_link_get_bullet_definition(game_link, shoot.bullet_type, &bullet,
+                                         error, error_size)) {
+        player_shoot_set_error(error, error_size,
+                               "Plr1_Shot selected an invalid GLFT weapon or bullet");
+        return 0;
+    }
+    if (player->tmp_fire == 0u) {
+        return 1;
+    }
+    if (!game_math_sine(math, player->yaw, &player_sine, error, error_size) ||
+        !game_math_cosine(math, player->yaw, &player_cosine, error, error_size) ||
+        !player_shoot_find_target_single_player(objects, observation, player, &bullet,
+                                                &target, error, error_size)) {
+        return 0;
+    }
+    ammunition = inventory->ammunition[shoot.bullet_type];
+    if ((int16_t)ammunition < (int16_t)shoot.bullet_count) {
+        /* The source only makes its out-of-ammunition sound before returning. */
+        return 1;
+    }
+    if (objects->player1_slot > UINT32_MAX - 2u ||
+        !object_runtime_get_slot_bytes(objects, objects->player1_slot + 2u, &weapon_slot)) {
+        player_shoot_set_error(error, error_size,
+                               "Plr1_Shot weapon entity is outside owned source state");
+        return 0;
+    }
+    /* newplayershoot.s:.okcanshoot activates Plr1_Use's companion weapon ObjT. */
+    player_shoot_write_be16(weapon_slot + PLAYER_SHOOT_ENTITY_TIMER1, 1u);
+    player->time_to_shoot = (int16_t)shoot.delay;
+    inventory->ammunition[shoot.bullet_type] =
+        (uint16_t)(ammunition - shoot.bullet_count);
+
+    vertical_speed = target.found != 0u ? target.vertical_speed :
+        player_shoot_manual_vertical_speed(player, &bullet);
+    if ((player->mouse_active != 0u && preferences->no_auto_aim != 0u) ||
+        bullet.gravity != 0u) {
+        vertical_speed = player_shoot_manual_vertical_speed(player, &bullet);
+    }
+    if ((uint16_t)bullet.is_hitscan == 0u) {
+        return player_shoot_spawn_projectile_volley(objects, math, player, shoot.bullet_type,
+                                                    &bullet, shoot.bullet_count, vertical_speed,
+                                                    NULL, error, error_size);
+    }
+    if (target.found == 0u) {
+        /* .nothing_to_shoot forces bulyspd to zero and fires one wall impact. */
+        return player_shoot_apply_hitscan_miss(objects, dynamic_level, player, math, random,
+                                               shoot.bullet_type, NULL, error, error_size);
+    }
+    {
+        int16_t remaining = (int16_t)shoot.bullet_count;
+
+        /* The source always attempts one bullet, including a zero word count. */
+        for (;;) {
+            uint8_t hit;
+
+            if (!player_shoot_hitscan_roll_is_hit(objects, &target, player, random, &hit,
+                                                  error, error_size)) {
+                return 0;
+            }
+            if (hit != 0u) {
+                if (!player_shoot_apply_hitscan_success(
+                        objects, &target, shoot.bullet_type, &bullet, player_sine, player_cosine,
+                        NULL, error, error_size)) {
+                    return 0;
+                }
+            } else if (!player_shoot_apply_hitscan_miss(
+                           objects, dynamic_level, player, math, random, shoot.bullet_type,
+                           NULL, error, error_size)) {
+                return 0;
+            }
+            remaining = (int16_t)((uint16_t)remaining - 1u);
+            if (remaining <= 0) {
+                break;
+            }
+        }
+    }
     return 1;
 }
 

@@ -171,14 +171,18 @@ authority for all game behavior and data formats.
   its stationary miss effect to the first free player-shot slot without
   touching the source fields it does not own. Its regression verifies the
   ray/contact height, source slot/point byte writes, edge flag, and random
-  state. The parent `Plr1_Shot:.fire_hitscanned_bullets` random roll is also
-  now translated: it reads the selected live target point's source high words,
-  retains word subtraction, signed `MULS`, wrapped longword addition,
-  arithmetic divide-by-64, and signed `BGT` decision after one `GetRand`
-  advance. The hit/miss mutation and bullet loop remain owned by the still-
-  unwired parent. These helpers are not wired into input yet: source cooldown,
-  ammunition, moving-projectile update, and sound still belong to the
-  remaining `Plr1_Shot` path.
+  state. The parent `Plr1_Shot` is now called before `ObjectHandler`, as
+  `objmoveanim` does: it retains the source signed word cooldown, GLFT weapon
+  lookup, ammunition check/debit, companion weapon timer, target/no-target
+  decision, gravity/mouse no-auto-aim branch, and hit-scan or `firefive`
+  dispatch. Its per-bullet roll reads the selected live target point's source
+  high words, retains word subtraction, signed `MULS`, wrapped longword
+  addition, arithmetic divide-by-64, and signed `BGT` decision after one
+  `GetRand` advance. The native controller currently has no mouse path, so its
+  explicit `Plr1_Mouse_b` equivalent is false; the source preference branch is
+  retained for a later mouse controller. Original shot audio and moving-
+  projectile simulation remain absent, while the existing projectile launch
+  state and stationary hit-scan pop dispatch are live.
   `src/game_random.*` now retains `objectmove.s:GetRand`'s
   exact seeded 16-bit rotate/add sequence for the upcoming probability and AI
   paths. `GameBootstrap` owns and initializes that `Rand1` state once per
@@ -410,9 +414,10 @@ authority for all game behavior and data formats.
      `object_movement.*` and `player_shoot.*` now preserve the complete
      zero-extension `MoveObject` trace and its `plr1_HitscanFailed` pool write.
      Next: source `Obj_DoCollision`, the remaining alien/projectile-flight
-     `ObjectHandler` paths, and the cooldown, ammunition, input, and audio
-     portions of `newplayershoot.s`; its per-bullet hitscan roll is now
-     translated but remains unwired with its source hit/miss mutations.
+     `ObjectHandler` paths, moving-projectile collision, mouse input, and
+     audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
+     gameplay-state path is now wired before `ObjectHandler`; it intentionally
+     does not synthesize the unported sound effect.
      Source object render descriptors are now emitted independently of those
      pending simulation branches.
      `SwitchRoutine` remains absent:
@@ -477,8 +482,8 @@ authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
 objects, apply `Obj_DoCollision`, complete the remaining source-order object
-handling, activate switches, and create projectiles. The door/lift and bounded
-object slices are complete. `src/object_scene.*` now emits the raw render
+handling, activate switches, and advance created projectiles. The door/lift and
+bounded object slices are complete. `src/object_scene.*` now emits the raw render
 descriptor for every live source object without renderer visibility logic,
 while `src/object_handler.*` now
 preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator, and
@@ -494,9 +499,10 @@ path is still absent, so it too remains unwired. `object_movement.*` now
 provides the exact zero-extension `MoveObject` path for
 `plr1_HitscanFailed`, including its exit-first wall contact and joined-zone
 state, while `player_shoot.*` now consumes it to create the source miss effect.
-Neither firing helper is yet connected to source fire/cooldown/ammunition
-control. Translate each remaining bounded slice directly from the maintained
-source and add source-derived regressions for its state changes and ordering.
+The source fire/cooldown/ammunition control is now wired before `ObjectHandler`,
+so the remaining projectile work is flight/collision rather than launch.
+Translate each remaining bounded slice directly from the maintained source and
+add source-derived regressions for its state changes and ordering.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their

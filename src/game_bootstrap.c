@@ -6,6 +6,7 @@
 #include "object_handler.h"
 #include "object_scene.h"
 #include "player_entity.h"
+#include "player_shoot.h"
 
 #define AB3D2_LEVEL_COUNT 16u
 
@@ -229,6 +230,10 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
                                           &game->player, error, error_size) ||
         !player_entity_disable_second_for_single_player(&game->object_runtime,
                                                         error, error_size) ||
+        !player_shoot_update_single_player(
+            &game->object_runtime, &game->dynamic_level, &game->object_observation,
+            &game->player, &game->session.player1_inventory, &game->game_link_catalog,
+            &game->preferences, &game->math, &game->random, 1u, error, error_size) ||
         !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,

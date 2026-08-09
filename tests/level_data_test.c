@@ -3051,6 +3051,108 @@ int main(int argc, char **argv)
         }
     }
     {
+        enum {
+            PARENT_TARGET_SLOT = 0u,
+            PARENT_SHOT_FIRST_SLOT = 1u,
+            PARENT_PLAYER_SLOT = PARENT_SHOT_FIRST_SLOT + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT,
+            PARENT_WEAPON_SLOT = PARENT_PLAYER_SLOT + 2u,
+            PARENT_SLOT_COUNT = PARENT_WEAPON_SLOT + 1u
+        };
+        uint8_t slot_bytes[PARENT_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[PARENT_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime parent_objects = {0};
+        ObjectObservation parent_observation;
+        PlayerRuntime parent_player = {0};
+        GameInventory parent_inventory = {0};
+        GameShootDefinition parent_shoot;
+        GameBulletDefinition parent_bullet;
+        GameRandom parent_random;
+        GameRandom expected_parent_random;
+
+        if (!game_link_get_shoot_definition(&game.game_link_catalog, 0u, &parent_shoot,
+                                            error, sizeof(error)) ||
+            !game_link_get_bullet_definition(&game.game_link_catalog, parent_shoot.bullet_type,
+                                             &parent_bullet, error, sizeof(error)) ||
+            (uint16_t)parent_bullet.is_hitscan == 0u || parent_shoot.bullet_count == 0u) {
+            fprintf(stderr, "could not prepare source Plr1_Shot hitscan fixture: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        parent_objects.slot_bytes = slot_bytes;
+        parent_objects.slot_count = PARENT_SLOT_COUNT;
+        parent_objects.active_slot_count = 1u;
+        parent_objects.player_shot_first_slot = PARENT_SHOT_FIRST_SLOT;
+        parent_objects.player1_slot = PARENT_PLAYER_SLOT;
+        parent_objects.point_bytes = point_bytes;
+        parent_objects.point_count = PARENT_SLOT_COUNT;
+        write_be16(slot_bytes + PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   PARENT_TARGET_SLOT);
+        write_be16(slot_bytes + PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, 0u);
+        write_be16(slot_bytes + PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+        slot_bytes[PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 1u;
+        slot_bytes[PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 17u] = UINT8_MAX;
+        slot_bytes[PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 10u;
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            uint8_t *shot_slot = slot_bytes +
+                (PARENT_SHOT_FIRST_SLOT + shot_index) * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            write_be16(shot_slot + 0u,
+                       (uint16_t)(PARENT_SHOT_FIRST_SLOT + shot_index));
+            write_be16(shot_slot + 12u, UINT16_MAX);
+        }
+        object_observation_init(&parent_observation);
+        parent_observation.in_line[PARENT_TARGET_SLOT] = UINT8_MAX;
+        parent_observation.distances[PARENT_TARGET_SLOT] = 50u;
+        parent_player.height = 12 * 1024;
+        parent_player.tmp_gun_selected = 0u;
+        parent_player.tmp_fire = UINT8_MAX;
+        parent_player.zone_index = 0u;
+        parent_inventory.ammunition[parent_shoot.bullet_type] = 8u;
+        game_random_init(&parent_random);
+        expected_parent_random = parent_random;
+        for (uint16_t shot_index = 0u; shot_index < parent_shoot.bullet_count; ++shot_index) {
+            (void)game_random_next(&expected_parent_random);
+        }
+        if (!player_shoot_update_single_player(
+                &parent_objects, &game.dynamic_level, &parent_observation, &parent_player,
+                &parent_inventory, &game.game_link_catalog, &game.preferences, &game.math,
+                &parent_random, 1u, error, sizeof(error)) ||
+            parent_player.time_to_shoot != (int16_t)parent_shoot.delay ||
+            parent_inventory.ammunition[parent_shoot.bullet_type] !=
+                (uint16_t)(8u - parent_shoot.bullet_count) ||
+            slot_bytes[PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] !=
+                (uint8_t)((uint8_t)parent_bullet.hit_damage *
+                          (uint8_t)parent_shoot.bullet_count) ||
+            read_be16(slot_bytes + PARENT_WEAPON_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 34u) !=
+                1u || parent_random.state != expected_parent_random.state) {
+            fprintf(stderr, "Plr1_Shot fire setup is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint16_t shot_index = 0u; shot_index < parent_shoot.bullet_count; ++shot_index) {
+            const uint8_t *shot_slot = slot_bytes +
+                (PARENT_SHOT_FIRST_SLOT + shot_index) * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            if (read_be16(shot_slot + 12u) != 0u || shot_slot[30u] != 1u ||
+                shot_slot[31u] != (uint8_t)parent_shoot.bullet_type) {
+                fprintf(stderr, "Plr1_Shot hitscan dispatch is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        if (!player_shoot_update_single_player(
+                &parent_objects, &game.dynamic_level, &parent_observation, &parent_player,
+                &parent_inventory, &game.game_link_catalog, &game.preferences, &game.math,
+                &parent_random, 1u, error, sizeof(error)) ||
+            parent_player.time_to_shoot != (int16_t)(parent_shoot.delay - 1u) ||
+            parent_random.state != expected_parent_random.state) {
+            fprintf(stderr, "Plr1_Shot source cooldown is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         uint8_t slot_bytes[(1u + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT) *
                            OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         uint8_t point_bytes[(1u + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT) *

@@ -60,8 +60,9 @@ first game's software renderer:
   selected `--level A` through `--level P`) while menu work is deferred.
   Master/slave multiplayer is explicitly unavailable. Native SDL events feed
   the source-shaped raw-key map, player movement/falling/static collision,
-  collectables, doors, lifts, and water updates; the complete weapon, enemy,
-  projectile-flight, and audio paths remain in progress;
+  collectables, doors, lifts, water updates, and the source single-player
+  weapon cooldown/ammunition/hitscan/projectile-launch path; enemy,
+  projectile-flight, mouse-input, and audio paths remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

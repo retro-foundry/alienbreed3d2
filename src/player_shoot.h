@@ -46,6 +46,24 @@ int player_shoot_hitscan_roll_is_hit(const ObjectRuntime *objects,
                                      char *error, size_t error_size);
 
 /*
+ * newplayershoot.s:Plr1_Shot. Runs the source cooldown, GLFT weapon lookup,
+ * ammunition check/debit, aim choice, and hitscan/projectile dispatch once in
+ * objmoveanim order. Audio playback and weapon-view rendering remain with
+ * their separate unported source consumers.
+ */
+int player_shoot_update_single_player(ObjectRuntime *objects,
+                                      LevelDynamicState *dynamic_level,
+                                      const ObjectObservation *observation,
+                                      PlayerRuntime *player,
+                                      GameInventory *inventory,
+                                      const GameLink *game_link,
+                                      const GamePreferences *preferences,
+                                      const GameMath *math,
+                                      GameRandom *random,
+                                      uint16_t frame_ticks,
+                                      char *error, size_t error_size);
+
+/*
  * newplayershoot.s:plr1_HitscanSucceded.  Creates the source impact ObjT
  * when a player-shot slot is free, then applies the source byte-sized damage
  * and impact direction to the selected target.  Hit probability, misses, and

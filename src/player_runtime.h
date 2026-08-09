@@ -45,6 +45,8 @@ typedef struct {
     int16_t floor_speed;
     uint16_t bobble;
     int16_t add_to_bobble;
+    /* newplayershoot.s:Plr1_TimeToShoot_w. */
+    int16_t time_to_shoot;
     uint16_t health;
     uint32_t default_enemy_flags;
     uint8_t ducked;
@@ -59,6 +61,8 @@ typedef struct {
     uint8_t tmp_fire;
     uint8_t fire;
     uint8_t clicked;
+    /* Native controller-mode state corresponding to Plr1_Mouse_b. */
+    uint8_t mouse_active;
     /* modules/player.s:PlrT_GunSelected_b and its next-weapon edge gate. */
     uint8_t gun_selected;
     uint8_t previous_use_key_state;
