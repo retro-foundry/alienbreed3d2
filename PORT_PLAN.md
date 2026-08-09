@@ -126,8 +126,8 @@ authority for all game behavior and data formats.
   they deliberately do not move the player. The source advances snap state
   before `hires.s:Plr1_Control` collision-validates and commits it, so native
   horizontal/vertical movement remains gated on that complete sequence.
-  Flat and sprite scene emission remain distinct follow-up slices; walls now
-  submit source-defined material and geometry commands.
+  Sprite scene emission remains a distinct follow-up slice; walls, floors,
+  ceilings, and water now submit source-defined material and geometry commands.
 - [ ] Before resolving textured world geometry, establish the source-to-GPU
   texture-coordinate mapping for each primitive. `src/level_draw_graph.*` has
   now proven every active cursor boundary in the shipped streams: type 3 and
