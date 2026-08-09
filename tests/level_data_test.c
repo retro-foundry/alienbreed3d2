@@ -6,6 +6,7 @@
 #include "alien_flight.h"
 #include "alien_memory.h"
 #include "alien_perception.h"
+#include "alien_setup.h"
 #include "alien_spatial.h"
 #include "asset_io.h"
 #include "game_bootstrap.h"
@@ -4234,6 +4235,67 @@ int main(int argc, char **argv)
                     error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+    }
+    {
+        /* newaliencontrol.s:ItsAnAlien assembles a source-owned per-alien context. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime setup_objects = {0};
+        LevelZone setup_zone;
+        AlienSetup setup;
+        GameAlienDefinition definition;
+        GameShootDefinition alien_shoot;
+        int16_t alien_brightness;
+
+        if (!level_runtime_get_zone(&game.dynamic_level.runtime, game.player.zone_index,
+                                    &setup_zone, error, sizeof(error))) {
+            fprintf(stderr, "could not read ItsAnAlien source zone: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        setup_objects.slot_bytes = slot_bytes;
+        setup_objects.slot_count = 1u;
+        setup_objects.active_slot_count = 1u;
+        write_be16(slot_bytes + 0u, 17u);
+        write_be16(slot_bytes + 12u, setup_zone.id);
+        for (uint16_t alien_index = 0u; alien_index < GAME_LINK_ALIEN_COUNT; ++alien_index) {
+            slot_bytes[54u] = (uint8_t)alien_index;
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &definition, error, sizeof(error)) ||
+                !game_link_get_alien_brightness(&game.game_link_catalog, alien_index,
+                                                &alien_brightness, error, sizeof(error)) ||
+                !game_link_get_alien_shoot_definition(&game.game_link_catalog, alien_index,
+                                                      &alien_shoot, error, sizeof(error)) ||
+                !alien_setup_from_slot(&setup_objects, 0u, &game.dynamic_level.runtime,
+                                       &game.game_link_catalog, &setup,
+                                       error, sizeof(error)) ||
+                definition.girth > 2u ||
+                setup.alien_type != alien_index || setup.zone_id != setup_zone.id ||
+                setup.object_point_index != 17u || setup.zone_echo != setup_zone.echo ||
+                setup.brightness != (int16_t)(0u - (uint16_t)alien_brightness) ||
+                memcmp(&setup.shoot_definition, &alien_shoot, sizeof(alien_shoot)) != 0 ||
+                setup.shot_y_offset != (int32_t)(((uint32_t)alien_shoot.bullet_type << 23u) |
+                                                  ((uint32_t)alien_shoot.delay << 7u)) ||
+                setup.shot_offset_multiplier !=
+                    (int16_t)((uint16_t)(0u - alien_shoot.sound_effect) << 2u) ||
+                setup.thing_height != (int32_t)(int16_t)definition.height * 128 ||
+                setup.auxiliary_object_type != (int16_t)definition.auxiliary_type ||
+                setup.vector_object_flag != (uint8_t)definition.graphics_type ||
+                setup.default_mode != (int16_t)definition.default_behaviour ||
+                setup.response_mode != (int16_t)definition.response_behaviour ||
+                setup.retreat_mode != (int16_t)definition.retreat_behaviour ||
+                setup.followup_mode != (int16_t)definition.followup_behaviour ||
+                setup.prowl_speed != (int16_t)definition.default_speed ||
+                setup.response_speed != (int16_t)definition.response_speed ||
+                setup.retreat_speed != (int16_t)definition.retreat_speed ||
+                setup.followup_speed != (int16_t)definition.followup_speed ||
+                setup.followup_timer != (int16_t)definition.followup_timeout ||
+                setup.away_from_wall != (int8_t)definition.girth ||
+                setup.extended_wall_length != (int16_t)(40u << definition.girth)) {
+                fprintf(stderr, "ItsAnAlien setup %u is inconsistent: %s\n", alien_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
     }
     {

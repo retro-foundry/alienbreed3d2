@@ -578,6 +578,11 @@ clamps, but are not invoked without a translated flying mode.
 `src/game_link.*` also now exposes the checked `GLFT_AlienBrights_l` and
 `GLFT_AlienShootDefs_l` records consumed by `ItsAnAlien`, without assigning
 their torch, projectile, or audio behavior before the owning AI branches.
+`newaliencontrol.s:ItsAnAlien`'s immediate per-slot setup is now a checked
+native context: it retains zone echo, inverted brightness, the raw ShootT
+longword transform, AlienT mode/speed values, and the exact three-entry girth
+mapping. It stops immediately before `AI_MainRoutine`; no incomplete dispatch
+is wired into `ObjectHandler`.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,

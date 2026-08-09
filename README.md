@@ -71,7 +71,7 @@ first game's software renderer:
   collectables, doors, lifts, water updates, source PVST gameplay activation,
   and `hires.s:DOALLANIMS`' source-timed alien frame/action workspace update;
   the source AI's isolated player-memory, sight, facing, grounded-route,
-  room-state, and vertical-flight helpers; the source single-player
+  room-state, vertical-flight, and per-alien setup helpers; the source single-player
   weapon cooldown/ammunition/hitscan/projectile-launch/flight path; enemy,
   mouse-input, blast/brightness, and audio paths remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,

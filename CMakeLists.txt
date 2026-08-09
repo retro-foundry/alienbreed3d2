@@ -29,6 +29,7 @@ set(AB3D2_CORE_SOURCES
   src/alien_flight.c
   src/alien_memory.c
   src/alien_perception.c
+  src/alien_setup.c
   src/alien_spatial.c
   src/asset_io.c
   src/game_bootstrap.c
