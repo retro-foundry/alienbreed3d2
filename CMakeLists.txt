@@ -49,6 +49,7 @@ set(AB3D2_CORE_SOURCES
   src/object_handler.c
   src/object_observation.c
   src/object_passives.c
+  src/object_projectiles.c
   src/object_runtime.c
   src/object_scene.c
   src/player_entity.c

@@ -139,8 +139,9 @@ authority for all game behavior and data formats.
   without applying any update. The original `Game_Begin` player-shot,
   alien-shot, player-one, and player-two offsets now resolve to checked ranges
   in that owned `ObjT` array, including all 20 slots in each projectile pool.
-  No object, animation, projectile, or AI behaviour has been inferred or
-  ported. `src/object_observation.*` independently translates the source
+  Alien AI, projectile flight/collision, and audio remain unported; the
+  bounded object paths listed below retain their own source-owned updates.
+  `src/object_observation.*` independently translates the source
   `CalcPLR1InLine` workspace over that mutable ObjT/object-point state using
   the original sine table and fixed source capacities. It is refreshed after
   the source-order object/mechanism update for the next shot decision and
@@ -150,9 +151,12 @@ authority for all game behavior and data formats.
   AUX handling, target flags, sight gate, and tie selection. Its bounded
   `plr1_HitscanSucceded` companion now allocates the source impact ObjT from
   the player-shot pool, copies its source point, and applies byte-sized damage
-  plus impact direction. These helpers are not wired into input yet: source
-  cooldown, ammunition, randomness, hit probability, miss raycast/effect,
-  moving-projectile creation, and sound still belong to the remaining
+  plus impact direction. `src/object_projectiles.*` then translates the
+  `ItsABullet` stationary pop branch for that status: its source bitmap/glare/
+  additive descriptor, frame advance, and `FREE_ENT` release are dispatched
+  in `ObjectHandler` slot order. These helpers are not wired into input yet:
+  source cooldown, ammunition, randomness, hit probability, miss raycast/
+  effect, moving-projectile creation, and sound still belong to the remaining
   `Plr1_Shot` path.
 - [x] `src/object_scene.*` translates the non-raster `ObjT` descriptor boundary
   used by `objdrawhires.s:Draw_Objects` and `draw_Object`. Each live source
@@ -258,10 +262,10 @@ authority for all game behavior and data formats.
   worry-gated decoration placement/default animation. It deliberately leaves
   object locks, destructible narrative messages, and AI worry selection out
   of scope until their owning systems exist. Dynamic `Obj_DoCollision`,
-  switches, enemies, projectiles, and sounds remain absent until their owning
-  routines are ported. Active source object render descriptors are emitted,
-  but no new animation, enemy, or projectile behavior is inferred to make
-  them move.
+  switches, enemies, moving projectiles, and sounds remain absent until their
+  owning routines are ported. Active source object render descriptors are
+  emitted; the only projectile update is the source's non-moving hitscan-
+  impact pop state, so no movement behaviour is inferred.
   `SceneCamera.look_offset` now carries
   the source small-screen look value for the future GPU backend. Walls, floors,
   ceilings, and water continue to submit source-defined material and geometry
@@ -276,8 +280,8 @@ authority for all game behavior and data formats.
   other ignored tags advance by their tag word exactly as maintained
   `draw_zone_graph.s` does. `hireswall.s` establishes wall endpoints, vertical
   bounds, and material ID, but its screen-space perspective texture-coordinate
-  calculation must not be replaced by invented UVs. Decode that mapping or
-  capture an original-runtime fixture before clearing the unresolved-UV flag
+  calculation must not be replaced by invented UVs. Decode that mapping before
+  clearing the unresolved-UV flag
   on wall commands; `Draw_Flats`' scale and floor-texture byte offset must
   likewise become an evidence-backed GPU mapping. The active-object sprite
   descriptor boundary is now evidenced and emitted; a backend still needs to
@@ -365,8 +369,9 @@ authority for all game behavior and data formats.
      `DoorRoutine`, `LiftRoutine`, and the source edge-gated next-weapon
      selection. `CalcPLR1InLine` now publishes its source-shaped object
      observation workspace without a renderer dependency. Next: source
-     `Obj_DoCollision`, the remaining alien/projectile `ObjectHandler` paths,
-     and the remaining firing/miss/projectile portion of `newplayershoot.s`.
+     `Obj_DoCollision`, the remaining alien/projectile-flight `ObjectHandler`
+     paths, and the remaining firing/miss/projectile portion of
+     `newplayershoot.s`.
      Source object render descriptors are now emitted independently of those
      pending simulation branches.
      `SwitchRoutine` remains absent:
@@ -411,8 +416,7 @@ authority for all game behavior and data formats.
   optional-asset presence, decompressed sizes, and malformed-input failures.
 - For movement, collision, AI, projectile, timer, and visibility work, derive
   focused source-level regressions from the maintained routine, source-named
-  fields, and byte layouts. Emulator-oracle fixtures are valuable additional
-  validation when available, but are not a prerequisite for this port.
+  fields, and byte layouts.
 - Validate in layers: asset load, level bootstrap, input-to-control state,
   control-to-simulation state, simulation-to-scene commands, then GPU output.
   Do not use a rendered frame as the only parity check.
@@ -439,18 +443,11 @@ while `src/object_handler.*` now
 preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator, and
 `ObjT_ZoneID_w` to `EntT_ZoneID_w` copy for the translated collectable,
 activatable, destructible, and decoration branches. The destructible/decorative
-path has no inferred AI worry, narrative, or lock behavior; alien and
-projectile dispatch remain deliberately absent. Translate each remaining
-bounded slice directly from the maintained source and add source-derived
-regressions for its state changes and ordering. When an original-runtime fixture becomes available, follow the
-optional byte-exact capture contract in
-[`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md) to add an independent
-parity check. The highest-value optional boundaries are:
-
-- `hires.s:Plr1_Control` through its `Obj_DoCollision` call with active
-  dynamic objects;
-- `newanims.s:ObjectHandler` through the object frame consumed by
-  `objdrawhires.s:Draw_Objects`.
+path has no inferred AI worry, narrative, or lock behavior; the stationary
+hitscan-impact projectile dispatch is now present, while alien and moving-
+projectile dispatch remain unported. Translate each remaining bounded slice
+directly from the maintained source and add source-derived regressions for its
+state changes and ordering.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their
@@ -458,20 +455,11 @@ bounded behavior, and resulting object/sprite/HUD commands use source asset
 IDs and frame records. No PVS, portal traversal, software framebuffer, or
 multiplayer state is required for that work.
 
-The local capture audit is recorded in
-[`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md#current-local-capture-availability).
-The maintained assembly source can be assembled, but the source-faithful debug
-executable cannot yet be built or run with the locally available GCC/SDI and
-Amiga boot-media prerequisites. This leaves an optional independent validation
-path unavailable; it does not block direct, evidence-cited translation from
-the maintained source or justify using an older binary as an oracle.
-
 The immediately preceding preparation step is complete: the runtime decodes
 the source's object inventory grants and reproduces its inventory-limit helpers,
 owns byte-exact mutable `ObjT`/object-point storage, and applies the translated
 collectable, bounded activatable, destructible, and decoration paths in
 `ObjectHandler`'s source slot order. This does not port PVS/worry selection,
-locks, narrative audio/messages, or the alien and projectile `ObjectHandler`
-paths. The missing systems must use the maintained source's mutable `ObjT`
-initialization, worry, animation, and update ordering rather than a generalized
-object update.
+locks, narrative audio/messages, alien behaviour, or projectile flight. The
+missing systems must use the maintained source's mutable `ObjT` initialization,
+worry, animation, and update ordering rather than a generalized object update.

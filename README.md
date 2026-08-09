@@ -39,13 +39,16 @@ first game's software renderer:
 - exposes the 30 source `ODefT` object definitions, both 20-frame six-byte
   object animation tables, and the 32 eight-byte bitmap metrics per object as
   endian-safe read views. Object commands expose the source-selected mode and
-  frame; pending AI/projectile paths do not receive invented animation;
+  frame; pending AI and moving-projectile paths do not receive invented
+  animation;
 - exposes all 20 `AlienT` records used by `ItsAnAlien` and validates every
   loaded alien-slot type against that catalog, without starting an AI update;
 - exposes all 20 `BulT` records, including their source animation/pop payload
   views and fixed six-byte frame records. The `Game_Begin` player/alien
   projectile pools and both player entities resolve to checked slots in the
-  owned `ObjT` runtime array, without yet creating or updating a projectile;
+  owned `ObjT` runtime array. The bounded stationary impact state created by
+  `plr1_HitscanSucceded` advances its original `ItsABullet` pop frames and
+  releases its source slot; projectile flight/collision remains unported;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload). The native Load Position and Save
   Position menus use the original six-record, 420-byte `boot.dat` layout at a
@@ -53,15 +56,14 @@ first game's software renderer:
   unedited raw record. The default starting ammunition class is read through
   the checked four-word `ShootT` record used by `newplayershoot.s`, rather
   than an ad-hoc GLFT byte offset;
-- drives the source single-player main menu, including the two-page level
-  selector and level start handoff. Master/slave multiplayer is explicitly
-  unavailable; custom options and the two-page raw-key control rebinding menu
-  change source-backed in-memory preference bytes. Native SDL events also feed
-  the source-shaped raw-key map; the source operate, crouch, and fire branches
-  consume it, while movement/collision remains pending. Preference persistence
-  remains pending;
-- opens a diagnostic SDL window whose title presents the current menu/level
-  status and command count. It does not rasterize the game scene.
+- starts the source default single-player session directly in Level A (or a
+  selected `--level A` through `--level P`) while menu work is deferred.
+  Master/slave multiplayer is explicitly unavailable. Native SDL events feed
+  the source-shaped raw-key map, player movement/falling/static collision,
+  collectables, doors, lifts, and water updates; the complete weapon, enemy,
+  projectile-flight, and audio paths remain in progress;
+- opens a diagnostic SDL window whose title presents the active level, zone,
+  camera coordinates, and command count. It does not rasterize the game scene.
 
 Single-player is the only intended PC mode. The original serial master/slave
 multiplayer flow is intentionally not ported.
@@ -77,19 +79,14 @@ cmake --build build/pc --config Debug
 ctest --test-dir build/pc --output-on-failure
 ```
 
-Run the `ab3d2` executable from its build output directory. Use Up/Down to
-navigate, Enter or Space to activate a menu item, and the source menu's EXIT
-entry (or the window close control) to quit. Escape preserves the main menu's
-source no-op/cancel behavior. The native runtime fails explicitly if an
-authoritative asset is unavailable.
+Run the `ab3d2` executable from its build output directory. It starts Level A
+directly; use `--level B` through `--level P` to select another authored level.
+Escape or the window close control quits. The native runtime fails explicitly
+if an authoritative asset is unavailable.
 
 Position saves are the original unversioned 420-byte `boot.dat` payload—not a
-new native format. The default path is beside the executable; use
-`--save-path <boot.dat>` to select another compatible file. A file must already
-exist and be exactly 420 bytes: the port deliberately does not fabricate a
-first-run template or modify the staged `data/` tree. The historical archive's
-`boot.dat` is used only as a test fixture because its NEW GAME record is not
-valid for the maintained A-P campaign.
+new native format. The gameplay-first executable does not expose its
+interactive save/load flow yet.
 
 ## Port authority and source map
 

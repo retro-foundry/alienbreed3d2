@@ -11,6 +11,7 @@
 #include "level_draw_graph.h"
 #include "object_collectables.h"
 #include "object_handler.h"
+#include "object_projectiles.h"
 #include "object_scene.h"
 #include "player_entity.h"
 #include "player_shoot.h"
@@ -3029,6 +3030,87 @@ int main(int argc, char **argv)
                 &impact_spawned, error, sizeof(error)) || impact_spawned != 0u ||
             slot_bytes[19u] != 1u) {
             fprintf(stderr, "plr1_HitscanSucceded pool exhaustion is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime impact_objects = {0};
+        GameBulletDefinition impact_bullet = {0};
+        GameBulletAnimationFrame impact_frame;
+        uint16_t impact_bullet_index = UINT16_MAX;
+
+        /* Choose an authored pop sequence that remains inside BulT's 20 records. */
+        for (uint16_t bullet_index = 0u; bullet_index < GAME_LINK_BULLET_COUNT;
+             ++bullet_index) {
+            if (!game_link_get_bullet_definition(&game.game_link_catalog, bullet_index,
+                                                 &impact_bullet, error, sizeof(error))) {
+                fprintf(stderr, "could not read source impact bullet definition: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if ((uint16_t)impact_bullet.pop_frames > 0u &&
+                (uint16_t)impact_bullet.pop_frames < GAME_LINK_BULLET_ANIMATION_FRAME_COUNT) {
+                impact_bullet_index = bullet_index;
+                break;
+            }
+        }
+        if (impact_bullet_index == UINT16_MAX ||
+            !game_link_get_bullet_animation_frame(
+                &game.game_link_catalog, GAME_LINK_BULLET_ANIMATION_POP,
+                impact_bullet_index, 0u, &impact_frame, error, sizeof(error))) {
+            fprintf(stderr, "source impact animation fixture is unavailable: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        impact_objects.slot_bytes = slot_bytes;
+        impact_objects.slot_count = 1u;
+        impact_objects.active_slot_count = 1u;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 12u, 0u);
+        slot_bytes[16u] = 2u;
+        slot_bytes[30u] = 1u;
+        slot_bytes[31u] = (uint8_t)impact_bullet_index;
+        if (!object_projectiles_update_impact_slot(
+                &impact_objects, 0u, &game.game_link_catalog, error, sizeof(error)) ||
+            read_be16(slot_bytes + 6u) != impact_frame.word_2 ||
+            slot_bytes[11u] != impact_frame.byte_1 || slot_bytes[52u] != 1u) {
+            fprintf(stderr, "ItsABullet source impact animation start is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if ((int32_t)impact_bullet.impact_graphics_type < 1) {
+            if (slot_bytes[9u] != impact_frame.byte_0 || slot_bytes[10u] != 0u) {
+                fprintf(stderr, "ItsABullet bitmap impact descriptor is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        } else if (impact_bullet.impact_graphics_type == 1u) {
+            if ((int16_t)read_be16(slot_bytes + 8u) !=
+                (int16_t)-(int16_t)(int8_t)impact_frame.byte_0 || slot_bytes[10u] != 0u) {
+                fprintf(stderr, "ItsABullet glare impact descriptor is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        } else if (slot_bytes[9u] != impact_frame.byte_0 || slot_bytes[10u] != 6u) {
+            fprintf(stderr, "ItsABullet additive impact descriptor is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint16_t update_count = 0u; update_count < GAME_LINK_BULLET_ANIMATION_FRAME_COUNT;
+             ++update_count) {
+            if (slot_bytes[30u] == 0u ||
+                !object_projectiles_update_impact_slot(
+                    &impact_objects, 0u, &game.game_link_catalog, error, sizeof(error))) {
+                break;
+            }
+        }
+        if (slot_bytes[30u] != 0u || slot_bytes[52u] != 0u ||
+            (int16_t)read_be16(slot_bytes + 12u) != -1 ||
+            (int16_t)read_be16(slot_bytes + 26u) != -1) {
+            fprintf(stderr, "ItsABullet source impact release is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
