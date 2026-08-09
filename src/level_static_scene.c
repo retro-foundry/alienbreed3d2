@@ -7,6 +7,9 @@
 
 #include "level_draw_graph.h"
 
+/* `draw_zone_graph.s:Draw_Wall` records have this fixed source size. */
+enum { LEVEL_STATIC_SCENE_WALL_RECORD_BYTE_COUNT = 30u };
+
 static void level_static_scene_set_error(char *error, size_t error_size, const char *message)
 {
     if (error && error_size > 0) {
@@ -98,6 +101,27 @@ static int level_static_scene_flat_primitive(uint8_t draw_graph_type,
         return 1;
     case LEVEL_DRAW_GRAPH_TYPE_WATER:
         *out_primitive = SCENE_GEOMETRY_PRIMITIVE_WATER;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int level_static_scene_draw_graph_type_for_primitive(
+    SceneGeometryPrimitive primitive, uint8_t *out_draw_graph_type)
+{
+    if (!out_draw_graph_type) {
+        return 0;
+    }
+    switch (primitive) {
+    case SCENE_GEOMETRY_PRIMITIVE_FLOOR:
+        *out_draw_graph_type = LEVEL_DRAW_GRAPH_TYPE_FLOOR;
+        return 1;
+    case SCENE_GEOMETRY_PRIMITIVE_CEILING:
+        *out_draw_graph_type = LEVEL_DRAW_GRAPH_TYPE_CEILING;
+        return 1;
+    case SCENE_GEOMETRY_PRIMITIVE_WATER:
+        *out_draw_graph_type = LEVEL_DRAW_GRAPH_TYPE_WATER;
         return 1;
     default:
         return 0;
@@ -251,6 +275,7 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                     scene_flat->vertex_count = flat.point_count;
                     scene_flat->material_id = flat.texture_offset;
                     scene_flat->source_record_offset = record.source_offset;
+                    scene_flat->source_record_byte_count = record.byte_count;
                     scene_flat->texture_scale = flat.texture_scale;
                     scene_flat->brightness_offset = flat.brightness_offset;
                     for (point_index = 0u; point_index < flat.point_count; ++point_index) {
@@ -285,6 +310,110 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
 fail:
     level_static_scene_destroy(&scene);
     return 0;
+}
+
+int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime *runtime,
+                                     uint32_t wall_material_count, size_t floor_texture_size,
+                                     char *error, size_t error_size)
+{
+    uint32_t wall_index;
+    uint32_t flat_index;
+
+    if (!scene || !runtime || wall_material_count == 0u || floor_texture_size == 0u ||
+        (scene->wall_count != 0u && !scene->walls) ||
+        (scene->flat_count != 0u && !scene->flats)) {
+        level_static_scene_set_error(error, error_size,
+                                     "dynamic scene update received invalid source state");
+        return 0;
+    }
+    for (wall_index = 0u; wall_index < scene->wall_count; ++wall_index) {
+        LevelStaticWallScene *scene_wall = &scene->walls[wall_index];
+        LevelDrawGraphRecord record;
+        LevelDrawWall wall;
+        LevelWorldPoint left_point;
+        LevelWorldPoint right_point;
+        int wall_read;
+
+        memset(&record, 0, sizeof(record));
+        record.type = LEVEL_DRAW_GRAPH_TYPE_WALL;
+        record.source_offset = scene_wall->source_record_offset;
+        record.byte_count = LEVEL_STATIC_SCENE_WALL_RECORD_BYTE_COUNT;
+        wall_read = level_draw_graph_read_wall(runtime, &record, &wall, error, error_size);
+        if (!wall_read ||
+            wall.texture_id >= wall_material_count ||
+            !level_runtime_get_world_point(runtime, wall.left_point_index, &left_point,
+                                           error, error_size) ||
+            !level_runtime_get_world_point(runtime, wall.right_point_index, &right_point,
+                                           error, error_size)) {
+            if (wall_read != 0 && wall.texture_id >= wall_material_count) {
+                level_static_scene_set_error(error, error_size,
+                                             "dynamic wall texture id is outside source material table");
+            }
+            return 0;
+        }
+        scene_wall->material_id = wall.texture_id;
+        level_static_scene_set_vertex(&scene_wall->vertices[0], left_point.x, wall.top,
+                                      left_point.z);
+        level_static_scene_set_vertex(&scene_wall->vertices[1], right_point.x, wall.top,
+                                      right_point.z);
+        level_static_scene_set_vertex(&scene_wall->vertices[2], right_point.x, wall.bottom,
+                                      right_point.z);
+        level_static_scene_set_vertex(&scene_wall->vertices[3], left_point.x, wall.top,
+                                      left_point.z);
+        level_static_scene_set_vertex(&scene_wall->vertices[4], right_point.x, wall.bottom,
+                                      right_point.z);
+        level_static_scene_set_vertex(&scene_wall->vertices[5], left_point.x, wall.bottom,
+                                      left_point.z);
+    }
+    for (flat_index = 0u; flat_index < scene->flat_count; ++flat_index) {
+        LevelStaticFlatScene *scene_flat = &scene->flats[flat_index];
+        LevelDrawGraphRecord record;
+        LevelDrawFlat flat;
+        uint8_t draw_graph_type;
+        int flat_read;
+
+        if (!level_static_scene_draw_graph_type_for_primitive(scene_flat->primitive,
+                                                               &draw_graph_type)) {
+            level_static_scene_set_error(error, error_size,
+                                         "dynamic scene contains an unsupported flat primitive");
+            return 0;
+        }
+        memset(&record, 0, sizeof(record));
+        record.type = draw_graph_type;
+        record.source_offset = scene_flat->source_record_offset;
+        record.byte_count = scene_flat->source_record_byte_count;
+        flat_read = level_draw_graph_read_flat(runtime, &record, &flat, error, error_size);
+        if (!flat_read ||
+            flat.point_count != scene_flat->vertex_count ||
+            flat.texture_offset >= floor_texture_size) {
+            if (flat_read != 0 && flat.point_count != scene_flat->vertex_count) {
+                level_static_scene_set_error(error, error_size,
+                                             "dynamic flat point count changed from the source scene allocation");
+            } else if (flat_read != 0 && flat.texture_offset >= floor_texture_size) {
+                level_static_scene_set_error(error, error_size,
+                                             "dynamic flat texture offset is outside active source asset");
+            }
+            return 0;
+        }
+        scene_flat->material_id = flat.texture_offset;
+        scene_flat->texture_scale = flat.texture_scale;
+        scene_flat->brightness_offset = flat.brightness_offset;
+        for (uint16_t point_index = 0u; point_index < flat.point_count; ++point_index) {
+            uint16_t raw_point_word;
+            uint16_t world_point_index;
+            LevelWorldPoint world_point;
+
+            if (!level_draw_graph_get_flat_point(runtime, &flat, point_index, &raw_point_word,
+                                                 &world_point_index, error, error_size) ||
+                !level_runtime_get_world_point(runtime, world_point_index, &world_point,
+                                               error, error_size)) {
+                return 0;
+            }
+            level_static_scene_set_vertex(&scene_flat->vertices[point_index], world_point.x,
+                                          (int32_t)flat.height * 64, world_point.z);
+        }
+    }
+    return 1;
 }
 
 void level_static_scene_destroy(LevelStaticScene *scene)

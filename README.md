@@ -22,7 +22,9 @@ first game's software renderer:
   also decoded, along with each static object's documented type/animation
   selector bytes, without yet running AI or mechanism animation. Every source
   wall plus floor, ceiling, and water boundary is submitted as whole-level
-  GPU-neutral geometry, without PVS or portal traversal;
+  GPU-neutral geometry, without PVS or portal traversal. The retained scene
+  refreshes its commands from the mutable graph after source door, lift, and
+  water updates;
 - defines a GPU-neutral frame command interface for cameras, materials,
   geometry, sprites, and HUD text. Material commands retain the source asset
   class and select shared versus per-level floor/wall overrides exactly as

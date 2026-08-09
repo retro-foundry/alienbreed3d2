@@ -171,7 +171,11 @@ authority for all game behavior and data formats.
   prefix from `hireswall.s:Draw_Wall` or the shared floor texture palette from
   `Res_LoadFloorsAndTextures`. Conversion/upload remains backend-owned. Every
   surface intentionally flags UVs as unresolved rather than fabricating a
-  software-renderer approximation.
+  software-renderer approximation. The complete-level allocation is retained
+  while `level_static_scene_apply_runtime` refreshes its geometry and material
+  IDs from the mutable source draw graph after door, lift, and water updates;
+  it rejects a source topology change rather than silently substituting native
+  geometry.
   Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its

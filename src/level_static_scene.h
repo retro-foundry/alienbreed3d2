@@ -24,6 +24,7 @@ typedef struct {
     uint32_t vertex_count;
     uint32_t material_id;
     uint32_t source_record_offset;
+    uint32_t source_record_byte_count;
     SceneGeometryPrimitive primitive;
     uint16_t texture_scale;
     int16_t brightness_offset;
@@ -46,6 +47,16 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                              size_t floor_texture_size,
                              LevelStaticScene *out_scene,
                              char *error, size_t error_size);
+/*
+ * Updates the already allocated complete-level geometry from the current
+ * mutable draw graph. DoorRoutine, LiftRoutine, and DoWaterAnims change these
+ * source records in place; no PVS, portal traversal, or renderer state is
+ * involved. A record-count/topology change is rejected because that requires a
+ * new source scene allocation rather than a native fallback.
+ */
+int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime *runtime,
+                                     uint32_t wall_material_count, size_t floor_texture_size,
+                                     char *error, size_t error_size);
 void level_static_scene_destroy(LevelStaticScene *scene);
 
 #endif

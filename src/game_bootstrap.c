@@ -233,7 +233,13 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
             &game->player, 1u, error, error_size) ||
         !mechanism_runtime_update_lifts_single_player(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
-            &game->player, 1u, error, error_size)) {
+            &game->player, 1u, error, error_size) ||
+        !level_static_scene_apply_runtime(
+            &game->static_scene, &game->dynamic_level.runtime,
+            game->shared_resources.wall_texture_count,
+            game->level_floor_override.bytes != NULL ? game->level_floor_override.size :
+                                                       game->shared_resources.floor_texture.size,
+            error, error_size)) {
         return 0;
     }
     /* Game_AddToInventory changes Plr1_Inventory; health drives next control tick. */

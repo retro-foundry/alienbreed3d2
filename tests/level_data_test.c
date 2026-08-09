@@ -2056,24 +2056,33 @@ int main(int argc, char **argv)
                 }
             }
         }
+        if (!level_static_scene_apply_runtime(
+                &game.static_scene, &game.dynamic_level.runtime,
+                game.shared_resources.wall_texture_count,
+                game.shared_resources.floor_texture.size, error, sizeof(error))) {
+            fprintf(stderr, "campaign level %u dynamic static-scene update failed: %s\n",
+                    level_index, error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
         for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
              ++static_wall_index) {
             const LevelStaticWallScene *scene_wall =
                 &game.static_scene.walls[static_wall_index];
-            const uint8_t *source = game.level_runtime.graphics_bytes +
+            const uint8_t *source = game.dynamic_level.runtime.graphics_bytes +
                 scene_wall->source_record_offset;
             LevelWorldPoint left_point;
             LevelWorldPoint right_point;
             int32_t top;
             int32_t bottom;
 
-            if (scene_wall->source_record_offset > game.level_runtime.graphics_size ||
-                30u > game.level_runtime.graphics_size - scene_wall->source_record_offset ||
+            if (scene_wall->source_record_offset > game.dynamic_level.runtime.graphics_size ||
+                30u > game.dynamic_level.runtime.graphics_size - scene_wall->source_record_offset ||
                 (uint8_t)read_be16(source) != LEVEL_DRAW_GRAPH_TYPE_WALL ||
                 scene_wall->material_id != read_be16(source + 14u) ||
-                !level_runtime_get_world_point(&game.level_runtime, read_be16(source + 2u),
+                !level_runtime_get_world_point(&game.dynamic_level.runtime, read_be16(source + 2u),
                                                &left_point, error, sizeof(error)) ||
-                !level_runtime_get_world_point(&game.level_runtime, read_be16(source + 4u),
+                !level_runtime_get_world_point(&game.dynamic_level.runtime, read_be16(source + 4u),
                                                &right_point, error, sizeof(error))) {
                 fprintf(stderr, "campaign level %u static wall %u is invalid: %s\n",
                         level_index, static_wall_index, error);
@@ -2109,22 +2118,22 @@ int main(int argc, char **argv)
             const uint8_t *source;
             LevelDrawGraphRecord flat_record;
 
-            if (scene_flat->source_record_offset > game.level_runtime.graphics_size ||
-                6u > game.level_runtime.graphics_size - scene_flat->source_record_offset) {
+            if (scene_flat->source_record_offset > game.dynamic_level.runtime.graphics_size ||
+                6u > game.dynamic_level.runtime.graphics_size - scene_flat->source_record_offset) {
                 fprintf(stderr, "campaign level %u static flat %u has an invalid source range\n",
                         level_index, static_flat_index);
                 game_bootstrap_destroy(&game);
                 return 1;
             }
-            source = game.level_runtime.graphics_bytes + scene_flat->source_record_offset;
+            source = game.dynamic_level.runtime.graphics_bytes + scene_flat->source_record_offset;
             flat_record.raw_tag = read_be16(source);
             flat_record.type = (uint8_t)flat_record.raw_tag;
             flat_record.source_offset = scene_flat->source_record_offset;
-            flat_record.byte_count = 16u + (uint32_t)read_be16(source + 4u) * 2u;
+            flat_record.byte_count = scene_flat->source_record_byte_count;
             if ((flat_record.type != LEVEL_DRAW_GRAPH_TYPE_FLOOR &&
                  flat_record.type != LEVEL_DRAW_GRAPH_TYPE_CEILING &&
                  flat_record.type != LEVEL_DRAW_GRAPH_TYPE_WATER) ||
-                !level_draw_graph_read_flat(&game.level_runtime, &flat_record, &draw_flat,
+                !level_draw_graph_read_flat(&game.dynamic_level.runtime, &flat_record, &draw_flat,
                                             error, sizeof(error)) ||
                 scene_flat->vertices == NULL ||
                 scene_flat->vertex_count != draw_flat.point_count ||
@@ -2144,11 +2153,11 @@ int main(int argc, char **argv)
             }
             for (flat_point_index = 0u; flat_point_index < draw_flat.point_count;
                  ++flat_point_index) {
-                if (!level_draw_graph_get_flat_point(&game.level_runtime, &draw_flat,
+                if (!level_draw_graph_get_flat_point(&game.dynamic_level.runtime, &draw_flat,
                                                     flat_point_index, &flat_raw_point_word,
                                                     &flat_world_point_index,
                                                     error, sizeof(error)) ||
-                    !level_runtime_get_world_point(&game.level_runtime, flat_world_point_index,
+                    !level_runtime_get_world_point(&game.dynamic_level.runtime, flat_world_point_index,
                                                    &world_point, error, sizeof(error)) ||
                     scene_flat->vertices[flat_point_index].position.x != world_point.x ||
                     scene_flat->vertices[flat_point_index].position.y !=
