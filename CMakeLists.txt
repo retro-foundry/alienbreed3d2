@@ -25,6 +25,7 @@ FetchContent_MakeAvailable(SDL2)
 
 set(AB3D2_CORE_SOURCES
   src/alien_runtime.c
+  src/alien_memory.c
   src/asset_io.c
   src/game_bootstrap.c
   src/game_controls.c

@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "alien_runtime.h"
+#include "alien_memory.h"
 #include "asset_io.h"
 #include "game_bootstrap.h"
 #include "game_link.h"
@@ -3979,6 +3980,70 @@ int main(int argc, char **argv)
             read_be16(slot_bytes + 26u) != UINT16_MAX ||
             lock_runtime.door_and_lift_locks != 0u) {
             fprintf(stderr, "ObjectHandler negative alien-zone gate is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_StorePlayerPosition keeps per-entity and team memory separate. */
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime memory_objects = {0};
+        AlienRuntime memory_alien_runtime;
+        PlayerRuntime memory_player = game.player;
+        LevelZone memory_zone;
+        uint16_t expected_lower_control_point;
+        uint16_t expected_upper_control_point;
+
+        if (!level_runtime_get_zone(&game.dynamic_level.runtime, memory_player.zone_index,
+                                    &memory_zone, error, sizeof(error))) {
+            fprintf(stderr, "could not read ai_StorePlayerPosition source zone: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        expected_lower_control_point = (uint16_t)(memory_zone.control_point >> 8u);
+        expected_upper_control_point = (uint16_t)(memory_zone.control_point & 0x00ffu);
+        memory_objects.slot_bytes = slot_bytes;
+        memory_objects.slot_count = 2u;
+        memory_objects.active_slot_count = 1u;
+        write_be16(slot_bytes + 0u, 17u);
+        slot_bytes[21u] = 2u;
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        memory_player.x = 0x1234;
+        memory_player.z = -2;
+        memory_player.stood_in_top = 0u;
+        alien_runtime_init(&memory_alien_runtime);
+        alien_runtime_begin_level(&memory_alien_runtime);
+        if (!alien_memory_store_player_position(
+                &memory_alien_runtime, &memory_objects, 0u, &game.dynamic_level.runtime,
+                &memory_player, error, sizeof(error)) ||
+            memory_alien_runtime.entity_workspace[17u][0u] != 0x1234 ||
+            memory_alien_runtime.entity_workspace[17u][1u] != -2 ||
+            memory_alien_runtime.entity_workspace[17u][2u] != (int16_t)memory_zone.id ||
+            memory_alien_runtime.entity_workspace[17u][3u] !=
+                (int16_t)expected_lower_control_point ||
+            memory_alien_runtime.entity_workspace[17u][4u] != -1 ||
+            memory_alien_runtime.team_workspace[2u][0u] != 0x1234 ||
+            memory_alien_runtime.team_workspace[2u][1u] != -2 ||
+            memory_alien_runtime.team_workspace[2u][2u] != (int16_t)memory_zone.id ||
+            memory_alien_runtime.team_workspace[2u][3u] !=
+                (int16_t)expected_lower_control_point ||
+            memory_alien_runtime.team_workspace[2u][4u] != 17) {
+            fprintf(stderr, "ai_StorePlayerPosition lower-zone state is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memory_player.stood_in_top = UINT8_MAX;
+        if (!alien_memory_store_player_position(
+                &memory_alien_runtime, &memory_objects, 0u, &game.dynamic_level.runtime,
+                &memory_player, error, sizeof(error)) ||
+            memory_alien_runtime.entity_workspace[17u][3u] !=
+                (int16_t)expected_upper_control_point ||
+            memory_alien_runtime.team_workspace[2u][3u] !=
+                (int16_t)expected_upper_control_point ||
+            memory_alien_runtime.team_workspace[2u][4u] != 17) {
+            fprintf(stderr, "ai_StorePlayerPosition upper-zone state is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;

@@ -226,6 +226,13 @@ authority for all game behavior and data formats.
   until the native audio event path exists; no sound or AI substitute is made.
   The workspace is intentionally preserved across level loads, as in the
   source, for the later `modules/ai.s` consumers.
+- [x] `src/alien_memory.*` now translates
+  `modules/ai.s:ai_StorePlayerPosition`'s per-entity and optional team memory
+  writes: source low player coordinate words, player ZoneT ID, lower/upper
+  control-point byte selection, and the team `SeenBy` object-point word.
+  It is intentionally not called outside the source AI branches that have
+  already established sight; `AI_LookForPlayer1` and the mode state machine
+  remain to be translated rather than replaced by a global visibility pass.
 - [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
   `PVST` records for gameplay-only consumers. Every record and target is
   validated across all A-P levels. `src/object_visibility.*` now directly
@@ -541,6 +548,9 @@ door update; it intentionally stops before `ItsAnAlien`'s unported AI call.
 and object workspace, preparing the action/end animation state consumed by the
 future `modules/ai.s` translation. It does not itself update an alien's AI,
 spawn auxiliaries, or replace the still-unported animation sound event.
+`modules/ai.s:ai_StorePlayerPosition` is also available as a direct helper for
+the future source sight branches; it has not been invoked out of order merely
+to activate teams.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
