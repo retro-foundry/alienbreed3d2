@@ -57,6 +57,12 @@ authority for all game behavior and data formats.
   coordinates, floor-relative standing height, zone, and enemy flags. A
   loaded level now produces a camera and HUD command; geometry/material/sprite
   commands await an evidence-backed draw-graph decoder.
+- [ ] Before emitting level geometry, finish a record-level draw-graph oracle.
+  `draw_zone_graph.s` and `hireswall.s` establish the active wall/flat/object/
+  backdrop dispatch formats, while some shipped streams also contain legacy
+  type-3 clip records whose payload the maintained dispatch no longer reads.
+  Do not reinterpret those bytes or use a software-renderer fallback; capture
+  an original-runtime trace or an authoritative format source first.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an
@@ -128,6 +134,10 @@ authority for all game behavior and data formats.
      `newaliencontrol.s:ViewpointToDraw`, `DrawDisplay`, and `objdrawhires.s`
      into `SceneFrame` commands; do not carry over the software renderer's PVS
      or portal traversal.
+   - Decode each draw-graph record only after its source cursor advance is
+     demonstrated. In particular, leave legacy clip records absent until their
+     maintained-source behavior is resolved; never infer their size from
+     neighbouring geometry.
    - Submit unprojected world geometry, source material IDs, sprite frames,
      camera state, and HUD/message intent. The simulation must not emit pixels.
      A renderer is allowed to draw all loaded level geometry every frame.
