@@ -16,6 +16,7 @@
 #include "level_navigation.h"
 #include "level_runtime.h"
 #include "level_static_scene.h"
+#include "object_runtime.h"
 #include "player_runtime.h"
 #include "scene_frame.h"
 
@@ -47,6 +48,7 @@ typedef struct {
     LevelMechanisms level_mechanisms;
     LevelNavigation level_navigation;
     LevelRuntime level_runtime;
+    ObjectRuntime object_runtime;
     LevelStaticScene static_scene;
     PlayerRuntime player;
 } GameBootstrap;

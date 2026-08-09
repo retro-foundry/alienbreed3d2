@@ -131,8 +131,11 @@ authority for all game behavior and data formats.
   `ObjT` record list is explicitly validated through
   `newanims.s:ObjectHandler`'s `-1` terminator, including the documented
   `EntT_Type_b` and `EntT_WhichAnim_b` overlay bytes used to join object state
-  to GLFT definitions. Projectile/player slots remain data views only; no
-  object, animation, or AI behaviour has been inferred or ported.
+  to GLFT definitions. `src/object_runtime.*` copies the entire active list,
+  its terminator slot, and all object points into owned big-endian mutable
+  storage when a level loads. This makes the source mutation boundary explicit
+  without applying any update. Projectile/player slots remain data views only;
+  no object, animation, or AI behaviour has been inferred or ported.
 - [x] `src/level_mechanisms.*` decodes the `TLGT` door/lift streams as the
   exact `ZLiftableT` plus variable `ZDoorWall` sequence used by
   `newanims.s:DoorRoutine` and `LiftRoutine`, bounded by their source
@@ -352,6 +355,7 @@ older binary as an oracle.
 
 The immediately preceding preparation step is complete: the runtime can now
 decode the source's object inventory grants and reproduce its inventory-limit
-helpers. Do not connect those helpers to pickup slots until the required
+helpers, and it owns byte-exact mutable `ObjT`/object-point storage. Do not
+connect those helpers to pickup slots until the required
 `ObjectHandler` fixture establishes the mutable `ObjT` initialization, worry,
 animation, and update ordering for the loaded level.

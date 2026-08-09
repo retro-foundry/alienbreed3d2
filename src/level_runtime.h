@@ -200,8 +200,20 @@ int level_runtime_get_narrative_message(const LevelRuntime *runtime, uint16_t me
 int level_runtime_get_object_record(const LevelRuntime *runtime, uint32_t record_index,
                                     LevelObjectSlot *out_object,
                                     char *error, size_t error_size);
+/*
+ * Exact source-layout ObjT bytes. Unlike level_runtime_get_object_record,
+ * this includes the one terminating slot at active record_count so an owned
+ * runtime can preserve newanims.s:ObjectHandler's -1 list sentinel.
+ */
+int level_runtime_get_object_slot_bytes(const LevelRuntime *runtime, uint32_t slot_index,
+                                        const uint8_t **out_bytes,
+                                        char *error, size_t error_size);
 int level_runtime_get_object_point(const LevelRuntime *runtime, uint32_t point_index,
                                    LevelObjectPoint *out_point,
                                    char *error, size_t error_size);
+/* Exact source-layout Lvl_ObjectPointsPtr_l Vec2L bytes. */
+int level_runtime_get_object_point_bytes(const LevelRuntime *runtime, uint32_t point_index,
+                                         const uint8_t **out_bytes,
+                                         char *error, size_t error_size);
 
 #endif

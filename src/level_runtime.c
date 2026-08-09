@@ -800,6 +800,30 @@ int level_runtime_get_object_record(const LevelRuntime *runtime, uint32_t record
     return 1;
 }
 
+int level_runtime_get_object_slot_bytes(const LevelRuntime *runtime, uint32_t slot_index,
+                                        const uint8_t **out_bytes,
+                                        char *error, size_t error_size)
+{
+    size_t slot_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_bytes ||
+        slot_index > runtime->object_record_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested ObjT source slot is outside the runtime view");
+        return 0;
+    }
+    slot_offset = (size_t)runtime->object_data_offset +
+        (size_t)slot_index * LEVEL_RUNTIME_OBJECT_SLOT_SIZE;
+    if (slot_offset > runtime->level_size ||
+        LEVEL_RUNTIME_OBJECT_SLOT_SIZE > runtime->level_size - slot_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested ObjT source slot is outside the runtime view");
+        return 0;
+    }
+    *out_bytes = runtime->level_bytes + slot_offset;
+    return 1;
+}
+
 int level_runtime_get_object_point(const LevelRuntime *runtime, uint32_t point_index,
                                    LevelObjectPoint *out_point,
                                    char *error, size_t error_size)
@@ -826,5 +850,29 @@ int level_runtime_get_object_point(const LevelRuntime *runtime, uint32_t point_i
     point.x = level_runtime_read_be32s(source + 0u);
     point.z = level_runtime_read_be32s(source + 4u);
     *out_point = point;
+    return 1;
+}
+
+int level_runtime_get_object_point_bytes(const LevelRuntime *runtime, uint32_t point_index,
+                                         const uint8_t **out_bytes,
+                                         char *error, size_t error_size)
+{
+    size_t point_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_bytes ||
+        point_index >= runtime->object_point_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested object-point source bytes are outside the runtime view");
+        return 0;
+    }
+    point_offset = (size_t)runtime->object_points_offset +
+        (size_t)point_index * LEVEL_RUNTIME_OBJECT_POINT_SIZE;
+    if (point_offset > runtime->level_size ||
+        LEVEL_RUNTIME_OBJECT_POINT_SIZE > runtime->level_size - point_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested object-point source bytes are outside the runtime view");
+        return 0;
+    }
+    *out_bytes = runtime->level_bytes + point_offset;
     return 1;
 }

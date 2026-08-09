@@ -1126,6 +1126,48 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        {
+            const uint8_t *source_slot;
+            const uint8_t *source_point;
+            uint8_t *runtime_slot;
+            uint8_t *runtime_point;
+
+            if (game.object_runtime.active_slot_count != game.level_runtime.object_record_count ||
+                game.object_runtime.slot_count != game.level_runtime.object_record_count + 1u ||
+                game.object_runtime.point_count != game.level_runtime.object_point_count ||
+                !level_runtime_get_object_slot_bytes(&game.level_runtime, 0u, &source_slot,
+                                                     error, sizeof(error)) ||
+                !object_runtime_get_slot_bytes(&game.object_runtime, 0u, &runtime_slot) ||
+                runtime_slot == source_slot ||
+                memcmp(runtime_slot, source_slot, OBJECT_RUNTIME_SLOT_BYTE_COUNT) != 0 ||
+                !level_runtime_get_object_slot_bytes(
+                    &game.level_runtime, game.level_runtime.object_record_count,
+                    &source_slot, error, sizeof(error)) ||
+                !object_runtime_get_slot_bytes(&game.object_runtime,
+                                               game.object_runtime.active_slot_count,
+                                               &runtime_slot) ||
+                (int16_t)read_be16(source_slot) >= 0 ||
+                memcmp(runtime_slot, source_slot, OBJECT_RUNTIME_SLOT_BYTE_COUNT) != 0 ||
+                level_runtime_get_object_slot_bytes(
+                    &game.level_runtime, game.level_runtime.object_record_count + 1u,
+                    &source_slot, error, sizeof(error)) ||
+                object_runtime_get_slot_bytes(&game.object_runtime,
+                                              game.object_runtime.slot_count,
+                                              &runtime_slot) ||
+                !level_runtime_get_object_point_bytes(&game.level_runtime, 0u, &source_point,
+                                                      error, sizeof(error)) ||
+                !object_runtime_get_point_bytes(&game.object_runtime, 0u, &runtime_point) ||
+                runtime_point == source_point ||
+                memcmp(runtime_point, source_point, OBJECT_RUNTIME_POINT_BYTE_COUNT) != 0 ||
+                object_runtime_get_point_bytes(&game.object_runtime,
+                                               game.object_runtime.point_count,
+                                               &runtime_point)) {
+                fprintf(stderr, "campaign level %u object runtime copy is invalid: %s\n",
+                        level_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
         for (uint8_t current_control_point = 0u;
              current_control_point < LEVEL_NAVIGATION_CONTROL_POINT_LIMIT;
              ++current_control_point) {
