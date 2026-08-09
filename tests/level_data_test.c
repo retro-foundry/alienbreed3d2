@@ -4782,6 +4782,138 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        {
+            /* newanims.s:anim_BrightenPoints' positive and negative source paths. */
+            LightingRuntime dynamic_lighting;
+            int16_t point_index;
+            LevelWorldPoint point;
+            int16_t *point_words;
+            int16_t expected_darken = 0;
+            uint16_t matching_point_entries = 0u;
+            uint16_t bright_zone_index = UINT16_MAX;
+            uint16_t bright_marker_index = UINT16_MAX;
+            LevelWorldPoint bright_point;
+            LevelZone bright_zone;
+            int16_t before_disabled;
+
+            lighting_runtime_init(&dynamic_lighting);
+            if (!level_runtime_get_zone_point_index(
+                    &game.dynamic_level.runtime, lighting_player.zone_index, 0u, &point_index,
+                    error, sizeof(error)) ||
+                point_index < 0 ||
+                !level_runtime_get_world_point(
+                    &game.dynamic_level.runtime, (uint16_t)point_index, &point,
+                    error, sizeof(error))) {
+                fprintf(stderr, "anim_BrightenPoints darken fixture is invalid: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            point_words = &dynamic_lighting.current_point_brightness[0u][0u];
+            for (uint32_t list_index = 0u;
+                 list_index <= game.dynamic_level.runtime.world_point_count; ++list_index) {
+                int16_t source_point_index;
+
+                if (!level_runtime_get_zone_point_index(
+                        &game.dynamic_level.runtime, lighting_player.zone_index, list_index,
+                        &source_point_index, error, sizeof(error))) {
+                    fprintf(stderr, "anim_BrightenPoints darken point list is invalid: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (source_point_index < 0) {
+                    break;
+                }
+                if (source_point_index == point_index) {
+                    expected_darken = source_add16(expected_darken, 50);
+                    ++matching_point_entries;
+                }
+            }
+            if (matching_point_entries == 0u ||
+                !lighting_runtime_brighten_points(
+                    &dynamic_lighting, &game.dynamic_level.runtime, 50, point.x, point.z, 0,
+                    lighting_player.zone_index, error, sizeof(error)) ||
+                point_words[(size_t)(uint16_t)point_index * 4u] != expected_darken ||
+                point_words[(size_t)(uint16_t)point_index * 4u + 1u] != expected_darken ||
+                point_words[(size_t)(uint16_t)point_index * 4u + 2u] != 0 ||
+                point_words[(size_t)(uint16_t)point_index * 4u + 3u] != 0) {
+                fprintf(stderr, "newanims.s:darken_points source state is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            for (uint32_t visible_index = 0u;
+                 visible_index <= game.dynamic_level.runtime.zone_count &&
+                 bright_zone_index == UINT16_MAX; ++visible_index) {
+                LevelPotentialVisibility visible_zone;
+
+                if (!level_runtime_get_zone_potential_visibility(
+                        &game.dynamic_level.runtime, lighting_player.zone_index, visible_index,
+                        &visible_zone, error, sizeof(error))) {
+                    fprintf(stderr, "anim_BrightenPoints PVST fixture is invalid: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (visible_zone.zone_index < 0) {
+                    break;
+                }
+                for (uint16_t marker_index = 0u;
+                     marker_index < LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT; ++marker_index) {
+                    int16_t marker;
+
+                    if (!level_runtime_get_zone_border_point(
+                            &game.dynamic_level.runtime, (uint16_t)visible_zone.zone_index,
+                            marker_index, &marker, error, sizeof(error))) {
+                        fprintf(stderr, "anim_BrightenPoints border fixture is invalid: %s\n", error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    if (marker < 0) {
+                        break;
+                    }
+                    if (!level_runtime_get_world_point(
+                            &game.dynamic_level.runtime, (uint16_t)marker, &bright_point,
+                            error, sizeof(error))) {
+                        fprintf(stderr, "anim_BrightenPoints border point is invalid: %s\n", error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    bright_zone_index = (uint16_t)visible_zone.zone_index;
+                    bright_marker_index = marker_index;
+                    break;
+                }
+            }
+            if (bright_zone_index == UINT16_MAX ||
+                !level_runtime_get_zone(&game.dynamic_level.runtime, bright_zone_index,
+                                        &bright_zone, error, sizeof(error))) {
+                fprintf(stderr, "anim_BrightenPoints bright fixture is invalid: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            dynamic_lighting.current_point_brightness[bright_zone_index]
+                                                    [(size_t)bright_marker_index * 4u] = -400;
+            if (!lighting_runtime_brighten_points(
+                    &dynamic_lighting, &game.dynamic_level.runtime, -1000,
+                    bright_point.x, bright_point.z, bright_zone.floor,
+                    lighting_player.zone_index, error, sizeof(error)) ||
+                dynamic_lighting.current_point_brightness[bright_zone_index]
+                                                        [(size_t)bright_marker_index * 4u] != 300) {
+                fprintf(stderr, "newanims.s:bright_points floor state is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            before_disabled = dynamic_lighting.current_point_brightness[bright_zone_index]
+                                                                        [(size_t)bright_marker_index * 4u];
+            dynamic_lighting.lighting_enabled = 0u;
+            if (!lighting_runtime_brighten_points(
+                    &dynamic_lighting, &game.dynamic_level.runtime, -1000,
+                    bright_point.x, bright_point.z, bright_zone.floor,
+                    lighting_player.zone_index, error, sizeof(error)) ||
+                dynamic_lighting.current_point_brightness[bright_zone_index]
+                                                        [(size_t)bright_marker_index * 4u] != before_disabled) {
+                fprintf(stderr, "anim_BrightenPoints lighting-enable gate is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
     }
     {
         /* modules/ai.s:ai_CalcSqrt's zero and three-refinement source paths. */

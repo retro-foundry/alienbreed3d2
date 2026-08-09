@@ -24,6 +24,8 @@ enum {
  * though the present SDL consumer does not rasterize scene lighting.
  */
 typedef struct {
+    /* newanims.s:_Anim_LightingEnabled_b defaults to 0xff. */
+    uint8_t lighting_enabled;
     int16_t current_point_brightness[LIGHTING_RUNTIME_POINT_ZONE_CAPACITY]
                                    [LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT];
     /* Each source longword holds lower and upper room brightness words. */
@@ -61,5 +63,14 @@ void lighting_runtime_advance_animation(LightingRuntime *runtime);
 int lighting_runtime_flash(LightingRuntime *runtime, const LevelRuntime *level,
                            uint16_t zone_index, int16_t brightness_change,
                            char *error, size_t error_size);
+
+/*
+ * newanims.s:anim_BrightenPoints, including its positive-value darken path.
+ * Coordinates are source world words; vertical_position is Anim_BrightY_l.
+ */
+int lighting_runtime_brighten_points(LightingRuntime *runtime, const LevelRuntime *level,
+                                     int16_t brightness, int16_t x, int16_t z,
+                                     int32_t vertical_position, uint16_t zone_index,
+                                     char *error, size_t error_size);
 
 #endif

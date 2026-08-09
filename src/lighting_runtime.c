@@ -94,6 +94,11 @@ static int32_t lighting_runtime_asr32(int32_t value, unsigned int count)
     return (int32_t)-(((int64_t)-value + ((INT64_C(1) << count) - 1)) >> count);
 }
 
+static int32_t lighting_runtime_sub32(int32_t left, int32_t right)
+{
+    return (int32_t)((uint32_t)left - (uint32_t)right);
+}
+
 static int lighting_runtime_get_animation_value(const LightingRuntime *runtime,
                                                 uint16_t source_index,
                                                 int16_t *out_value,
@@ -196,6 +201,7 @@ void lighting_runtime_init(LightingRuntime *runtime)
     if (runtime) {
         /* BSS is clear; newanims.s pointer tables initially address each sequence head. */
         memset(runtime, 0, sizeof(*runtime));
+        runtime->lighting_enabled = UINT8_MAX;
     }
 }
 
@@ -407,4 +413,207 @@ int lighting_runtime_flash(LightingRuntime *runtime, const LevelRuntime *level,
                                    brightness_change);
     }
     return 1;
+}
+
+static int16_t lighting_runtime_abs_difference16(int16_t source, int16_t origin)
+{
+    int16_t difference = (int16_t)((uint16_t)source - (uint16_t)origin);
+
+    /* The source uses BGT, so a zero difference still takes NEG.W (unchanged). */
+    return difference > 0 ? difference : lighting_runtime_neg16(difference);
+}
+
+static void lighting_runtime_apply_bright_component(LightingRuntime *runtime,
+                                                    uint16_t zone_index,
+                                                    uint16_t border_index,
+                                                    uint16_t component_index,
+                                                    int16_t contribution)
+{
+    int16_t *target = &runtime->current_point_brightness[zone_index]
+                                                       [border_index * 4u + component_index];
+    int16_t prior = *target;
+    int16_t combined;
+
+    if (prior < 0) {
+        prior = lighting_runtime_neg16(prior);
+    }
+    combined = lighting_runtime_add16(prior, contribution);
+    /* newanims.s uses BGE then otherwise writes #300: a lower clamp, not an upper one. */
+    *target = combined >= 300 ? combined : 300;
+}
+
+static void lighting_runtime_apply_bright_room(LightingRuntime *runtime, const LevelZone *zone,
+                                               uint16_t zone_index, uint16_t border_index,
+                                               int16_t distance, int16_t brightness,
+                                               int32_t vertical_position)
+{
+    int32_t height_delta;
+    int16_t contribution;
+
+    /* newanims.s:room_point_loop lower roof component (+2). */
+    if (vertical_position <= zone->floor && vertical_position >= zone->roof) {
+        height_delta = lighting_runtime_sub32(zone->roof, vertical_position);
+        if (height_delta <= 0) {
+            contribution = lighting_runtime_add16(
+                lighting_runtime_asr16(
+                    lighting_runtime_add16(distance,
+                        (int16_t)lighting_runtime_asr32(
+                            lighting_runtime_sub32(0, height_delta), 7u)),
+                    5u),
+                brightness);
+            if (contribution < 0) {
+                lighting_runtime_apply_bright_component(
+                    runtime, zone_index, border_index, 1u, contribution);
+            }
+        }
+        /* newanims.s:room_point_loop lower floor component (+0). */
+        height_delta = lighting_runtime_sub32(zone->floor, vertical_position);
+        if (height_delta >= 0) {
+            contribution = lighting_runtime_add16(
+                lighting_runtime_asr16(
+                    lighting_runtime_add16(distance,
+                        (int16_t)lighting_runtime_asr32(height_delta, 7u)), 5u),
+                brightness);
+            if (contribution < 0) {
+                lighting_runtime_apply_bright_component(
+                    runtime, zone_index, border_index, 0u, contribution);
+            }
+        }
+    }
+    /* newanims.s:room_point_loop upper-floor (+4) and upper-roof (+6). */
+    if (vertical_position <= zone->upper_floor && vertical_position >= zone->upper_roof) {
+        height_delta = lighting_runtime_sub32(zone->upper_floor, vertical_position);
+        if (height_delta >= 0) {
+            contribution = lighting_runtime_add16(
+                lighting_runtime_asr16(
+                    lighting_runtime_add16(distance,
+                        (int16_t)lighting_runtime_asr32(height_delta, 7u)), 5u),
+                brightness);
+            if (contribution < 0) {
+                lighting_runtime_apply_bright_component(
+                    runtime, zone_index, border_index, 2u, contribution);
+            }
+        }
+        height_delta = lighting_runtime_sub32(zone->upper_roof, vertical_position);
+        if (height_delta <= 0) {
+            contribution = lighting_runtime_add16(
+                lighting_runtime_asr16(
+                    lighting_runtime_add16(distance,
+                        (int16_t)lighting_runtime_asr32(
+                            lighting_runtime_sub32(0, height_delta), 7u)),
+                    5u),
+                brightness);
+            if (contribution < 0) {
+                lighting_runtime_apply_bright_component(
+                    runtime, zone_index, border_index, 3u, contribution);
+            }
+        }
+    }
+}
+
+int lighting_runtime_brighten_points(LightingRuntime *runtime, const LevelRuntime *level,
+                                     int16_t brightness, int16_t x, int16_t z,
+                                     int32_t vertical_position, uint16_t zone_index,
+                                     char *error, size_t error_size)
+{
+    uint32_t list_index;
+
+    if (!runtime || !level || zone_index >= level->zone_count ||
+        level->zone_count > LIGHTING_RUNTIME_POINT_ZONE_CAPACITY) {
+        lighting_runtime_set_error(error, error_size,
+                                   "anim_BrightenPoints received invalid source lighting state");
+        return 0;
+    }
+    if (runtime->lighting_enabled == 0u) {
+        return 1;
+    }
+    if (brightness > 0) {
+        /* newanims.s:darken_points. */
+        for (list_index = 0u; ; ++list_index) {
+            int16_t point_index;
+            LevelWorldPoint point;
+            int16_t distance;
+            int16_t contribution;
+
+            if (list_index > level->world_point_count) {
+                lighting_runtime_set_error(error, error_size,
+                                           "anim_BrightenPoints ZoneT point list has no terminator");
+                return 0;
+            }
+            if (!level_runtime_get_zone_point_index(level, zone_index, list_index, &point_index,
+                                                    error, error_size)) {
+                return 0;
+            }
+            if (point_index < 0) {
+                return 1;
+            }
+            if ((uint32_t)point_index >= level->world_point_count ||
+                !level_runtime_get_world_point(level, (uint16_t)point_index, &point,
+                                               error, error_size)) {
+                return 0;
+            }
+            distance = lighting_runtime_add16(
+                lighting_runtime_abs_difference16(point.x, x),
+                lighting_runtime_abs_difference16(point.z, z));
+            contribution = lighting_runtime_add16(lighting_runtime_asr16(distance, 5u),
+                                                  brightness);
+            if (contribution > 0 &&
+                (!lighting_runtime_add_current_point_brightness(
+                    runtime, (uint16_t)point_index, 0u, contribution, error, error_size) ||
+                 !lighting_runtime_add_current_point_brightness(
+                    runtime, (uint16_t)point_index, 1u, contribution, error, error_size))) {
+                return 0;
+            }
+        }
+    }
+
+    /* newanims.s:bright_points / room_point_loop: every PVST zone has ten markers. */
+    for (list_index = 0u; ; ++list_index) {
+        LevelPotentialVisibility visible_zone;
+        LevelZone zone;
+        uint16_t visible_zone_index;
+
+        if (list_index > level->zone_count) {
+            lighting_runtime_set_error(error, error_size,
+                                       "anim_BrightenPoints PVST list has no terminator");
+            return 0;
+        }
+        if (!level_runtime_get_zone_potential_visibility(level, zone_index, list_index,
+                                                         &visible_zone, error, error_size)) {
+            return 0;
+        }
+        if (visible_zone.zone_index < 0) {
+            return 1;
+        }
+        visible_zone_index = (uint16_t)visible_zone.zone_index;
+        if (visible_zone_index >= level->zone_count ||
+            !level_runtime_get_zone(level, visible_zone_index, &zone, error, error_size)) {
+            return 0;
+        }
+        for (uint16_t border_index = 0u;
+             border_index < LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT; ++border_index) {
+            int16_t point_index;
+            LevelWorldPoint point;
+            int16_t distance;
+
+            if (!level_runtime_get_zone_border_point(level, visible_zone_index, border_index,
+                                                      &point_index, error, error_size)) {
+                return 0;
+            }
+            if (point_index < 0) {
+                break;
+            }
+            if ((uint32_t)point_index >= level->world_point_count ||
+                !level_runtime_get_world_point(level, (uint16_t)point_index, &point,
+                                               error, error_size)) {
+                return 0;
+            }
+            distance = lighting_runtime_add16(
+                lighting_runtime_abs_difference16(point.x, x),
+                lighting_runtime_abs_difference16(point.z, z));
+            lighting_runtime_apply_bright_room(runtime, &zone, visible_zone_index,
+                                                border_index, distance, brightness,
+                                                vertical_position);
+        }
+    }
 }
