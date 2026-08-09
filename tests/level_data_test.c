@@ -248,6 +248,44 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
+    game_menu_init(&menu, &game);
+    for (uint16_t menu_step = 0; menu_step < 7u; ++menu_step) {
+        if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                    &should_quit, error, sizeof(error))) {
+            fprintf(stderr, "custom-options navigation failed: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    if (menu.selection != 7u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_CUSTOM_OPTIONS || menu.selection != 0u ||
+        game.preferences.original_mouse != 0u || game.preferences.show_messages != UINT8_MAX ||
+        game.preferences.play_music != UINT8_MAX ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        game.preferences.original_mouse != UINT8_MAX) {
+        fprintf(stderr, "source custom-options toggle is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    for (uint16_t menu_step = 0; menu_step < 8u; ++menu_step) {
+        if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                    &should_quit, error, sizeof(error))) {
+            fprintf(stderr, "custom-options return navigation failed: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    if (menu.selection != 8u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_MAIN) {
+        fprintf(stderr, "custom-options return is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
     if (!game_session_default(&encoded_session, &game.game_link_catalog, error, sizeof(error))) {
         fprintf(stderr, "could not initialize campaign-record test: %s\n", error);
         game_bootstrap_destroy(&game);

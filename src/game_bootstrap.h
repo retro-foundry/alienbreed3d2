@@ -5,6 +5,7 @@
 
 #include "asset_io.h"
 #include "game_link.h"
+#include "game_preferences.h"
 #include "game_resources.h"
 #include "game_session.h"
 #include "level_bootstrap.h"
@@ -16,6 +17,7 @@ typedef struct {
     AssetBlob game_link;
     GameLink game_link_catalog;
     GameSharedResources shared_resources;
+    GamePreferences preferences;
     GameSession session;
     AssetBlob story_text;
     uint16_t active_level_index;

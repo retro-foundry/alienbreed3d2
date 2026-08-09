@@ -31,6 +31,9 @@ static uint16_t game_menu_item_count(const GameMenu *menu)
         menu->screen == GAME_MENU_SCREEN_LEVEL_PAGE_TWO) {
         return GAME_MENU_LEVEL_ITEM_COUNT;
     }
+    if (menu->screen == GAME_MENU_SCREEN_CUSTOM_OPTIONS) {
+        return GAME_MENU_MAIN_ITEM_COUNT;
+    }
     return 0;
 }
 
@@ -46,6 +49,15 @@ static void game_menu_update_status(GameMenu *menu, const GameBootstrap *game)
         "SAVE POSITION",
         "CUSTOM OPTIONS",
         "EXIT"
+    };
+    static const char *const custom_option_names[GAME_PREFERENCES_CUSTOM_TOGGLE_COUNT] = {
+        "ORIGINAL MOUSE",
+        "ALWAYS RUN",
+        "SHOW MESSAGES",
+        "NO AUTO AIM",
+        "SHOW FPS",
+        "HIDE WEAPON",
+        "PLAY MUSIC"
     };
     /* defs.i:GLFT_LevelNames contains fixed 40-byte labels. */
     char level_name[41];
@@ -90,6 +102,20 @@ static void game_menu_update_status(GameMenu *menu, const GameBootstrap *game)
         } else {
             (void)snprintf(menu->status, sizeof(menu->status),
                            "Level selection %u/9", (unsigned int)menu->selection + 1u);
+        }
+        break;
+    case GAME_MENU_SCREEN_CUSTOM_OPTIONS:
+        if (menu->selection < GAME_PREFERENCES_CUSTOM_TOGGLE_COUNT) {
+            (void)snprintf(menu->status, sizeof(menu->status),
+                           "Custom options %u/9: %s %c",
+                           (unsigned int)menu->selection + 1u,
+                           custom_option_names[menu->selection],
+                           game && game_preferences_custom_option_enabled(
+                                       &game->preferences, menu->selection) ? 'Y' : 'N');
+        } else if (menu->selection == 7u) {
+            game_menu_set_status(menu, "Custom options 8/9: OPTION 8 (inactive in source)");
+        } else {
+            game_menu_set_status(menu, "Custom options 9/9: MAIN MENU");
         }
         break;
     case GAME_MENU_SCREEN_NOTICE:
@@ -224,9 +250,9 @@ int game_menu_handle_input(GameMenu *menu, GameBootstrap *game, const char *data
                                  "Load/save position awaits source-compatible host boot.dat storage");
             return 1;
         case 7:
-            menu->screen = GAME_MENU_SCREEN_NOTICE;
-            game_menu_set_status(menu,
-                                 "Custom options await source preference porting");
+            menu->screen = GAME_MENU_SCREEN_CUSTOM_OPTIONS;
+            menu->selection = 0;
+            game_menu_update_status(menu, game);
             return 1;
         case 8:
             /* controlloop.s:game_ReadMainMenu option 8 sets Game_ShouldQuit_b. */
@@ -254,6 +280,24 @@ int game_menu_handle_input(GameMenu *menu, GameBootstrap *game, const char *data
         return game_menu_activate_level_definition(
             menu, game, data_root,
             (uint16_t)(menu->selection + GAME_MENU_LEVELS_PER_PAGE), error, error_size);
+    }
+    if (menu->screen == GAME_MENU_SCREEN_CUSTOM_OPTIONS) {
+        if (menu->selection < GAME_PREFERENCES_CUSTOM_TOGGLE_COUNT) {
+            if (!game_preferences_toggle_custom_option(&game->preferences, menu->selection,
+                                                       error, error_size)) {
+                return 0;
+            }
+            game_menu_update_status(menu, game);
+            return 1;
+        }
+        if (menu->selection == 8u) {
+            /* controlloop.s:customOptionsDone returns to game_ReadMainMenu. */
+            menu->screen = GAME_MENU_SCREEN_MAIN;
+            menu->selection = 0;
+            game_menu_update_status(menu, game);
+        }
+        /* Source menu option 7 has no action. */
+        return 1;
     }
     return 1;
 }

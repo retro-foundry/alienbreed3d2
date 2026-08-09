@@ -56,8 +56,10 @@ authority for all game behavior and data formats.
   index), and exit. The master/slave branch is explicitly unavailable, as
   required for this port, and the status presenter identifies actions that
   have no implemented native subsystem.
-- [ ] Port source controls/preferences and host-side `boot.dat` slot storage
-  before treating the diagnostic window as a fully playable menu.
+- [x] `src/game_preferences.*` preserves the eight custom-options bytes and
+  the seven `not.b` toggles from `controlloop.s:customOptions`; the menu now
+  changes this source-backed in-memory state. Persisting all preferences,
+  mapping control rebinding, and host-side `boot.dat` slots remain pending.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
   including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
   offset table, plus every `ZoneT` in all campaign levels into endian-safe
@@ -94,6 +96,9 @@ authority for all game behavior and data formats.
 - `src/game_menu.*` maps the single-player branches of
   `controlloop.s:game_ReadMainMenu`, `levelMenu`, `levelMenu2`, and
   `game_DoneMenu` onto SDL key actions, without creating a multiplayer path.
+- `src/game_preferences.*` maps the `Prefs_CustomOptionsBuffer_vb` defaults and
+  `customOptions` toggles from `controlloop.s`; it intentionally does not yet
+  define a native preference-file format.
 - `src/level_bootstrap.*` decodes the big-endian `TLBT` and `TLGT` headers used
   by `hires.s:Game_Begin`.
 - `src/scene_frame.*` and `src/renderer_stub.*` establish the renderer seam.

@@ -108,6 +108,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     if (!game_session_default(&game->session, &game->game_link_catalog, error, error_size)) {
         goto fail;
     }
+    game_preferences_default(&game->preferences);
     return 1;
 
 fail:
@@ -288,6 +289,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     asset_blob_release(&game->game_link);
     memset(&game->game_link_catalog, 0, sizeof(game->game_link_catalog));
     memset(&game->session, 0, sizeof(game->session));
+    memset(&game->preferences, 0, sizeof(game->preferences));
     asset_blob_release(&game->story_text);
     game_bootstrap_release_level(game);
     game->active_level_index = 0;
