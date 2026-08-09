@@ -20,6 +20,7 @@
 #include "object_collectables.h"
 #include "object_animation.h"
 #include "object_handler.h"
+#include "object_heading.h"
 #include "object_movement.h"
 #include "object_projectiles.h"
 #include "object_scene.h"
@@ -4647,6 +4648,50 @@ int main(int argc, char **argv)
             (int16_t)read_be16(slot_bytes + 12u) != -1 ||
             (int16_t)read_be16(slot_bytes + 26u) != -1) {
             fprintf(stderr, "ItsABullet source impact release is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* objectmove.s:HeadTowardsAng's zero-distance, range, and speed paths. */
+        ObjectHeading heading = {0};
+        int16_t heading_sine;
+        int16_t heading_cosine;
+
+        heading.old_x = 12;
+        heading.old_z = -7;
+        heading.new_x = 12;
+        heading.new_z = -7;
+        heading.angle = 0x1234u;
+        if (!object_heading_towards_angle(&game.math, &heading, error, sizeof(error)) ||
+            heading.got_there != UINT8_MAX || heading.new_x != 12 || heading.new_z != -7 ||
+            heading.angle != 0x1234u) {
+            fprintf(stderr, "HeadTowardsAng zero-distance path is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memset(&heading, 0, sizeof(heading));
+        heading.new_x = 100;
+        heading.speed = 20;
+        if (!object_heading_towards_angle(&game.math, &heading, error, sizeof(error)) ||
+            heading.got_there != 0u || heading.new_x != 19 || heading.new_z != 0 ||
+            heading.angle != 2560u ||
+            !game_math_sine(&game.math, heading.angle, &heading_sine, error, sizeof(error)) ||
+            heading_sine <= 0) {
+            fprintf(stderr, "HeadTowardsAng positive-X speed path is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memset(&heading, 0, sizeof(heading));
+        heading.new_z = 10;
+        heading.range = 20;
+        heading.speed = 20;
+        if (!object_heading_towards_angle(&game.math, &heading, error, sizeof(error)) ||
+            heading.got_there != UINT8_MAX || heading.new_x != 0 || heading.new_z != 0 ||
+            heading.angle != 7680u ||
+            !game_math_cosine(&game.math, heading.angle, &heading_cosine, error, sizeof(error)) ||
+            heading_cosine <= 0) {
+            fprintf(stderr, "HeadTowardsAng range path is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }

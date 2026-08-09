@@ -585,6 +585,10 @@ native context: it retains zone echo, inverted brightness, the raw ShootT
 longword transform, AlienT mode/speed values, and the exact three-entry girth
 mapping. It stops immediately before `AI_MainRoutine`; no incomplete dispatch
 is wired into `ObjectHandler`.
+`objectmove.s:HeadTowardsAng` is now available as an isolated native movement
+proposal helper: it retains the source three-iteration distance approximation,
+signed range/speed handling, `GotThere` byte, and four-step `bigsine` heading
+search. It is prepared for the source AI modes but is not invoked out of order.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
