@@ -92,6 +92,9 @@ int main(int argc, char **argv)
     uint16_t wall_index;
     GameSession encoded_session;
     GameSession decoded_session;
+    GameControls control_defaults;
+    GameInput control_input;
+    PlayerRuntime controlled_player;
     GameMenu menu;
     int should_quit;
     char error[256];
@@ -733,6 +736,55 @@ int main(int argc, char **argv)
         return 1;
     }
     scene_frame_destroy(&frame);
+    game_controls_default(&control_defaults);
+    game_input_init(&control_input);
+    controlled_player = game.player;
+    if (!game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_OPERATE], 1,
+                                error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        controlled_player.used != UINT8_MAX ||
+        controlled_player.previous_use_key_state != UINT8_MAX ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_OPERATE], 0,
+                                error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        controlled_player.previous_use_key_state != 0u ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_CROUCH], 1,
+                                error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        controlled_player.ducked != UINT8_MAX ||
+        game_input_is_control_down(&control_input, &control_defaults, GAME_CONTROL_CROUCH) ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
+                                error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        controlled_player.fire != UINT8_MAX || controlled_player.clicked != UINT8_MAX ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_FIRE], 0,
+                                error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        controlled_player.fire != 0u || controlled_player.clicked != UINT8_MAX ||
+        controlled_player.x != game.player.x || controlled_player.y != game.player.y ||
+        controlled_player.z != game.player.z || controlled_player.yaw != game.player.yaw) {
+        fprintf(stderr, "plr_KeyboardControl discrete state is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
     game.session.player1_inventory.health = 199u;
     game_session_finish_single_player(&game.session, 0);
     if (game.session.campaign_inventory.health != 200u) {

@@ -266,6 +266,13 @@ int main(int argc, char **argv)
                 break;
             }
         }
+        if (menu.screen == GAME_MENU_SCREEN_LEVEL_ACTIVE &&
+            !player_runtime_update_discrete_controls(&game.player, &game.input,
+                                                     &game.controls, &game.level_runtime,
+                                                     error, sizeof(error))) {
+            fprintf(stderr, "[GAME] %s\n", error);
+            renderer_stub_set_status(renderer, error);
+        }
         scene_frame_begin(&frame);
         if (!game_bootstrap_submit_diagnostic_frame(&game, &frame)) {
             fprintf(stderr, "[SCENE] diagnostic command submission failed\n");

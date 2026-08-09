@@ -102,8 +102,11 @@ authority for all game behavior and data formats.
   associated graphics/audio changes remain deliberately unported.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates, floor-relative standing height, zone, and enemy flags. A
-  loaded level now produces a camera and HUD command; geometry/material/sprite
-  commands await an evidence-backed draw-graph decoder.
+  loaded level now produces a camera and HUD command. Its exact non-spatial
+  `plr_KeyboardControl` operate, crouch, and fire branches now consume the
+  source raw-key state, including `$ff` latches and crouch-key consumption;
+  they deliberately do not move the player. Geometry/material/sprite commands
+  await an evidence-backed draw-graph decoder.
 - [ ] Before emitting level geometry, finish a record-level draw-graph oracle.
   `draw_zone_graph.s` and `hireswall.s` establish the active wall/flat/object/
   backdrop dispatch formats, while some shipped streams also contain legacy
@@ -179,6 +182,10 @@ authority for all game behavior and data formats.
      paths in `plr1control.s`, `modules/player.s`, `objectmove.s`, and
      `newplayershoot.s` without changing fixed-point scales, timer ownership,
      collision order, aim behavior, or pickup rules.
+   - `data/tables_data.s` references an absent authoritative `bigsine` binary.
+     Do not generate an approximation for yaw or horizontal motion; recover
+     that exact table (or capture an equivalent oracle) before porting the
+     remaining trigonometric branches of `plr_KeyboardControl`.
    - Port menu controls and in-game messages before adding convenience inputs.
      Any optional modern binding must remain outside core simulation state.
 
