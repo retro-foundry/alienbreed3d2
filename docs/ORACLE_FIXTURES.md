@@ -12,6 +12,27 @@ source revision, emulator model/CPU configuration, Kickstart/Workbench inputs,
 and frame timing in every fixture manifest. A fixture without that provenance
 cannot be used as a parity oracle.
 
+## Current local capture gate
+
+The maintained `hires.s` successfully assembles with the locally installed
+`vasmm68k_mot` when given the existing legacy Amiga include set, so the source
+itself is available to instrument. It is not yet possible to produce a
+source-faithful executable locally: the maintained `Makefile` requires
+`m68k-amigaos-gcc` and `m68k-amigaos-strip`, neither is installed, and its C
+sources also require `SDI_compiler.h`, which is absent from the available vbcc
+target/NDK headers. The installed FS-UAE setup contains no AB3D2 executable or
+game boot media to trace.
+
+Do not substitute a binary built with a different compiler or an older source
+archive as an oracle. To unblock capture, provide either:
+
+- a maintained-source `tkg_dev_<cpu>` executable plus the corresponding Amiga
+  boot/media setup; or
+- the maintained Makefile's GCC/SDI environment and a legal Amiga runtime
+  configuration capable of running that build.
+
+Record the supplied toolchain and runtime identity in each fixture manifest.
+
 ## Fixture packet
 
 Store each fixture beneath `tests/oracles/<routine-case>/` with a JSON manifest

@@ -317,3 +317,10 @@ the equivalent single-player routines update source-named state in the same
 order, and resulting object/sprite/HUD commands use source asset IDs and frame
 records. No PVS, portal traversal, software framebuffer, or multiplayer state
 is required for that work.
+
+The local capture audit is recorded in
+[`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md#current-local-capture-gate).
+The maintained assembly source can be assembled, but the source-faithful debug
+executable cannot yet be built or run with the locally available GCC/SDI and
+Amiga boot-media prerequisites. This is an evidence-collection dependency, not
+permission to infer dynamic behavior or use an older binary as an oracle.
