@@ -58,8 +58,11 @@ authority for all game behavior and data formats.
   have no implemented native subsystem.
 - [x] `src/game_preferences.*` preserves the eight custom-options bytes and
   the seven `not.b` toggles from `controlloop.s:customOptions`; the menu now
-  changes this source-backed in-memory state. Persisting all preferences,
-  mapping control rebinding, and host-side `boot.dat` slots remain pending.
+  changes this source-backed in-memory state. `src/game_controls.*` also
+  preserves all 18 persisted `AssignableKeys_vb` bytes, the source defaults,
+  and `CHANGECONTROLS`' two-page raw-key rebinding flow through SDL physical
+  key capture. Persisting either preference family and host-side `boot.dat`
+  slots remain pending.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
   including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
   offset table, plus every `ZoneT` in all campaign levels into endian-safe
@@ -104,6 +107,9 @@ authority for all game behavior and data formats.
 - `src/game_preferences.*` maps the `Prefs_CustomOptionsBuffer_vb` defaults and
   `customOptions` toggles from `controlloop.s`; it intentionally does not yet
   define a native preference-file format.
+- `src/game_controls.*` maps `AssignableKeys_vb` and `CHANGECONTROLS` from
+  `controlloop.s`; its raw-key state remains in-memory until a source-compatible
+  host preference-file policy is defined.
 - `src/level_bootstrap.*` decodes the big-endian `TLBT` and `TLGT` headers used
   by `hires.s:Game_Begin`.
 - `src/scene_frame.*` and `src/renderer_stub.*` establish the renderer seam.

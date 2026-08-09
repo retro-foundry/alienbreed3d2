@@ -25,6 +25,10 @@ int main(int argc, char **argv)
     uint16_t zone_index;
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
+    static const uint8_t expected_control_defaults[GAME_CONTROL_PERSISTED_BYTE_COUNT] = {
+        0x4fu, 0x4eu, 0x11u, 0x21u, 0x63u, 0x23u, 0x60u, 0x64u, 0x20u,
+        0x22u, 0x33u, 0x28u, 0x40u, 0x0cu, 0x0bu, 0x29u, 0x0du, 0x00u
+    };
     LevelZone zone;
     LevelEdge edge;
     LevelControlPoint control_point;
@@ -164,6 +168,10 @@ int main(int argc, char **argv)
         game.session.campaign_inventory.health != 200u ||
         game.session.campaign_inventory.weapons[0] != 0x00ffu ||
         game.session.campaign_inventory.ammunition[7] != 20u ||
+        memcmp(game.controls.assigned_raw_keys, expected_control_defaults,
+               sizeof(expected_control_defaults)) != 0 ||
+        game_controls_assign_raw_key(&game.controls, GAME_CONTROL_BINDING_COUNT,
+                                     0x12u, error, sizeof(error)) ||
         game_session_select_level(&game.session, GAME_LINK_LEVEL_COUNT, error, sizeof(error))) {
         fprintf(stderr, "DEFAULTGAME single-player state is inconsistent\n");
         game_bootstrap_destroy(&game);
@@ -238,6 +246,70 @@ int main(int argc, char **argv)
         game.session.menu_level_index != 8u ||
         game.session.campaign_inventory.health != 200u) {
         fprintf(stderr, "source page-two DEFGAME selection is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    game_menu_init(&menu, &game);
+    for (uint16_t menu_step = 0; menu_step < 3u; ++menu_step) {
+        if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                    &should_quit, error, sizeof(error))) {
+            fprintf(stderr, "control-options navigation failed: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    if (menu.selection != 3u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_CONTROLS_PAGE_ONE || menu.selection != 0u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_CAPTURE_CONTROL ||
+        !game_menu_capture_control_key(&menu, &game, 0x12u, error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_CONTROLS_PAGE_ONE || menu.selection != 0u ||
+        game.controls.assigned_raw_keys[GAME_CONTROL_TURN_LEFT] != 0x12u) {
+        fprintf(stderr, "source first control-options page is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    for (uint16_t menu_step = 0; menu_step < 11u; ++menu_step) {
+        if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                    &should_quit, error, sizeof(error))) {
+            fprintf(stderr, "control-options page navigation failed: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    if (menu.selection != 11u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_CONTROLS_PAGE_TWO || menu.selection != 0u) {
+        fprintf(stderr, "source second control-options page entry is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    for (uint16_t menu_step = 0; menu_step < 5u; ++menu_step) {
+        if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                    &should_quit, error, sizeof(error))) {
+            fprintf(stderr, "second control-options navigation failed: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    if (menu.selection != 5u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_CAPTURE_CONTROL ||
+        !game_menu_capture_control_key(&menu, &game, 0x24u, error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_CONTROLS_PAGE_TWO || menu.selection != 5u ||
+        game.controls.assigned_raw_keys[GAME_CONTROL_NEXT_WEAPON] != 0x24u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN, &should_quit,
+                                error, sizeof(error)) ||
+        menu.selection != 6u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE, &should_quit,
+                                error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_MAIN) {
+        fprintf(stderr, "source second control-options page is inconsistent: %s\n", error);
         game_bootstrap_destroy(&game);
         return 1;
     }

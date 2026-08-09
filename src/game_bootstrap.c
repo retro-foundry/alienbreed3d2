@@ -108,6 +108,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     if (!game_session_default(&game->session, &game->game_link_catalog, error, error_size)) {
         goto fail;
     }
+    game_controls_default(&game->controls);
     game_preferences_default(&game->preferences);
     return 1;
 

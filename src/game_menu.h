@@ -11,6 +11,9 @@ typedef enum {
     GAME_MENU_SCREEN_LEVEL_PAGE_ONE,
     GAME_MENU_SCREEN_LEVEL_PAGE_TWO,
     GAME_MENU_SCREEN_CUSTOM_OPTIONS,
+    GAME_MENU_SCREEN_CONTROLS_PAGE_ONE,
+    GAME_MENU_SCREEN_CONTROLS_PAGE_TWO,
+    GAME_MENU_SCREEN_CAPTURE_CONTROL,
     GAME_MENU_SCREEN_NOTICE,
     GAME_MENU_SCREEN_LEVEL_ACTIVE
 } GameMenuScreen;
@@ -26,6 +29,7 @@ typedef enum {
 typedef struct {
     GameMenuScreen screen;
     uint16_t selection;
+    uint16_t capture_binding_index;
     char status[160];
 } GameMenu;
 
@@ -38,6 +42,9 @@ void game_menu_init(GameMenu *menu, const GameBootstrap *game);
 int game_menu_handle_input(GameMenu *menu, GameBootstrap *game, const char *data_root,
                            GameMenuInput input, int *out_should_quit,
                            char *error, size_t error_size);
+/* controlloop.s:CHANGECONTROLS receives an Amiga raw-key byte after selecting a row. */
+int game_menu_capture_control_key(GameMenu *menu, GameBootstrap *game, uint8_t raw_key,
+                                  char *error, size_t error_size);
 const char *game_menu_status(const GameMenu *menu);
 
 #endif

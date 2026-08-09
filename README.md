@@ -25,8 +25,9 @@ first game's software renderer:
   unported;
 - drives the source single-player main menu, including the two-page level
   selector and level start handoff. Master/slave multiplayer is explicitly
-  unavailable; custom options change the source-backed in-memory preference
-  bytes, while controls, preference persistence, and load/save remain pending;
+  unavailable; custom options and the two-page raw-key control rebinding menu
+  change source-backed in-memory preference bytes, while preference persistence
+  and load/save remain pending;
 - opens a diagnostic SDL window whose title presents the current menu/level
   status and command count. It does not rasterize the game scene.
 

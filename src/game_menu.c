@@ -7,7 +7,12 @@ enum {
     /* menu/menunb.s:mnu_MYMAINMENU and both level menus have nine rows. */
     GAME_MENU_MAIN_ITEM_COUNT = 9,
     GAME_MENU_LEVEL_ITEM_COUNT = 9,
-    GAME_MENU_LEVELS_PER_PAGE = 8
+    GAME_MENU_LEVELS_PER_PAGE = 8,
+    /* controlloop.s:CHANGECONTROLS loops 0..10, then row 11 is MORE. */
+    GAME_MENU_CONTROLS_PAGE_ONE_ITEM_COUNT = 12,
+    /* CHANGECONTROLS2 loops 0..5, then row 6 returns to the main menu. */
+    GAME_MENU_CONTROLS_PAGE_TWO_ITEM_COUNT = 7,
+    GAME_MENU_CONTROLS_PAGE_ONE_BINDING_COUNT = 11
 };
 
 static void game_menu_set_error(char *error, size_t error_size, const char *message)
@@ -33,6 +38,12 @@ static uint16_t game_menu_item_count(const GameMenu *menu)
     }
     if (menu->screen == GAME_MENU_SCREEN_CUSTOM_OPTIONS) {
         return GAME_MENU_MAIN_ITEM_COUNT;
+    }
+    if (menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_ONE) {
+        return GAME_MENU_CONTROLS_PAGE_ONE_ITEM_COUNT;
+    }
+    if (menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_TWO) {
+        return GAME_MENU_CONTROLS_PAGE_TWO_ITEM_COUNT;
     }
     return 0;
 }
@@ -117,6 +128,33 @@ static void game_menu_update_status(GameMenu *menu, const GameBootstrap *game)
         } else {
             game_menu_set_status(menu, "Custom options 9/9: MAIN MENU");
         }
+        break;
+    case GAME_MENU_SCREEN_CONTROLS_PAGE_ONE:
+    case GAME_MENU_SCREEN_CONTROLS_PAGE_TWO:
+        if (menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_ONE &&
+            menu->selection == GAME_MENU_CONTROLS_PAGE_ONE_BINDING_COUNT) {
+            game_menu_set_status(menu, "Control options 12/12: MORE");
+            break;
+        }
+        if (menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_TWO && menu->selection == 6u) {
+            game_menu_set_status(menu, "Control options 7/7: MAIN MENU");
+            break;
+        }
+        level_index = (uint16_t)(menu->selection +
+            (menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_TWO ?
+                GAME_MENU_CONTROLS_PAGE_ONE_BINDING_COUNT : 0u));
+        (void)snprintf(menu->status, sizeof(menu->status),
+                       "Control options %u/%u: %s raw $%02X",
+                       (unsigned int)menu->selection + 1u,
+                       menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_ONE ?
+                           GAME_MENU_CONTROLS_PAGE_ONE_ITEM_COUNT :
+                           GAME_MENU_CONTROLS_PAGE_TWO_ITEM_COUNT,
+                       game_controls_binding_name(level_index),
+                       game ? game->controls.assigned_raw_keys[level_index] : 0u);
+        break;
+    case GAME_MENU_SCREEN_CAPTURE_CONTROL:
+        (void)snprintf(menu->status, sizeof(menu->status),
+                       "Press a key for %s", game_controls_binding_name(menu->capture_binding_index));
         break;
     case GAME_MENU_SCREEN_NOTICE:
         break;
@@ -234,9 +272,9 @@ int game_menu_handle_input(GameMenu *menu, GameBootstrap *game, const char *data
             game_menu_update_status(menu, game);
             return 1;
         case 3:
-            menu->screen = GAME_MENU_SCREEN_NOTICE;
-            game_menu_set_status(menu,
-                                 "Control options await source preference/input porting");
+            menu->screen = GAME_MENU_SCREEN_CONTROLS_PAGE_ONE;
+            menu->selection = 0;
+            game_menu_update_status(menu, game);
             return 1;
         case 4:
             /* controlloop.s leaves the mnu_viewcredz call commented out. */
@@ -299,6 +337,56 @@ int game_menu_handle_input(GameMenu *menu, GameBootstrap *game, const char *data
         /* Source menu option 7 has no action. */
         return 1;
     }
+    if (menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_ONE) {
+        if (menu->selection == GAME_MENU_CONTROLS_PAGE_ONE_BINDING_COUNT) {
+            menu->screen = GAME_MENU_SCREEN_CONTROLS_PAGE_TWO;
+            menu->selection = 0;
+            game_menu_update_status(menu, game);
+            return 1;
+        }
+        menu->capture_binding_index = menu->selection;
+        menu->screen = GAME_MENU_SCREEN_CAPTURE_CONTROL;
+        game_menu_update_status(menu, game);
+        return 1;
+    }
+    if (menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_TWO) {
+        if (menu->selection == 6u) {
+            menu->screen = GAME_MENU_SCREEN_MAIN;
+            menu->selection = 0;
+            game_menu_update_status(menu, game);
+            return 1;
+        }
+        menu->capture_binding_index = (uint16_t)(menu->selection +
+            GAME_MENU_CONTROLS_PAGE_ONE_BINDING_COUNT);
+        menu->screen = GAME_MENU_SCREEN_CAPTURE_CONTROL;
+        game_menu_update_status(menu, game);
+        return 1;
+    }
+    return 1;
+}
+
+int game_menu_capture_control_key(GameMenu *menu, GameBootstrap *game, uint8_t raw_key,
+                                  char *error, size_t error_size)
+{
+    uint16_t binding_index;
+
+    if (!menu || !game || menu->screen != GAME_MENU_SCREEN_CAPTURE_CONTROL) {
+        game_menu_set_error(error, error_size, "control key capture is not active");
+        return 0;
+    }
+    binding_index = menu->capture_binding_index;
+    if (!game_controls_assign_raw_key(&game->controls, binding_index, raw_key,
+                                      error, error_size)) {
+        return 0;
+    }
+    if (binding_index < GAME_MENU_CONTROLS_PAGE_ONE_BINDING_COUNT) {
+        menu->screen = GAME_MENU_SCREEN_CONTROLS_PAGE_ONE;
+        menu->selection = binding_index;
+    } else {
+        menu->screen = GAME_MENU_SCREEN_CONTROLS_PAGE_TWO;
+        menu->selection = (uint16_t)(binding_index - GAME_MENU_CONTROLS_PAGE_ONE_BINDING_COUNT);
+    }
+    game_menu_update_status(menu, game);
     return 1;
 }
 
