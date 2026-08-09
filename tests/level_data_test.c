@@ -27,6 +27,7 @@ int main(int argc, char **argv)
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
     LevelZone zone;
     LevelEdge edge;
+    LevelControlPoint control_point;
     LevelObjectSlot object_slot;
     LevelObjectPoint object_point;
     uint32_t zone_edge_count;
@@ -360,6 +361,18 @@ int main(int argc, char **argv)
                 game.level_graphics_header.zone_graph_adds_offset ||
             game.level_runtime.object_point_count != (uint32_t)game.level.object_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
+            game.level_runtime.control_point_count != game.level.control_point_count ||
+            (game.level_runtime.control_point_count == 0u
+                ? level_runtime_get_control_point(&game.level_runtime, 0u, &control_point,
+                                                  error, sizeof(error))
+                : (!level_runtime_get_control_point(&game.level_runtime, 0u, &control_point,
+                                                    error, sizeof(error)) ||
+                   !level_runtime_get_control_point(&game.level_runtime,
+                                                    game.level_runtime.control_point_count - 1u,
+                                                    &control_point, error, sizeof(error)) ||
+                   level_runtime_get_control_point(&game.level_runtime,
+                                                   game.level_runtime.control_point_count,
+                                                   &control_point, error, sizeof(error)))) ||
             game.level_runtime.edge_count == 0u ||
             game.level_runtime.edge_table_offset != game.level.floor_line_offset ||
             !level_runtime_get_edge(&game.level_runtime, 0u, &edge, error, sizeof(error)) ||

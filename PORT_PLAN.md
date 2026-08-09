@@ -63,12 +63,13 @@ authority for all game behavior and data formats.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
   including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
   offset table, plus every `ZoneT` in all campaign levels into endian-safe
-  native views. It decodes the `EdgeT` collision records reached by each
-  zone's primary edge-index list exactly through the first negative source
-  marker; source extended-edge markers remain distinct for the later collision
-  port. The maintained `Game_Begin` EdgeT-span calculation is retained as raw
-  state only because shipped offsets do not form a table extent. It does not
-  consume PVS lists or portals.
+  native views. It decodes the eight-byte control-point records used by source
+  AI navigation and the `EdgeT` collision records reached by each zone's
+  primary edge-index list exactly through the first negative source marker;
+  source extended-edge markers remain distinct for the later collision port.
+  The maintained `Game_Begin` EdgeT-span calculation is retained as raw state
+  only because shipped offsets do not form a table extent. It does not consume
+  PVS lists or portals.
 - [x] `src/level_runtime.*` also exposes the bounded 64-byte `ObjT` slot and
   object-point tables that `Game_Begin` establishes. `TLBT_NumObjects` is
   retained as the source's inclusive final object-point index. The separate

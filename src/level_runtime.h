@@ -17,6 +17,7 @@ typedef struct {
     const uint8_t *graphics_bytes;
     size_t graphics_size;
     uint32_t control_point_coordinates_offset;
+    uint16_t control_point_count;
     uint32_t point_brightness_offset;
     uint32_t zone_border_points_offset;
     uint32_t zone_graph_adds_offset;
@@ -85,6 +86,18 @@ typedef struct {
 } LevelEdge;
 
 /*
+ * hires.s:Game_Begin establishes this eight-byte record sequence immediately
+ * after TLBT. modules/ai.s consumes x/z at +0/+2 and target height at +4;
+ * byte pair +6 is not named by the maintained source.
+ */
+typedef struct {
+    int16_t x;
+    int16_t z;
+    int16_t height;
+    int16_t unknown_word;
+} LevelControlPoint;
+
+/*
  * defs.i:ObjT native read view. The source reuses its 64-byte slots at
  * runtime; in the loaded object list, word zero is the object-point index and
  * a negative value is the list terminator (newanims.s:ObjectHandler).
@@ -122,6 +135,9 @@ int level_runtime_get_zone_edge_index(const LevelRuntime *runtime, uint16_t zone
                                       char *error, size_t error_size);
 int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
                            LevelEdge *out_edge, char *error, size_t error_size);
+int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t control_point_index,
+                                    LevelControlPoint *out_control_point,
+                                    char *error, size_t error_size);
 int level_runtime_get_object_record(const LevelRuntime *runtime, uint32_t record_index,
                                     LevelObjectSlot *out_object,
                                     char *error, size_t error_size);

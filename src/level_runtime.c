@@ -11,6 +11,8 @@ enum {
     LEVEL_RUNTIME_ZONE_BORDER_BYTES = 80,
     /* defs.i:EdgeT_SizeOf_l. */
     LEVEL_RUNTIME_EDGE_SIZE = 16,
+    /* modules/ai.s indexes Lvl_ControlPointCoordsPtr_l by eight bytes. */
+    LEVEL_RUNTIME_CONTROL_POINT_SIZE = 8,
     /* defs.i:ObjT_SizeOf_l and the two 32-bit object-point coordinates. */
     LEVEL_RUNTIME_OBJECT_SLOT_SIZE = 64,
     LEVEL_RUNTIME_OBJECT_POINT_SIZE = 8,
@@ -148,6 +150,7 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     uint64_t point_brightness_offset;
     uint64_t zone_border_points_offset;
     uint64_t zone_offsets_table_bytes;
+    uint64_t control_point_bytes;
     uint64_t object_point_count;
     uint64_t object_point_bytes;
     int64_t edge_data_span;
@@ -184,6 +187,8 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     zone_border_points_offset = point_brightness_offset +
         (uint64_t)level->zone_count * LEVEL_RUNTIME_ZONE_BORDER_BYTES;
     zone_offsets_table_bytes = (uint64_t)level->zone_count * sizeof(uint32_t);
+    control_point_bytes = (uint64_t)level->control_point_count *
+        LEVEL_RUNTIME_CONTROL_POINT_SIZE;
     /*
      * hires.s:413 copies TLBT_NumObjects into Lvl_NumObjectPoints_w. Every
      * transform loop uses DBRA, so the stored value is the final valid index.
@@ -194,6 +199,9 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
         !level_runtime_range_is_valid(level->points_offset,
                                       (size_t)level->point_count * LEVEL_RUNTIME_POINT_SIZE,
                                       level_data->size) ||
+        control_point_bytes > SIZE_MAX ||
+        !level_runtime_range_is_valid(AB3D2_LEVEL_MESSAGE_BYTES + AB3D2_TLBT_SIZE,
+                                      (size_t)control_point_bytes, level_data->size) ||
         !level_runtime_range_is_valid((uint32_t)point_brightness_offset,
                                       LEVEL_RUNTIME_POINT_BRIGHTNESS_TRAILER,
                                       level_data->size) ||
@@ -289,6 +297,7 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     runtime.graphics_bytes = graphics_data->bytes;
     runtime.graphics_size = graphics_data->size;
     runtime.control_point_coordinates_offset = AB3D2_LEVEL_MESSAGE_BYTES + AB3D2_TLBT_SIZE;
+    runtime.control_point_count = level->control_point_count;
     runtime.point_brightness_offset = (uint32_t)point_brightness_offset;
     runtime.zone_border_points_offset = (uint32_t)zone_border_points_offset;
     /* hires.s:Game_Begin takes this base from TLGT_ZoneAddsOffset_l (byte 16). */
@@ -408,6 +417,37 @@ int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
     edge.unknown_byte_13 = (int8_t)source[13u];
     edge.flags = level_runtime_read_be16(source + 14u);
     *out_edge = edge;
+    return 1;
+}
+
+int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t control_point_index,
+                                    LevelControlPoint *out_control_point,
+                                    char *error, size_t error_size)
+{
+    const uint8_t *source;
+    LevelControlPoint control_point;
+    size_t control_point_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_control_point ||
+        control_point_index >= runtime->control_point_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested control point is outside the runtime view");
+        return 0;
+    }
+    control_point_offset = (size_t)runtime->control_point_coordinates_offset +
+        (size_t)control_point_index * LEVEL_RUNTIME_CONTROL_POINT_SIZE;
+    if (control_point_offset > runtime->level_size ||
+        LEVEL_RUNTIME_CONTROL_POINT_SIZE > runtime->level_size - control_point_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested control point is outside the runtime view");
+        return 0;
+    }
+    source = runtime->level_bytes + control_point_offset;
+    control_point.x = level_runtime_read_be16s(source + 0u);
+    control_point.z = level_runtime_read_be16s(source + 2u);
+    control_point.height = level_runtime_read_be16s(source + 4u);
+    control_point.unknown_word = level_runtime_read_be16s(source + 6u);
+    *out_control_point = control_point;
     return 1;
 }
 
