@@ -42,6 +42,12 @@ authority for all game behavior and data formats.
 - [x] `Res_LoadLevelData` optional floor, properties, errata, and `wall_0-F`
   files are loaded when present. PVS errata remains uninterpreted and out of
   scope for GPU visibility because complete levels are drawn at once.
+- [x] `src/game_session.*` ports the single-player `DEFAULTGAME` inventory,
+  selected-level handoff, and completed-level inventory persistence from
+  `controlloop.s`. Its first ammunition class comes directly from the GLFT
+  shoot-definition table; no multiplayer state is represented.
+- [ ] Port the actual SDL-driven menu commands and all source preferences/
+  saved-game formats before treating the diagnostic window as a playable menu.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an

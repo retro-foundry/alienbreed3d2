@@ -146,14 +146,38 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
+    if (game.level_data.size != 0 || game.session.menu_level_index != 0 ||
+        game.session.campaign_inventory.health != 200u ||
+        game.session.campaign_inventory.weapons[0] != 0x00ffu ||
+        game.session.campaign_inventory.ammunition[7] != 20u ||
+        game_session_select_level(&game.session, GAME_LINK_LEVEL_COUNT, error, sizeof(error))) {
+        fprintf(stderr, "DEFAULTGAME single-player state is inconsistent\n");
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
     for (level_index = 0; level_index < 16u; ++level_index) {
-        if (!game_bootstrap_load_level(&game, argv[1], level_index, error, sizeof(error)) ||
-            game.active_level_index != level_index || game.level.zone_count == 0 ||
+        if (!game_session_select_level(&game.session, level_index, error, sizeof(error)) ||
+            !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||
+            game.active_level_index != level_index ||
+            game.session.active_level_index != level_index || game.level.zone_count == 0 ||
             game.level_music.size == 0) {
             fprintf(stderr, "campaign level %u could not be loaded: %s\n", level_index, error);
             game_bootstrap_destroy(&game);
             return 1;
         }
+    }
+    game.session.player1_inventory.health = 199u;
+    game_session_finish_single_player(&game.session, 0);
+    if (game.session.campaign_inventory.health != 200u) {
+        fprintf(stderr, "unfinished level unexpectedly changed campaign inventory\n");
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    game_session_finish_single_player(&game.session, 1);
+    if (game.session.campaign_inventory.health != 199u) {
+        fprintf(stderr, "finished level did not preserve player-one inventory\n");
+        game_bootstrap_destroy(&game);
+        return 1;
     }
     game_bootstrap_destroy(&game);
     return 0;

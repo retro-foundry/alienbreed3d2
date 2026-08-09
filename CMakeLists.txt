@@ -28,6 +28,7 @@ set(AB3D2_CORE_SOURCES
   src/game_bootstrap.c
   src/game_link.c
   src/game_resources.c
+  src/game_session.c
   src/level_bootstrap.c
   src/scene_frame.c
   # Reused =SB= decoder from the first PC port. It matches

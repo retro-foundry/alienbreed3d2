@@ -102,8 +102,8 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
                                     data_root, error, error_size)) {
         goto fail;
     }
-    /* controlloop.s:DEFAULTGAME begins the single-player campaign at index 0. */
-    if (!game_bootstrap_load_level(game, data_root, 0, error, error_size)) {
+    /* controlloop.s:DEFAULTGAME returns to the single-player menu at level A. */
+    if (!game_session_default(&game->session, &game->game_link_catalog, error, error_size)) {
         goto fail;
     }
     return 1;
@@ -111,6 +111,24 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
 fail:
     game_bootstrap_destroy(game);
     return 0;
+}
+
+int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char *data_root,
+                                                char *error, size_t error_size)
+{
+    uint16_t level_index;
+
+    if (!game || !data_root) {
+        if (error && error_size > 0) {
+            (void)snprintf(error, error_size,
+                           "single-player start received null state or data root");
+        }
+        return 0;
+    }
+    /* game_ReadMainMenu:playgame then game_DoneMenu's Plr_ -> Plr1 copy. */
+    game_session_begin_single_player(&game->session);
+    level_index = game->session.active_level_index;
+    return game_bootstrap_load_level(game, data_root, level_index, error, error_size);
 }
 
 int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
@@ -211,6 +229,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     game_shared_resources_destroy(&game->shared_resources);
     asset_blob_release(&game->game_link);
     memset(&game->game_link_catalog, 0, sizeof(game->game_link_catalog));
+    memset(&game->session, 0, sizeof(game->session));
     asset_blob_release(&game->story_text);
     game_bootstrap_release_level(game);
     game->active_level_index = 0;

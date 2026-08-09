@@ -6,6 +6,7 @@
 #include "asset_io.h"
 #include "game_link.h"
 #include "game_resources.h"
+#include "game_session.h"
 #include "level_bootstrap.h"
 #include "scene_frame.h"
 
@@ -13,6 +14,7 @@ typedef struct {
     AssetBlob game_link;
     GameLink game_link_catalog;
     GameSharedResources shared_resources;
+    GameSession session;
     AssetBlob story_text;
     uint16_t active_level_index;
     AssetBlob level_map;
@@ -40,6 +42,9 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
 /* Source mapping: controlloop.s:SETPLAYERS (Game_LevelNumber_w + 'a'). */
 int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                               uint16_t level_index, char *error, size_t error_size);
+/* game_ReadMainMenu:playgame followed by game_DoneMenu and Game_Begin. */
+int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char *data_root,
+                                                char *error, size_t error_size);
 void game_bootstrap_destroy(GameBootstrap *game);
 
 /* Emits diagnostic-only HUD status; it is not original game UI. */
