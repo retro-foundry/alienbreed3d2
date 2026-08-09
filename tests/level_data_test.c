@@ -24,6 +24,7 @@
 #include "level_draw_graph.h"
 #include "lighting_runtime.h"
 #include "object_collectables.h"
+#include "object_collision.h"
 #include "object_animation.h"
 #include "object_handler.h"
 #include "object_heading.h"
@@ -5768,6 +5769,75 @@ int main(int argc, char **argv)
             return 1;
         }
         level_dynamic_state_destroy(&movement_state);
+    }
+    {
+        /* objectmove.s:Obj_DoCollision's raw a2 vertical extents and X/Z tests. */
+        uint8_t collision_slot_bytes[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t collision_point_bytes[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        int16_t collision_a2_words[8u] = {0, 20, 40, 0, 0, 20, 40, 0};
+        ObjectRuntime collision_objects = {0};
+        ObjectCollisionTrace collision_trace = {0};
+        uint8_t hit_wall = 0u;
+
+        collision_objects.slot_bytes = collision_slot_bytes;
+        collision_objects.slot_count = 3u;
+        collision_objects.active_slot_count = 2u;
+        collision_objects.point_bytes = collision_point_bytes;
+        collision_objects.point_count = 2u;
+        /* The active source list is point 0, point 1, then its -1 terminator. */
+        write_be16(collision_slot_bytes + 0u, 0u);
+        write_be16(collision_slot_bytes + 4u, 100u);
+        write_be16(collision_slot_bytes + 12u, 5u);
+        collision_slot_bytes[16u] = 0u;
+        collision_slot_bytes[18u] = 1u;
+        write_be16(collision_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, 1u);
+        write_be16(collision_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, 100u);
+        write_be16(collision_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 5u);
+        collision_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        collision_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+        write_be16(collision_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        write_be32(collision_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                   UINT32_C(1000) << 16u);
+        write_be32(collision_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(1000) << 16u);
+        collision_trace.collision_id = 0u;
+        collision_trace.old_x = 1200;
+        collision_trace.old_z = 1000;
+        collision_trace.new_x = 850;
+        collision_trace.new_z = 1000;
+        collision_trace.new_y = 90 * 128;
+        collision_trace.thing_height = 20 * 128;
+        if (!object_collision_check(
+                &collision_objects, &game.game_link_catalog, collision_a2_words,
+                sizeof(collision_a2_words) / sizeof(collision_a2_words[0]),
+                &collision_trace, &hit_wall, error, sizeof(error)) ||
+            hit_wall != UINT8_MAX) {
+            fprintf(stderr, "Obj_DoCollision source approaching-X collision is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        collision_trace.old_x = 950;
+        if (!object_collision_check(
+                &collision_objects, &game.game_link_catalog, collision_a2_words,
+                sizeof(collision_a2_words) / sizeof(collision_a2_words[0]),
+                &collision_trace, &hit_wall, error, sizeof(error)) ||
+            hit_wall != 0u) {
+            fprintf(stderr, "Obj_DoCollision source receding-X gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        collision_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 2u;
+        collision_trace.old_x = 1200;
+        if (!object_collision_check(
+                &collision_objects, &game.game_link_catalog, collision_a2_words,
+                sizeof(collision_a2_words) / sizeof(collision_a2_words[0]),
+                &collision_trace, &hit_wall, error, sizeof(error)) ||
+            hit_wall != 0u) {
+            fprintf(stderr, "Obj_DoCollision source type gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     {
         /*

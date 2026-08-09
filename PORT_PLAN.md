@@ -469,8 +469,8 @@ authority for all game behavior and data formats.
      `object_movement.*` now preserves `MoveObject`'s source primary and
      extended-edge passes; `player_shoot.*` uses its explicit zero-extension
      trace for the `plr1_HitscanFailed` pool write.
-     Next: source `Obj_DoCollision`, the remaining alien `ObjectHandler`
-     paths, mouse input, and
+     Next: bind `Obj_DoCollision`'s caller-owned source `a2` extents in the
+     remaining alien `ObjectHandler` paths, then port mouse input and
      audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; it intentionally
      does not synthesize the unported sound effect.
@@ -540,8 +540,8 @@ selection while menu work is deferred; this allows the gameplay loop to enter
 authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
-objects, apply `Obj_DoCollision`, and complete the remaining source-order alien
-handling. The door/lift and
+objects, establish `Obj_DoCollision`'s raw source-register binding, and
+complete the remaining source-order alien handling. The door/lift and
 bounded object slices are complete. `src/object_scene.*` now emits the raw render
 descriptor for every live source object without renderer visibility logic,
 while `src/object_handler.*` now
@@ -664,13 +664,17 @@ or basic flight/collision.
 Translate each remaining bounded slice directly from the maintained source and
 add source-derived regressions for its state changes and ordering.
 
-`objectmove.s:Obj_DoCollision` remains explicitly deferred: the maintained
-routine reads its vertical collision extents through an `a2 + type*8` table,
-but neither the routine nor every maintained call site establishes that
-register/table base, and no corresponding named table exists in this source
-tree. The first game's implementation is not authority for the sequel's
-values. Keep native object-to-object collision absent until the sequel's table
-or register contract is established from maintained-source evidence.
+`src/object_collision.*` now contains the bounded
+`objectmove.s:Obj_DoCollision` scan itself: it retains the source's
+point-word-based `CollId` lookup, active-list terminator, type/behaviour and
+upper-zone gates, raw `a2 + type*8` vertical interval, 80-unit X/Z tests, and
+the X-dominant approach test. It explicitly requires the raw caller-owned
+`a2` words instead of assigning them a guessed global meaning. The maintained
+AI paths still do not establish one stable `a2` table across every call, and
+no corresponding named table exists in this source tree. The helper therefore
+remains uncalled; keep live object-to-object collision absent until that
+sequel register contract is established from maintained-source evidence. The
+first game's implementation is not authority for the values.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their
