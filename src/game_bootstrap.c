@@ -215,6 +215,7 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     }
     if (!player_runtime_update_discrete_controls(&game->player, &game->input,
                                                  &game->controls, &game->dynamic_level.runtime,
+                                                 &game->session.player1_inventory,
                                                  error, error_size) ||
         !player_runtime_update_spatial(&game->player, &game->input, &game->controls,
                                        &game->preferences, &game->math,

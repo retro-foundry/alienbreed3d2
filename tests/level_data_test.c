@@ -2244,17 +2244,20 @@ int main(int argc, char **argv)
                                 error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         controlled_player.used != UINT8_MAX ||
         controlled_player.previous_use_key_state != UINT8_MAX ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         !game_input_set_raw_key(&control_input,
                                 control_defaults.assigned_raw_keys[GAME_CONTROL_OPERATE], 0,
                                 error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         controlled_player.previous_use_key_state != 0u ||
         !game_input_set_raw_key(&control_input,
@@ -2262,6 +2265,7 @@ int main(int argc, char **argv)
                                 error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         controlled_player.ducked != UINT8_MAX ||
         game_input_is_control_down(&control_input, &control_defaults, GAME_CONTROL_CROUCH) ||
@@ -2270,6 +2274,7 @@ int main(int argc, char **argv)
                                 error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         controlled_player.fire != UINT8_MAX || controlled_player.clicked != UINT8_MAX ||
         !game_input_set_raw_key(&control_input,
@@ -2277,6 +2282,7 @@ int main(int argc, char **argv)
                                 error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         controlled_player.fire != 0u || controlled_player.clicked != UINT8_MAX ||
         controlled_player.x != game.player.x || controlled_player.y != game.player.y ||
@@ -2284,6 +2290,49 @@ int main(int argc, char **argv)
         fprintf(stderr, "plr_KeyboardControl discrete state is inconsistent: %s\n", error);
         game_bootstrap_destroy(&game);
         return 1;
+    }
+    {
+        PlayerRuntime weapon_selection_player = game.player;
+        GameInput weapon_selection_input;
+        GameInventory weapon_selection_inventory = {0};
+
+        weapon_selection_player.gun_selected = 3u;
+        weapon_selection_inventory.weapons[3u] = UINT8_MAX;
+        weapon_selection_inventory.weapons[7u] = UINT8_MAX;
+        game_input_init(&weapon_selection_input);
+        if (!game_input_set_raw_key(
+                &weapon_selection_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_NEXT_WEAPON], 1,
+                error, sizeof(error)) ||
+            !player_runtime_update_discrete_controls(
+                &weapon_selection_player, &weapon_selection_input, &control_defaults,
+                &game.level_runtime, &weapon_selection_inventory, error, sizeof(error)) ||
+            weapon_selection_player.gun_selected != 7u ||
+            weapon_selection_player.previous_next_weapon_key_state != UINT8_MAX ||
+            !player_runtime_update_discrete_controls(
+                &weapon_selection_player, &weapon_selection_input, &control_defaults,
+                &game.level_runtime, &weapon_selection_inventory, error, sizeof(error)) ||
+            weapon_selection_player.gun_selected != 7u ||
+            !game_input_set_raw_key(
+                &weapon_selection_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_NEXT_WEAPON], 0,
+                error, sizeof(error)) ||
+            !player_runtime_update_discrete_controls(
+                &weapon_selection_player, &weapon_selection_input, &control_defaults,
+                &game.level_runtime, &weapon_selection_inventory, error, sizeof(error)) ||
+            weapon_selection_player.previous_next_weapon_key_state != 0u ||
+            !game_input_set_raw_key(
+                &weapon_selection_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_NEXT_WEAPON], 1,
+                error, sizeof(error)) ||
+            !player_runtime_update_discrete_controls(
+                &weapon_selection_player, &weapon_selection_input, &control_defaults,
+                &game.level_runtime, &weapon_selection_inventory, error, sizeof(error)) ||
+            weapon_selection_player.gun_selected != 3u) {
+            fprintf(stderr, "source next-weapon control is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     {
         PlayerRuntime use_snapshot_player = game.player;
@@ -2296,7 +2345,8 @@ int main(int argc, char **argv)
                 error, sizeof(error)) ||
             !player_runtime_update_discrete_controls(&use_snapshot_player,
                                                      &use_snapshot_input, &control_defaults,
-                                                     &game.level_runtime, error,
+                                                     &game.level_runtime,
+                                                     &game.session.player1_inventory, error,
                                                      sizeof(error)) ||
             !player_runtime_update_spatial(&use_snapshot_player, &use_snapshot_input,
                                            &control_defaults, &game.preferences, &game.math,
@@ -2324,12 +2374,14 @@ int main(int argc, char **argv)
                                 error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,
                                        NULL, error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,
@@ -2352,6 +2404,7 @@ int main(int argc, char **argv)
                                 error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,
@@ -2365,6 +2418,7 @@ int main(int argc, char **argv)
                                 error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
+                                                 &game.session.player1_inventory,
                                                  error, sizeof(error)) ||
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,

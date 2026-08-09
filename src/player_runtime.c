@@ -418,6 +418,7 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
 int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *input,
                                             const GameControls *controls,
                                             const LevelRuntime *runtime,
+                                            const GameInventory *inventory,
                                             char *error, size_t error_size)
 {
     LevelZone zone;
@@ -425,11 +426,35 @@ int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *in
     int32_t available_height;
     int32_t target_height;
 
-    if (!player || !input || !controls || !runtime ||
+    if (!player || !input || !controls || !runtime || !inventory ||
         player->zone_index >= runtime->zone_count) {
         player_runtime_set_error(error, error_size,
                                  "discrete player control received invalid source state");
         return 0;
+    }
+
+    /* modules/player.s only advances one owned weapon per next-weapon press. */
+    if (game_input_is_control_down(input, controls, GAME_CONTROL_NEXT_WEAPON)) {
+        if (player->previous_next_weapon_key_state == 0u) {
+            uint16_t candidate = player->gun_selected;
+            uint16_t attempts;
+
+            player->previous_next_weapon_key_state = UINT8_MAX;
+            for (attempts = 0u; attempts < GAME_INVENTORY_WEAPON_COUNT; ++attempts) {
+                candidate = (uint16_t)((candidate + 1u) % GAME_INVENTORY_WEAPON_COUNT);
+                if (inventory->weapons[candidate] != 0u) {
+                    player->gun_selected = (uint8_t)candidate;
+                    break;
+                }
+            }
+            if (attempts == GAME_INVENTORY_WEAPON_COUNT) {
+                player_runtime_set_error(error, error_size,
+                                         "source next-weapon control has no owned weapon");
+                return 0;
+            }
+        }
+    } else {
+        player->previous_next_weapon_key_state = 0u;
     }
 
     /* modules/player.s: plr_PrevUseKeyState_b gates one Used_b pulse per press. */

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "game_input.h"
+#include "game_inventory.h"
 #include "game_math.h"
 #include "game_preferences.h"
 #include "level_dynamic_state.h"
@@ -54,8 +55,11 @@ typedef struct {
     uint8_t tmp_used;
     uint8_t fire;
     uint8_t clicked;
+    /* modules/player.s:PlrT_GunSelected_b and its next-weapon edge gate. */
+    uint8_t gun_selected;
     uint8_t previous_use_key_state;
     uint8_t previous_centre_view_key_state;
+    uint8_t previous_next_weapon_key_state;
     uint8_t decelerate;
 } PlayerRuntime;
 
@@ -73,6 +77,7 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
 int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *input,
                                             const GameControls *controls,
                                             const LevelRuntime *runtime,
+                                            const GameInventory *inventory,
                                             char *error, size_t error_size);
 
 /*

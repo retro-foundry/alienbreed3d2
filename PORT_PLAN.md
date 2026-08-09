@@ -317,9 +317,9 @@ authority for all game behavior and data formats.
      that table and the maintained fixed-point update order, not a generated
      trigonometric approximation. The current interaction scope includes the
      tested collectable, activatable, destructible, and decoration paths,
-     `DoorRoutine`, and `LiftRoutine`; next: source `Obj_DoCollision`, the
-     remaining alien/projectile `ObjectHandler` paths, switches,
-     `newplayershoot.s`, and source sprites.
+     `DoorRoutine`, `LiftRoutine`, and the source edge-gated next-weapon
+     selection. Next: source `Obj_DoCollision`, the remaining alien/projectile
+     `ObjectHandler` paths, switches, `newplayershoot.s`, and source sprites.
    - Keep optional modern bindings outside core simulation state. The native
      menu is intentionally not on the gameplay-first launch path for now; do
      not extend it while the direct Level A path is the active milestone.
