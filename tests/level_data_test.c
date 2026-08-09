@@ -1142,11 +1142,18 @@ int main(int argc, char **argv)
         }
         for (uint32_t object_index = 0;
              object_index < game.level_runtime.object_record_count; ++object_index) {
+            const uint8_t *source = game.level_runtime.level_bytes +
+                game.level_runtime.object_data_offset + (size_t)object_index * 64u;
+
             if (!level_runtime_get_object_record(&game.level_runtime, object_index,
                                                  &object_slot, error, sizeof(error)) ||
                 object_slot.point_index >= game.level_runtime.object_point_count ||
                 !level_runtime_get_object_point(&game.level_runtime, object_slot.point_index,
-                                                &object_point, error, sizeof(error))) {
+                                                &object_point, error, sizeof(error)) ||
+                object_slot.type_id != source[16u] ||
+                object_slot.sees_player != source[17u] ||
+                object_slot.entity_type != source[54u] ||
+                object_slot.which_animation != source[55u]) {
                 fprintf(stderr, "campaign level %u object %u is invalid: %s\n",
                         level_index, object_index, error);
                 game_bootstrap_destroy(&game);

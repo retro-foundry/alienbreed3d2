@@ -138,6 +138,9 @@ typedef struct {
     int16_t zone_id;
     uint8_t type_id;
     uint8_t sees_player;
+    /* defs.i:EntT_Type_b/EntT_WhichAnim_b at +54/+55 in the ObjT overlay. */
+    uint8_t entity_type;
+    uint8_t which_animation;
 } LevelObjectSlot;
 
 /* Lvl_ObjectPointsPtr_l entries are pairs of source 32-bit coordinates. */

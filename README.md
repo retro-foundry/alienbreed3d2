@@ -19,7 +19,8 @@ first game's software renderer:
   `twolev.graph.bin`, and clip stream for every campaign level (`A`–`P`). The
   `TLBT` and `TLGT` headers follow `amiga/ab3d2_source/defs.i` exactly; both
   source 100x100 navigation maps plus the static door/lift/switch records are
-  also decoded, without yet running AI or mechanism animation. Every source
+  also decoded, along with each static object's documented type/animation
+  selector bytes, without yet running AI or mechanism animation. Every source
   wall plus floor, ceiling, and water boundary is submitted as whole-level
   GPU-neutral geometry, without PVS or portal traversal;
 - defines a GPU-neutral frame command interface for cameras, materials,

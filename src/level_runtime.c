@@ -643,6 +643,8 @@ int level_runtime_get_object_record(const LevelRuntime *runtime, uint32_t record
     object.zone_id = level_runtime_read_be16s(source + 12u);
     object.type_id = source[16u];
     object.sees_player = source[17u];
+    object.entity_type = source[54u];
+    object.which_animation = source[55u];
     *out_object = object;
     return 1;
 }

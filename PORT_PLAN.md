@@ -102,9 +102,10 @@ authority for all game behavior and data formats.
   object-point tables that `Game_Begin` establishes. `TLBT_NumObjects` is
   retained as the source's inclusive final object-point index. The separate
   `ObjT` record list is explicitly validated through
-  `newanims.s:ObjectHandler`'s `-1` terminator. Projectile/player slots remain
-  data views only; no object, animation, or AI behaviour has been inferred or
-  ported.
+  `newanims.s:ObjectHandler`'s `-1` terminator, including the documented
+  `EntT_Type_b` and `EntT_WhichAnim_b` overlay bytes used to join object state
+  to GLFT definitions. Projectile/player slots remain data views only; no
+  object, animation, or AI behaviour has been inferred or ported.
 - [x] `src/level_mechanisms.*` decodes the `TLGT` door/lift streams as the
   exact `ZLiftableT` plus variable `ZDoorWall` sequence used by
   `newanims.s:DoorRoutine` and `LiftRoutine`, bounded by their source
