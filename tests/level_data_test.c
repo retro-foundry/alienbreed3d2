@@ -3372,7 +3372,98 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        {
+            uint8_t miss_slot_bytes[OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT *
+                                    OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+            uint8_t miss_point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+            ObjectRuntime miss_objects = {0};
+            PlayerRuntime miss_player = {0};
+            GameRandom miss_random;
+            GameRandom expected_random;
+            uint16_t spread_word;
+            int16_t sine;
+            int16_t cosine;
+            int16_t ray_z;
+            int32_t spread;
+            int32_t expected_hit_height;
+            uint8_t miss_spawned = 0u;
+
+            /* A horizontal solid edge intersects Player 1's source yaw-zero ray. */
+            write_be16(movement_state.level_bytes + 200u, UINT16_C(0xffec));
+            write_be16(movement_state.level_bytes + 202u, 20u);
+            write_be16(movement_state.level_bytes + 204u, 40u);
+            write_be16(movement_state.level_bytes + 206u, 0u);
+            write_be16(movement_state.level_bytes + 208u, UINT16_MAX);
+            write_be16(movement_state.level_bytes + 210u, 40u);
+            if (!level_dynamic_state_set_edge_flags(&movement_state, 0u, 0u) ||
+                !game_math_sine(&game.math, 0u, &sine, error, sizeof(error)) ||
+                !game_math_cosine(&game.math, 0u, &cosine, error, sizeof(error))) {
+                fprintf(stderr, "could not prepare plr1_HitscanFailed fixture: %s\n", error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            ray_z = (int16_t)source_asr32_7(cosine);
+            if (sine != 0 || ray_z != 255) {
+                fprintf(stderr, "plr1_HitscanFailed fixture yaw is inconsistent (%d, %d, %d)\n",
+                        sine, cosine, ray_z);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            miss_objects.slot_bytes = miss_slot_bytes;
+            miss_objects.slot_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+            miss_objects.active_slot_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+            miss_objects.player_shot_first_slot = 0u;
+            miss_objects.point_bytes = miss_point_bytes;
+            miss_objects.point_count = 1u;
+            write_be16(miss_slot_bytes + 0u, 0u);
+            write_be16(miss_slot_bytes + 12u, UINT16_MAX);
+            miss_slot_bytes[16u] = 0x7eu;
+            write_be16(miss_slot_bytes + 26u, UINT16_C(0x1234));
+            write_be32(miss_point_bytes + 0u, UINT32_C(0x12345678));
+            write_be32(miss_point_bytes + 4u, UINT32_C(0x9abcdef0));
+            miss_player.x = 0;
+            miss_player.y = 1000;
+            miss_player.z = 10;
+            miss_player.yaw = 0u;
+            miss_player.zone_index = 0u;
+            game_random_init(&miss_random);
+            expected_random = miss_random;
+            spread_word = game_random_next(&expected_random);
+            spread = (int32_t)(spread_word & 0x0fffu) - 0x0800;
+            expected_hit_height = miss_player.y + 10 * 128 + spread +
+                (spread / ray_z) * (10 - ray_z);
+            if (!player_shoot_apply_hitscan_miss(
+                    &miss_objects, &movement_state, &miss_player, &game.math,
+                    &miss_random, 7u, &miss_spawned, error, sizeof(error)) ||
+                miss_spawned != UINT8_MAX || miss_random.state != expected_random.state ||
+                miss_slot_bytes[16u] != 0x7eu ||
+                read_be16(miss_slot_bytes + 12u) != 0u ||
+                miss_slot_bytes[30u] != 1u || miss_slot_bytes[31u] != 7u ||
+                miss_slot_bytes[52u] != 0u || read_be16(miss_slot_bytes + 54u) != 0u ||
+                miss_slot_bytes[62u] != UINT8_MAX ||
+                read_be32(miss_slot_bytes + 44u) != (uint32_t)expected_hit_height ||
+                read_be16(miss_slot_bytes + 4u) !=
+                    (uint16_t)source_asr32_7(expected_hit_height) ||
+                read_be16(miss_slot_bytes + 26u) != UINT16_C(0x1234) ||
+                read_be32(miss_point_bytes + 0u) != UINT32_C(0x00005678) ||
+                read_be32(miss_point_bytes + 4u) != UINT32_C(0x0014def0) ||
+                !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
+                edge_flags != 0x0400u) {
+                fprintf(stderr, "plr1_HitscanFailed source miss state is inconsistent: %s\n",
+                        error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        write_be16(movement_state.level_bytes + 200u, 10u);
+        write_be16(movement_state.level_bytes + 202u, 20u);
+        write_be16(movement_state.level_bytes + 204u, 0u);
+        write_be16(movement_state.level_bytes + 206u, UINT16_C(0xffec));
         write_be16(movement_state.level_bytes + 208u, 1u);
+        write_be16(movement_state.level_bytes + 210u, 20u);
         if (!level_dynamic_state_set_edge_flags(&movement_state, 0u, 0u)) {
             fprintf(stderr, "could not reset MoveObject source fixture edge flags\n");
             level_dynamic_state_destroy(&movement_state);

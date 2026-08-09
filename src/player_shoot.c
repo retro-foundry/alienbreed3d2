@@ -104,6 +104,11 @@ static int32_t player_shoot_add32(int32_t left, int32_t right)
     return (int32_t)((uint32_t)left + (uint32_t)right);
 }
 
+static int16_t player_shoot_add16(int16_t left, int16_t right)
+{
+    return (int16_t)((uint16_t)left + (uint16_t)right);
+}
+
 int player_shoot_find_target_single_player(const ObjectRuntime *objects,
                                            const ObjectObservation *observation,
                                            const PlayerRuntime *player,
@@ -270,6 +275,116 @@ int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
         return 1;
     }
     /* Source returns before applying damage if all NUM_PLR_SHOT_DATA slots are live. */
+    return 1;
+}
+
+int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
+                                    LevelDynamicState *dynamic_level,
+                                    const PlayerRuntime *player, const GameMath *math,
+                                    GameRandom *random, uint16_t bullet_type,
+                                    uint8_t *out_impact_spawned,
+                                    char *error, size_t error_size)
+{
+    ObjectMovementTrace trace = {0};
+    int16_t sine;
+    int16_t cosine;
+    uint16_t random_value;
+
+    if (!objects || !dynamic_level || !player || !math || !random ||
+        !objects->slot_bytes || !objects->point_bytes ||
+        objects->active_slot_count > objects->slot_count) {
+        player_shoot_set_error(error, error_size,
+                               "plr1_HitscanFailed received invalid source state");
+        return 0;
+    }
+    if (out_impact_spawned) {
+        *out_impact_spawned = 0u;
+    }
+    if (!game_math_sine(math, player->yaw, &sine, error, error_size) ||
+        !game_math_cosine(math, player->yaw, &cosine, error, error_size)) {
+        return 0;
+    }
+    trace.zone_index = player->zone_index;
+    trace.old_x = (int16_t)player->x;
+    trace.old_z = (int16_t)player->z;
+    trace.new_x = player_shoot_add16(trace.old_x, player_shoot_asr16_count(sine, 7u));
+    trace.new_z = player_shoot_add16(trace.old_z, player_shoot_asr16_count(cosine, 7u));
+    trace.old_y = player_shoot_add32(player->y, 10 * 128);
+    random_value = game_random_next(random);
+    trace.new_y = player_shoot_add32(
+        trace.old_y, (int32_t)((int32_t)(random_value & 0x0fffu) - 0x0800));
+    trace.wall_flags = 0x0400u;
+    trace.away_from_wall = -1;
+    trace.exit_first = UINT8_MAX;
+    trace.step_down = 0x1000000;
+
+    for (;;) {
+        int16_t ray_x;
+        int16_t ray_z;
+        int32_t ray_y;
+
+        if (!object_movement_trace_zero_extension(dynamic_level, &trace,
+                                                  error, error_size)) {
+            return 0;
+        }
+        if (trace.hit_wall != 0u) {
+            break;
+        }
+        /* plr1_HitscanFailed:.again advances its unchanged one-word ray. */
+        ray_x = (int16_t)((uint16_t)trace.new_x - (uint16_t)trace.old_x);
+        ray_z = (int16_t)((uint16_t)trace.new_z - (uint16_t)trace.old_z);
+        ray_y = (int32_t)((uint32_t)trace.new_y - (uint32_t)trace.old_y);
+        trace.old_x = player_shoot_add16(trace.old_x, ray_x);
+        trace.new_x = player_shoot_add16(trace.new_x, ray_x);
+        trace.old_z = player_shoot_add16(trace.old_z, ray_z);
+        trace.new_z = player_shoot_add16(trace.new_z, ray_z);
+        trace.old_y = player_shoot_add32(trace.old_y, ray_y);
+        trace.new_y = player_shoot_add32(trace.new_y, ray_y);
+    }
+    for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+         ++shot_index) {
+        uint8_t *shot_slot;
+        uint8_t *shot_point;
+        uint16_t point_index;
+        LevelZone zone;
+
+        if (!object_runtime_get_player_shot_slot_bytes(objects, shot_index, &shot_slot)) {
+            player_shoot_set_error(error, error_size,
+                                   "plr1_HitscanFailed player-shot pool is outside source state");
+            return 0;
+        }
+        if (player_shoot_read_be16s(shot_slot + PLAYER_SHOOT_ZONE_ID) >= 0) {
+            continue;
+        }
+        point_index = player_shoot_read_be16(shot_slot + PLAYER_SHOOT_POINT_INDEX);
+        if (!object_runtime_get_point_bytes(objects, point_index, &shot_point)) {
+            player_shoot_set_error(error, error_size,
+                                   "plr1_HitscanFailed miss slot has an invalid source point");
+            return 0;
+        }
+        if (!level_runtime_get_zone(&dynamic_level->runtime, trace.zone_index, &zone,
+                                    error, error_size)) {
+            return 0;
+        }
+        /* move.w updates only Vec2L's source coordinate words. */
+        player_shoot_write_be16(shot_point + 0u, (uint16_t)trace.new_x);
+        player_shoot_write_be16(shot_point + 4u, (uint16_t)trace.new_z);
+        shot_slot[PLAYER_SHOOT_SHOT_STATUS] = 1u;
+        player_shoot_write_be16(shot_slot + PLAYER_SHOOT_SHOT_GRAVITY, 0u);
+        shot_slot[PLAYER_SHOOT_SHOT_SIZE] = (uint8_t)bullet_type;
+        shot_slot[PLAYER_SHOOT_SHOT_ANIMATION] = 0u;
+        player_shoot_write_be16(shot_slot + PLAYER_SHOOT_ZONE_ID, zone.id);
+        shot_slot[PLAYER_SHOOT_SHOT_WORRY] = UINT8_MAX;
+        player_shoot_write_be32(shot_slot + PLAYER_SHOOT_SHOT_VERTICAL_POSITION,
+                                (uint32_t)trace.wall_hit_height);
+        player_shoot_write_be16(shot_slot + PLAYER_SHOOT_VERTICAL_POSITION,
+                                (uint16_t)player_shoot_asr32(trace.wall_hit_height, 7u));
+        if (out_impact_spawned) {
+            *out_impact_spawned = UINT8_MAX;
+        }
+        return 1;
+    }
+    /* The source returns unchanged when all NUM_PLR_SHOT_DATA records are live. */
     return 1;
 }
 

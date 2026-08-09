@@ -4,7 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "game_random.h"
 #include "game_link.h"
+#include "object_movement.h"
 #include "object_observation.h"
 #include "object_runtime.h"
 #include "player_runtime.h"
@@ -44,6 +46,21 @@ int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
                                        int16_t player_sine, int16_t player_cosine,
                                        uint8_t *out_impact_spawned,
                                        char *error, size_t error_size);
+
+/*
+ * newplayershoot.s:plr1_HitscanFailed. Casts the source one-word forward
+ * ray repeatedly through MoveObject's zero-extension path, then creates the
+ * stationary source miss effect in the first free player-shot ObjT slot.
+ * This routine owns its one GetRand vertical-spread advance; hit probability,
+ * cooldown/ammunition, input wiring, and its later ItsABullet dispatch remain
+ * in the parent Plr1_Shot path.
+ */
+int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
+                                    LevelDynamicState *dynamic_level,
+                                    const PlayerRuntime *player, const GameMath *math,
+                                    GameRandom *random, uint16_t bullet_type,
+                                    uint8_t *out_impact_spawned,
+                                    char *error, size_t error_size);
 
 /*
  * newplayershoot.s:firefive, reached from plr1_FireProjectile after Plr1_Shot

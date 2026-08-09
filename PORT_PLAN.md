@@ -165,14 +165,21 @@ authority for all game behavior and data formats.
   joined-zone/layer transitions all retain the source word/long arithmetic.
   Its byte-layout regression covers both a solid exit-first impact and a
   passable joined-zone crossing. Extended-edge movement is deliberately not
-  implied by this helper. These helpers are not wired into input yet: source
-  cooldown, ammunition, hit probability, miss-effect spawn, moving-projectile
-  update, and sound still belong to the remaining `Plr1_Shot` path.
+  implied by this helper. `src/player_shoot.*` now also translates
+  `plr1_HitscanFailed` itself: it advances `GetRand` once for the vertical
+  spread, repeats the source ray through that zero-extension trace, and writes
+  its stationary miss effect to the first free player-shot slot without
+  touching the source fields it does not own. Its regression verifies the
+  ray/contact height, source slot/point byte writes, edge flag, and random
+  state. These helpers are not wired into input yet: source cooldown,
+  ammunition, hit probability, moving-projectile update, and sound still
+  belong to the remaining `Plr1_Shot` path.
   `src/game_random.*` now retains `objectmove.s:GetRand`'s
   exact seeded 16-bit rotate/add sequence for the upcoming probability and AI
   paths. `GameBootstrap` owns and initializes that `Rand1` state once per
-  source game session, so it persists across campaign-level loads; it is not
-  consumed until the owning shot/AI routine is fully translated.
+  source game session, so it persists across campaign-level loads. The
+  translated `plr1_HitscanFailed` miss helper now consumes its one source
+  advance; hit probability and AI still do not consume it.
 - [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
   `PVST` records for gameplay-only consumers. Every record and target is
   validated across all A-P levels. `src/object_visibility.*` now directly
@@ -395,11 +402,11 @@ authority for all game behavior and data formats.
      observation workspace without a renderer dependency, while
      `objectmove.s:CanItBeSeen` supplies the separate PVST/clip/joined-zone
      gameplay visibility query an alien update will consume.
-     `object_movement.*` independently preserves the zero-extension
-     `MoveObject` trace needed by `plr1_HitscanFailed`; next is that miss
-     effect's object-pool write, followed by source `Obj_DoCollision`, the
-     remaining alien/projectile-flight `ObjectHandler` paths, and the rest of
-     `newplayershoot.s`.
+     `object_movement.*` and `player_shoot.*` now preserve the complete
+     zero-extension `MoveObject` trace and its `plr1_HitscanFailed` pool write.
+     Next: source `Obj_DoCollision`, the remaining alien/projectile-flight
+     `ObjectHandler` paths, and the cooldown, ammunition, hit-probability,
+     input, and audio portions of `newplayershoot.s`.
      Source object render descriptors are now emitted independently of those
      pending simulation branches.
      `SwitchRoutine` remains absent:
@@ -480,9 +487,10 @@ source non-hitscan launch state, but its later `ItsABullet` movement/collision
 path is still absent, so it too remains unwired. `object_movement.*` now
 provides the exact zero-extension `MoveObject` path for
 `plr1_HitscanFailed`, including its exit-first wall contact and joined-zone
-state; its object-pool miss effect has not yet been connected. Translate each
-remaining bounded slice directly from the maintained source and add
-source-derived regressions for its state changes and ordering.
+state, while `player_shoot.*` now consumes it to create the source miss effect.
+Neither firing helper is yet connected to source fire/cooldown/ammunition
+control. Translate each remaining bounded slice directly from the maintained
+source and add source-derived regressions for its state changes and ordering.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their
