@@ -3,8 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "object_activatables.h"
-#include "object_collectables.h"
+#include "object_handler.h"
 
 #define AB3D2_LEVEL_COUNT 16u
 
@@ -221,14 +220,10 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
                                        &game->preferences, &game->math,
                                        &game->dynamic_level.runtime, &game->dynamic_level,
                                        error, error_size) ||
-        !object_collectables_update_single_player(
+        !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,
-            NULL, error, error_size) ||
-        !object_activatables_update_single_player(
-            &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
-            &game->player, &game->session.player1_inventory, &game->inventory_limits,
-            1u, error, error_size) ||
+            1u, NULL, error, error_size) ||
         !mechanism_runtime_update_doors_single_player(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
             &game->player, 1u, error, error_size) ||

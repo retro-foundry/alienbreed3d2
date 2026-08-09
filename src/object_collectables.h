@@ -21,4 +21,11 @@ int object_collectables_update_single_player(
     const GameInventoryConsumableLimits *limits, uint32_t *out_collected_count,
     char *error, size_t error_size);
 
+/* One source ObjT iteration for ObjectHandler's exact list order. */
+int object_collectables_update_slot_single_player(
+    ObjectRuntime *objects, uint32_t slot_index, const LevelRuntime *level,
+    const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
+    const GameInventoryConsumableLimits *limits, uint32_t *out_collected_count,
+    char *error, size_t error_size);
+
 #endif

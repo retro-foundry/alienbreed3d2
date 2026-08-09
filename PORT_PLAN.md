@@ -371,11 +371,15 @@ selection while menu work is deferred; this allows the gameplay loop to enter
 authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
-objects, apply `Obj_DoCollision`, complete source-order object handling,
-activate switches, emit sprites, and create projectiles. The door/lift and
-bounded activatable slices are complete; translate each remaining bounded slice directly from the
-maintained source and add source-derived regressions for its state changes and
-ordering. When an original-runtime fixture becomes available, follow the
+objects, apply `Obj_DoCollision`, complete the remaining source-order object
+handling, activate switches, emit sprites, and create projectiles. The
+door/lift and bounded activatable slices are complete. `src/object_handler.*`
+now preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator,
+and `ObjT_ZoneID_w` to `EntT_ZoneID_w` copy for the translated collectable and
+activatable branches; alien, projectile, destructible, and decoration dispatch
+remain deliberately absent. Translate each remaining bounded slice directly
+from the maintained source and add source-derived regressions for its state
+changes and ordering. When an original-runtime fixture becomes available, follow the
 optional byte-exact capture contract in
 [`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md) to add an independent
 parity check. The highest-value optional boundaries are:
@@ -401,10 +405,10 @@ the maintained source or justify using an older binary as an oracle.
 
 The immediately preceding preparation step is complete: the runtime decodes
 the source's object inventory grants and reproduces its inventory-limit helpers,
-owns byte-exact mutable `ObjT`/object-point storage, and applies the narrow
-source collectable path for a current-zone/layer candidate. This does not port
-PVS/worry selection, `DEFANIMOBJ`, audio/messages, or any other
-`ObjectHandler` class. Do not generalize the pickup path into a full object
-update until the maintained `ObjectHandler` source establishes the mutable
-`ObjT` initialization, worry, animation, and update ordering for the loaded
-level.
+owns byte-exact mutable `ObjT`/object-point storage, and applies the translated
+collectable and bounded activatable paths in `ObjectHandler`'s source slot
+order. This does not port PVS/worry selection, `DEFANIMOBJ`, audio/messages,
+or the alien, projectile, destructible, and decoration `ObjectHandler` paths.
+The missing classes must use the maintained source's mutable `ObjT`
+initialization, worry, animation, and update ordering rather than a generalized
+object update.

@@ -200,21 +200,23 @@ static int object_activatables_collect_item(const GameLink *game_link, uint8_t *
     return 1;
 }
 
-int object_activatables_update_single_player(
+static int object_activatables_update_range_single_player(
     ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
-    const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
+    const GameInventoryConsumableLimits *limits, uint32_t first_slot, uint32_t slot_limit,
+    uint16_t frame_ticks,
     char *error, size_t error_size)
 {
     if (!objects || !level || !game_link || !player || !inventory || !limits ||
-        objects->active_slot_count > objects->slot_count ||
+        objects->active_slot_count > objects->slot_count || first_slot > slot_limit ||
+        slot_limit > objects->active_slot_count ||
         player->zone_index >= level->zone_count) {
         object_activatables_set_error(error, error_size,
                                       "activatable update received invalid source state");
         return 0;
     }
 
-    for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
+    for (uint32_t slot_index = first_slot; slot_index < slot_limit; ++slot_index) {
         uint8_t *slot;
         uint8_t *point_bytes;
         GameObjectDefinition definition;
@@ -289,4 +291,31 @@ int object_activatables_update_single_player(
         }
     }
     return 1;
+}
+
+int object_activatables_update_single_player(
+    ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
+    const PlayerRuntime *player, GameInventory *inventory,
+    const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
+    char *error, size_t error_size)
+{
+    return object_activatables_update_range_single_player(
+        objects, level, game_link, player, inventory, limits, 0u,
+        objects ? objects->active_slot_count : 0u, frame_ticks, error, error_size);
+}
+
+int object_activatables_update_slot_single_player(
+    ObjectRuntime *objects, uint32_t slot_index, const LevelRuntime *level,
+    const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
+    const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
+    char *error, size_t error_size)
+{
+    if (!objects || slot_index >= objects->active_slot_count) {
+        object_activatables_set_error(error, error_size,
+                                      "source activatable slot is outside ObjectHandler's list");
+        return 0;
+    }
+    return object_activatables_update_range_single_player(
+        objects, level, game_link, player, inventory, limits, slot_index, slot_index + 1u,
+        frame_ticks, error, error_size);
 }

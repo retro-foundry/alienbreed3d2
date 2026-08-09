@@ -102,23 +102,25 @@ static int object_collectables_player_hits_slot(const PlayerRuntime *player,
     return distance_squared < radius_squared;
 }
 
-int object_collectables_update_single_player(
+static int object_collectables_update_range_single_player(
     ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
-    const GameInventoryConsumableLimits *limits, uint32_t *out_collected_count,
+    const GameInventoryConsumableLimits *limits, uint32_t first_slot, uint32_t slot_limit,
+    uint32_t *out_collected_count,
     char *error, size_t error_size)
 {
     uint32_t collected_count = 0u;
 
     if (!objects || !level || !game_link || !player || !inventory || !limits ||
-        objects->active_slot_count > objects->slot_count ||
+        objects->active_slot_count > objects->slot_count || first_slot > slot_limit ||
+        slot_limit > objects->active_slot_count ||
         player->zone_index >= level->zone_count) {
         object_collectables_set_error(error, error_size,
                                      "collectable update received invalid source state");
         return 0;
     }
 
-    for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
+    for (uint32_t slot_index = first_slot; slot_index < slot_limit; ++slot_index) {
         uint8_t *slot;
         int16_t zone_id;
         uint8_t entity_type;
@@ -195,4 +197,31 @@ int object_collectables_update_single_player(
         *out_collected_count = collected_count;
     }
     return 1;
+}
+
+int object_collectables_update_single_player(
+    ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
+    const PlayerRuntime *player, GameInventory *inventory,
+    const GameInventoryConsumableLimits *limits, uint32_t *out_collected_count,
+    char *error, size_t error_size)
+{
+    return object_collectables_update_range_single_player(
+        objects, level, game_link, player, inventory, limits, 0u,
+        objects ? objects->active_slot_count : 0u, out_collected_count, error, error_size);
+}
+
+int object_collectables_update_slot_single_player(
+    ObjectRuntime *objects, uint32_t slot_index, const LevelRuntime *level,
+    const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
+    const GameInventoryConsumableLimits *limits, uint32_t *out_collected_count,
+    char *error, size_t error_size)
+{
+    if (!objects || slot_index >= objects->active_slot_count) {
+        object_collectables_set_error(error, error_size,
+                                     "source collectable slot is outside ObjectHandler's list");
+        return 0;
+    }
+    return object_collectables_update_range_single_player(
+        objects, level, game_link, player, inventory, limits, slot_index, slot_index + 1u,
+        out_collected_count, error, error_size);
 }

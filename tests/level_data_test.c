@@ -9,8 +9,8 @@
 #include "game_save.h"
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
-#include "object_activatables.h"
 #include "object_collectables.h"
+#include "object_handler.h"
 #include "scene_frame.h"
 
 static uint16_t read_be16(const uint8_t *source)
@@ -1302,16 +1302,17 @@ int main(int argc, char **argv)
                         activatable_player.tmp_height / 2;
                 }
                 activatable_player.tmp_used = UINT8_MAX;
-                if (!object_activatables_update_single_player(
+                if (!object_handler_update_single_player(
                         &game.object_runtime, &game.dynamic_level.runtime,
                         &game.game_link_catalog, &activatable_player,
                         &activatable_inventory, &game.inventory_limits, 1u,
-                        error, sizeof(error)) ||
+                        NULL, error, sizeof(error)) ||
                     activatable_slot[55u] != UINT8_MAX ||
                     read_be16(activatable_slot + 34u) != 0u ||
                     read_be16(activatable_slot + 40u) != 0u ||
-                    activatable_slot[62u] != 0x80u) {
-                    fprintf(stderr, "campaign level %u Activatable update is inconsistent: %s\n",
+                    activatable_slot[62u] != 0x80u ||
+                    read_be16(activatable_slot + 26u) != activatable_player.zone_index) {
+                    fprintf(stderr, "campaign level %u ObjectHandler activatable dispatch is inconsistent: %s\n",
                             level_index, error);
                     game_bootstrap_destroy(&game);
                     return 1;
