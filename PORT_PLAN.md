@@ -104,6 +104,13 @@ authority for all game behavior and data formats.
   terminators. It also exposes the eight raw 14-byte switch records that
   `SwitchRoutine` traverses. Door/lift motion, switch interaction, and all
   associated graphics/audio changes remain deliberately unported.
+- [x] `src/level_draw_graph.*` follows the maintained
+  `draw_zone_graph.s` cursor for every lower/upper stream: fixed wall records,
+  variable flat/water records, object selectors, and header-only ignored tags
+  through the signed-byte terminator. It exposes the complete `Draw_Wall`
+  record and validates every cursor boundary and wall point reference in all
+  campaign levels. It does not yet emit scene geometry or reinterpret legacy
+  clipping as GPU visibility.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its
   floor-relative standing and target heights, zone, and enemy flags. A loaded

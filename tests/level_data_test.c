@@ -6,6 +6,7 @@
 #include "game_link.h"
 #include "game_menu.h"
 #include "level_bootstrap.h"
+#include "level_draw_graph.h"
 #include "scene_frame.h"
 
 static uint16_t read_be16(const uint8_t *source)
@@ -79,6 +80,8 @@ int main(int argc, char **argv)
     };
     LevelZone zone;
     LevelDrawGraphStreams draw_graph_streams;
+    LevelDrawGraphRecord draw_graph_record;
+    LevelDrawWall draw_wall;
     LevelEdge edge;
     LevelControlPoint control_point;
     LevelWorldPoint world_point;
@@ -92,6 +95,8 @@ int main(int argc, char **argv)
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
     uint32_t world_point_index;
+    uint32_t draw_graph_record_count;
+    uint32_t draw_graph_record_index;
     uint16_t mechanism_index;
     uint16_t wall_index;
     GameSession encoded_session;
@@ -728,6 +733,59 @@ int main(int argc, char **argv)
                         level_index, zone_index, error);
                 game_bootstrap_destroy(&game);
                 return 1;
+            }
+            for (uint8_t upper_stream = 0u;
+                 upper_stream <= (draw_graph_streams.has_upper_stream != 0u ? 1u : 0u);
+                 ++upper_stream) {
+                if (!level_draw_graph_record_count(&game.level_runtime, zone_index,
+                                                   upper_stream, &draw_graph_record_count,
+                                                   error, sizeof(error)) ||
+                    level_draw_graph_get_record(&game.level_runtime, zone_index, upper_stream,
+                                                draw_graph_record_count, &draw_graph_record,
+                                                error, sizeof(error))) {
+                    fprintf(stderr, "campaign level %u zone %u draw graph is invalid: %s\n",
+                            level_index, zone_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                for (draw_graph_record_index = 0u;
+                     draw_graph_record_index < draw_graph_record_count;
+                     ++draw_graph_record_index) {
+                    const uint8_t *source;
+
+                    if (!level_draw_graph_get_record(&game.level_runtime, zone_index,
+                                                     upper_stream, draw_graph_record_index,
+                                                     &draw_graph_record, error, sizeof(error)) ||
+                        draw_graph_record.byte_count < 2u ||
+                        draw_graph_record.raw_tag != read_be16(
+                            game.level_runtime.graphics_bytes +
+                            draw_graph_record.source_offset)) {
+                        fprintf(stderr,
+                                "campaign level %u zone %u draw record %u is invalid: %s\n",
+                                level_index, zone_index, draw_graph_record_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    if (draw_graph_record.type != LEVEL_DRAW_GRAPH_TYPE_WALL) {
+                        continue;
+                    }
+                    source = game.level_runtime.graphics_bytes + draw_graph_record.source_offset;
+                    if (!level_draw_graph_read_wall(&game.level_runtime, &draw_graph_record,
+                                                    &draw_wall, error, sizeof(error)) ||
+                        draw_wall.left_point_index >= game.level_runtime.world_point_count ||
+                        draw_wall.right_point_index >= game.level_runtime.world_point_count ||
+                        draw_wall.left_point_index != read_be16(source + 2u) ||
+                        draw_wall.right_point_index != read_be16(source + 4u) ||
+                        draw_wall.texture_id != read_be16(source + 14u) ||
+                        draw_wall.top != (int32_t)read_be32(source + 20u) ||
+                        draw_wall.bottom != (int32_t)read_be32(source + 24u)) {
+                        fprintf(stderr,
+                                "campaign level %u zone %u wall record %u is invalid: %s\n",
+                                level_index, zone_index, draw_graph_record_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                }
             }
             for (uint32_t list_index = 0; list_index < zone_edge_count; ++list_index) {
                 if (!level_runtime_get_zone_edge_index(&game.level_runtime, zone_index,
