@@ -561,6 +561,12 @@ to activate teams.
 `modules/ai.s:AI_LookForPlayer1` is likewise available through the existing
 source PVST/clip gameplay query, but waits for the AI branches that own its
 caller-provided position words.
+`modules/ai.s:ai_CheckInFront` and `ai_CheckAttackOnGround` are now likewise
+available as direct decision helpers: they preserve the source point-high-word
+and `Plr1_Tmp*` projection test, plus its grounded `GetNextCPt` walk-map
+arrival test (including the deliberately ignored `ONLYSEE` result).  They do
+not select a mode, move an alien, or activate a target outside their eventual
+source callers.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,

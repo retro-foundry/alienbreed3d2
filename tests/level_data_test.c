@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "alien_runtime.h"
+#include "alien_decision.h"
 #include "alien_memory.h"
 #include "alien_perception.h"
 #include "asset_io.h"
@@ -3981,6 +3982,159 @@ int main(int argc, char **argv)
             read_be16(slot_bytes + 26u) != UINT16_MAX ||
             lock_runtime.door_and_lift_locks != 0u) {
             fprintf(stderr, "ObjectHandler negative alien-zone gate is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_CheckInFront reads the source point high words and Tmp snapshot. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime decision_objects = {0};
+        PlayerRuntime decision_player = game.player;
+        uint16_t positive_sine_angle = 0u;
+        uint16_t negative_sine_angle = 0u;
+        int16_t sine_value;
+        uint8_t in_front;
+
+        decision_objects.slot_bytes = slot_bytes;
+        decision_objects.slot_count = 1u;
+        decision_objects.active_slot_count = 1u;
+        decision_objects.point_bytes = point_bytes;
+        decision_objects.point_count = 1u;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be32(point_bytes + 0u, 0u);
+        write_be32(point_bytes + 4u, 0u);
+        for (uint16_t angle = 0u; angle < GAME_MATH_SINE_CYCLE_BYTES; angle += 2u) {
+            if (!game_math_sine(&game.math, angle, &sine_value, error, sizeof(error))) {
+                fprintf(stderr, "could not read ai_CheckInFront source sine: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (sine_value > 0 && positive_sine_angle == 0u) {
+                positive_sine_angle = angle;
+            }
+            if (sine_value < 0 && negative_sine_angle == 0u) {
+                negative_sine_angle = angle;
+            }
+        }
+        if (positive_sine_angle == 0u || negative_sine_angle == 0u) {
+            fprintf(stderr, "source bigsine does not provide ai_CheckInFront test angles\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        decision_player.tmp_x = 1;
+        decision_player.tmp_z = 0;
+        decision_player.x = -500;
+        decision_player.z = 500;
+        write_be16(slot_bytes + 30u, positive_sine_angle);
+        if (!alien_decision_check_in_front(&decision_objects, 0u, &decision_player,
+                                           &game.math, &in_front,
+                                           error, sizeof(error)) ||
+            in_front != UINT8_MAX) {
+            fprintf(stderr, "ai_CheckInFront positive source projection is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(slot_bytes + 30u, negative_sine_angle);
+        if (!alien_decision_check_in_front(&decision_objects, 0u, &decision_player,
+                                           &game.math, &in_front,
+                                           error, sizeof(error)) ||
+            in_front != 0u) {
+            fprintf(stderr, "ai_CheckInFront negative source projection is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_CheckAttackOnGround uses only GetNextCPt's walk link. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t walk_links[LEVEL_NAVIGATION_MAP_BYTES] = {0};
+        uint8_t fly_links[LEVEL_NAVIGATION_MAP_BYTES] = {0};
+        ObjectRuntime decision_objects = {0};
+        LevelNavigation decision_navigation = {0};
+        PlayerRuntime decision_player = game.player;
+        LevelZone decision_zone;
+        uint8_t lower_control_point;
+        uint8_t upper_control_point;
+        uint8_t different_control_point;
+        uint8_t current_control_point;
+        uint8_t can_attack;
+        size_t navigation_offset;
+
+        if (!level_runtime_get_zone(&game.dynamic_level.runtime, decision_player.zone_index,
+                                    &decision_zone, error, sizeof(error))) {
+            fprintf(stderr, "could not read ai_CheckAttackOnGround source zone: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        lower_control_point = (uint8_t)(decision_zone.control_point >> 8u);
+        upper_control_point = (uint8_t)decision_zone.control_point;
+        if (lower_control_point >= LEVEL_NAVIGATION_CONTROL_POINT_LIMIT ||
+            upper_control_point >= LEVEL_NAVIGATION_CONTROL_POINT_LIMIT) {
+            fprintf(stderr, "source player control point exceeds GetNextCPt map\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        decision_objects.slot_bytes = slot_bytes;
+        decision_objects.slot_count = 1u;
+        decision_objects.active_slot_count = 1u;
+        decision_navigation.walk_links = walk_links;
+        decision_navigation.walk_links_size = sizeof(walk_links);
+        decision_navigation.fly_links = fly_links;
+        decision_navigation.fly_links_size = sizeof(fly_links);
+        decision_player.stood_in_top = 0u;
+        write_be16(slot_bytes + 28u, lower_control_point);
+        if (!alien_decision_check_attack_on_ground(
+                &decision_objects, 0u, &game.dynamic_level.runtime,
+                &decision_navigation, &decision_player, &can_attack,
+                error, sizeof(error)) ||
+            can_attack != UINT8_MAX) {
+            fprintf(stderr, "ai_CheckAttackOnGround lower control-point match is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        decision_player.stood_in_top = UINT8_MAX;
+        write_be16(slot_bytes + 28u, upper_control_point);
+        if (!alien_decision_check_attack_on_ground(
+                &decision_objects, 0u, &game.dynamic_level.runtime,
+                &decision_navigation, &decision_player, &can_attack,
+                error, sizeof(error)) ||
+            can_attack != UINT8_MAX) {
+            fprintf(stderr, "ai_CheckAttackOnGround upper control-point match is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        decision_player.stood_in_top = 0u;
+        current_control_point = lower_control_point == 0u ? 1u : 0u;
+        different_control_point = lower_control_point == 0u ? 1u : 0u;
+        navigation_offset = (size_t)current_control_point *
+            LEVEL_NAVIGATION_CONTROL_POINT_LIMIT + lower_control_point;
+        walk_links[navigation_offset] = (uint8_t)(lower_control_point | 0x80u);
+        fly_links[navigation_offset] = different_control_point;
+        write_be16(slot_bytes + 28u, current_control_point);
+        if (!alien_decision_check_attack_on_ground(
+                &decision_objects, 0u, &game.dynamic_level.runtime,
+                &decision_navigation, &decision_player, &can_attack,
+                error, sizeof(error)) ||
+            can_attack != UINT8_MAX) {
+            fprintf(stderr, "ai_CheckAttackOnGround walk/ONLYSEE source path is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        walk_links[navigation_offset] = different_control_point;
+        if (!alien_decision_check_attack_on_ground(
+                &decision_objects, 0u, &game.dynamic_level.runtime,
+                &decision_navigation, &decision_player, &can_attack,
+                error, sizeof(error)) ||
+            can_attack != 0u) {
+            fprintf(stderr, "ai_CheckAttackOnGround non-arrival source path is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;
