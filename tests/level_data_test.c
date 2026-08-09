@@ -80,6 +80,7 @@ int main(int argc, char **argv)
     LevelZone zone;
     LevelEdge edge;
     LevelControlPoint control_point;
+    LevelWorldPoint world_point;
     LevelNarrativeMessage narrative_message;
     LevelNavigationLink navigation_link;
     LevelLiftable liftable;
@@ -89,6 +90,7 @@ int main(int argc, char **argv)
     LevelObjectPoint object_point;
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
+    uint32_t world_point_index;
     uint16_t mechanism_index;
     uint16_t wall_index;
     GameSession encoded_session;
@@ -514,6 +516,7 @@ int main(int argc, char **argv)
                                       LEVEL_NAVIGATION_CONTROL_POINT_LIMIT, 0u, 0,
                                       &navigation_link, error, sizeof(error)) ||
             game.level_runtime.object_point_count != (uint32_t)game.level.object_count + 1u ||
+            game.level_runtime.world_point_count != (uint32_t)game.level.point_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
             game.level_runtime.control_point_count != game.level.control_point_count ||
             !level_runtime_get_narrative_message(&game.level_runtime, 0u, &narrative_message,
@@ -539,6 +542,14 @@ int main(int argc, char **argv)
                    level_runtime_get_control_point(&game.level_runtime,
                                                    game.level_runtime.control_point_count,
                                                    &control_point, error, sizeof(error)))) ||
+            !level_runtime_get_world_point(&game.level_runtime, 0u, &world_point,
+                                           error, sizeof(error)) ||
+            !level_runtime_get_world_point(&game.level_runtime,
+                                           game.level_runtime.world_point_count - 1u,
+                                           &world_point, error, sizeof(error)) ||
+            level_runtime_get_world_point(&game.level_runtime,
+                                          game.level_runtime.world_point_count,
+                                          &world_point, error, sizeof(error)) ||
             game.level_runtime.edge_count == 0u ||
             game.level_runtime.edge_table_offset != game.level.floor_line_offset ||
             !level_runtime_get_edge(&game.level_runtime, 0u, &edge, error, sizeof(error)) ||
@@ -724,6 +735,22 @@ int main(int argc, char **argv)
                                                 &object_point, error, sizeof(error))) {
                 fprintf(stderr, "campaign level %u object %u is invalid: %s\n",
                         level_index, object_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        for (world_point_index = 0u;
+             world_point_index < game.level_runtime.world_point_count;
+             ++world_point_index) {
+            const uint8_t *source = game.level_runtime.level_bytes + game.level.points_offset +
+                (size_t)world_point_index * 4u;
+
+            if (!level_runtime_get_world_point(&game.level_runtime, world_point_index,
+                                               &world_point, error, sizeof(error)) ||
+                world_point.x != (int16_t)read_be16(source + 0u) ||
+                world_point.z != (int16_t)read_be16(source + 2u)) {
+                fprintf(stderr, "campaign level %u world point %u is invalid: %s\n",
+                        level_index, world_point_index, error);
                 game_bootstrap_destroy(&game);
                 return 1;
             }

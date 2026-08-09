@@ -18,6 +18,9 @@ typedef struct {
     size_t graphics_size;
     uint32_t control_point_coordinates_offset;
     uint16_t control_point_count;
+    /* TLBT_NumPoints is the inclusive final Vec2W index used by DBRA. */
+    uint32_t world_point_count;
+    uint32_t world_points_offset;
     uint32_t point_brightness_offset;
     uint32_t zone_border_points_offset;
     uint32_t zone_graph_adds_offset;
@@ -97,6 +100,12 @@ typedef struct {
     int16_t unknown_word;
 } LevelControlPoint;
 
+/* Lvl_PointsPtr_l entries are source Vec2W pairs used by draw and transform. */
+typedef struct {
+    int16_t x;
+    int16_t z;
+} LevelWorldPoint;
+
 /*
  * The leading fixed text blocks in twolev.bin. newaliencontrol.s and ai.s
  * pass these exact 160-byte payloads to Msg_PushLine with an explicit length.
@@ -147,6 +156,9 @@ int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
 int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t control_point_index,
                                     LevelControlPoint *out_control_point,
                                     char *error, size_t error_size);
+int level_runtime_get_world_point(const LevelRuntime *runtime, uint32_t point_index,
+                                  LevelWorldPoint *out_point,
+                                  char *error, size_t error_size);
 int level_runtime_get_narrative_message(const LevelRuntime *runtime, uint16_t message_index,
                                         LevelNarrativeMessage *out_message,
                                         char *error, size_t error_size);

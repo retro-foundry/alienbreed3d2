@@ -74,10 +74,12 @@ authority for all game behavior and data formats.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
   including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
   offset table, plus every `ZoneT` in all campaign levels into endian-safe
-  native views. It decodes the eight-byte control-point records used by source
-  AI navigation and the `EdgeT` collision records reached by each zone's
-  primary edge-index list exactly through the first negative source marker;
-  source extended-edge markers remain distinct for the later collision port.
+  native views. It decodes every `Lvl_PointsPtr_l` `Vec2W` through the
+  source's inclusive `TLBT_NumPoints` final index, the eight-byte control-point
+  records used by source AI navigation, and the `EdgeT` collision records
+  reached by each zone's primary edge-index list exactly through the first
+  negative source marker; source extended-edge markers remain distinct for the
+  later collision port.
   It also exposes the ten leading fixed 160-byte message payloads exactly as
   `newaliencontrol.s` and `modules/ai.s` pass them to `Msg_PushLine`; no text
   formatting or display behavior has been inferred.

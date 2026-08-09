@@ -7,7 +7,6 @@
 enum {
     LEVEL_RUNTIME_ZONE_SIZE = 50,
     LEVEL_RUNTIME_POINT_SIZE = 4,
-    LEVEL_RUNTIME_POINT_BRIGHTNESS_TRAILER = 4,
     LEVEL_RUNTIME_ZONE_BORDER_BYTES = 80,
     /* defs.i:EdgeT_SizeOf_l. */
     LEVEL_RUNTIME_EDGE_SIZE = 16,
@@ -151,6 +150,7 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     uint64_t zone_border_points_offset;
     uint64_t zone_offsets_table_bytes;
     uint64_t control_point_bytes;
+    uint64_t world_point_count;
     uint64_t object_point_count;
     uint64_t object_point_bytes;
     int64_t edge_data_span;
@@ -180,10 +180,14 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
         return 0;
     }
 
-    /* hires.s:Game_Begin computes these pointer bases directly from TLBT. */
+    /*
+     * transform.s uses DBRA with Lvl_NumPoints_w, so TLBT stores the final
+     * valid Vec2W index. Game_Begin's `lea 4(a2,d0.w*4)` reaches the first
+     * point-brightness word immediately after that inclusive point array.
+     */
+    world_point_count = (uint64_t)level->point_count + 1u;
     point_brightness_offset = (uint64_t)level->points_offset +
-        (uint64_t)level->point_count * LEVEL_RUNTIME_POINT_SIZE +
-        LEVEL_RUNTIME_POINT_BRIGHTNESS_TRAILER;
+        world_point_count * LEVEL_RUNTIME_POINT_SIZE;
     zone_border_points_offset = point_brightness_offset +
         (uint64_t)level->zone_count * LEVEL_RUNTIME_ZONE_BORDER_BYTES;
     zone_offsets_table_bytes = (uint64_t)level->zone_count * sizeof(uint32_t);
@@ -195,9 +199,11 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
      */
     object_point_count = (uint64_t)level->object_count + 1u;
     object_point_bytes = object_point_count * LEVEL_RUNTIME_OBJECT_POINT_SIZE;
-    if (point_brightness_offset > UINT32_MAX || zone_border_points_offset > UINT32_MAX ||
+    if (world_point_count > UINT32_MAX || point_brightness_offset > UINT32_MAX ||
+        zone_border_points_offset > UINT32_MAX ||
+        world_point_count > SIZE_MAX / LEVEL_RUNTIME_POINT_SIZE ||
         !level_runtime_range_is_valid(level->points_offset,
-                                      (size_t)level->point_count * LEVEL_RUNTIME_POINT_SIZE,
+                                      (size_t)world_point_count * LEVEL_RUNTIME_POINT_SIZE,
                                       level_data->size) ||
         control_point_bytes > SIZE_MAX ||
         !level_runtime_range_is_valid(AB3D2_LEVEL_MESSAGE_BYTES + AB3D2_TLBT_SIZE,
@@ -298,6 +304,8 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     runtime.graphics_size = graphics_data->size;
     runtime.control_point_coordinates_offset = AB3D2_LEVEL_MESSAGE_BYTES + AB3D2_TLBT_SIZE;
     runtime.control_point_count = level->control_point_count;
+    runtime.world_point_count = (uint32_t)world_point_count;
+    runtime.world_points_offset = level->points_offset;
     runtime.point_brightness_offset = (uint32_t)point_brightness_offset;
     runtime.zone_border_points_offset = (uint32_t)zone_border_points_offset;
     /* hires.s:Game_Begin takes this base from TLGT_ZoneAddsOffset_l (byte 16). */
@@ -448,6 +456,35 @@ int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t contro
     control_point.height = level_runtime_read_be16s(source + 4u);
     control_point.unknown_word = level_runtime_read_be16s(source + 6u);
     *out_control_point = control_point;
+    return 1;
+}
+
+int level_runtime_get_world_point(const LevelRuntime *runtime, uint32_t point_index,
+                                  LevelWorldPoint *out_point,
+                                  char *error, size_t error_size)
+{
+    const uint8_t *source;
+    LevelWorldPoint point;
+    size_t point_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_point ||
+        point_index >= runtime->world_point_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested world point is outside the runtime view");
+        return 0;
+    }
+    point_offset = (size_t)runtime->world_points_offset +
+        (size_t)point_index * LEVEL_RUNTIME_POINT_SIZE;
+    if (point_offset > runtime->level_size ||
+        LEVEL_RUNTIME_POINT_SIZE > runtime->level_size - point_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested world point is outside the runtime view");
+        return 0;
+    }
+    source = runtime->level_bytes + point_offset;
+    point.x = level_runtime_read_be16s(source + 0u);
+    point.z = level_runtime_read_be16s(source + 2u);
+    *out_point = point;
     return 1;
 }
 
