@@ -42,17 +42,19 @@ first game's software renderer:
   views and fixed six-byte frame records, without creating or updating a
   projectile;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
-  big-endian level and inventory payload) while keeping host save storage
-  unported. The default starting ammunition class is read through the checked
-  four-word `ShootT` record used by `newplayershoot.s`, rather than an ad-hoc
-  GLFT byte offset;
+  big-endian level and inventory payload). The native Load Position and Save
+  Position menus use the original six-record, 420-byte `boot.dat` layout at a
+  mutable path beside the executable (or `--save-path`), preserving every
+  unedited raw record. The default starting ammunition class is read through
+  the checked four-word `ShootT` record used by `newplayershoot.s`, rather
+  than an ad-hoc GLFT byte offset;
 - drives the source single-player main menu, including the two-page level
   selector and level start handoff. Master/slave multiplayer is explicitly
   unavailable; custom options and the two-page raw-key control rebinding menu
   change source-backed in-memory preference bytes. Native SDL events also feed
   the source-shaped raw-key map; the source operate, crouch, and fire branches
   consume it, while movement/collision remains pending. Preference persistence
-  and load/save remain pending;
+  remains pending;
 - opens a diagnostic SDL window whose title presents the current menu/level
   status and command count. It does not rasterize the game scene.
 
@@ -75,6 +77,14 @@ navigate, Enter or Space to activate a menu item, and the source menu's EXIT
 entry (or the window close control) to quit. Escape preserves the main menu's
 source no-op/cancel behavior. The native runtime fails explicitly if an
 authoritative asset is unavailable.
+
+Position saves are the original unversioned 420-byte `boot.dat` payload—not a
+new native format. The default path is beside the executable; use
+`--save-path <boot.dat>` to select another compatible file. A file must already
+exist and be exactly 420 bytes: the port deliberately does not fabricate a
+first-run template or modify the staged `data/` tree. The historical archive's
+`boot.dat` is used only as a test fixture because its NEW GAME record is not
+valid for the maintained A-P campaign.
 
 ## Port authority and source map
 

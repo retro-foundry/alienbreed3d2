@@ -45,7 +45,43 @@ static uint16_t game_menu_item_count(const GameMenu *menu)
     if (menu->screen == GAME_MENU_SCREEN_CONTROLS_PAGE_TWO) {
         return GAME_MENU_CONTROLS_PAGE_TWO_ITEM_COUNT;
     }
+    if (menu->screen == GAME_MENU_SCREEN_LOAD_POSITION) {
+        /* mnu_MYLOADMENU: NEW GAME, five stored positions, CANCEL. */
+        return GAME_SAVE_SLOT_COUNT + 1u;
+    }
+    if (menu->screen == GAME_MENU_SCREEN_SAVE_POSITION) {
+        /* mnu_MYSAVEMENU: five stored positions, CANCEL. */
+        return GAME_SAVE_USER_SLOT_COUNT + 1u;
+    }
     return 0;
+}
+
+static void game_menu_update_saved_slot_status(GameMenu *menu, const GameBootstrap *game,
+                                               uint16_t source_slot_index,
+                                               const char *operation)
+{
+    char level_name[41];
+    uint16_t level_index;
+    char save_error[96];
+
+    if (!game_save_slot_level_index(&menu->saved_games, source_slot_index, &level_index,
+                                    save_error, sizeof(save_error))) {
+        game_menu_set_status(menu, save_error);
+        return;
+    }
+    if (game && level_index < GAME_LINK_LEVEL_COUNT &&
+        game_link_copy_level_name(&game->game_link_catalog, level_index, level_name,
+                                  sizeof(level_name), NULL, 0)) {
+        (void)snprintf(menu->status, sizeof(menu->status),
+                       "%s position %u/%u: %.20s", operation,
+                       (unsigned int)source_slot_index,
+                       GAME_SAVE_USER_SLOT_COUNT, level_name);
+        return;
+    }
+    (void)snprintf(menu->status, sizeof(menu->status),
+                   "%s position %u/%u: source level %u is outside A-P",
+                   operation, (unsigned int)source_slot_index,
+                   GAME_SAVE_USER_SLOT_COUNT, level_index);
 }
 
 static void game_menu_update_status(GameMenu *menu, const GameBootstrap *game)
@@ -156,6 +192,23 @@ static void game_menu_update_status(GameMenu *menu, const GameBootstrap *game)
         (void)snprintf(menu->status, sizeof(menu->status),
                        "Press a key for %s", game_controls_binding_name(menu->capture_binding_index));
         break;
+    case GAME_MENU_SCREEN_LOAD_POSITION:
+        if (menu->selection == 0u) {
+            game_menu_set_status(menu, "Load position 0/5: NEW GAME");
+        } else if (menu->selection == GAME_SAVE_SLOT_COUNT) {
+            game_menu_set_status(menu, "Load position: CANCEL");
+        } else {
+            game_menu_update_saved_slot_status(menu, game, menu->selection, "Load");
+        }
+        break;
+    case GAME_MENU_SCREEN_SAVE_POSITION:
+        if (menu->selection == GAME_SAVE_USER_SLOT_COUNT) {
+            game_menu_set_status(menu, "Save position: CANCEL");
+        } else {
+            game_menu_update_saved_slot_status(menu, game,
+                                               (uint16_t)(menu->selection + 1u), "Save");
+        }
+        break;
     case GAME_MENU_SCREEN_NOTICE:
         break;
     case GAME_MENU_SCREEN_LEVEL_ACTIVE:
@@ -182,14 +235,37 @@ static void game_menu_move_selection(GameMenu *menu, int direction, const GameBo
     game_menu_update_status(menu, game);
 }
 
-void game_menu_init(GameMenu *menu, const GameBootstrap *game)
+int game_menu_init(GameMenu *menu, const GameBootstrap *game, const char *save_path,
+                   char *error, size_t error_size)
 {
-    if (!menu) {
-        return;
+    int written;
+
+    if (!menu || !save_path || !save_path[0]) {
+        game_menu_set_error(error, error_size, "menu initialization received null state or save path");
+        return 0;
     }
     memset(menu, 0, sizeof(*menu));
+    written = snprintf(menu->save_path, sizeof(menu->save_path), "%s", save_path);
+    if (written < 0 || (size_t)written >= sizeof(menu->save_path)) {
+        game_menu_set_error(error, error_size, "source boot.dat path is too long");
+        return 0;
+    }
     menu->screen = GAME_MENU_SCREEN_MAIN;
     game_menu_update_status(menu, game);
+    return 1;
+}
+
+static int game_menu_open_saved_positions(GameMenu *menu, GameBootstrap *game,
+                                          GameMenuScreen screen,
+                                          char *error, size_t error_size)
+{
+    if (!game_save_load_file(&menu->saved_games, menu->save_path, error, error_size)) {
+        return 0;
+    }
+    menu->screen = screen;
+    menu->selection = 0;
+    game_menu_update_status(menu, game);
+    return 1;
 }
 
 static int game_menu_activate_level_definition(GameMenu *menu, GameBootstrap *game,
@@ -282,11 +358,13 @@ int game_menu_handle_input(GameMenu *menu, GameBootstrap *game, const char *data
                                  "Game credits are inactive in the maintained source menu");
             return 1;
         case 5:
+            /* controlloop.s:game_LoadPosition loads all six source records first. */
+            return game_menu_open_saved_positions(menu, game, GAME_MENU_SCREEN_LOAD_POSITION,
+                                                  error, error_size);
         case 6:
-            menu->screen = GAME_MENU_SCREEN_NOTICE;
-            game_menu_set_status(menu,
-                                 "Load/save position awaits source-compatible host boot.dat storage");
-            return 1;
+            /* controlloop.s:game_SavePosition loads, edits, then rewrites the same payload. */
+            return game_menu_open_saved_positions(menu, game, GAME_MENU_SCREEN_SAVE_POSITION,
+                                                  error, error_size);
         case 7:
             menu->screen = GAME_MENU_SCREEN_CUSTOM_OPTIONS;
             menu->selection = 0;
@@ -359,6 +437,41 @@ int game_menu_handle_input(GameMenu *menu, GameBootstrap *game, const char *data
         menu->capture_binding_index = (uint16_t)(menu->selection +
             GAME_MENU_CONTROLS_PAGE_ONE_BINDING_COUNT);
         menu->screen = GAME_MENU_SCREEN_CAPTURE_CONTROL;
+        game_menu_update_status(menu, game);
+        return 1;
+    }
+    if (menu->screen == GAME_MENU_SCREEN_LOAD_POSITION) {
+        if (menu->selection == GAME_SAVE_SLOT_COUNT) {
+            menu->screen = GAME_MENU_SCREEN_MAIN;
+            menu->selection = 0;
+            game_menu_update_status(menu, game);
+            return 1;
+        }
+        /* game_LoadPosition selects record zero for NEW GAME and one through five otherwise. */
+        if (!game_save_load_campaign_slot(&menu->saved_games, menu->selection,
+                                          &game->session, error, error_size)) {
+            return 0;
+        }
+        menu->screen = GAME_MENU_SCREEN_MAIN;
+        menu->selection = 0;
+        game_menu_update_status(menu, game);
+        return 1;
+    }
+    if (menu->screen == GAME_MENU_SCREEN_SAVE_POSITION) {
+        if (menu->selection == GAME_SAVE_USER_SLOT_COUNT) {
+            menu->screen = GAME_MENU_SCREEN_MAIN;
+            menu->selection = 0;
+            game_menu_update_status(menu, game);
+            return 1;
+        }
+        if (!game_save_store_campaign_slot(&menu->saved_games, menu->selection,
+                                           &game->session, error, error_size) ||
+            !game_save_write_file(&menu->saved_games, menu->save_path,
+                                  error, error_size)) {
+            return 0;
+        }
+        menu->screen = GAME_MENU_SCREEN_MAIN;
+        menu->selection = 0;
         game_menu_update_status(menu, game);
         return 1;
     }

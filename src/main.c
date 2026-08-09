@@ -21,6 +21,20 @@ static int make_default_data_root(char *out_root, size_t out_root_size)
     return written >= 0 && (size_t)written < out_root_size;
 }
 
+/* Keep mutable source-format saves beside the executable, not in staged media. */
+static int make_default_save_path(char *out_path, size_t out_path_size)
+{
+    char *base_path = SDL_GetBasePath();
+    int written;
+
+    if (!base_path) {
+        return 0;
+    }
+    written = snprintf(out_path, out_path_size, "%sboot.dat", base_path);
+    SDL_free(base_path);
+    return written >= 0 && (size_t)written < out_path_size;
+}
+
 static int menu_input_from_key(SDL_Keycode key, GameMenuInput *out_input)
 {
     if (!out_input) {
@@ -162,18 +176,30 @@ static int raw_key_from_scancode(SDL_Scancode scancode, uint8_t *out_raw_key)
 int main(int argc, char **argv)
 {
     char data_root[1024];
+    char save_path[1024];
     char error[256];
     const char *configured_data_root = NULL;
+    const char *configured_save_path = NULL;
     GameBootstrap game;
     GameMenu menu;
     SceneFrame frame;
     RendererStub *renderer = NULL;
 
-    if (argc == 3 && strcmp(argv[1], "--data-root") == 0) {
-        configured_data_root = argv[2];
-    } else if (argc != 1) {
-        fprintf(stderr, "usage: %s [--data-root <directory>]\n", argv[0]);
-        return 2;
+    for (int argument_index = 1; argument_index < argc; argument_index += 2) {
+        if (argument_index + 1 >= argc) {
+            fprintf(stderr, "usage: %s [--data-root <directory>] [--save-path <boot.dat>]\n",
+                    argv[0]);
+            return 2;
+        }
+        if (strcmp(argv[argument_index], "--data-root") == 0 && !configured_data_root) {
+            configured_data_root = argv[argument_index + 1];
+        } else if (strcmp(argv[argument_index], "--save-path") == 0 && !configured_save_path) {
+            configured_save_path = argv[argument_index + 1];
+        } else {
+            fprintf(stderr, "usage: %s [--data-root <directory>] [--save-path <boot.dat>]\n",
+                    argv[0]);
+            return 2;
+        }
     }
 
     SDL_SetMainReady();
@@ -188,6 +214,14 @@ int main(int argc, char **argv)
             return 1;
         }
         configured_data_root = data_root;
+    }
+    if (!configured_save_path) {
+        if (!make_default_save_path(save_path, sizeof(save_path))) {
+            fprintf(stderr, "[PLATFORM] SDL_GetBasePath failed: %s\n", SDL_GetError());
+            SDL_Quit();
+            return 1;
+        }
+        configured_save_path = save_path;
     }
 
     if (!game_bootstrap_init(&game, configured_data_root, error, sizeof(error))) {
@@ -209,7 +243,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    game_menu_init(&menu, &game);
+    if (!game_menu_init(&menu, &game, configured_save_path, error, sizeof(error))) {
+        fprintf(stderr, "[MENU] %s\n", error);
+        renderer_stub_destroy(renderer);
+        scene_frame_destroy(&frame);
+        game_bootstrap_destroy(&game);
+        SDL_Quit();
+        return 1;
+    }
     renderer_stub_set_status(renderer, game_menu_status(&menu));
 
     fprintf(stdout,

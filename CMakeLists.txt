@@ -33,6 +33,7 @@ set(AB3D2_CORE_SOURCES
   src/game_menu.c
   src/game_preferences.c
   src/game_resources.c
+  src/game_save.c
   src/game_session.c
   src/level_bootstrap.c
   src/level_draw_graph.c
@@ -94,5 +95,6 @@ if(BUILD_TESTING)
   add_test(
     NAME ab3d2_level_data_test
     COMMAND ab3d2_level_data_test "$<TARGET_FILE_DIR:ab3d2>/data"
+            "${CMAKE_CURRENT_SOURCE_DIR}/amiga/ab3d2_old_source/boot.dat"
   )
 endif()

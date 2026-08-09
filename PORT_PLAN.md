@@ -66,9 +66,9 @@ authority for all game behavior and data formats.
 - [x] `src/game_menu.*` drives the single-player `game_ReadMainMenu` command
   flow from SDL keys: source-style cyclic navigation, play/`game_DoneMenu`,
   two-page `DEFGAME` selection (including its register-restored A-P level
-  index), and exit. The master/slave branch is explicitly unavailable, as
-  required for this port, and the status presenter identifies actions that
-  have no implemented native subsystem.
+  index), exact load/save position menu routing, and exit. The master/slave
+  branch is explicitly unavailable, as required for this port, and the status
+  presenter identifies actions that have no implemented native subsystem.
 - [x] `src/game_preferences.*` preserves the eight custom-options bytes and
   the seven `not.b` toggles from `controlloop.s:customOptions`; the menu now
   changes this source-backed in-memory state. `src/game_controls.*` also
@@ -76,14 +76,23 @@ authority for all game behavior and data formats.
   and `CHANGECONTROLS`' two-page raw-key rebinding flow through SDL physical
   key capture. `src/game_input.*` now reproduces `hires.s:key_interrupt`'s
   `KeyMap_vb`/one-shot `lastpressed` state; player control consumption remains
-  pending. Persisting either preference family and host-side `boot.dat` slots
-  remain pending.
-- [ ] Source save/load slots remain intentionally unavailable: the staged
-  authoritative media has no `ab3:boot.dat`, while `game_LoadPosition` and
-  `game_SavePosition` require and rewrite its complete six-record payload.
-  Do not synthesize default slots. This step can proceed only with an original
-  `boot.dat` template or an explicit decision to introduce a separately
-  versioned native save format.
+  pending. Preference persistence remains pending; source-format position
+  save/load is available when the user supplies a compatible `boot.dat`.
+- [x] `src/game_save.*` now preserves the exact unversioned 420-byte
+  `game_LoadPosition`/`game_SavePosition` payload: six 70-byte big-endian
+  campaign records, with source record zero retained as the load menu's NEW
+  GAME entry and source records one through five as writable positions. The
+  menu reads the entire file before opening either position screen, modifies
+  only the selected user record on save, and rewrites the complete payload as
+  the source does. It stores that mutable `boot.dat` beside the executable by
+  default (or at `--save-path`), never in staged media. A missing, truncated,
+  or non-420-byte file fails explicitly; no slot is synthesized.
+- [x] `amiga/ab3d2_old_source/boot.dat` is a checked 420-byte historical
+  source-format regression fixture. Its record zero selects level 16, outside
+  the maintained source's A-P range, so it is deliberately not staged or used
+  as a native first-run seed. The test suite proves its raw layout, rejects
+  that unsafe NEW GAME load through the maintained session validator, and
+  proves save/load preserves it byte-for-byte outside the edited user record.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
   including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
   offset table, plus every `ZoneT` in all campaign levels into endian-safe
@@ -209,9 +218,12 @@ authority for all game behavior and data formats.
      and level-enter/return sequencing from `controlloop.s`.
    - Port only the single-player branches; make a request for master/slave mode
      fail explicitly.
-   - Translate the source preferences, progression, and saved-game formats
-     from `c/game_preferences.c`, `c/game_progress.c`, and `data/game_data.s`.
-     Keep native files separate from source assets and version their format.
+   - Translate the source preferences and progression formats from
+     `c/game_preferences.c` and `c/game_progress.c`. Keep any future native
+     preference/progress files separate from source assets and version their
+     format. Preserve `data/game_data.s` position saves as their exact
+     unversioned six-record `boot.dat` payload; do not substitute a native
+     format or generate a template.
 
 3. **Level runtime and source data**
    - Materialize the `TLBT`, `TLGT`, `ZoneT`, `EdgeT`, door, lift, switch,

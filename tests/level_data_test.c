@@ -5,6 +5,7 @@
 #include "game_bootstrap.h"
 #include "game_link.h"
 #include "game_menu.h"
+#include "game_save.h"
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
 #include "scene_frame.h"
@@ -240,16 +241,36 @@ int main(int argc, char **argv)
     GameInput control_input;
     PlayerRuntime controlled_player;
     GameMenu menu;
+    GameSaveSlots archived_save_slots;
+    GameSaveSlots saved_save_slots;
     int should_quit;
     uint8_t override_marker[64u * 32u];
     AssetBlob saved_floor_override;
     AssetBlob saved_wall_override;
     int override_sources_ok;
+    char save_path[1024];
     char error[256];
 
-    if (argc != 2) {
-        fprintf(stderr, "usage: %s <data-root>\n", argv[0]);
+    if (argc != 3) {
+        fprintf(stderr, "usage: %s <data-root> <archived-boot.dat>\n", argv[0]);
         return 2;
+    }
+    if (!asset_io_join(argv[1], "test_boot.dat", save_path, sizeof(save_path))) {
+        fprintf(stderr, "could not construct temporary source boot.dat path\n");
+        return 1;
+    }
+    if (!game_save_load_file(&archived_save_slots, argv[2], error, sizeof(error)) ||
+        !game_save_slot_level_index(&archived_save_slots, 0u, &level_index,
+                                    error, sizeof(error)) ||
+        level_index != GAME_LINK_LEVEL_COUNT ||
+        !game_save_slot_level_index(&archived_save_slots, 1u, &level_index,
+                                    error, sizeof(error)) ||
+        level_index != 0u ||
+        game_save_load_campaign_slot(&archived_save_slots, 0u, &decoded_session,
+                                     error, sizeof(error)) ||
+        !game_save_write_file(&archived_save_slots, save_path, error, sizeof(error))) {
+        fprintf(stderr, "archived source boot.dat fixture is inconsistent: %s\n", error);
+        return 1;
     }
     if (!asset_io_load(argv[1], "levels/level_a/twolev.bin", &level_data,
                        error, sizeof(error))) {
@@ -582,7 +603,7 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
-    game_menu_init(&menu, &game);
+    (void)game_menu_init(&menu, &game, save_path, error, sizeof(error));
     if (menu.screen != GAME_MENU_SCREEN_MAIN || menu.selection != 0u ||
         !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_UP, &should_quit,
                                 error, sizeof(error)) ||
@@ -598,7 +619,7 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
-    game_menu_init(&menu, &game);
+    (void)game_menu_init(&menu, &game, save_path, error, sizeof(error));
     if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN, &should_quit,
                                 error, sizeof(error)) ||
         menu.selection != 1u ||
@@ -654,7 +675,7 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
-    game_menu_init(&menu, &game);
+    (void)game_menu_init(&menu, &game, save_path, error, sizeof(error));
     for (uint16_t menu_step = 0; menu_step < 3u; ++menu_step) {
         if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
                                     &should_quit, error, sizeof(error))) {
@@ -718,7 +739,7 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
-    game_menu_init(&menu, &game);
+    (void)game_menu_init(&menu, &game, save_path, error, sizeof(error));
     if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_UP, &should_quit,
                                 error, sizeof(error)) ||
         menu.selection != 8u ||
@@ -729,7 +750,7 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
-    game_menu_init(&menu, &game);
+    (void)game_menu_init(&menu, &game, save_path, error, sizeof(error));
     for (uint16_t menu_step = 0; menu_step < 7u; ++menu_step) {
         if (!game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
                                     &should_quit, error, sizeof(error))) {
@@ -822,6 +843,94 @@ int main(int argc, char **argv)
         game_bootstrap_load_level_definition(&game, argv[1], GAME_LINK_LEVEL_COUNT,
                                              error, sizeof(error))) {
         fprintf(stderr, "DEFGAME campaign-record behavior is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    if (!game_save_load_file(&saved_save_slots, save_path, error, sizeof(error)) ||
+        memcmp(saved_save_slots.bytes, archived_save_slots.bytes,
+               sizeof(saved_save_slots.bytes)) != 0 ||
+        !game_save_store_campaign_slot(&saved_save_slots, 0u, &encoded_session,
+                                       error, sizeof(error)) ||
+        !game_save_write_file(&saved_save_slots, save_path, error, sizeof(error)) ||
+        !game_save_load_file(&saved_save_slots, save_path, error, sizeof(error)) ||
+        memcmp(saved_save_slots.bytes, archived_save_slots.bytes,
+               GAME_SESSION_RECORD_SIZE) != 0 ||
+        memcmp(saved_save_slots.bytes + 2u * GAME_SESSION_RECORD_SIZE,
+               archived_save_slots.bytes + 2u * GAME_SESSION_RECORD_SIZE,
+               GAME_SAVE_FILE_SIZE - 2u * GAME_SESSION_RECORD_SIZE) != 0 ||
+        !game_save_load_campaign_slot(&saved_save_slots, 1u, &decoded_session,
+                                      error, sizeof(error)) ||
+        decoded_session.menu_level_index != encoded_session.menu_level_index ||
+        memcmp(&decoded_session.campaign_inventory, &encoded_session.campaign_inventory,
+               sizeof(encoded_session.campaign_inventory)) != 0 ||
+        game_save_store_campaign_slot(&saved_save_slots, GAME_SAVE_USER_SLOT_COUNT,
+                                      &encoded_session, error, sizeof(error)) ||
+        game_save_slot_level_index(&saved_save_slots, GAME_SAVE_SLOT_COUNT, &level_index,
+                                   error, sizeof(error))) {
+        fprintf(stderr, "source boot.dat slot preservation is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    game.session = encoded_session;
+    if (!game_menu_init(&menu, &game, save_path, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        menu.selection != 6u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE,
+                                &should_quit, error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_SAVE_POSITION || menu.selection != 0u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE,
+                                &should_quit, error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_MAIN ||
+        !game_save_load_file(&saved_save_slots, save_path, error, sizeof(error)) ||
+        !game_save_load_campaign_slot(&saved_save_slots, 1u, &decoded_session,
+                                      error, sizeof(error)) ||
+        decoded_session.menu_level_index != encoded_session.menu_level_index ||
+        memcmp(&decoded_session.campaign_inventory, &encoded_session.campaign_inventory,
+               sizeof(encoded_session.campaign_inventory)) != 0) {
+        fprintf(stderr, "source save-position menu flow is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    if (!game_menu_init(&menu, &game, save_path, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        menu.selection != 5u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE,
+                                &should_quit, error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_LOAD_POSITION || menu.selection != 0u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_DOWN,
+                                &should_quit, error, sizeof(error)) ||
+        menu.selection != 1u ||
+        !game_menu_handle_input(&menu, &game, argv[1], GAME_MENU_INPUT_ACTIVATE,
+                                &should_quit, error, sizeof(error)) ||
+        menu.screen != GAME_MENU_SCREEN_MAIN || game.session.menu_level_index != 15u ||
+        memcmp(&game.session.campaign_inventory, &encoded_session.campaign_inventory,
+               sizeof(encoded_session.campaign_inventory)) != 0) {
+        fprintf(stderr, "source load-position menu flow is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    if (!game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error))) {
+        fprintf(stderr, "could not restore DEFAULTGAME after save-menu test: %s\n", error);
         game_bootstrap_destroy(&game);
         return 1;
     }
@@ -1483,5 +1592,6 @@ int main(int argc, char **argv)
         return 1;
     }
     game_bootstrap_destroy(&game);
+    (void)remove(save_path);
     return 0;
 }

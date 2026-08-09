@@ -5,6 +5,9 @@
 #include <stdint.h>
 
 #include "game_bootstrap.h"
+#include "game_save.h"
+
+#define GAME_MENU_SAVE_PATH_MAX 1024u
 
 typedef enum {
     GAME_MENU_SCREEN_MAIN,
@@ -14,6 +17,8 @@ typedef enum {
     GAME_MENU_SCREEN_CONTROLS_PAGE_ONE,
     GAME_MENU_SCREEN_CONTROLS_PAGE_TWO,
     GAME_MENU_SCREEN_CAPTURE_CONTROL,
+    GAME_MENU_SCREEN_LOAD_POSITION,
+    GAME_MENU_SCREEN_SAVE_POSITION,
     GAME_MENU_SCREEN_NOTICE,
     GAME_MENU_SCREEN_LEVEL_ACTIVE
 } GameMenuScreen;
@@ -30,10 +35,14 @@ typedef struct {
     GameMenuScreen screen;
     uint16_t selection;
     uint16_t capture_binding_index;
+    GameSaveSlots saved_games;
+    char save_path[GAME_MENU_SAVE_PATH_MAX];
     char status[160];
 } GameMenu;
 
-void game_menu_init(GameMenu *menu, const GameBootstrap *game);
+/* save_path is an external, source-format boot.dat; staged media stays immutable. */
+int game_menu_init(GameMenu *menu, const GameBootstrap *game, const char *save_path,
+                   char *error, size_t error_size);
 
 /*
  * Executes one menu key action. The caller owns presentation and uses
