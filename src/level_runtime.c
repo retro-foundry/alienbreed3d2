@@ -8,7 +8,12 @@ enum {
     LEVEL_RUNTIME_ZONE_SIZE = 50,
     LEVEL_RUNTIME_POINT_SIZE = 4,
     LEVEL_RUNTIME_POINT_BRIGHTNESS_TRAILER = 4,
-    LEVEL_RUNTIME_ZONE_BORDER_BYTES = 80
+    LEVEL_RUNTIME_ZONE_BORDER_BYTES = 80,
+    /* defs.i:ObjT_SizeOf_l and the two 32-bit object-point coordinates. */
+    LEVEL_RUNTIME_OBJECT_SLOT_SIZE = 64,
+    LEVEL_RUNTIME_OBJECT_POINT_SIZE = 8,
+    /* defs.i:NUM_PLR_SHOT_DATA and NUM_ALIEN_SHOT_DATA. */
+    LEVEL_RUNTIME_PROJECTILE_SLOT_COUNT = 20
 };
 
 static uint16_t level_runtime_read_be16(const uint8_t *source)
@@ -54,6 +59,10 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     uint64_t point_brightness_offset;
     uint64_t zone_border_points_offset;
     uint64_t zone_offsets_table_bytes;
+    uint64_t object_point_count;
+    uint64_t object_point_bytes;
+    uint32_t object_record_count;
+    size_t object_list_end;
     uint16_t zone_index;
 
     if (!level_data || !level_data->bytes || !graphics_data || !graphics_data->bytes ||
@@ -77,6 +86,12 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     zone_border_points_offset = point_brightness_offset +
         (uint64_t)level->zone_count * LEVEL_RUNTIME_ZONE_BORDER_BYTES;
     zone_offsets_table_bytes = (uint64_t)level->zone_count * sizeof(uint32_t);
+    /*
+     * hires.s:413 copies TLBT_NumObjects into Lvl_NumObjectPoints_w. Every
+     * transform loop uses DBRA, so the stored value is the final valid index.
+     */
+    object_point_count = (uint64_t)level->object_count + 1u;
+    object_point_bytes = object_point_count * LEVEL_RUNTIME_OBJECT_POINT_SIZE;
     if (point_brightness_offset > UINT32_MAX || zone_border_points_offset > UINT32_MAX ||
         !level_runtime_range_is_valid(level->points_offset,
                                       (size_t)level->point_count * LEVEL_RUNTIME_POINT_SIZE,
@@ -93,8 +108,69 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
                                       graphics_data->size) ||
         !level_runtime_range_is_valid(graphics_header->zone_graph_adds_offset,
                                       (size_t)level->zone_count * 2u * sizeof(uint32_t),
-                                      graphics_data->size)) {
+                                      graphics_data->size) ||
+        object_point_bytes > SIZE_MAX ||
+        !level_runtime_range_is_valid(level->object_data_offset, sizeof(uint16_t),
+                                      level_data->size) ||
+        !level_runtime_range_is_valid(level->object_points_offset,
+                                      (size_t)object_point_bytes, level_data->size) ||
+        !level_runtime_range_is_valid(level->player_shot_offset,
+                                      LEVEL_RUNTIME_PROJECTILE_SLOT_COUNT *
+                                          LEVEL_RUNTIME_OBJECT_SLOT_SIZE,
+                                      level_data->size) ||
+        !level_runtime_range_is_valid(level->alien_shot_offset,
+                                      LEVEL_RUNTIME_PROJECTILE_SLOT_COUNT *
+                                          LEVEL_RUNTIME_OBJECT_SLOT_SIZE,
+                                      level_data->size) ||
+        !level_runtime_range_is_valid(level->player1_object_offset,
+                                      LEVEL_RUNTIME_OBJECT_SLOT_SIZE, level_data->size) ||
+        !level_runtime_range_is_valid(level->player2_object_offset,
+                                      LEVEL_RUNTIME_OBJECT_SLOT_SIZE, level_data->size)) {
         level_runtime_set_error(error, error_size, "Game_Begin level table range is outside its source file");
+        return 0;
+    }
+    /*
+     * The source uses TLBT_NumObjects only for the object-point transform
+     * loop. newanims.s:ObjectHandler independently walks ObjT records until
+     * word zero is negative, so use the file boundary only as a native guard.
+     */
+    object_record_count = 0;
+    object_list_end = (size_t)level->object_data_offset;
+    while (object_list_end <= level_data->size &&
+           sizeof(uint16_t) <= level_data->size - object_list_end &&
+           level_runtime_read_be16s(level_data->bytes + object_list_end) >= 0) {
+        if (LEVEL_RUNTIME_OBJECT_SLOT_SIZE > level_data->size - object_list_end) {
+            level_runtime_set_error(error, error_size,
+                                    "ObjT record is truncated before its source -1 terminator");
+            return 0;
+        }
+        ++object_record_count;
+        object_list_end += LEVEL_RUNTIME_OBJECT_SLOT_SIZE;
+    }
+    if (object_list_end > level_data->size ||
+        sizeof(uint16_t) > level_data->size - object_list_end) {
+        level_runtime_set_error(error, error_size,
+                                "ObjT static list has no source -1 terminator");
+        return 0;
+    }
+    if (level->player_shot_offset < level->object_data_offset ||
+        level->alien_shot_offset < level->object_data_offset ||
+        level->player1_object_offset < level->object_data_offset ||
+        level->player2_object_offset < level->object_data_offset ||
+        (uint64_t)level->player_shot_offset +
+                LEVEL_RUNTIME_PROJECTILE_SLOT_COUNT * LEVEL_RUNTIME_OBJECT_SLOT_SIZE >
+            object_list_end ||
+        (uint64_t)level->alien_shot_offset +
+                LEVEL_RUNTIME_PROJECTILE_SLOT_COUNT * LEVEL_RUNTIME_OBJECT_SLOT_SIZE >
+            object_list_end ||
+        (uint64_t)level->player1_object_offset + LEVEL_RUNTIME_OBJECT_SLOT_SIZE > object_list_end ||
+        (uint64_t)level->player2_object_offset + LEVEL_RUNTIME_OBJECT_SLOT_SIZE > object_list_end ||
+        (level->player_shot_offset - level->object_data_offset) % LEVEL_RUNTIME_OBJECT_SLOT_SIZE != 0u ||
+        (level->alien_shot_offset - level->object_data_offset) % LEVEL_RUNTIME_OBJECT_SLOT_SIZE != 0u ||
+        (level->player1_object_offset - level->object_data_offset) % LEVEL_RUNTIME_OBJECT_SLOT_SIZE != 0u ||
+        (level->player2_object_offset - level->object_data_offset) % LEVEL_RUNTIME_OBJECT_SLOT_SIZE != 0u) {
+        level_runtime_set_error(error, error_size,
+                                "Game_Begin object pointers are outside the ObjT record list");
         return 0;
     }
 
@@ -120,6 +196,14 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     /* hires.s:Game_Begin takes this base from TLGT_ZoneAddsOffset_l (byte 16). */
     runtime.zone_graph_adds_offset = graphics_header->zone_graph_adds_offset;
     runtime.zone_offsets_table_offset = graphics_header->zone_adds_table_offset;
+    runtime.object_data_offset = level->object_data_offset;
+    runtime.player_shot_offset = level->player_shot_offset;
+    runtime.alien_shot_offset = level->alien_shot_offset;
+    runtime.object_points_offset = level->object_points_offset;
+    runtime.player1_object_offset = level->player1_object_offset;
+    runtime.player2_object_offset = level->player2_object_offset;
+    runtime.object_point_count = (uint32_t)object_point_count;
+    runtime.object_record_count = object_record_count;
     runtime.edge_data_span = (int32_t)level->object_data_offset -
                              (int32_t)level->floor_line_offset;
     runtime.exit_zone_id = level_runtime_read_be16s(level_data->bytes + level->floor_line_offset - 2u);
@@ -168,5 +252,65 @@ int level_runtime_get_zone(const LevelRuntime *runtime, uint16_t zone_index,
     zone.floor_noise = level_runtime_read_be16(source + 44u);
     zone.upper_floor_noise = level_runtime_read_be16(source + 46u);
     *out_zone = zone;
+    return 1;
+}
+
+int level_runtime_get_object_record(const LevelRuntime *runtime, uint32_t record_index,
+                                    LevelObjectSlot *out_object,
+                                    char *error, size_t error_size)
+{
+    const uint8_t *source;
+    LevelObjectSlot object;
+    size_t slot_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_object ||
+        record_index >= runtime->object_record_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested ObjT slot is outside the runtime view");
+        return 0;
+    }
+    slot_offset = (size_t)runtime->object_data_offset +
+        (size_t)record_index * LEVEL_RUNTIME_OBJECT_SLOT_SIZE;
+    if (slot_offset > runtime->level_size ||
+        LEVEL_RUNTIME_OBJECT_SLOT_SIZE > runtime->level_size - slot_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested ObjT slot is outside the runtime view");
+        return 0;
+    }
+    source = runtime->level_bytes + slot_offset;
+    object.point_index = level_runtime_read_be16(source + 0u);
+    object.zone_id = level_runtime_read_be16s(source + 12u);
+    object.type_id = source[16u];
+    object.sees_player = source[17u];
+    *out_object = object;
+    return 1;
+}
+
+int level_runtime_get_object_point(const LevelRuntime *runtime, uint32_t point_index,
+                                   LevelObjectPoint *out_point,
+                                   char *error, size_t error_size)
+{
+    const uint8_t *source;
+    LevelObjectPoint point;
+    size_t point_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_point ||
+        point_index >= runtime->object_point_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested object point is outside the runtime view");
+        return 0;
+    }
+    point_offset = (size_t)runtime->object_points_offset +
+        (size_t)point_index * LEVEL_RUNTIME_OBJECT_POINT_SIZE;
+    if (point_offset > runtime->level_size ||
+        LEVEL_RUNTIME_OBJECT_POINT_SIZE > runtime->level_size - point_offset) {
+        level_runtime_set_error(error, error_size,
+                                "requested object point is outside the runtime view");
+        return 0;
+    }
+    source = runtime->level_bytes + point_offset;
+    point.x = level_runtime_read_be32s(source + 0u);
+    point.z = level_runtime_read_be32s(source + 4u);
+    *out_point = point;
     return 1;
 }

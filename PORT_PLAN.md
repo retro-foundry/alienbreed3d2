@@ -58,6 +58,13 @@ authority for all game behavior and data formats.
   offset table, plus every `ZoneT` in all campaign levels into endian-safe
   native views. It keeps the unproven edge span raw and does not consume PVS
   lists or portals.
+- [x] `src/level_runtime.*` also exposes the bounded 64-byte `ObjT` slot and
+  object-point tables that `Game_Begin` establishes. `TLBT_NumObjects` is
+  retained as the source's inclusive final object-point index. The separate
+  `ObjT` record list is explicitly validated through
+  `newanims.s:ObjectHandler`'s `-1` terminator. Projectile/player slots remain
+  data views only; no object, animation, or AI behaviour has been inferred or
+  ported.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates, floor-relative standing height, zone, and enemy flags. A
   loaded level now produces a camera and HUD command; geometry/material/sprite

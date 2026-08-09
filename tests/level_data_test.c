@@ -25,6 +25,8 @@ int main(int argc, char **argv)
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
     LevelZone zone;
+    LevelObjectSlot object_slot;
+    LevelObjectPoint object_point;
     GameSession encoded_session;
     GameSession decoded_session;
     char error[256];
@@ -229,6 +231,16 @@ int main(int argc, char **argv)
                 game.level_graphics_header.zone_adds_table_offset ||
             game.level_runtime.zone_graph_adds_offset !=
                 game.level_graphics_header.zone_graph_adds_offset ||
+            game.level_runtime.object_point_count != (uint32_t)game.level.object_count + 1u ||
+            game.level_runtime.object_record_count == 0u ||
+            !level_runtime_get_object_record(&game.level_runtime, 0u, &object_slot,
+                                             error, sizeof(error)) ||
+            !level_runtime_get_object_record(&game.level_runtime,
+                                             game.level_runtime.object_record_count - 1u,
+                                             &object_slot, error, sizeof(error)) ||
+            level_runtime_get_object_record(&game.level_runtime,
+                                            game.level_runtime.object_record_count,
+                                            &object_slot, error, sizeof(error)) ||
             level_runtime_get_zone(&game.level_runtime, game.level_runtime.zone_count,
                                    &zone, error, sizeof(error))) {
             fprintf(stderr, "campaign level %u could not be loaded: %s\n", level_index, error);
@@ -240,6 +252,19 @@ int main(int argc, char **argv)
                                         error, sizeof(error))) {
                 fprintf(stderr, "campaign level %u zone %u is invalid: %s\n",
                         level_index, zone_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        for (uint32_t object_index = 0;
+             object_index < game.level_runtime.object_record_count; ++object_index) {
+            if (!level_runtime_get_object_record(&game.level_runtime, object_index,
+                                                 &object_slot, error, sizeof(error)) ||
+                object_slot.point_index >= game.level_runtime.object_point_count ||
+                !level_runtime_get_object_point(&game.level_runtime, object_slot.point_index,
+                                                &object_point, error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u object %u is invalid: %s\n",
+                        level_index, object_index, error);
                 game_bootstrap_destroy(&game);
                 return 1;
             }
