@@ -23,7 +23,7 @@ authority for all game behavior and data formats.
 
 ## Current completed foundation
 
-### Latest milestone: source-backed campaign bootstrap
+### Latest milestone: PVS-free whole-level scene production
 
 - [x] `src/game_link.*` provides a bounds-checked view of every `GLFT` table
   from `defs.i`, preserving big-endian definition data for the subsystem that
@@ -261,9 +261,28 @@ authority for all game behavior and data formats.
 - Keep unported behavior absent and marked `TODO(port): <source>:<routine>`;
   never replace it with fabricated gameplay or a software renderer.
 
-## Near-term acceptance criteria
+## Next evidence-backed milestone
 
-The next milestone is complete when the native executable can enter and return
-from the original single-player menu, select any campaign level, load all its
-source-defined resources, initialize an equivalent level/player state, and
-produce a source-backed `SceneFrame` without pixels or multiplayer code.
+The campaign bootstrap/whole-level scene milestone is complete: the native
+executable enters the original single-player menu, selects every campaign
+level, loads source-defined resources, initializes its source-backed
+level/player state, and produces PVS-free camera/material/geometry/HUD commands
+without pixels or multiplayer code.
+
+The next milestone is source-backed dynamic single-player state. Before writing
+native movement, collision, falling, interaction, projectiles, AI, animation,
+or sprite-frame selection, capture a focused original-runtime oracle fixture
+for each routine boundary. At a minimum, record an input sequence, entry/exit
+RAM window, relevant registers/flags, and expected state for:
+
+- `modules/player.s:plr_KeyboardControl` plus `plr1control.s:Plr1_Fall`;
+- `hires.s:Plr1_Control` plus the `objectmove.s:Obj_DoCollision`/`MoveObject`
+  sequence; and
+- `newanims.s:ObjectHandler` through the object frame consumed by
+  `objdrawhires.s:Draw_Objects`.
+
+The milestone is complete only when those fixtures replay against native tests,
+the equivalent single-player routines update source-named state in the same
+order, and resulting object/sprite/HUD commands use source asset IDs and frame
+records. No PVS, portal traversal, software framebuffer, or multiplayer state
+is required for that work.
