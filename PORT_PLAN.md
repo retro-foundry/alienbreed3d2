@@ -536,6 +536,14 @@ or basic flight/collision.
 Translate each remaining bounded slice directly from the maintained source and
 add source-derived regressions for its state changes and ordering.
 
+`objectmove.s:Obj_DoCollision` remains explicitly deferred: the maintained
+routine reads its vertical collision extents through an `a2 + type*8` table,
+but neither the routine nor every maintained call site establishes that
+register/table base, and no corresponding named table exists in this source
+tree. The first game's implementation is not authority for the sequel's
+values. Keep native object-to-object collision absent until the sequel's table
+or register contract is established from maintained-source evidence.
+
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their
 bounded behavior, and resulting object/sprite/HUD commands use source asset
