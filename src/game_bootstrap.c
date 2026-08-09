@@ -24,6 +24,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     memset(&game->level_mechanisms, 0, sizeof(game->level_mechanisms));
     memset(&game->level_navigation, 0, sizeof(game->level_navigation));
     memset(&game->level_runtime, 0, sizeof(game->level_runtime));
+    level_static_scene_destroy(&game->static_scene);
     memset(&game->player, 0, sizeof(game->player));
 }
 
@@ -284,7 +285,10 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                             &game->level_graphics_header, &game->level_runtime,
                             error, error_size) ||
         !player_runtime_init_single_player(&game->level, &game->level_runtime, &game->player,
-                                           error, error_size)) {
+                                           error, error_size) ||
+        !level_static_scene_build(&game->level_runtime,
+                                  game->shared_resources.wall_texture_count,
+                                  &game->static_scene, error, error_size)) {
         game_bootstrap_release_level(game);
         return 0;
     }
@@ -315,8 +319,16 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
     static const char menu_status[] = "AB3D2 PC: single-player menu state ready; GPU renderer pending";
     static const char level_status[] = "AB3D2 PC: source level loaded; GPU renderer pending";
     SceneCommand command;
+    size_t required_commands;
 
     if (!game || !frame || game->game_link.size == 0 || game->story_text.size == 0) {
+        return 0;
+    }
+    if (game->static_scene.wall_count > (SIZE_MAX - 2u) / 2u) {
+        return 0;
+    }
+    required_commands = 2u + (size_t)game->static_scene.wall_count * 2u;
+    if (!scene_frame_reserve(frame, required_commands)) {
         return 0;
     }
     if (game->level_data.size != 0) {
@@ -328,6 +340,25 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
         command.data.camera.look_offset = 0;
         if (!scene_frame_submit(frame, &command)) {
             return 0;
+        }
+        for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count;
+             ++wall_index) {
+            const LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
+
+            command.type = SCENE_COMMAND_MATERIAL;
+            command.data.material.source_asset_id = wall->material_id;
+            if (!scene_frame_submit(frame, &command)) {
+                return 0;
+            }
+            command.type = SCENE_COMMAND_GEOMETRY;
+            command.data.geometry.vertices = wall->vertices;
+            command.data.geometry.vertex_count = 6u;
+            command.data.geometry.material_id = wall->material_id;
+            command.data.geometry.source_record_id = wall->source_record_offset;
+            command.data.geometry.flags = SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED;
+            if (!scene_frame_submit(frame, &command)) {
+                return 0;
+            }
         }
     }
     command.type = SCENE_COMMAND_HUD_TEXT;

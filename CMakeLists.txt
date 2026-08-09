@@ -39,6 +39,7 @@ set(AB3D2_CORE_SOURCES
   src/level_mechanisms.c
   src/level_navigation.c
   src/level_runtime.c
+  src/level_static_scene.c
   src/player_runtime.c
   src/scene_frame.c
   # Reused =SB= decoder from the first PC port. It matches

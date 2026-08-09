@@ -109,8 +109,10 @@ authority for all game behavior and data formats.
   variable flat/water records, object selectors, and header-only ignored tags
   through the signed-byte terminator. It exposes the complete `Draw_Wall`
   record and validates every cursor boundary and wall point reference in all
-  campaign levels. It does not yet emit scene geometry or reinterpret legacy
-  clipping as GPU visibility.
+  campaign levels. `src/level_static_scene.*` expands every source wall into
+  triangle-list world geometry and emits its source texture ID as a material
+  command; it intentionally flags UVs as unresolved rather than fabricating a
+  software-renderer approximation. Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its
   floor-relative standing and target heights, zone, and enemy flags. A loaded
@@ -128,9 +130,10 @@ authority for all game behavior and data formats.
   `draw_zone_graph.s` does. `hireswall.s` establishes wall endpoints, vertical
   bounds, and material ID, but its screen-space perspective texture-coordinate
   calculation must not be replaced by invented UVs. Decode that mapping or
-  capture an original-runtime fixture before submitting textured wall commands;
-  likewise establish the flat-tail and object/sprite semantics before emitting
-  their scene commands. Do not use a software-renderer fallback.
+  capture an original-runtime fixture before clearing the unresolved-UV flag
+  on wall commands; likewise establish the flat-tail and object/sprite
+  semantics before emitting their scene commands. Do not use a software-renderer
+  fallback.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an

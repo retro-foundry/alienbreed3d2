@@ -27,14 +27,23 @@ typedef struct {
 
 typedef struct {
     SceneWorldPoint position;
+    /* Ignore these fields when SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED is set. */
     int32_t texture_u;
     int32_t texture_v;
 } SceneVertex;
 
+enum {
+    /* Position/material provenance is known, but source UV mapping is pending. */
+    SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED = 1u << 0
+};
+
+/* Triangle-list vertices owned by the scene producer until the frame ends. */
 typedef struct {
     const SceneVertex *vertices;
     uint32_t vertex_count;
     uint32_t material_id;
+    uint32_t source_record_id;
+    uint32_t flags;
 } SceneGeometry;
 
 typedef struct {
@@ -79,6 +88,7 @@ typedef struct {
 int scene_frame_init(SceneFrame *frame, size_t command_capacity);
 void scene_frame_destroy(SceneFrame *frame);
 void scene_frame_begin(SceneFrame *frame);
+int scene_frame_reserve(SceneFrame *frame, size_t command_capacity);
 int scene_frame_submit(SceneFrame *frame, const SceneCommand *command);
 
 #endif

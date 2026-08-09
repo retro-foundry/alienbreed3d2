@@ -528,6 +528,7 @@ int main(int argc, char **argv)
             game.level_runtime.object_point_count != (uint32_t)game.level.object_count + 1u ||
             game.level_runtime.world_point_count != (uint32_t)game.level.point_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
+            game.static_scene.wall_count == 0u ||
             game.level_runtime.control_point_count != game.level.control_point_count ||
             !level_runtime_get_narrative_message(&game.level_runtime, 0u, &narrative_message,
                                                  error, sizeof(error)) ||
@@ -839,10 +840,21 @@ int main(int argc, char **argv)
         game.player.snap_z != game.player.z || game.player.snap_target_y != game.player.y ||
         game.player.height != 12 * 1024 ||
         game.player.default_enemy_flags != 0x23u || !scene_frame_init(&frame, 2) ||
-        !game_bootstrap_submit_diagnostic_frame(&game, &frame) || frame.count != 2 ||
+        !game_bootstrap_submit_diagnostic_frame(&game, &frame) ||
+        frame.count != 2u + (size_t)game.static_scene.wall_count * 2u ||
         frame.commands[0].type != SCENE_COMMAND_CAMERA ||
         frame.commands[0].data.camera.position.x != game.player.x ||
-        frame.commands[1].type != SCENE_COMMAND_HUD_TEXT) {
+        game.static_scene.wall_count == 0u ||
+        frame.commands[1].type != SCENE_COMMAND_MATERIAL ||
+        frame.commands[1].data.material.source_asset_id != game.static_scene.walls[0].material_id ||
+        frame.commands[2].type != SCENE_COMMAND_GEOMETRY ||
+        frame.commands[2].data.geometry.vertices != game.static_scene.walls[0].vertices ||
+        frame.commands[2].data.geometry.vertex_count != 6u ||
+        frame.commands[2].data.geometry.material_id != game.static_scene.walls[0].material_id ||
+        frame.commands[2].data.geometry.source_record_id !=
+            game.static_scene.walls[0].source_record_offset ||
+        frame.commands[2].data.geometry.flags != SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED ||
+        frame.commands[frame.count - 1u].type != SCENE_COMMAND_HUD_TEXT) {
         fprintf(stderr, "Plr_Initialise camera state is inconsistent: %s\n", error);
         scene_frame_destroy(&frame);
         game_bootstrap_destroy(&game);
