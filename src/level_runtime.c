@@ -9,6 +9,8 @@ enum {
     LEVEL_RUNTIME_POINT_SIZE = 4,
     LEVEL_RUNTIME_POINT_BRIGHTNESS_TRAILER = 4,
     LEVEL_RUNTIME_ZONE_BORDER_BYTES = 80,
+    /* defs.i:EdgeT_SizeOf_l. */
+    LEVEL_RUNTIME_EDGE_SIZE = 16,
     /* defs.i:ObjT_SizeOf_l and the two 32-bit object-point coordinates. */
     LEVEL_RUNTIME_OBJECT_SLOT_SIZE = 64,
     LEVEL_RUNTIME_OBJECT_POINT_SIZE = 8,
@@ -49,6 +51,93 @@ static int level_runtime_range_is_valid(uint32_t offset, size_t length, size_t t
     return (size_t)offset <= total_size && length <= total_size - (size_t)offset;
 }
 
+/*
+ * objectmove.s starts at ZoneT_EdgeListOffset_w and stops its normal collision
+ * pass at the first negative word. Some source paths then inspect an extended
+ * segment through a -2 marker, so this deliberately exposes only the primary
+ * sequence rather than guessing a single flattened list format.
+ */
+static int level_runtime_get_primary_zone_edge_list(const LevelRuntime *runtime,
+                                                    uint16_t zone_index,
+                                                    uint32_t *out_list_offset,
+                                                    uint32_t *out_count,
+                                                    uint32_t *out_highest_edge_index,
+                                                    char *error, size_t error_size)
+{
+    uint32_t zone_offset;
+    int64_t list_offset;
+    uint32_t list_start;
+    uint32_t edge_count;
+    uint32_t highest_edge_index;
+
+    if (!runtime || !runtime->level_bytes || !runtime->graphics_bytes ||
+        zone_index >= runtime->zone_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested zone edge list is outside the runtime view");
+        return 0;
+    }
+    zone_offset = level_runtime_read_be32(runtime->graphics_bytes +
+                                           runtime->zone_offsets_table_offset +
+                                           (size_t)zone_index * sizeof(uint32_t));
+    if (!level_runtime_range_is_valid(zone_offset, LEVEL_RUNTIME_ZONE_SIZE, runtime->level_size)) {
+        level_runtime_set_error(error, error_size, "requested zone edge list has a malformed zone");
+        return 0;
+    }
+    list_offset = (int64_t)zone_offset +
+        (int64_t)level_runtime_read_be16s(runtime->level_bytes + zone_offset + 32u);
+    if (list_offset < 0 || (uint64_t)list_offset > UINT32_MAX ||
+        !level_runtime_range_is_valid((uint32_t)list_offset, sizeof(uint16_t),
+                                      runtime->level_size)) {
+        level_runtime_set_error(error, error_size,
+                                "ZoneT edge-list offset is outside the level data");
+        return 0;
+    }
+
+    list_start = (uint32_t)list_offset;
+    edge_count = 0;
+    highest_edge_index = 0;
+    while (level_runtime_range_is_valid((uint32_t)list_offset,
+                                        sizeof(uint16_t), runtime->level_size)) {
+        int16_t edge_index = level_runtime_read_be16s(runtime->level_bytes + list_offset);
+        if (edge_index < 0) {
+            if (out_list_offset) {
+                *out_list_offset = list_start;
+            }
+            if (out_count) {
+                *out_count = edge_count;
+            }
+            if (out_highest_edge_index) {
+                *out_highest_edge_index = highest_edge_index;
+            }
+            return 1;
+        }
+        if (!level_runtime_range_is_valid(runtime->edge_table_offset +
+                                          (size_t)(uint16_t)edge_index * LEVEL_RUNTIME_EDGE_SIZE,
+                                          LEVEL_RUNTIME_EDGE_SIZE, runtime->level_size)) {
+            level_runtime_set_error(error, error_size,
+                                    "ZoneT edge list references an EdgeT outside its table");
+            return 0;
+        }
+        if (runtime->edge_count != 0u && (uint32_t)edge_index >= runtime->edge_count) {
+            level_runtime_set_error(error, error_size,
+                                    "ZoneT edge list exceeds its validated EdgeT prefix");
+            return 0;
+        }
+        if (edge_count == 0u || (uint32_t)edge_index > highest_edge_index) {
+            highest_edge_index = (uint32_t)edge_index;
+        }
+        if (edge_count == UINT32_MAX) {
+            level_runtime_set_error(error, error_size, "ZoneT edge list is too long");
+            return 0;
+        }
+        ++edge_count;
+        list_offset += sizeof(uint16_t);
+    }
+    level_runtime_set_error(error, error_size,
+                            "ZoneT edge list has no source negative terminator");
+    return 0;
+}
+
 int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_data,
                        const LevelBootstrap *level,
                        const LevelGraphicsBootstrap *graphics_header,
@@ -61,7 +150,10 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     uint64_t zone_offsets_table_bytes;
     uint64_t object_point_count;
     uint64_t object_point_bytes;
+    int64_t edge_data_span;
     uint32_t object_record_count;
+    uint32_t highest_primary_edge_index;
+    int has_primary_edge;
     size_t object_list_end;
     uint16_t zone_index;
 
@@ -76,6 +168,12 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
                            "TLBT floor-line offset is invalid (floor=%u)",
                            level->floor_line_offset);
         }
+        return 0;
+    }
+    edge_data_span = (int64_t)level->object_data_offset - (int64_t)level->floor_line_offset;
+    if (edge_data_span < INT32_MIN || edge_data_span > INT32_MAX) {
+        level_runtime_set_error(error, error_size,
+                                "TLBT floor/object offset difference is outside the native range");
         return 0;
     }
 
@@ -204,11 +302,112 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
     runtime.player2_object_offset = level->player2_object_offset;
     runtime.object_point_count = (uint32_t)object_point_count;
     runtime.object_record_count = object_record_count;
-    runtime.edge_data_span = (int32_t)level->object_data_offset -
-                             (int32_t)level->floor_line_offset;
+    runtime.edge_data_span = (int32_t)edge_data_span;
+    runtime.edge_table_offset = level->floor_line_offset;
+    runtime.edge_count = 0;
     runtime.exit_zone_id = level_runtime_read_be16s(level_data->bytes + level->floor_line_offset - 2u);
     runtime.zone_count = level->zone_count;
+
+    highest_primary_edge_index = 0;
+    has_primary_edge = 0;
+    for (zone_index = 0; zone_index < runtime.zone_count; ++zone_index) {
+        uint32_t primary_edge_count;
+        uint32_t zone_highest_edge_index;
+        if (!level_runtime_get_primary_zone_edge_list(&runtime, zone_index, NULL,
+                                                      &primary_edge_count,
+                                                      &zone_highest_edge_index,
+                                                      error, error_size)) {
+            return 0;
+        }
+        if (primary_edge_count != 0u &&
+            (!has_primary_edge || zone_highest_edge_index > highest_primary_edge_index)) {
+            highest_primary_edge_index = zone_highest_edge_index;
+            has_primary_edge = 1;
+        }
+    }
+    if (has_primary_edge) {
+        runtime.edge_count = highest_primary_edge_index + 1u;
+    }
+    for (uint32_t edge_index = 0; edge_index < runtime.edge_count; ++edge_index) {
+        const uint8_t *edge_source = level_data->bytes + runtime.edge_table_offset +
+            (size_t)edge_index * LEVEL_RUNTIME_EDGE_SIZE;
+        int16_t join_zone_id = level_runtime_read_be16s(edge_source + 8u);
+        if (join_zone_id >= 0 && (uint16_t)join_zone_id >= runtime.zone_count) {
+            level_runtime_set_error(error, error_size,
+                                    "EdgeT join-zone index is outside the source zone table");
+            return 0;
+        }
+    }
     *out_runtime = runtime;
+    return 1;
+}
+
+int level_runtime_get_zone_edge_count(const LevelRuntime *runtime, uint16_t zone_index,
+                                      uint32_t *out_count,
+                                      char *error, size_t error_size)
+{
+    if (!out_count) {
+        level_runtime_set_error(error, error_size, "zone edge-count output is null");
+        return 0;
+    }
+    return level_runtime_get_primary_zone_edge_list(runtime, zone_index, NULL, out_count, NULL,
+                                                     error, error_size);
+}
+
+int level_runtime_get_zone_edge_index(const LevelRuntime *runtime, uint16_t zone_index,
+                                      uint32_t list_index, uint32_t *out_edge_index,
+                                      char *error, size_t error_size)
+{
+    uint32_t list_offset;
+    uint32_t edge_count;
+
+    if (!out_edge_index) {
+        level_runtime_set_error(error, error_size, "zone edge-index output is null");
+        return 0;
+    }
+    if (!level_runtime_get_primary_zone_edge_list(runtime, zone_index, &list_offset, &edge_count,
+                                                   NULL, error, error_size)) {
+        return 0;
+    }
+    if (list_index >= edge_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested zone edge is outside the primary source list");
+        return 0;
+    }
+    *out_edge_index = level_runtime_read_be16(runtime->level_bytes + list_offset +
+                                               (size_t)list_index * sizeof(uint16_t));
+    return 1;
+}
+
+int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
+                           LevelEdge *out_edge, char *error, size_t error_size)
+{
+    const uint8_t *source;
+    LevelEdge edge;
+    size_t edge_offset;
+
+    if (!runtime || !runtime->level_bytes || !out_edge || edge_index >= runtime->edge_count) {
+        level_runtime_set_error(error, error_size, "requested EdgeT is outside the runtime view");
+        return 0;
+    }
+    edge_offset = (size_t)runtime->edge_table_offset +
+        (size_t)edge_index * LEVEL_RUNTIME_EDGE_SIZE;
+    if (edge_offset > runtime->level_size ||
+        LEVEL_RUNTIME_EDGE_SIZE > runtime->level_size - edge_offset) {
+        level_runtime_set_error(error, error_size, "requested EdgeT is outside the runtime view");
+        return 0;
+    }
+    source = runtime->level_bytes + edge_offset;
+    edge.x = level_runtime_read_be16s(source + 0u);
+    edge.z = level_runtime_read_be16s(source + 2u);
+    edge.x_length = level_runtime_read_be16s(source + 4u);
+    edge.z_length = level_runtime_read_be16s(source + 6u);
+    edge.join_zone_id = level_runtime_read_be16s(source + 8u);
+    edge.unknown_word = level_runtime_read_be16s(source + 10u);
+    edge.unknown_byte_12 = (int8_t)source[12u];
+    edge.unknown_byte_13 = (int8_t)source[13u];
+    edge.flags = level_runtime_read_be16(source + 14u);
+    *out_edge = edge;
     return 1;
 }
 

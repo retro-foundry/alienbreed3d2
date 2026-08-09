@@ -33,6 +33,14 @@ typedef struct {
     uint32_t object_record_count;
     /* hires.s:Game_Begin stores TLBT_ObjectDataOffset - TLBT_FloorLineOffset. */
     int32_t edge_data_span;
+    uint32_t edge_table_offset;
+    /*
+     * One past the highest EdgeT referenced by a zone's normal collision
+     * sequence. Game_Begin's byte difference is not a usable table length in
+     * shipped data, so this is intentionally not claimed as a full-table
+     * count.
+     */
+    uint32_t edge_count;
     int16_t exit_zone_id;
     uint16_t zone_count;
 } LevelRuntime;
@@ -61,6 +69,22 @@ typedef struct {
 } LevelZone;
 
 /*
+ * defs.i:EdgeT native read view. These are collision/gameplay edges; they do
+ * not imply a renderer visibility or portal traversal policy.
+ */
+typedef struct {
+    int16_t x;
+    int16_t z;
+    int16_t x_length;
+    int16_t z_length;
+    int16_t join_zone_id;
+    int16_t unknown_word;
+    int8_t unknown_byte_12;
+    int8_t unknown_byte_13;
+    uint16_t flags;
+} LevelEdge;
+
+/*
  * defs.i:ObjT native read view. The source reuses its 64-byte slots at
  * runtime; in the loaded object list, word zero is the object-point index and
  * a negative value is the list terminator (newanims.s:ObjectHandler).
@@ -85,6 +109,19 @@ int level_runtime_init(const AssetBlob *level_data, const AssetBlob *graphics_da
                        char *error, size_t error_size);
 int level_runtime_get_zone(const LevelRuntime *runtime, uint16_t zone_index,
                            LevelZone *out_zone, char *error, size_t error_size);
+/*
+ * objectmove.s' normal collision pass consumes non-negative indexes through
+ * the first negative list marker. Extended-edge markers are intentionally not
+ * folded into this primary list.
+ */
+int level_runtime_get_zone_edge_count(const LevelRuntime *runtime, uint16_t zone_index,
+                                      uint32_t *out_count,
+                                      char *error, size_t error_size);
+int level_runtime_get_zone_edge_index(const LevelRuntime *runtime, uint16_t zone_index,
+                                      uint32_t list_index, uint32_t *out_edge_index,
+                                      char *error, size_t error_size);
+int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
+                           LevelEdge *out_edge, char *error, size_t error_size);
 int level_runtime_get_object_record(const LevelRuntime *runtime, uint32_t record_index,
                                     LevelObjectSlot *out_object,
                                     char *error, size_t error_size);

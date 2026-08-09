@@ -26,8 +26,11 @@ int main(int argc, char **argv)
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
     LevelZone zone;
+    LevelEdge edge;
     LevelObjectSlot object_slot;
     LevelObjectPoint object_point;
+    uint32_t zone_edge_count;
+    uint32_t zone_edge_index;
     GameSession encoded_session;
     GameSession decoded_session;
     GameMenu menu;
@@ -357,6 +360,14 @@ int main(int argc, char **argv)
                 game.level_graphics_header.zone_graph_adds_offset ||
             game.level_runtime.object_point_count != (uint32_t)game.level.object_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
+            game.level_runtime.edge_count == 0u ||
+            game.level_runtime.edge_table_offset != game.level.floor_line_offset ||
+            !level_runtime_get_edge(&game.level_runtime, 0u, &edge, error, sizeof(error)) ||
+            !level_runtime_get_edge(&game.level_runtime,
+                                    game.level_runtime.edge_count - 1u,
+                                    &edge, error, sizeof(error)) ||
+            level_runtime_get_edge(&game.level_runtime, game.level_runtime.edge_count,
+                                   &edge, error, sizeof(error)) ||
             !level_runtime_get_object_record(&game.level_runtime, 0u, &object_slot,
                                              error, sizeof(error)) ||
             !level_runtime_get_object_record(&game.level_runtime,
@@ -373,11 +384,28 @@ int main(int argc, char **argv)
         }
         for (zone_index = 0; zone_index < game.level_runtime.zone_count; ++zone_index) {
             if (!level_runtime_get_zone(&game.level_runtime, zone_index, &zone,
-                                        error, sizeof(error))) {
+                                        error, sizeof(error)) ||
+                !level_runtime_get_zone_edge_count(&game.level_runtime, zone_index,
+                                                   &zone_edge_count, error, sizeof(error)) ||
+                level_runtime_get_zone_edge_index(&game.level_runtime, zone_index,
+                                                  zone_edge_count, &zone_edge_index,
+                                                  error, sizeof(error))) {
                 fprintf(stderr, "campaign level %u zone %u is invalid: %s\n",
                         level_index, zone_index, error);
                 game_bootstrap_destroy(&game);
                 return 1;
+            }
+            for (uint32_t list_index = 0; list_index < zone_edge_count; ++list_index) {
+                if (!level_runtime_get_zone_edge_index(&game.level_runtime, zone_index,
+                                                       list_index, &zone_edge_index,
+                                                       error, sizeof(error)) ||
+                    !level_runtime_get_edge(&game.level_runtime, zone_edge_index,
+                                            &edge, error, sizeof(error))) {
+                    fprintf(stderr, "campaign level %u zone %u edge %u is invalid: %s\n",
+                            level_index, zone_index, list_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
             }
         }
         for (uint32_t object_index = 0;
