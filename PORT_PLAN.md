@@ -136,8 +136,11 @@ authority for all game behavior and data formats.
   to GLFT definitions. `src/object_runtime.*` copies the entire active list,
   its terminator slot, and all object points into owned big-endian mutable
   storage when a level loads. This makes the source mutation boundary explicit
-  without applying any update. Projectile/player slots remain data views only;
-  no object, animation, or AI behaviour has been inferred or ported.
+  without applying any update. The original `Game_Begin` player-shot,
+  alien-shot, player-one, and player-two offsets now resolve to checked ranges
+  in that owned `ObjT` array, including all 20 slots in each projectile pool.
+  No object, animation, projectile, or AI behaviour has been inferred or
+  ported.
 - [x] `src/level_mechanisms.*` decodes the `TLGT` door/lift streams as the
   exact `ZLiftableT` plus variable `ZDoorWall` sequence used by
   `newanims.s:DoorRoutine` and `LiftRoutine`, bounded by their source
@@ -319,7 +322,10 @@ authority for all game behavior and data formats.
      tested collectable, activatable, destructible, and decoration paths,
      `DoorRoutine`, `LiftRoutine`, and the source edge-gated next-weapon
      selection. Next: source `Obj_DoCollision`, the remaining alien/projectile
-     `ObjectHandler` paths, switches, `newplayershoot.s`, and source sprites.
+     `ObjectHandler` paths, player-entity synchronisation,
+     `newplayershoot.s`, and source sprites. `SwitchRoutine` remains absent:
+     the maintained `objmoveanim` loop comments out its call, so it must not
+     be activated as a native gameplay change.
    - Keep optional modern bindings outside core simulation state. The native
      menu is intentionally not on the gameplay-first launch path for now; do
      not extend it while the direct Level A path is the active milestone.

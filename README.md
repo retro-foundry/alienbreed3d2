@@ -39,8 +39,9 @@ first game's software renderer:
 - exposes all 20 `AlienT` records used by `ItsAnAlien` and validates every
   loaded alien-slot type against that catalog, without starting an AI update;
 - exposes all 20 `BulT` records, including their source animation/pop payload
-  views and fixed six-byte frame records, without creating or updating a
-  projectile;
+  views and fixed six-byte frame records. The `Game_Begin` player/alien
+  projectile pools and both player entities resolve to checked slots in the
+  owned `ObjT` runtime array, without yet creating or updating a projectile;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload). The native Load Position and Save
   Position menus use the original six-record, 420-byte `boot.dat` layout at a

@@ -1175,6 +1175,53 @@ int main(int argc, char **argv)
             uint16_t original_edge_flags;
             uint16_t changed_edge_flags;
 
+            if (game.object_runtime.player_shot_first_slot !=
+                    (game.level_runtime.player_shot_offset -
+                     game.level_runtime.object_data_offset) / OBJECT_RUNTIME_SLOT_BYTE_COUNT ||
+                game.object_runtime.alien_shot_first_slot !=
+                    (game.level_runtime.alien_shot_offset -
+                     game.level_runtime.object_data_offset) / OBJECT_RUNTIME_SLOT_BYTE_COUNT ||
+                game.object_runtime.player1_slot !=
+                    (game.level_runtime.player1_object_offset -
+                     game.level_runtime.object_data_offset) / OBJECT_RUNTIME_SLOT_BYTE_COUNT ||
+                game.object_runtime.player2_slot !=
+                    (game.level_runtime.player2_object_offset -
+                     game.level_runtime.object_data_offset) / OBJECT_RUNTIME_SLOT_BYTE_COUNT ||
+                !level_runtime_get_object_slot_bytes(
+                    &game.level_runtime, game.object_runtime.player_shot_first_slot, &source_slot,
+                    error, sizeof(error)) ||
+                !object_runtime_get_player_shot_slot_bytes(&game.object_runtime, 0u,
+                                                            &runtime_slot) ||
+                memcmp(runtime_slot, source_slot, OBJECT_RUNTIME_SLOT_BYTE_COUNT) != 0 ||
+                !level_runtime_get_object_slot_bytes(
+                    &game.level_runtime,
+                    game.object_runtime.alien_shot_first_slot +
+                        OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT - 1u,
+                    &source_slot, error, sizeof(error)) ||
+                !object_runtime_get_alien_shot_slot_bytes(
+                    &game.object_runtime, OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT - 1u,
+                    &runtime_slot) ||
+                memcmp(runtime_slot, source_slot, OBJECT_RUNTIME_SLOT_BYTE_COUNT) != 0 ||
+                !level_runtime_get_object_slot_bytes(&game.level_runtime,
+                                                     game.object_runtime.player1_slot, &source_slot,
+                                                     error, sizeof(error)) ||
+                !object_runtime_get_player1_slot_bytes(&game.object_runtime, &runtime_slot) ||
+                memcmp(runtime_slot, source_slot, OBJECT_RUNTIME_SLOT_BYTE_COUNT) != 0 ||
+                !level_runtime_get_object_slot_bytes(&game.level_runtime,
+                                                     game.object_runtime.player2_slot, &source_slot,
+                                                     error, sizeof(error)) ||
+                !object_runtime_get_player2_slot_bytes(&game.object_runtime, &runtime_slot) ||
+                memcmp(runtime_slot, source_slot, OBJECT_RUNTIME_SLOT_BYTE_COUNT) != 0 ||
+                object_runtime_get_player_shot_slot_bytes(
+                    &game.object_runtime, OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT, &runtime_slot) ||
+                object_runtime_get_alien_shot_slot_bytes(
+                    &game.object_runtime, OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT, &runtime_slot)) {
+                fprintf(stderr, "campaign level %u Game_Begin object-pool mapping is invalid: %s\n",
+                        level_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+
             if (game.object_runtime.active_slot_count != game.level_runtime.object_record_count ||
                 game.object_runtime.slot_count != game.level_runtime.object_record_count + 1u ||
                 game.object_runtime.point_count != game.level_runtime.object_point_count ||
