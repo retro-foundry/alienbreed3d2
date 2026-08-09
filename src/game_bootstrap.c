@@ -21,6 +21,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     }
     memset(&game->level, 0, sizeof(game->level));
     memset(&game->level_graphics_header, 0, sizeof(game->level_graphics_header));
+    memset(&game->level_runtime, 0, sizeof(game->level_runtime));
 }
 
 static int game_bootstrap_load_level_file(const char *data_root, const char *level_directory,
@@ -212,7 +213,9 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
     }
     if (!level_bootstrap_parse(&game->level_data, &game->level, error, error_size) ||
         !level_graphics_bootstrap_parse(&game->level_graphics,
-                                        &game->level_graphics_header, error, error_size)) {
+                                        &game->level_graphics_header, error, error_size) ||
+        !level_runtime_init(&game->level_data, &game->level_graphics, &game->level,
+                            &game->level_runtime, error, error_size)) {
         game_bootstrap_release_level(game);
         return 0;
     }

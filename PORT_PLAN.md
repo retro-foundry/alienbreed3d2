@@ -48,6 +48,9 @@ authority for all game behavior and data formats.
   shoot-definition table; no multiplayer state is represented.
 - [ ] Port the actual SDL-driven menu commands and all source preferences/
   saved-game formats before treating the diagnostic window as a playable menu.
+- [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases
+  and every `ZoneT` in all campaign levels into endian-safe native views. It
+  keeps the unproven edge span raw and does not consume PVS lists or portals.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an

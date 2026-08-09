@@ -8,6 +8,7 @@
 #include "game_resources.h"
 #include "game_session.h"
 #include "level_bootstrap.h"
+#include "level_runtime.h"
 #include "scene_frame.h"
 
 typedef struct {
@@ -30,6 +31,7 @@ typedef struct {
     AssetBlob level_wall_overrides[GAME_LINK_WALL_COUNT];
     LevelBootstrap level;
     LevelGraphicsBootstrap level_graphics_header;
+    LevelRuntime level_runtime;
 } GameBootstrap;
 
 /*

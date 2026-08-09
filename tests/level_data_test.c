@@ -21,7 +21,9 @@ int main(int argc, char **argv)
     const uint8_t *table_bytes;
     size_t table_size;
     uint16_t level_index;
+    uint16_t zone_index;
     char text[128];
+    LevelZone zone;
     char error[256];
 
     if (argc != 2) {
@@ -160,10 +162,22 @@ int main(int argc, char **argv)
             !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||
             game.active_level_index != level_index ||
             game.session.active_level_index != level_index || game.level.zone_count == 0 ||
-            game.level_music.size == 0) {
+            game.level_music.size == 0 ||
+            game.level_runtime.zone_count != game.level.zone_count ||
+            level_runtime_get_zone(&game.level_runtime, game.level_runtime.zone_count,
+                                   &zone, error, sizeof(error))) {
             fprintf(stderr, "campaign level %u could not be loaded: %s\n", level_index, error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        for (zone_index = 0; zone_index < game.level_runtime.zone_count; ++zone_index) {
+            if (!level_runtime_get_zone(&game.level_runtime, zone_index, &zone,
+                                        error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u zone %u is invalid: %s\n",
+                        level_index, zone_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
     }
     game.session.player1_inventory.health = 199u;
