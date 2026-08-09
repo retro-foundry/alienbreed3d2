@@ -75,9 +75,9 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
                                                 char *error, size_t error_size);
 /*
  * Single-player source order: plr_KeyboardControl, Plr1_Control, the partial
- * ObjectHandler dispatch (collectables and activatables in source ObjT slot
- * order), DoorRoutine, LiftRoutine, then the source single-player exit-zone
- * completion check. Alien, projectile, destructible, and decoration paths
+ * ObjectHandler dispatch (collectables, activatables, destructibles, and
+ * decorations in source ObjT slot order), DoorRoutine, LiftRoutine, then the
+ * source single-player exit-zone completion check. Alien and projectile paths
  * remain outside this focused update.
  */
 int game_bootstrap_update_single_player(GameBootstrap *game,

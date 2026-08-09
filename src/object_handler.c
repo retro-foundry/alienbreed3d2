@@ -4,6 +4,7 @@
 
 #include "object_activatables.h"
 #include "object_collectables.h"
+#include "object_passives.h"
 
 enum {
     /* defs.i:ObjT/EntT offsets and ObjectHandler type/behaviour branches. */
@@ -14,7 +15,9 @@ enum {
     OBJECT_SLOT_ENTITY_TYPE = 54u,
     OBJECT_TYPE_OBJECT = 1u,
     OBJECT_BEHAVIOUR_COLLECTABLE = 0u,
-    OBJECT_BEHAVIOUR_ACTIVATABLE = 1u
+    OBJECT_BEHAVIOUR_ACTIVATABLE = 1u,
+    OBJECT_BEHAVIOUR_DESTRUCTIBLE = 2u,
+    OBJECT_BEHAVIOUR_DECORATION = 3u
 };
 
 static void object_handler_set_error(char *error, size_t error_size, const char *message)
@@ -91,8 +94,13 @@ int object_handler_update_single_player(
                        objects, slot_index, level, game_link, player, inventory, limits,
                        frame_ticks, error, error_size)) {
             return 0;
+        } else if ((definition.behaviour == OBJECT_BEHAVIOUR_DESTRUCTIBLE ||
+                    definition.behaviour == OBJECT_BEHAVIOUR_DECORATION) &&
+                   !object_passives_update_slot(objects, slot_index, level, game_link,
+                                                &definition, error, error_size)) {
+            return 0;
         }
-        /* TODO(port): newanims.s:ObjectHandler alien, projectile, destructible, and decoration paths. */
+        /* TODO(port): newanims.s:ObjectHandler alien and projectile paths. */
     }
     if (out_collected_count) {
         *out_collected_count = collected_count;

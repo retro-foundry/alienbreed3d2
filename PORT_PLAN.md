@@ -207,10 +207,13 @@ authority for all game behavior and data formats.
   `src/object_activatables.*` ports the `ItsAnObject`/`Activatable` subset:
   source floor/ceiling placement, default/action six-byte frame records,
   player collision, operate-to-toggle state, active timeout, and inventory
-  grant attempt. It deliberately does not infer object locks, destructibles,
-  decorations, aliens, or projectiles. Dynamic `Obj_DoCollision`, switches,
-  water animation, destructibles, decorations, enemies, projectiles, sounds,
-  and sprites remain absent until their owning routines are ported.
+  grant attempt. `src/object_passives.*` ports the source destructible
+  damage-threshold/hit-point transition and action animation, plus the
+  worry-gated decoration placement/default animation. It deliberately leaves
+  object locks, destructible narrative messages, and AI worry selection out
+  of scope until their owning systems exist. Dynamic `Obj_DoCollision`,
+  switches, water animation, enemies, projectiles, sounds, and sprites remain
+  absent until their owning routines are ported.
   `SceneCamera.look_offset` now carries
   the source small-screen look value for the future GPU backend. Walls, floors,
   ceilings, and water continue to submit source-defined material and geometry
@@ -310,9 +313,10 @@ authority for all game behavior and data formats.
      Horizontal movement, falling, and static `MoveObject` collision now use
      that table and the maintained fixed-point update order, not a generated
      trigonometric approximation. The current interaction scope includes the
-     tested collectable path, `DoorRoutine`, `LiftRoutine`, and the bounded
-     `Activatable` path; next: source `Obj_DoCollision`, full source-order
-     object handling, switches/water animation, and `newplayershoot.s`.
+     tested collectable, activatable, destructible, and decoration paths,
+     `DoorRoutine`, and `LiftRoutine`; next: source `Obj_DoCollision`, the
+     remaining alien/projectile `ObjectHandler` paths, switches/water
+     animation, and `newplayershoot.s`.
    - Keep optional modern bindings outside core simulation state. The native
      menu is intentionally not on the gameplay-first launch path for now; do
      not extend it while the direct Level A path is the active milestone.
@@ -373,13 +377,14 @@ authored populated levels such as B without a temporary native menu.
 The next milestone is source-backed dynamic world state: initialize and update
 objects, apply `Obj_DoCollision`, complete the remaining source-order object
 handling, activate switches, emit sprites, and create projectiles. The
-door/lift and bounded activatable slices are complete. `src/object_handler.*`
-now preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator,
-and `ObjT_ZoneID_w` to `EntT_ZoneID_w` copy for the translated collectable and
-activatable branches; alien, projectile, destructible, and decoration dispatch
-remain deliberately absent. Translate each remaining bounded slice directly
-from the maintained source and add source-derived regressions for its state
-changes and ordering. When an original-runtime fixture becomes available, follow the
+door/lift and bounded object slices are complete. `src/object_handler.*` now
+preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator, and
+`ObjT_ZoneID_w` to `EntT_ZoneID_w` copy for the translated collectable,
+activatable, destructible, and decoration branches. The destructible/decorative
+path has no inferred AI worry, narrative, or lock behavior; alien and
+projectile dispatch remain deliberately absent. Translate each remaining
+bounded slice directly from the maintained source and add source-derived
+regressions for its state changes and ordering. When an original-runtime fixture becomes available, follow the
 optional byte-exact capture contract in
 [`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md) to add an independent
 parity check. The highest-value optional boundaries are:
@@ -406,9 +411,9 @@ the maintained source or justify using an older binary as an oracle.
 The immediately preceding preparation step is complete: the runtime decodes
 the source's object inventory grants and reproduces its inventory-limit helpers,
 owns byte-exact mutable `ObjT`/object-point storage, and applies the translated
-collectable and bounded activatable paths in `ObjectHandler`'s source slot
-order. This does not port PVS/worry selection, `DEFANIMOBJ`, audio/messages,
-or the alien, projectile, destructible, and decoration `ObjectHandler` paths.
-The missing classes must use the maintained source's mutable `ObjT`
+collectable, bounded activatable, destructible, and decoration paths in
+`ObjectHandler`'s source slot order. This does not port PVS/worry selection,
+locks, narrative audio/messages, or the alien and projectile `ObjectHandler`
+paths. The missing systems must use the maintained source's mutable `ObjT`
 initialization, worry, animation, and update ordering rather than a generalized
 object update.

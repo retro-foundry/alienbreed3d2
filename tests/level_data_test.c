@@ -32,6 +32,14 @@ static int16_t source_asr16_2(int16_t value)
     return (int16_t)-(((int32_t)-value + 3) / 4);
 }
 
+static int32_t source_asr32_7(int32_t value)
+{
+    if (value >= 0) {
+        return value >> 7;
+    }
+    return -((-(int64_t)value + 127) >> 7);
+}
+
 static uint32_t read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
@@ -276,6 +284,8 @@ int main(int argc, char **argv)
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
     uint32_t world_point_index;
+    uint32_t decoration_fixture_count = 0u;
+    uint32_t destructible_fixture_count = 0u;
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
@@ -1319,6 +1329,105 @@ int main(int argc, char **argv)
                 }
             }
         }
+        if (decoration_fixture_count == 0u || destructible_fixture_count == 0u) {
+            uint32_t passive_slot_index;
+
+            for (passive_slot_index = 0u;
+                 passive_slot_index < game.object_runtime.active_slot_count;
+                 ++passive_slot_index) {
+                uint8_t *passive_slot;
+                GameObjectDefinition passive_definition;
+                GameObjectAnimationFrame passive_frame;
+                LevelZone passive_zone;
+                int32_t passive_height;
+
+                if (!object_runtime_get_slot_bytes(&game.object_runtime, passive_slot_index,
+                                                   &passive_slot) ||
+                    passive_slot[16u] != 1u ||
+                    (int16_t)read_be16(passive_slot + 12u) < 0 ||
+                    !game_link_get_object_definition(&game.game_link_catalog, passive_slot[54u],
+                                                     &passive_definition, error,
+                                                     sizeof(error))) {
+                    continue;
+                }
+                if (passive_definition.behaviour == 3u && decoration_fixture_count == 0u) {
+                    if (!level_runtime_get_zone(&game.dynamic_level.runtime,
+                                                read_be16(passive_slot + 12u), &passive_zone,
+                                                error, sizeof(error)) ||
+                        !game_link_get_object_animation_frame(
+                            &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                            passive_slot[54u], 0u, &passive_frame, error, sizeof(error))) {
+                        fprintf(stderr, "campaign level %u decoration fixture is invalid: %s\n",
+                                level_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    write_be16(passive_slot + 34u, 0u);
+                    passive_slot[62u] = 0x80u;
+                    passive_height = passive_definition.floor_ceiling == 0u ?
+                        (passive_slot[63u] != 0u ? passive_zone.upper_floor : passive_zone.floor) :
+                        (passive_slot[63u] != 0u ? passive_zone.upper_roof : passive_zone.roof);
+                    passive_height = source_asr32_7(passive_height) +
+                        (int16_t)passive_frame.signed_byte_4 * 2;
+                    if (!object_handler_update_single_player(
+                            &game.object_runtime, &game.dynamic_level.runtime,
+                            &game.game_link_catalog, &game.player,
+                            &game.session.player1_inventory, &game.inventory_limits, 1u,
+                            NULL, error, sizeof(error)) ||
+                        read_be16(passive_slot + 4u) != (uint16_t)passive_height ||
+                        read_be16(passive_slot + 34u) != passive_frame.next_timer1 ||
+                        passive_slot[62u] != 0x80u) {
+                        fprintf(stderr,
+                                "campaign level %u Decoration ObjectHandler dispatch is inconsistent: %s\n",
+                                level_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    ++decoration_fixture_count;
+                } else if (passive_definition.behaviour == 2u &&
+                           passive_definition.hit_points <= UINT8_MAX &&
+                           destructible_fixture_count == 0u) {
+                    if (!level_runtime_get_zone(&game.dynamic_level.runtime,
+                                                read_be16(passive_slot + 12u), &passive_zone,
+                                                error, sizeof(error)) ||
+                        !game_link_get_object_animation_frame(
+                            &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_ACTION,
+                            passive_slot[54u], 0u, &passive_frame, error, sizeof(error))) {
+                        fprintf(stderr, "campaign level %u destructible fixture is invalid: %s\n",
+                                level_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    write_be16(passive_slot + 34u, 0u);
+                    passive_slot[18u] = 1u;
+                    passive_slot[19u] = (uint8_t)passive_definition.hit_points;
+                    passive_slot[62u] = 0x80u;
+                    passive_height = passive_definition.floor_ceiling == 0u ?
+                        (passive_slot[63u] != 0u ? passive_zone.upper_floor : passive_zone.floor) :
+                        (passive_slot[63u] != 0u ? passive_zone.upper_roof : passive_zone.roof);
+                    passive_height = source_asr32_7(passive_height) +
+                        (int16_t)passive_frame.signed_byte_4 * 2;
+                    if (!object_handler_update_single_player(
+                            &game.object_runtime, &game.dynamic_level.runtime,
+                            &game.game_link_catalog, &game.player,
+                            &game.session.player1_inventory, &game.inventory_limits, 1u,
+                            NULL, error, sizeof(error)) ||
+                        passive_slot[18u] != 0u ||
+                        read_be16(passive_slot + 4u) != (uint16_t)passive_height ||
+                        read_be16(passive_slot + 34u) != passive_frame.next_timer1) {
+                        fprintf(stderr,
+                                "campaign level %u Destructable ObjectHandler dispatch is inconsistent: %s\n",
+                                level_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    ++destructible_fixture_count;
+                }
+                if (decoration_fixture_count != 0u && destructible_fixture_count != 0u) {
+                    break;
+                }
+            }
+        }
         for (uint8_t current_control_point = 0u;
              current_control_point < LEVEL_NAVIGATION_CONTROL_POINT_LIMIT;
              ++current_control_point) {
@@ -1927,6 +2036,11 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+    }
+    if (decoration_fixture_count == 0u || destructible_fixture_count == 0u) {
+        fprintf(stderr, "campaign data does not contain both passive object fixture classes\n");
+        game_bootstrap_destroy(&game);
+        return 1;
     }
     if (!level_runtime_get_zone(&game.level_runtime, game.level.player1_start_zone,
                                 &zone, error, sizeof(error)) ||
