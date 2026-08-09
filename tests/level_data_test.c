@@ -1612,6 +1612,39 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
+    if (!game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_FORWARDS], 0,
+                                error, sizeof(error)) ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_TURN_RIGHT], 0,
+                                error, sizeof(error)) ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_LOOK_UP], 1,
+                                error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
+                                       &game.preferences, &game.math, &game.level_runtime,
+                                       error, sizeof(error)) ||
+        controlled_player.look_offset != -4 || controlled_player.aim_speed != -512 ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_LOOK_UP], 0,
+                                error, sizeof(error)) ||
+        !game_input_set_raw_key(&control_input,
+                                control_defaults.assigned_raw_keys[GAME_CONTROL_CENTRE_VIEW], 1,
+                                error, sizeof(error)) ||
+        !player_runtime_update_discrete_controls(&controlled_player, &control_input,
+                                                 &control_defaults, &game.level_runtime,
+                                                 error, sizeof(error)) ||
+        !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
+                                       &game.preferences, &game.math, &game.level_runtime,
+                                       error, sizeof(error)) ||
+        controlled_player.look_offset != 0 || controlled_player.aim_speed != 0) {
+        fprintf(stderr, "source player keyboard look state is inconsistent: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
     game.session.player1_inventory.health = 199u;
     game_session_finish_single_player(&game.session, 0);
     if (game.session.campaign_inventory.health != 200u) {

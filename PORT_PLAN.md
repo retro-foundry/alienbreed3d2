@@ -150,15 +150,17 @@ authority for all game behavior and data formats.
   floor-relative standing and target heights, zone, and enemy flags. A loaded
   level now produces a camera and HUD command. The source raw-key branches for
   operate, crouch, fire, forward/back, turn, run, force-sidestep, sidestep,
-  and jump now feed the same snap-state order used by
+  jump, and keyboard look/centre-view now feed the same snap-state order used by
   `modules/player.s:plr_KeyboardControl` and `plr1control.s:Plr1_Fall`.
   `hires.s:Plr1_Control` commits that state through source fixed-point
   arithmetic, teleports, floor/roof transitions, and the primary plus extended
   static `EdgeT` sequences from `objectmove.s:MoveObject`; there is no PVS or
   portal-rendering dependency. Dynamic `Obj_DoCollision`, pickups, doors,
   lifts, enemies, projectiles, and sprites remain deliberately absent until
-  their owning object routines are ported. Walls, floors, ceilings, and water
-  continue to submit source-defined material and geometry commands.
+  their owning object routines are ported. `SceneCamera.look_offset` now carries
+  the source small-screen look value for the future GPU backend. Walls, floors,
+  ceilings, and water continue to submit source-defined material and geometry
+  commands.
 - [x] The desktop entry point now starts the source default single-player
   session directly in Level A rather than routing through the native menu. The
   minimal status presenter exposes live level, zone, and camera coordinates;

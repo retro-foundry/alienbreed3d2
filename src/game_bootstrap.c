@@ -386,7 +386,7 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
         command.data.camera.position.y = game->player.y;
         command.data.camera.position.z = game->player.z;
         command.data.camera.yaw = game->player.yaw;
-        command.data.camera.look_offset = 0;
+        command.data.camera.look_offset = game->player.look_offset;
         if (!scene_frame_submit(frame, &command)) {
             return 0;
         }

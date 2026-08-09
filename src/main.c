@@ -242,9 +242,10 @@ int main(int argc, char **argv)
         } else {
             (void)snprintf(status, sizeof(status),
                            "Level %c | zone %u | x=%" PRId32 " y=%" PRId32
-                           " z=%" PRId32 " | GPU renderer pending",
+                           " z=%" PRId32 " look=%d | GPU renderer pending",
                            (char)('A' + game.active_level_index), game.player.zone_index,
-                           game.player.x, game.player.y, game.player.z);
+                           game.player.x, game.player.y, game.player.z,
+                           game.player.look_offset);
             renderer_stub_set_status(renderer, status);
         }
         scene_frame_begin(&frame);

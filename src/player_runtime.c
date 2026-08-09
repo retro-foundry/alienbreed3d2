@@ -16,7 +16,11 @@ enum {
     PLAYER_SMALL_STEP_UP = 10 * 256,
     PLAYER_STEP_DOWN = 0x1000000,
     PLAYER_CEILING_CLEARANCE = 10 * 256,
-    PLAYER_MAX_ZONE_TRANSITIONS = 50
+    PLAYER_MAX_ZONE_TRANSITIONS = 50,
+    /* hires.s:SMALL_HEIGHT and its non-fullscreen View_* setup. */
+    PLAYER_SMALL_VIEW_KEY_LOOK = 4,
+    PLAYER_SMALL_VIEW_LOOK_LIMIT = 160 / 2,
+    PLAYER_AIM_SPEED_LIMIT = 512 * 20
 };
 
 static void player_runtime_set_error(char *error, size_t error_size, const char *message)
@@ -804,6 +808,40 @@ static int player_runtime_update_keyboard_motion(PlayerRuntime *player, const Ga
     return 1;
 }
 
+static void player_runtime_update_keyboard_look(PlayerRuntime *player, const GameInput *input,
+                                                const GameControls *controls)
+{
+    int16_t look_offset = player->look_offset;
+
+    /* modules/player.s:plr_KeyboardControl, small-screen View_* branch. */
+    if (game_input_is_control_down(input, controls, GAME_CONTROL_LOOK_UP)) {
+        player->aim_speed = player_runtime_sub32(player->aim_speed, 512);
+        look_offset = (int16_t)((int32_t)look_offset - PLAYER_SMALL_VIEW_KEY_LOOK);
+        if (look_offset <= -PLAYER_SMALL_VIEW_LOOK_LIMIT) {
+            player->aim_speed = -PLAYER_AIM_SPEED_LIMIT;
+            look_offset = -PLAYER_SMALL_VIEW_LOOK_LIMIT;
+        }
+    }
+    if (game_input_is_control_down(input, controls, GAME_CONTROL_LOOK_DOWN)) {
+        player->aim_speed = player_runtime_add32(player->aim_speed, 512);
+        look_offset = (int16_t)((int32_t)look_offset + PLAYER_SMALL_VIEW_KEY_LOOK);
+        if (look_offset >= PLAYER_SMALL_VIEW_LOOK_LIMIT) {
+            player->aim_speed = PLAYER_AIM_SPEED_LIMIT;
+            look_offset = PLAYER_SMALL_VIEW_LOOK_LIMIT;
+        }
+    }
+    if (game_input_is_control_down(input, controls, GAME_CONTROL_CENTRE_VIEW)) {
+        if (player->previous_centre_view_key_state == 0u) {
+            player->previous_centre_view_key_state = UINT8_MAX;
+            player->aim_speed = 0;
+            look_offset = 0;
+        }
+    } else {
+        player->previous_centre_view_key_state = 0u;
+    }
+    player->look_offset = look_offset;
+}
+
 int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
                                   const GameControls *controls,
                                   const GamePreferences *preferences,
@@ -828,6 +866,7 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
                                  "spatial player update received invalid source state");
         return 0;
     }
+    player_runtime_update_keyboard_look(player, input, controls);
     if (!player_runtime_update_keyboard_motion(player, input, controls, preferences, math,
                                                error, error_size) ||
         !player_runtime_apply_fall(player, input, controls, runtime, error, error_size) ||

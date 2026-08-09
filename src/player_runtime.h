@@ -27,10 +27,12 @@ typedef struct {
     int32_t snap_x_speed;
     int32_t snap_y_velocity;
     int32_t snap_z_speed;
+    int32_t aim_speed;
     uint16_t zone_index;
     uint16_t yaw;
     uint16_t snap_yaw;
     int16_t snap_yaw_speed;
+    int16_t look_offset;
     uint16_t bobble;
     int16_t add_to_bobble;
     uint16_t health;
@@ -42,6 +44,7 @@ typedef struct {
     uint8_t fire;
     uint8_t clicked;
     uint8_t previous_use_key_state;
+    uint8_t previous_centre_view_key_state;
     uint8_t decelerate;
 } PlayerRuntime;
 
