@@ -733,7 +733,10 @@ int main(int argc, char **argv)
                                 &zone, error, sizeof(error)) ||
         game.player.x != game.level.player1_start_x ||
         game.player.z != game.level.player1_start_z ||
-        game.player.y != zone.floor - 12 * 1024 || game.player.height != 12 * 1024 ||
+        game.player.y != zone.floor - 12 * 1024 ||
+        game.player.snap_x != game.player.x || game.player.snap_y != game.player.y ||
+        game.player.snap_z != game.player.z || game.player.snap_target_y != game.player.y ||
+        game.player.height != 12 * 1024 ||
         game.player.default_enemy_flags != 0x23u || !scene_frame_init(&frame, 2) ||
         !game_bootstrap_submit_diagnostic_frame(&game, &frame) || frame.count != 2 ||
         frame.commands[0].type != SCENE_COMMAND_CAMERA ||

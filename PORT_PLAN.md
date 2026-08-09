@@ -101,12 +101,16 @@ authority for all game behavior and data formats.
   `SwitchRoutine` traverses. Door/lift motion, switch interaction, and all
   associated graphics/audio changes remain deliberately unported.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
-  coordinates, floor-relative standing height, zone, and enemy flags. A
-  loaded level now produces a camera and HUD command. Its exact non-spatial
+  coordinates into both committed and input-side snap X/Y/Z state, its
+  floor-relative standing and target heights, zone, and enemy flags. A loaded
+  level now produces a camera and HUD command. Its exact non-spatial
   `plr_KeyboardControl` operate, crouch, and fire branches now consume the
   source raw-key state, including `$ff` latches and crouch-key consumption;
-  they deliberately do not move the player. Geometry/material/sprite commands
-  await an evidence-backed draw-graph decoder.
+  they deliberately do not move the player. The source advances snap state
+  before `hires.s:Plr1_Control` collision-validates and commits it, so native
+  horizontal/vertical movement remains gated on that complete sequence.
+  Geometry/material/sprite commands await an evidence-backed draw-graph
+  decoder.
 - [ ] Before emitting level geometry, finish a record-level draw-graph oracle.
   `draw_zone_graph.s` and `hireswall.s` establish the active wall/flat/object/
   backdrop dispatch formats, while some shipped streams also contain legacy

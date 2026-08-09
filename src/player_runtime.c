@@ -40,11 +40,15 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
     player.zone_index = level->player1_start_zone;
     player.x = level->player1_start_x;
     player.z = level->player1_start_z;
+    player.snap_x = level->player1_start_x;
+    player.snap_z = level->player1_start_z;
     player.height = PLAYER_STANDING_HEIGHT;
     player.snap_height = PLAYER_STANDING_HEIGHT;
     player.snap_target_height = PLAYER_STANDING_HEIGHT;
     player.snap_squished_height = PLAYER_STANDING_HEIGHT;
     player.y = start_zone.floor - player.height;
+    player.snap_y = player.y;
+    player.snap_target_y = player.y;
     player.default_enemy_flags = 0x23u; /* %100011 in Plr_Initialise. */
     *out_player = player;
     return 1;

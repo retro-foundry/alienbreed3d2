@@ -9,9 +9,15 @@
 
 /* Single-player subset of modules/player.s:Plr_Initialise. */
 typedef struct {
+    /* hires.s:Plr1_Control committed position. */
     int32_t x;
     int32_t y;
     int32_t z;
+    /* modules/player.s input-side state, committed by hires.s:Plr1_Control. */
+    int32_t snap_x;
+    int32_t snap_y;
+    int32_t snap_z;
+    int32_t snap_target_y;
     int32_t height;
     int32_t snap_height;
     int32_t snap_target_height;
@@ -36,8 +42,8 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
 /*
  * The non-spatial operate/crouch/fire branches of
  * modules/player.s:plr_KeyboardControl. Horizontal angle/motion remains out
- * of this routine until the authoritative bigsine table and collision/update
- * order are available; this function never changes x, y, z, or yaw.
+ * of this routine until the source collision/update sequence is ported; this
+ * function never changes committed x, y, z, or yaw.
  */
 int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *input,
                                             const GameControls *controls,
