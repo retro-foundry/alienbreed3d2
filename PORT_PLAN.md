@@ -120,14 +120,17 @@ authority for all game behavior and data formats.
   they deliberately do not move the player. The source advances snap state
   before `hires.s:Plr1_Control` collision-validates and commits it, so native
   horizontal/vertical movement remains gated on that complete sequence.
-  Geometry/material/sprite commands await an evidence-backed draw-graph
-  decoder.
-- [ ] Before emitting level geometry, finish a record-level draw-graph oracle.
-  `draw_zone_graph.s` and `hireswall.s` establish the active wall/flat/object/
-  backdrop dispatch formats, while some shipped streams also contain legacy
-  type-3 clip records whose payload the maintained dispatch no longer reads.
-  Do not reinterpret those bytes or use a software-renderer fallback; capture
-  an original-runtime trace or an authoritative format source first.
+  Wall, flat, and sprite scene emission remain distinct follow-up slices.
+- [ ] Before emitting textured world geometry, establish the source-to-GPU
+  material mapping for each primitive. `src/level_draw_graph.*` has now proven
+  every active cursor boundary in the shipped streams: type 3 and other
+  ignored tags advance by their tag word exactly as maintained
+  `draw_zone_graph.s` does. `hireswall.s` establishes wall endpoints, vertical
+  bounds, and material ID, but its screen-space perspective texture-coordinate
+  calculation must not be replaced by invented UVs. Decode that mapping or
+  capture an original-runtime fixture before submitting textured wall commands;
+  likewise establish the flat-tail and object/sprite semantics before emitting
+  their scene commands. Do not use a software-renderer fallback.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an
@@ -220,10 +223,10 @@ authority for all game behavior and data formats.
      `newaliencontrol.s:ViewpointToDraw`, `DrawDisplay`, and `objdrawhires.s`
      into `SceneFrame` commands; do not carry over the software renderer's PVS
      or portal traversal.
-   - Decode each draw-graph record only after its source cursor advance is
-     demonstrated. In particular, leave legacy clip records absent until their
-     maintained-source behavior is resolved; never infer their size from
-     neighbouring geometry.
+   - Preserve the validated active draw-graph cursor rules (including ignored
+     tag-only records). Decode each primitive's material mapping only after
+     its source coordinate use is demonstrated; never infer UVs or flat-tail
+     meaning from neighbouring geometry.
    - Submit unprojected world geometry, source material IDs, sprite frames,
      camera state, and HUD/message intent. The simulation must not emit pixels.
      A renderer is allowed to draw all loaded level geometry every frame.
