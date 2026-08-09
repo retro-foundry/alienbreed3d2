@@ -20,6 +20,9 @@ first game's software renderer:
   `TLBT` and `TLGT` headers follow `amiga/ab3d2_source/defs.i` exactly;
 - defines a GPU-neutral frame command interface for cameras, materials,
   geometry, sprites, and HUD text;
+- preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
+  big-endian level and inventory payload) while keeping its host storage and
+  interactive menu flow unported;
 - opens a diagnostic SDL window whose title reports the command count. It does
   not rasterize the game scene.
 

@@ -46,8 +46,13 @@ authority for all game behavior and data formats.
   selected-level handoff, and completed-level inventory persistence from
   `controlloop.s`. Its first ammunition class comes directly from the GLFT
   shoot-definition table; no multiplayer state is represented.
+- [x] `controlloop.s:DEFGAME` and `game_LoadPosition` now share a tested
+  70-byte big-endian campaign-record codec (level counter plus `InvCT`/`InvIT`).
+  Selecting an absent optional `levels/level_X/deflev.dat` follows the source
+  path back through `DEFAULTGAME`; malformed definitions fail explicitly.
 - [ ] Port the actual SDL-driven menu commands and all source preferences/
-  saved-game formats before treating the diagnostic window as a playable menu.
+  host-side `boot.dat` slot storage before treating the diagnostic window as a
+  playable menu.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
   including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
   offset table, plus every `ZoneT` in all campaign levels into endian-safe

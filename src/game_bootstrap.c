@@ -133,6 +133,57 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
     return game_bootstrap_load_level(game, data_root, level_index, error, error_size);
 }
 
+int game_bootstrap_load_level_definition(GameBootstrap *game, const char *data_root,
+                                         uint16_t selected_level_index,
+                                         char *error, size_t error_size)
+{
+    AssetBlob definition = {0};
+    char level_directory[32];
+    char load_error[256];
+    int found;
+    int written;
+
+    if (!game || !data_root) {
+        if (error && error_size > 0) {
+            (void)snprintf(error, error_size,
+                           "level definition load received null state or data root");
+        }
+        return 0;
+    }
+    if (selected_level_index >= AB3D2_LEVEL_COUNT) {
+        if (error && error_size > 0) {
+            (void)snprintf(error, error_size,
+                           "level definition selection %u is outside the 16-level campaign",
+                           selected_level_index);
+        }
+        return 0;
+    }
+    written = snprintf(level_directory, sizeof(level_directory),
+                       "levels/level_%c/deflev.dat", (char)('a' + selected_level_index));
+    if (written < 0 || (size_t)written >= sizeof(level_directory)) {
+        if (error && error_size > 0) {
+            (void)snprintf(error, error_size, "level definition path is too long");
+        }
+        return 0;
+    }
+    if (!asset_io_load_optional(data_root, level_directory, &definition, &found,
+                                load_error, sizeof(load_error))) {
+        if (error && error_size > 0) {
+            (void)snprintf(error, error_size, "failed to load %s: %s",
+                           level_directory, load_error);
+        }
+        return 0;
+    }
+    if (!game_session_load_level_definition(&game->session, &game->game_link_catalog,
+                                            definition.bytes, definition.size, found,
+                                            error, error_size)) {
+        asset_blob_release(&definition);
+        return 0;
+    }
+    asset_blob_release(&definition);
+    return 1;
+}
+
 int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                               uint16_t level_index, char *error, size_t error_size)
 {

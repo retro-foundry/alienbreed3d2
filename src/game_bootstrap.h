@@ -49,6 +49,14 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
 /* game_ReadMainMenu:playgame followed by game_DoneMenu and Game_Begin. */
 int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char *data_root,
                                                 char *error, size_t error_size);
+/*
+ * controlloop.s:levelMenu/DEFGAME. This reads the selected level's optional
+ * deflev.dat record; when it is absent, the source resets to DEFAULTGAME.
+ * It changes menu/campaign state only and does not enter a level.
+ */
+int game_bootstrap_load_level_definition(GameBootstrap *game, const char *data_root,
+                                         uint16_t selected_level_index,
+                                         char *error, size_t error_size);
 void game_bootstrap_destroy(GameBootstrap *game);
 
 /* Emits diagnostic-only HUD status; it is not original game UI. */

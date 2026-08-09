@@ -23,7 +23,10 @@ int main(int argc, char **argv)
     uint16_t level_index;
     uint16_t zone_index;
     char text[128];
+    uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
     LevelZone zone;
+    GameSession encoded_session;
+    GameSession decoded_session;
     char error[256];
 
     if (argc != 2) {
@@ -154,6 +157,64 @@ int main(int argc, char **argv)
         game.session.campaign_inventory.ammunition[7] != 20u ||
         game_session_select_level(&game.session, GAME_LINK_LEVEL_COUNT, error, sizeof(error))) {
         fprintf(stderr, "DEFAULTGAME single-player state is inconsistent\n");
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    if (!game_session_default(&encoded_session, &game.game_link_catalog, error, sizeof(error))) {
+        fprintf(stderr, "could not initialize campaign-record test: %s\n", error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    encoded_session.menu_level_index = 15u;
+    encoded_session.campaign_inventory.health = 0x1234u;
+    encoded_session.campaign_inventory.jetpack_fuel = 0x5678u;
+    encoded_session.campaign_inventory.ammunition[0] = 0x9abcu;
+    encoded_session.campaign_inventory.ammunition[19] = 0xdef0u;
+    encoded_session.campaign_inventory.shield = 0x1357u;
+    encoded_session.campaign_inventory.jetpack = 0x2468u;
+    encoded_session.campaign_inventory.weapons[0] = 0xaaaau;
+    encoded_session.campaign_inventory.weapons[9] = 0x5555u;
+    memset(campaign_record, 0, sizeof(campaign_record));
+    memset(&decoded_session, 0, sizeof(decoded_session));
+    decoded_session.active_level_index = 6u;
+    decoded_session.player1_inventory.health = 77u;
+    if (!game_session_encode_campaign_record(&encoded_session, campaign_record,
+                                             sizeof(campaign_record), error, sizeof(error)) ||
+        campaign_record[0] != 0x00u || campaign_record[1] != 0x0fu ||
+        campaign_record[2] != 0x12u || campaign_record[3] != 0x34u ||
+        campaign_record[4] != 0x56u || campaign_record[5] != 0x78u ||
+        campaign_record[6] != 0x9au || campaign_record[7] != 0xbcu ||
+        campaign_record[44] != 0xdeu || campaign_record[45] != 0xf0u ||
+        campaign_record[46] != 0x13u || campaign_record[47] != 0x57u ||
+        campaign_record[48] != 0x24u || campaign_record[49] != 0x68u ||
+        campaign_record[50] != 0xaau || campaign_record[51] != 0xaau ||
+        campaign_record[68] != 0x55u || campaign_record[69] != 0x55u ||
+        !game_session_decode_campaign_record(&decoded_session, campaign_record,
+                                             sizeof(campaign_record), error, sizeof(error)) ||
+        decoded_session.menu_level_index != 15u ||
+        decoded_session.active_level_index != 6u ||
+        decoded_session.player1_inventory.health != 77u ||
+        memcmp(&decoded_session.campaign_inventory, &encoded_session.campaign_inventory,
+               sizeof(encoded_session.campaign_inventory)) != 0 ||
+        game_session_decode_campaign_record(&decoded_session, campaign_record,
+                                            sizeof(campaign_record) - 1u,
+                                            error, sizeof(error)) ||
+        !game_session_load_level_definition(&decoded_session, &game.game_link_catalog,
+                                            NULL, 0u, 0, error, sizeof(error)) ||
+        decoded_session.menu_level_index != 0u ||
+        decoded_session.campaign_inventory.health != 200u ||
+        decoded_session.campaign_inventory.ammunition[7] != 20u ||
+        !game_session_load_level_definition(&decoded_session, &game.game_link_catalog,
+                                            campaign_record, sizeof(campaign_record), 1,
+                                            error, sizeof(error)) ||
+        decoded_session.menu_level_index != 15u ||
+        !game_bootstrap_load_level_definition(&game, argv[1], 0u, error, sizeof(error)) ||
+        game.session.menu_level_index != 0u ||
+        !game_bootstrap_load_level_definition(&game, argv[1], 15u, error, sizeof(error)) ||
+        game.session.menu_level_index != 0u ||
+        game_bootstrap_load_level_definition(&game, argv[1], GAME_LINK_LEVEL_COUNT,
+                                             error, sizeof(error))) {
+        fprintf(stderr, "DEFGAME campaign-record behavior is inconsistent: %s\n", error);
         game_bootstrap_destroy(&game);
         return 1;
     }
