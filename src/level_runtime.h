@@ -98,6 +98,15 @@ typedef struct {
 } LevelControlPoint;
 
 /*
+ * The leading fixed text blocks in twolev.bin. newaliencontrol.s and ai.s
+ * pass these exact 160-byte payloads to Msg_PushLine with an explicit length.
+ */
+typedef struct {
+    const uint8_t *bytes;
+    size_t byte_count;
+} LevelNarrativeMessage;
+
+/*
  * defs.i:ObjT native read view. The source reuses its 64-byte slots at
  * runtime; in the loaded object list, word zero is the object-point index and
  * a negative value is the list terminator (newanims.s:ObjectHandler).
@@ -138,6 +147,9 @@ int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
 int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t control_point_index,
                                     LevelControlPoint *out_control_point,
                                     char *error, size_t error_size);
+int level_runtime_get_narrative_message(const LevelRuntime *runtime, uint16_t message_index,
+                                        LevelNarrativeMessage *out_message,
+                                        char *error, size_t error_size);
 int level_runtime_get_object_record(const LevelRuntime *runtime, uint32_t record_index,
                                     LevelObjectSlot *out_object,
                                     char *error, size_t error_size);

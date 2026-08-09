@@ -79,6 +79,7 @@ int main(int argc, char **argv)
     LevelZone zone;
     LevelEdge edge;
     LevelControlPoint control_point;
+    LevelNarrativeMessage narrative_message;
     LevelNavigationLink navigation_link;
     LevelLiftable liftable;
     LevelLiftableWall liftable_wall;
@@ -503,6 +504,18 @@ int main(int argc, char **argv)
             game.level_runtime.object_point_count != (uint32_t)game.level.object_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
             game.level_runtime.control_point_count != game.level.control_point_count ||
+            !level_runtime_get_narrative_message(&game.level_runtime, 0u, &narrative_message,
+                                                 error, sizeof(error)) ||
+            narrative_message.bytes != game.level_runtime.level_bytes ||
+            narrative_message.byte_count != AB3D2_LEVEL_MESSAGE_LENGTH ||
+            !level_runtime_get_narrative_message(&game.level_runtime,
+                                                 AB3D2_LEVEL_MESSAGE_COUNT - 1u,
+                                                 &narrative_message, error, sizeof(error)) ||
+            narrative_message.bytes != game.level_runtime.level_bytes +
+                (AB3D2_LEVEL_MESSAGE_COUNT - 1u) * AB3D2_LEVEL_MESSAGE_LENGTH ||
+            level_runtime_get_narrative_message(&game.level_runtime,
+                                                AB3D2_LEVEL_MESSAGE_COUNT,
+                                                &narrative_message, error, sizeof(error)) ||
             (game.level_runtime.control_point_count == 0u
                 ? level_runtime_get_control_point(&game.level_runtime, 0u, &control_point,
                                                   error, sizeof(error))

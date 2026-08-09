@@ -78,6 +78,9 @@ authority for all game behavior and data formats.
   AI navigation and the `EdgeT` collision records reached by each zone's
   primary edge-index list exactly through the first negative source marker;
   source extended-edge markers remain distinct for the later collision port.
+  It also exposes the ten leading fixed 160-byte message payloads exactly as
+  `newaliencontrol.s` and `modules/ai.s` pass them to `Msg_PushLine`; no text
+  formatting or display behavior has been inferred.
   `src/level_navigation.*` now resolves both 100x100 `twolev` maps through
   `objectmove.s:GetNextCPt`, including its `only-see` high bit, but does not
   invent a caller or AI route behavior.

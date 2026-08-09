@@ -451,6 +451,32 @@ int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t contro
     return 1;
 }
 
+int level_runtime_get_narrative_message(const LevelRuntime *runtime, uint16_t message_index,
+                                        LevelNarrativeMessage *out_message,
+                                        char *error, size_t error_size)
+{
+    uint32_t message_offset;
+    LevelNarrativeMessage message;
+
+    if (!runtime || !runtime->level_bytes || !out_message ||
+        message_index >= AB3D2_LEVEL_MESSAGE_COUNT) {
+        level_runtime_set_error(error, error_size,
+                                "requested narrative message is outside the source message table");
+        return 0;
+    }
+    message_offset = (uint32_t)message_index * AB3D2_LEVEL_MESSAGE_LENGTH;
+    if (!level_runtime_range_is_valid(message_offset, AB3D2_LEVEL_MESSAGE_LENGTH,
+                                      runtime->level_size)) {
+        level_runtime_set_error(error, error_size,
+                                "requested narrative message is outside the level data");
+        return 0;
+    }
+    message.bytes = runtime->level_bytes + message_offset;
+    message.byte_count = AB3D2_LEVEL_MESSAGE_LENGTH;
+    *out_message = message;
+    return 1;
+}
+
 int level_runtime_get_zone(const LevelRuntime *runtime, uint16_t zone_index,
                            LevelZone *out_zone, char *error, size_t error_size)
 {
