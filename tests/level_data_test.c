@@ -13,6 +13,7 @@
 #include "alien_perception.h"
 #include "alien_setup.h"
 #include "alien_spatial.h"
+#include "alien_torch.h"
 #include "asset_io.h"
 #include "game_bootstrap.h"
 #include "game_link.h"
@@ -5030,6 +5031,56 @@ int main(int argc, char **argv)
                             "Anim_BrightenPointsAngle lighting-enable gate is inconsistent: %s\n", error);
                     game_bootstrap_destroy(&game);
                     return 1;
+                }
+                {
+                    /* modules/ai.s:ai_DoTorch's ALIENBRIGHT and slot-register handoff. */
+                    LightingRuntime torch_lighting;
+                    ObjectRuntime torch_objects = {0};
+                    AlienSetup torch_setup = {0};
+                    uint8_t torch_slot[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+
+                    if (bright_zone.floor % 128 != 0) {
+                        fprintf(stderr, "ai_DoTorch vertical source fixture is not word-scaled\n");
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    torch_objects.slot_bytes = torch_slot;
+                    torch_objects.slot_count = 1u;
+                    torch_objects.active_slot_count = 1u;
+                    write_be16(torch_slot + 4u, (uint16_t)(bright_zone.floor / 128));
+                    write_be16(torch_slot + 12u, bright_zone_index);
+                    write_be16(torch_slot + 30u, 0u);
+                    torch_setup.brightness = -200;
+                    lighting_runtime_init(&torch_lighting);
+                    torch_lighting.current_point_brightness[bright_zone_index]
+                        [(size_t)bright_marker_index * 4u] = 1000;
+                    if (!alien_torch_apply(
+                            &torch_lighting, &game.dynamic_level.runtime, &game.math,
+                            &torch_objects, 0u, &torch_setup,
+                            bright_point.x, source_add16(bright_point.z, -1),
+                            error, sizeof(error)) ||
+                        torch_lighting.current_point_brightness[bright_zone_index]
+                            [(size_t)bright_marker_index * 4u] !=
+                                expected_directional_brightness) {
+                        fprintf(stderr, "modules/ai.s:ai_DoTorch source state is inconsistent: %s\n",
+                                error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    torch_setup.brightness = 0;
+                    torch_lighting.current_point_brightness[bright_zone_index]
+                        [(size_t)bright_marker_index * 4u] = 1000;
+                    if (!alien_torch_apply(
+                            &torch_lighting, &game.dynamic_level.runtime, &game.math,
+                            &torch_objects, 0u, &torch_setup,
+                            bright_point.x, source_add16(bright_point.z, -1),
+                            error, sizeof(error)) ||
+                        torch_lighting.current_point_brightness[bright_zone_index]
+                            [(size_t)bright_marker_index * 4u] != 1000) {
+                        fprintf(stderr, "ai_DoTorch ALIENBRIGHT gate is inconsistent: %s\n", error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
                 }
             }
             before_disabled = dynamic_lighting.current_point_brightness[bright_zone_index]

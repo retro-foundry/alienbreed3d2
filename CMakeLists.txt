@@ -36,6 +36,7 @@ set(AB3D2_CORE_SOURCES
   src/alien_perception.c
   src/alien_setup.c
   src/alien_spatial.c
+  src/alien_torch.c
   src/asset_io.c
   src/game_bootstrap.c
   src/game_controls.c
