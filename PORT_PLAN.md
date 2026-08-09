@@ -8,6 +8,9 @@ authority for all game behavior and data formats.
 
 - Single-player campaign only. Do not port the Amiga serial master/slave mode
   or replace it with local or network multiplayer.
+- The active development path enters the default single-player session and
+  Level A directly. Do not spend implementation time on menus until the game
+  loop, dynamic world state, and renderer handoff are playable end to end.
 - Use the Alien Breed 3D I PC port as a desktop-build, SDL2, logging, and
   packed-asset reference only. Do not import its gameplay, level assumptions,
   procedural test data, or software renderer.
@@ -59,6 +62,15 @@ authority for all game behavior and data formats.
   selected-level handoff, and completed-level inventory persistence from
   `controlloop.s`. Its first ammunition class comes directly from the GLFT
   shoot-definition table; no multiplayer state is represented.
+- [x] `src/game_inventory.*` preserves the `Inventory`/`InventoryConsumables`
+  word order used by `c/game_properties.c`, the fallback caps used when the
+  optional global `ab3:Includes/game.props` is absent, its `32000` cap
+  sentinel handling, single-player collectability rule, saturated consumable
+  addition, and item-bit merge. `src/game_link.*` now decodes every matching
+  `GLFT_AmmoGive_l`/`GLFT_GunGive_l` object grant. Tests compare all 30 grants
+  to `test.lnk` and exercise the source cap logic. This is a pure data/helper
+  boundary: it does not yet decide when an `ObjT` is collectible or mutate an
+  object slot.
 - [x] `controlloop.s:DEFGAME` and `game_LoadPosition` now share a tested
   70-byte big-endian campaign-record codec (level counter plus `InvCT`/`InvIT`).
   Selecting an absent optional `levels/level_X/deflev.dat` follows the source
@@ -258,7 +270,8 @@ authority for all game behavior and data formats.
      trigonometric approximation. Next: source `Obj_DoCollision`, mechanisms,
      interaction, and `newplayershoot.s`.
    - Keep optional modern bindings outside core simulation state. The native
-     menu is intentionally not on the gameplay-first launch path for now.
+     menu is intentionally not on the gameplay-first launch path for now; do
+     not extend it while the direct Level A path is the active milestone.
 
 5. **Objects, animation, AI, audio, and progression**
    - Port runtime object initialization, animation, doors/lifts/switches, and
@@ -336,3 +349,9 @@ executable cannot yet be built or run with the locally available GCC/SDI and
 Amiga boot-media prerequisites. This is an evidence-collection dependency for
 the remaining dynamic-object work, not permission to infer behavior or use an
 older binary as an oracle.
+
+The immediately preceding preparation step is complete: the runtime can now
+decode the source's object inventory grants and reproduce its inventory-limit
+helpers. Do not connect those helpers to pickup slots until the required
+`ObjectHandler` fixture establishes the mutable `ObjT` initialization, worry,
+animation, and update ordering for the loaded level.

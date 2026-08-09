@@ -28,6 +28,7 @@ set(AB3D2_CORE_SOURCES
   src/game_bootstrap.c
   src/game_controls.c
   src/game_input.c
+  src/game_inventory.c
   src/game_link.c
   src/game_math.c
   src/game_menu.c

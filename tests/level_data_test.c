@@ -4,6 +4,7 @@
 #include "asset_io.h"
 #include "game_bootstrap.h"
 #include "game_link.h"
+#include "game_inventory.h"
 #include "game_menu.h"
 #include "game_save.h"
 #include "level_bootstrap.h"
@@ -160,6 +161,31 @@ static int bullet_animation_frame_matches_source(const GameBulletAnimationFrame 
         frame->byte_4 == source[4u] && frame->byte_5 == source[5u];
 }
 
+static int object_inventory_grant_matches_source(const GameInventory *grant,
+                                                 const uint8_t *ammunition_source,
+                                                 const uint8_t *item_source)
+{
+    if (!grant || !ammunition_source || !item_source ||
+        grant->health != read_be16(ammunition_source + 0u) ||
+        grant->jetpack_fuel != read_be16(ammunition_source + 2u) ||
+        grant->shield != read_be16(item_source + 0u) ||
+        grant->jetpack != read_be16(item_source + 2u)) {
+        return 0;
+    }
+    for (uint16_t index = 0u; index < GAME_INVENTORY_AMMUNITION_COUNT; ++index) {
+        if (grant->ammunition[index] !=
+            read_be16(ammunition_source + 4u + (size_t)index * 2u)) {
+            return 0;
+        }
+    }
+    for (uint16_t index = 0u; index < GAME_INVENTORY_WEAPON_COUNT; ++index) {
+        if (grant->weapons[index] != read_be16(item_source + 4u + (size_t)index * 2u)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int main(int argc, char **argv)
 {
     AssetBlob level_data = {0};
@@ -178,6 +204,8 @@ int main(int argc, char **argv)
     const uint8_t *object_default_animation_bytes;
     const uint8_t *object_action_animation_bytes;
     const uint8_t *object_frame_data_bytes;
+    const uint8_t *object_ammunition_grant_bytes;
+    const uint8_t *object_item_grant_bytes;
     size_t table_size;
     size_t shoot_definition_size;
     size_t alien_definition_size;
@@ -185,6 +213,8 @@ int main(int argc, char **argv)
     size_t object_default_animation_size;
     size_t object_action_animation_size;
     size_t object_frame_data_size;
+    size_t object_ammunition_grant_size;
+    size_t object_item_grant_size;
     uint16_t level_index;
     uint16_t zone_index;
     uint16_t object_definition_index;
@@ -223,6 +253,10 @@ int main(int argc, char **argv)
     GameAlienDefinition alien_definition;
     GameBulletDefinition bullet_definition;
     GameBulletAnimationFrame bullet_animation_frame;
+    GameInventory object_inventory_grant;
+    GameInventory inventory_test;
+    GameInventoryConsumableLimits inventory_limits;
+    uint8_t game_properties_test[GAME_INVENTORY_GAME_PROPERTIES_SIZE] = {0};
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
     uint32_t world_point_index;
@@ -367,6 +401,12 @@ int main(int argc, char **argv)
         object_frame_data_size != (size_t)GAME_LINK_OBJECT_COUNT *
                                       GAME_LINK_OBJECT_FRAME_DATA_COUNT *
                                       GAME_LINK_OBJECT_FRAME_DATA_SIZE ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_AMMO_GIVE,
+                         &object_ammunition_grant_bytes, &object_ammunition_grant_size) ||
+        object_ammunition_grant_size != (size_t)GAME_LINK_OBJECT_COUNT * 44u ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_GUN_GIVE,
+                         &object_item_grant_bytes, &object_item_grant_size) ||
+        object_item_grant_size != (size_t)GAME_LINK_OBJECT_COUNT * 24u ||
         !game_link_copy_level_name(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
         strcmp(text, "      LEVEL  A") != 0 ||
         !game_link_copy_object_name(&game_link, 0, text, sizeof(text), error, sizeof(error)) ||
@@ -518,6 +558,18 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        if (!game_link_get_object_inventory_grant(&game_link, object_definition_index,
+                                                  &object_inventory_grant,
+                                                  error, sizeof(error)) ||
+            !object_inventory_grant_matches_source(
+                &object_inventory_grant,
+                object_ammunition_grant_bytes + (size_t)object_definition_index * 44u,
+                object_item_grant_bytes + (size_t)object_definition_index * 24u)) {
+            fprintf(stderr, "GLFT object inventory grant %u is inconsistent: %s\n",
+                    object_definition_index, error);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
     }
     if (game_link_get_object_definition(&game_link, GAME_LINK_OBJECT_COUNT,
                                         &object_definition, error, sizeof(error)) ||
@@ -529,6 +581,9 @@ int main(int argc, char **argv)
                                              error, sizeof(error)) ||
         game_link_get_object_frame_data(&game_link, 0u, GAME_LINK_OBJECT_FRAME_DATA_COUNT,
                                         &object_frame_data, error, sizeof(error)) ||
+        game_link_get_object_inventory_grant(&game_link, GAME_LINK_OBJECT_COUNT,
+                                             &object_inventory_grant,
+                                             error, sizeof(error)) ||
         game_link_get_shoot_definition(&game_link, GAME_LINK_GUN_COUNT,
                                        &shoot_definition, error, sizeof(error)) ||
         game_link_get_alien_definition(&game_link, GAME_LINK_ALIEN_COUNT,
@@ -542,6 +597,64 @@ int main(int argc, char **argv)
                                              0u, 0u, &bullet_animation_frame,
                                              error, sizeof(error))) {
         fprintf(stderr, "GLFT definition bounds checks are inconsistent\n");
+        asset_blob_release(&game_link_blob);
+        return 1;
+    }
+    if (!game_inventory_decode_game_properties(NULL, 0u, &inventory_limits) ||
+        inventory_limits.health != GAME_INVENTORY_DEFAULT_HEALTH_LIMIT ||
+        inventory_limits.jetpack_fuel != GAME_INVENTORY_DEFAULT_FUEL_LIMIT ||
+        inventory_limits.ammunition[0] != GAME_INVENTORY_DEFAULT_AMMUNITION_LIMIT) {
+        fprintf(stderr, "source default inventory limits are inconsistent\n");
+        asset_blob_release(&game_link_blob);
+        return 1;
+    }
+    game_properties_test[0] = 0x00u;
+    game_properties_test[1] = 0x32u;
+    game_properties_test[2] = 0x7du;
+    game_properties_test[3] = 0x00u;
+    game_properties_test[4] = 0x7cu;
+    game_properties_test[5] = 0xffu;
+    game_properties_test[6] = 0xffu;
+    game_properties_test[7] = 0xffu;
+    if (!game_inventory_decode_game_properties(game_properties_test,
+                                               sizeof(game_properties_test),
+                                               &inventory_limits) ||
+        inventory_limits.health != 50u ||
+        inventory_limits.jetpack_fuel != GAME_INVENTORY_DEFAULT_FUEL_LIMIT ||
+        inventory_limits.ammunition[0] != 31999u ||
+        inventory_limits.ammunition[1] != GAME_INVENTORY_DEFAULT_AMMUNITION_LIMIT) {
+        fprintf(stderr, "source game.props limit handling is inconsistent\n");
+        asset_blob_release(&game_link_blob);
+        return 1;
+    }
+    memset(&inventory_test, 0, sizeof(inventory_test));
+    memset(&object_inventory_grant, 0, sizeof(object_inventory_grant));
+    inventory_test.health = 49u;
+    inventory_test.jetpack_fuel = GAME_INVENTORY_DEFAULT_FUEL_LIMIT;
+    inventory_test.ammunition[0] = 31998u;
+    inventory_test.weapons[3] = 0x0001u;
+    object_inventory_grant.health = 10u;
+    object_inventory_grant.jetpack_fuel = 1u;
+    object_inventory_grant.ammunition[0] = 10u;
+    object_inventory_grant.weapons[3] = 0x0001u;
+    if (!game_inventory_can_collect_single_player(&inventory_test, &object_inventory_grant,
+                                                  &inventory_limits)) {
+        fprintf(stderr, "single-player inventory grant was unexpectedly rejected\n");
+        asset_blob_release(&game_link_blob);
+        return 1;
+    }
+    game_inventory_apply_grant(&inventory_test, &object_inventory_grant, &inventory_limits);
+    if (inventory_test.health != 50u ||
+        inventory_test.jetpack_fuel != GAME_INVENTORY_DEFAULT_FUEL_LIMIT ||
+        inventory_test.ammunition[0] != 31999u || inventory_test.weapons[3] != 0x0001u) {
+        fprintf(stderr, "source inventory saturated add is inconsistent\n");
+        asset_blob_release(&game_link_blob);
+        return 1;
+    }
+    memset(&object_inventory_grant, 0, sizeof(object_inventory_grant));
+    if (!game_inventory_can_collect_single_player(&inventory_test, &object_inventory_grant,
+                                                  &inventory_limits)) {
+        fprintf(stderr, "empty source inventory grant was unexpectedly rejected\n");
         asset_blob_release(&game_link_blob);
         return 1;
     }

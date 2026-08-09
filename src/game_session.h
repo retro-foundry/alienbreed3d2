@@ -4,24 +4,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "game_inventory.h"
 #include "game_link.h"
 
-#define GAME_SESSION_AMMUNITION_COUNT 20u
-#define GAME_SESSION_WEAPON_COUNT 10u
+#define GAME_SESSION_AMMUNITION_COUNT GAME_INVENTORY_AMMUNITION_COUNT
+#define GAME_SESSION_WEAPON_COUNT GAME_INVENTORY_WEAPON_COUNT
 /* defs.i:InvCT_SizeOf_l + InvIT_SizeOf_l (44 + 24 bytes). */
 #define GAME_SESSION_INVENTORY_DISK_SIZE 68u
 /* controlloop.s:DEFGAME first writes Game_LevelCounter_w, then the inventory. */
 #define GAME_SESSION_RECORD_SIZE (2u + GAME_SESSION_INVENTORY_DISK_SIZE)
-
-/* defs.i:InvCT and InvIT, represented as native values rather than disk bytes. */
-typedef struct {
-    uint16_t health;
-    uint16_t jetpack_fuel;
-    uint16_t ammunition[GAME_SESSION_AMMUNITION_COUNT];
-    uint16_t shield;
-    uint16_t jetpack;
-    uint16_t weapons[GAME_SESSION_WEAPON_COUNT];
-} GameInventory;
 
 /* Single-player state from controlloop.s:DEFAULTGAME and game_DoneMenu. */
 typedef struct {

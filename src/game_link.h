@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "asset_io.h"
+#include "game_inventory.h"
 
 /*
  * Native bounds-checked view of the GLFT record declared at defs.i:384.
@@ -244,6 +245,14 @@ int game_link_get_bullet_animation_frame(const GameLink *link,
                                          GameBulletAnimationKind kind,
                                          uint16_t bullet_index, uint16_t frame_index,
                                          GameBulletAnimationFrame *out_frame,
+                                         char *error, size_t error_size);
+/*
+ * GLFT_AmmoGive_l / GLFT_GunGive_l form an InvCT/InvIT-shaped grant for each
+ * object class. This accessor only decodes source bytes; ObjectHandler owns
+ * the decision to apply a grant.
+ */
+int game_link_get_object_inventory_grant(const GameLink *link, uint16_t object_index,
+                                         GameInventory *out_grant,
                                          char *error, size_t error_size);
 
 /* Fixed 40-byte labels have no NUL terminator in the shipped game link. */

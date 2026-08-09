@@ -452,6 +452,40 @@ int game_link_get_bullet_animation_frame(const GameLink *link,
     return 1;
 }
 
+int game_link_get_object_inventory_grant(const GameLink *link, uint16_t object_index,
+                                         GameInventory *out_grant,
+                                         char *error, size_t error_size)
+{
+    const uint8_t *ammunition_bytes;
+    const uint8_t *item_bytes;
+    size_t ammunition_size;
+    size_t item_size;
+    GameInventory grant;
+
+    if (!out_grant || object_index >= GAME_LINK_OBJECT_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_AMMO_GIVE, &ammunition_bytes, &ammunition_size) ||
+        !game_link_table(link, GAME_LINK_TABLE_GUN_GIVE, &item_bytes, &item_size) ||
+        ammunition_size != (size_t)GAME_LINK_OBJECT_COUNT * GLFT_AMMO_GIVE_SIZE ||
+        item_size != (size_t)GAME_LINK_OBJECT_COUNT * GLFT_GUN_GIVE_SIZE) {
+        game_link_set_error(error, error_size, "object inventory grant is outside the GLFT table");
+        return 0;
+    }
+    ammunition_bytes += (size_t)object_index * GLFT_AMMO_GIVE_SIZE;
+    item_bytes += (size_t)object_index * GLFT_GUN_GIVE_SIZE;
+    grant.health = game_link_read_be16(ammunition_bytes + 0u);
+    grant.jetpack_fuel = game_link_read_be16(ammunition_bytes + 2u);
+    for (uint16_t index = 0u; index < GAME_INVENTORY_AMMUNITION_COUNT; ++index) {
+        grant.ammunition[index] = game_link_read_be16(ammunition_bytes + 4u + (size_t)index * 2u);
+    }
+    grant.shield = game_link_read_be16(item_bytes + 0u);
+    grant.jetpack = game_link_read_be16(item_bytes + 2u);
+    for (uint16_t index = 0u; index < GAME_INVENTORY_WEAPON_COUNT; ++index) {
+        grant.weapons[index] = game_link_read_be16(item_bytes + 4u + (size_t)index * 2u);
+    }
+    *out_grant = grant;
+    return 1;
+}
+
 int game_link_copy_level_name(const GameLink *link, uint16_t level_index,
                               char *out_text, size_t out_text_size,
                               char *error, size_t error_size)
