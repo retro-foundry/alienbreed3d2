@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "alien_runtime.h"
 #include "asset_io.h"
 #include "game_bootstrap.h"
 #include "game_link.h"
@@ -544,6 +545,7 @@ int main(int argc, char **argv)
     GameSaveSlots archived_save_slots;
     GameSaveSlots saved_save_slots;
     GameRandom random;
+    AlienRuntime alien_runtime;
     int should_quit;
     uint8_t override_marker[64u * 32u];
     AssetBlob saved_floor_override;
@@ -565,6 +567,61 @@ int main(int argc, char **argv)
     random.state = UINT16_MAX;
     if (game_random_next(&random) != 0x2342u || random.state != 0x2342u) {
         fprintf(stderr, "objectmove.s GetRand word wrapping is inconsistent\n");
+        return 1;
+    }
+    alien_runtime_init(&alien_runtime);
+    for (uint16_t workspace_index = 0u;
+         workspace_index < ALIEN_RUNTIME_ENTITY_COUNT; ++workspace_index) {
+        alien_runtime.entity_workspace[workspace_index][6u] =
+            (int16_t)(workspace_index + 1u);
+        alien_runtime.entity_workspace[workspace_index][7u] =
+            (int16_t)-(int32_t)(workspace_index + 1u);
+        alien_runtime.damage[workspace_index] = -1;
+    }
+    for (uint16_t workspace_index = 0u;
+         workspace_index < ALIEN_RUNTIME_TEAM_COUNT; ++workspace_index) {
+        alien_runtime.team_workspace[workspace_index][6u] =
+            (int16_t)(workspace_index + 1u);
+        alien_runtime.team_workspace[workspace_index][7u] =
+            (int16_t)-(int32_t)(workspace_index + 1u);
+    }
+    alien_runtime.boredom[0u][0u] = 0x1234;
+    alien_runtime_begin_level(&alien_runtime);
+    for (uint16_t workspace_index = 0u;
+         workspace_index < ALIEN_RUNTIME_ENTITY_COUNT; ++workspace_index) {
+        if (alien_runtime.entity_workspace[workspace_index][0u] != 0 ||
+            alien_runtime.entity_workspace[workspace_index][1u] != 0 ||
+            alien_runtime.entity_workspace[workspace_index][2u] != -1 ||
+            alien_runtime.entity_workspace[workspace_index][3u] != -1 ||
+            alien_runtime.entity_workspace[workspace_index][4u] != -1 ||
+            alien_runtime.entity_workspace[workspace_index][5u] != -1 ||
+            alien_runtime.entity_workspace[workspace_index][6u] !=
+                (int16_t)(workspace_index + 1u) ||
+            alien_runtime.entity_workspace[workspace_index][7u] !=
+                (int16_t)-(int32_t)(workspace_index + 1u) ||
+            alien_runtime.damage[workspace_index] != 0) {
+            fprintf(stderr, "Game_Begin alien workspace initialization is inconsistent\n");
+            return 1;
+        }
+    }
+    for (uint16_t workspace_index = 0u;
+         workspace_index < ALIEN_RUNTIME_TEAM_COUNT; ++workspace_index) {
+        if (alien_runtime.team_workspace[workspace_index][0u] != 0 ||
+            alien_runtime.team_workspace[workspace_index][1u] != 0 ||
+            alien_runtime.team_workspace[workspace_index][2u] != -1 ||
+            alien_runtime.team_workspace[workspace_index][3u] != -1 ||
+            alien_runtime.team_workspace[workspace_index][4u] != -1 ||
+            alien_runtime.team_workspace[workspace_index][5u] != -1 ||
+            alien_runtime.team_workspace[workspace_index][6u] !=
+                (int16_t)(workspace_index + 1u) ||
+            alien_runtime.team_workspace[workspace_index][7u] !=
+                (int16_t)-(int32_t)(workspace_index + 1u)) {
+            fprintf(stderr, "Game_Begin alien team workspace initialization is inconsistent\n");
+            return 1;
+        }
+    }
+    if (alien_runtime.boredom[0u][0u] != 0x1234) {
+        fprintf(stderr, "AI_InitAlienWorkspace unexpectedly reset source boredom state\n");
         return 1;
     }
     if (!asset_io_join(argv[1], "test_boot.dat", save_path, sizeof(save_path))) {
@@ -1355,6 +1412,11 @@ int main(int argc, char **argv)
             game.level_runtime.world_point_count != (uint32_t)game.level.point_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
             game.static_scene.wall_count == 0u ||
+            game.alien_runtime.entity_workspace[0u][0u] != 0 ||
+            game.alien_runtime.entity_workspace[0u][2u] != -1 ||
+            game.alien_runtime.team_workspace[0u][0u] != 0 ||
+            game.alien_runtime.team_workspace[0u][2u] != -1 ||
+            game.alien_runtime.damage[0u] != 0 ||
             game.level_runtime.control_point_count != game.level.control_point_count ||
             !level_runtime_get_narrative_message(&game.level_runtime, 0u, &narrative_message,
                                                  error, sizeof(error)) ||

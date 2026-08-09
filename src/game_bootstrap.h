@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "alien_runtime.h"
 #include "asset_io.h"
 #include "game_controls.h"
 #include "game_input.h"
@@ -38,6 +39,8 @@ typedef struct {
     GamePreferences preferences;
     /* objectmove.s:Rand1 persists across campaign-level loads. */
     GameRandom random;
+    /* hires.s:Game_Begin and modules/ai.s source-owned AI storage. */
+    AlienRuntime alien_runtime;
     GameSession session;
     AssetBlob story_text;
     uint16_t active_level_index;

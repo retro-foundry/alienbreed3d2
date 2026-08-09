@@ -139,6 +139,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
         return 0;
     }
     memset(game, 0, sizeof(*game));
+    alien_runtime_init(&game->alien_runtime);
 
     /* c/game.c:Game_Init establishes default caps before optional game.props. */
     if (!asset_io_load_optional(data_root, "includes/game.props", &game->game_properties,
@@ -432,6 +433,9 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
     }
     mechanism_runtime_init(&game->mechanism_runtime);
 
+    /* hires.s:Game_Begin initializes this before objmoveanim can dispatch AI. */
+    alien_runtime_begin_level(&game->alien_runtime);
+
     /* game_DoneMenu copies the selected single-player inventory before Game_Begin. */
     game->player.health = game->session.player1_inventory.health;
 
@@ -451,6 +455,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     memset(&game->inventory_limits, 0, sizeof(game->inventory_limits));
     asset_blob_release(&game->sine_table);
     memset(&game->math, 0, sizeof(game->math));
+    alien_runtime_init(&game->alien_runtime);
     memset(&game->session, 0, sizeof(game->session));
     memset(&game->preferences, 0, sizeof(game->preferences));
     asset_blob_release(&game->story_text);

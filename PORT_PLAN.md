@@ -197,6 +197,13 @@ authority for all game behavior and data formats.
   source game session, so it persists across campaign-level loads. The
   translated `plr1_HitscanFailed` miss helper now consumes its one source
   advance; hit probability and AI still do not consume it.
+- [x] `src/alien_runtime.*` owns the source `bss/ai_bss.s` entity/team
+  workspaces, damage words, and boredom storage. At every native level start,
+  `hires.s:Game_Begin` now applies `modules/ai.s:AI_InitAlienWorkspace` and
+  its separate `CLRDAM` loop exactly: words 0..5 are initialized, damage is
+  cleared, and the source-preserved trailing workspace words and boredom state
+  remain untouched. This establishes the mutable state boundary for the later
+  `ItsAnAlien` translation; it does not activate or approximate alien AI.
 - [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
   `PVST` records for gameplay-only consumers. Every record and target is
   validated across all A-P levels. `src/object_visibility.*` now directly
