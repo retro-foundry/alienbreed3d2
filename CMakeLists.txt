@@ -27,6 +27,7 @@ set(AB3D2_CORE_SOURCES
   src/asset_io.c
   src/game_bootstrap.c
   src/game_controls.c
+  src/game_input.c
   src/game_link.c
   src/game_menu.c
   src/game_preferences.c

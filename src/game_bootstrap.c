@@ -109,6 +109,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
         goto fail;
     }
     game_controls_default(&game->controls);
+    game_input_init(&game->input);
     game_preferences_default(&game->preferences);
     return 1;
 

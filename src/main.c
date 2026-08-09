@@ -227,6 +227,16 @@ int main(int argc, char **argv)
                 renderer_stub_request_quit(renderer);
                 break;
             }
+            if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+                if (raw_key_from_scancode(event.key.keysym.scancode, &raw_key) &&
+                    !game_input_set_raw_key(&game.input, raw_key,
+                                            event.type == SDL_KEYDOWN,
+                                            error, sizeof(error))) {
+                    fprintf(stderr, "[INPUT] %s\n", error);
+                    renderer_stub_set_status(renderer, error);
+                    continue;
+                }
+            }
             if (event.type != SDL_KEYDOWN || event.key.repeat) {
                 continue;
             }

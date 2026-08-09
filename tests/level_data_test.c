@@ -170,6 +170,16 @@ int main(int argc, char **argv)
         game.session.campaign_inventory.ammunition[7] != 20u ||
         memcmp(game.controls.assigned_raw_keys, expected_control_defaults,
                sizeof(expected_control_defaults)) != 0 ||
+        !game_input_set_raw_key(&game.input, 0x11u, 1, error, sizeof(error)) ||
+        !game_input_is_raw_key_down(&game.input, 0x11u) ||
+        !game_input_is_control_down(&game.input, &game.controls,
+                                    GAME_CONTROL_FORWARDS) ||
+        game_input_take_last_pressed(&game.input) != 0x11u ||
+        game_input_take_last_pressed(&game.input) != 0u ||
+        !game_input_set_raw_key(&game.input, 0x11u, 0, error, sizeof(error)) ||
+        game_input_is_raw_key_down(&game.input, 0x11u) ||
+        game_input_set_raw_key(&game.input, GAME_INPUT_RAW_KEY_LIMIT, 1,
+                               error, sizeof(error)) ||
         game_controls_assign_raw_key(&game.controls, GAME_CONTROL_BINDING_COUNT,
                                      0x12u, error, sizeof(error)) ||
         game_session_select_level(&game.session, GAME_LINK_LEVEL_COUNT, error, sizeof(error))) {

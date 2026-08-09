@@ -5,6 +5,7 @@
 
 #include "asset_io.h"
 #include "game_controls.h"
+#include "game_input.h"
 #include "game_link.h"
 #include "game_preferences.h"
 #include "game_resources.h"
@@ -19,6 +20,7 @@ typedef struct {
     GameLink game_link_catalog;
     GameSharedResources shared_resources;
     GameControls controls;
+    GameInput input;
     GamePreferences preferences;
     GameSession session;
     AssetBlob story_text;

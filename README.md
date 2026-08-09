@@ -26,8 +26,9 @@ first game's software renderer:
 - drives the source single-player main menu, including the two-page level
   selector and level start handoff. Master/slave multiplayer is explicitly
   unavailable; custom options and the two-page raw-key control rebinding menu
-  change source-backed in-memory preference bytes, while preference persistence
-  and load/save remain pending;
+  change source-backed in-memory preference bytes. Native SDL events also feed
+  the source-shaped raw-key map; player movement has not yet consumed it.
+  Preference persistence and load/save remain pending;
 - opens a diagnostic SDL window whose title presents the current menu/level
   status and command count. It does not rasterize the game scene.
 

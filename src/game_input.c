@@ -1,0 +1,61 @@
+#include "game_input.h"
+
+#include <stdio.h>
+#include <string.h>
+
+static void game_input_set_error(char *error, size_t error_size, const char *message)
+{
+    if (error && error_size > 0) {
+        (void)snprintf(error, error_size, "%s", message);
+    }
+}
+
+void game_input_init(GameInput *input)
+{
+    if (input) {
+        memset(input, 0, sizeof(*input));
+    }
+}
+
+int game_input_set_raw_key(GameInput *input, uint8_t raw_key, int is_pressed,
+                           char *error, size_t error_size)
+{
+    if (!input || raw_key >= GAME_INPUT_RAW_KEY_LIMIT) {
+        game_input_set_error(error, error_size,
+                             "source raw key is outside key_interrupt's 0..127 range");
+        return 0;
+    }
+    /* hires.s:key_interrupt writes $ff on key-down and clears on key-up. */
+    input->key_map[raw_key] = is_pressed ? UINT8_MAX : 0u;
+    if (is_pressed) {
+        /* hires.s:key_readkey returns this byte once, then clears it. */
+        input->last_pressed_raw_key = raw_key;
+    }
+    return 1;
+}
+
+int game_input_is_raw_key_down(const GameInput *input, uint8_t raw_key)
+{
+    return input && raw_key < GAME_INPUT_RAW_KEY_LIMIT && input->key_map[raw_key] != 0u;
+}
+
+int game_input_is_control_down(const GameInput *input, const GameControls *controls,
+                               uint16_t binding_index)
+{
+    if (!controls || binding_index >= GAME_CONTROL_BINDING_COUNT) {
+        return 0;
+    }
+    return game_input_is_raw_key_down(input, controls->assigned_raw_keys[binding_index]);
+}
+
+uint8_t game_input_take_last_pressed(GameInput *input)
+{
+    uint8_t raw_key;
+
+    if (!input) {
+        return 0u;
+    }
+    raw_key = input->last_pressed_raw_key;
+    input->last_pressed_raw_key = 0u;
+    return raw_key;
+}
