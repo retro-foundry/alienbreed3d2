@@ -12,7 +12,9 @@ enum {
     OBJECT_SLOT_POINT_INDEX = 0u,
     OBJECT_SLOT_ZONE_ID = 12u,
     OBJECT_SLOT_TYPE_ID = 16u,
+    OBJECT_SLOT_ENTITY_HIT_POINTS = 18u,
     OBJECT_SLOT_ENTITY_ZONE_ID = 26u,
+    OBJECT_SLOT_DOORS_AND_LIFTS_HELD = 50u,
     OBJECT_SLOT_ENTITY_TYPE = 54u,
     OBJECT_TYPE_OBJECT = 1u,
     OBJECT_TYPE_PROJECTILE = 2u,
@@ -34,6 +36,12 @@ static uint16_t object_handler_read_be16(const uint8_t *source)
     return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
 }
 
+static uint32_t object_handler_read_be32(const uint8_t *source)
+{
+    return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
+           ((uint32_t)source[2] << 8) | source[3];
+}
+
 static void object_handler_write_be16(uint8_t *target, uint16_t value)
 {
     target[0] = (uint8_t)(value >> 8);
@@ -41,7 +49,8 @@ static void object_handler_write_be16(uint8_t *target, uint16_t value)
 }
 
 int object_handler_update_single_player(
-    ObjectRuntime *objects, LevelDynamicState *dynamic_level, const GameLink *game_link,
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    MechanismRuntime *mechanism_runtime, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
     uint32_t *out_collected_count, char *error, size_t error_size)
@@ -49,7 +58,8 @@ int object_handler_update_single_player(
     const LevelRuntime *level;
     uint32_t collected_count = 0u;
 
-    if (!objects || !dynamic_level || !game_link || !player || !inventory || !limits ||
+    if (!objects || !dynamic_level || !mechanism_runtime || !game_link || !player ||
+        !inventory || !limits ||
         objects->active_slot_count > objects->slot_count ||
         player->zone_index >= dynamic_level->runtime.zone_count) {
         object_handler_set_error(error, error_size,
@@ -73,6 +83,16 @@ int object_handler_update_single_player(
         }
         object_handler_write_be16(slot + OBJECT_SLOT_ENTITY_ZONE_ID,
                                   object_handler_read_be16(slot + OBJECT_SLOT_ZONE_ID));
+        if ((int8_t)slot[OBJECT_SLOT_TYPE_ID] < (int8_t)OBJECT_TYPE_OBJECT) {
+            /* newanims.s:ObjectHandler:JUMPALIEN's lock preamble. */
+            if (slot[OBJECT_SLOT_ENTITY_HIT_POINTS] != 0u) {
+                mechanism_runtime->door_and_lift_locks |=
+                    (uint16_t)object_handler_read_be32(
+                        slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD);
+            }
+            /* TODO(port): newanims.s:ItsAnAlien. */
+            continue;
+        }
         if (slot[OBJECT_SLOT_TYPE_ID] == OBJECT_TYPE_PROJECTILE) {
             uint8_t popping = slot[30u];
 
@@ -118,7 +138,6 @@ int object_handler_update_single_player(
                                                 &definition, error, error_size)) {
             return 0;
         }
-        /* TODO(port): newanims.s:ObjectHandler alien path. */
     }
     if (out_collected_count) {
         *out_collected_count = collected_count;

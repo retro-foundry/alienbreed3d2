@@ -1756,7 +1756,7 @@ int main(int argc, char **argv)
                 }
                 activatable_player.tmp_used = UINT8_MAX;
                 if (!object_handler_update_single_player(
-                        &game.object_runtime, &game.dynamic_level,
+                        &game.object_runtime, &game.dynamic_level, &game.mechanism_runtime,
                         &game.game_link_catalog, &activatable_player,
                         &activatable_inventory, &game.inventory_limits, 1u,
                         NULL, error, sizeof(error)) ||
@@ -1814,6 +1814,7 @@ int main(int argc, char **argv)
                         (int16_t)passive_frame.signed_byte_4 * 2;
                     if (!object_handler_update_single_player(
                             &game.object_runtime, &game.dynamic_level,
+                            &game.mechanism_runtime,
                             &game.game_link_catalog, &game.player,
                             &game.session.player1_inventory, &game.inventory_limits, 1u,
                             NULL, error, sizeof(error)) ||
@@ -1852,6 +1853,7 @@ int main(int argc, char **argv)
                         (int16_t)passive_frame.signed_byte_4 * 2;
                     if (!object_handler_update_single_player(
                             &game.object_runtime, &game.dynamic_level,
+                            &game.mechanism_runtime,
                             &game.game_link_catalog, &game.player,
                             &game.session.player1_inventory, &game.inventory_limits, 1u,
                             NULL, error, sizeof(error)) ||
@@ -3418,7 +3420,8 @@ int main(int argc, char **argv)
         }
         slot_bytes[52u] = 0u;
         if (!object_handler_update_single_player(
-                &projectile_objects, &game.dynamic_level, &game.game_link_catalog,
+                &projectile_objects, &game.dynamic_level, &game.mechanism_runtime,
+                &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             slot_bytes[52u] != ((int16_t)(uint16_t)projectile_bullet.animation_frames < 1 ?
@@ -3675,6 +3678,46 @@ int main(int argc, char **argv)
                 projectile_bullet_index, &projectile_bullet, 1u, 0,
                 &spawned_count, error, sizeof(error)) || spawned_count != 0u) {
             fprintf(stderr, "firefive source projectile pool exhaustion is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* ObjectHandler:JUMPALIEN ORs a living entity's held door/lift mask first. */
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime lock_objects = {0};
+        MechanismRuntime lock_runtime;
+
+        lock_objects.slot_bytes = slot_bytes;
+        lock_objects.slot_count = 2u;
+        lock_objects.active_slot_count = 2u;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 12u, 0u);
+        slot_bytes[16u] = 0u;
+        slot_bytes[18u] = UINT8_MAX;
+        write_be32(slot_bytes + 50u, 0x00000005u);
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        mechanism_runtime_init(&lock_runtime);
+        lock_runtime.door_and_lift_locks = 0x0002u;
+        if (!object_handler_update_single_player(
+                &lock_objects, &game.dynamic_level, &lock_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            lock_runtime.door_and_lift_locks != 0x0007u ||
+            read_be16(slot_bytes + 26u) != 0u) {
+            fprintf(stderr, "ObjectHandler alien lock preamble is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        slot_bytes[18u] = 0u;
+        lock_runtime.door_and_lift_locks = 0u;
+        if (!object_handler_update_single_player(
+                &lock_objects, &game.dynamic_level, &lock_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            lock_runtime.door_and_lift_locks != 0u) {
+            fprintf(stderr, "ObjectHandler dead alien lock suppression is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;

@@ -305,7 +305,7 @@ authority for all game behavior and data formats.
   update. Its trailing `DoWaterAnims` pass now follows the source's 21
   controller records after the lift `999` marker, including motion-bound
   reversal and every authored graphics/`ZoneT_Water_l` target; it neither
-  renders pixels nor requires PVS. Dynamic `Obj_DoCollision`,
+  renders pixels nor requires PVS.
   `src/object_activatables.*` ports the `ItsAnObject`/`Activatable` subset:
   source floor/ceiling placement, default/action six-byte frame records,
   player collision, operate-to-toggle state, active timeout, and inventory
@@ -314,10 +314,9 @@ authority for all game behavior and data formats.
   worry-gated decoration placement/default animation. It deliberately leaves
   object locks, destructible narrative messages, and AI worry selection out
   of scope until their owning systems exist. Dynamic `Obj_DoCollision`,
-  switches, enemies, moving projectiles, and sounds remain absent until their
-  owning routines are ported. Active source object render descriptors are
-  emitted; the only projectile update is the source's non-moving hitscan-
-  impact pop state, so no movement behaviour is inferred.
+  switches, enemies, and sounds remain absent until their owning routines are
+  ported. Active source object render descriptors are emitted; live projectile
+  movement and the stationary hitscan-impact pop state are source-backed.
   `SceneCamera.look_offset` now carries
   the source small-screen look value for the future GPU backend. Walls, floors,
   ceilings, and water continue to submit source-defined material and geometry
@@ -503,6 +502,9 @@ preserves `newanims.s:ObjectHandler`'s `ObjT` iteration order, terminator, and
 activatable, destructible, and decoration branches. The destructible/decorative
 path has no inferred AI worry, narrative, or lock behavior; the projectile
 dispatch is now present while alien dispatch remains unported.
+Its living type-zero preamble now also accumulates the source
+`EntT_DoorsAndLiftsHeld_l` mask into the door/lift runtime before its later
+door update; it intentionally stops before `ItsAnAlien`'s unported AI call.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
@@ -534,6 +536,7 @@ the source's object inventory grants and reproduces its inventory-limit helpers,
 owns byte-exact mutable `ObjT`/object-point storage, and applies the translated
 collectable, bounded activatable, destructible, and decoration paths in
 `ObjectHandler`'s source slot order. This does not port PVS/worry selection,
-locks, narrative audio/messages, alien behaviour, or projectile flight. The
+full lock behaviour, narrative audio/messages, alien behaviour, or projectile
+blast/brightness/audio. The
 missing systems must use the maintained source's mutable `ObjT` initialization,
 worry, animation, and update ordering rather than a generalized object update.
