@@ -5,6 +5,7 @@
 #include "alien_decision.h"
 #include "alien_memory.h"
 #include "alien_perception.h"
+#include "alien_spatial.h"
 #include "asset_io.h"
 #include "game_bootstrap.h"
 #include "game_link.h"
@@ -4135,6 +4136,75 @@ int main(int argc, char **argv)
                 error, sizeof(error)) ||
             can_attack != 0u) {
             fprintf(stderr, "ai_CheckAttackOnGround non-arrival source path is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_GetRoomStats[Still]/ai_GetRoomCPT retain alien spatial state. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime spatial_objects = {0};
+        LevelZone spatial_zone;
+        int32_t thing_height = 513;
+        int32_t expected_lower_height;
+        int32_t expected_upper_height;
+
+        if (!level_runtime_get_zone(&game.dynamic_level.runtime, game.player.zone_index,
+                                    &spatial_zone, error, sizeof(error))) {
+            fprintf(stderr, "could not read ai_GetRoomStats source zone: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        spatial_objects.slot_bytes = slot_bytes;
+        spatial_objects.slot_count = 1u;
+        spatial_objects.active_slot_count = 1u;
+        spatial_objects.point_bytes = point_bytes;
+        spatial_objects.point_count = 1u;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be32(point_bytes + 0u, 0xaaaabbbbu);
+        write_be32(point_bytes + 4u, 0xccccddddu);
+        write_be16(slot_bytes + 12u, UINT16_MAX);
+        write_be16(slot_bytes + 26u, UINT16_MAX);
+        expected_lower_height = source_asr32_7(
+            (int32_t)((uint32_t)spatial_zone.floor -
+                      (uint32_t)source_asr32_count(thing_height, 1u)));
+        expected_upper_height = source_asr32_7(
+            (int32_t)((uint32_t)spatial_zone.upper_floor -
+                      (uint32_t)source_asr32_count(thing_height, 1u)));
+        if (!alien_spatial_store_room_stats(
+                &spatial_objects, 0u, &game.dynamic_level.runtime, game.player.zone_index,
+                0x1234, -2, thing_height, error, sizeof(error)) ||
+            read_be32(point_bytes + 0u) != 0x1234bbbbu ||
+            read_be32(point_bytes + 4u) != 0xfffeddddu ||
+            read_be16(slot_bytes + 12u) != spatial_zone.id ||
+            read_be16(slot_bytes + 26u) != spatial_zone.id ||
+            read_be16(slot_bytes + 4u) != (uint16_t)expected_lower_height) {
+            fprintf(stderr, "ai_GetRoomStats lower source state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (!alien_spatial_store_current_control_point(
+                &spatial_objects, 0u, &game.dynamic_level.runtime, game.player.zone_index,
+                error, sizeof(error)) ||
+            read_be16(slot_bytes + 28u) != (spatial_zone.control_point >> 8u)) {
+            fprintf(stderr, "ai_GetRoomCPT lower source state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        slot_bytes[63u] = UINT8_MAX;
+        if (!alien_spatial_store_room_stats_still(
+                &spatial_objects, 0u, &game.dynamic_level.runtime, game.player.zone_index,
+                thing_height, error, sizeof(error)) ||
+            read_be32(point_bytes + 0u) != 0x1234bbbbu ||
+            read_be32(point_bytes + 4u) != 0xfffeddddu ||
+            read_be16(slot_bytes + 4u) != (uint16_t)expected_upper_height ||
+            !alien_spatial_store_current_control_point(
+                &spatial_objects, 0u, &game.dynamic_level.runtime, game.player.zone_index,
+                error, sizeof(error)) ||
+            read_be16(slot_bytes + 28u) != (spatial_zone.control_point & 0x00ffu)) {
+            fprintf(stderr, "ai_GetRoomStats/ai_GetRoomCPT upper source state is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;

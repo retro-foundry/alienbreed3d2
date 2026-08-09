@@ -567,6 +567,10 @@ and `Plr1_Tmp*` projection test, plus its grounded `GetNextCPt` walk-map
 arrival test (including the deliberately ignored `ONLYSEE` result).  They do
 not select a mode, move an alien, or activate a target outside their eventual
 source callers.
+`modules/ai.s:ai_GetRoomStats`, `ai_GetRoomStatsStill`, and `ai_GetRoomCPT`
+are also available for those callers. They preserve high-word-only Vec2L
+position writes, source floor/upper-floor centring, and current-control-point
+selection without assuming a movement mode or alien-definition setup.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
