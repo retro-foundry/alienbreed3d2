@@ -591,8 +591,13 @@ signed range/speed handling, `GotThere` byte, and four-step `bigsine` heading
 search. It is prepared for the source AI modes but is not invoked out of order.
 `newaliencontrol.s:ViewpointToDraw` is likewise available as the exact
 four-facing-frame selector for an object angle relative to the player camera.
-It does not project or draw pixels, and waits for `ai_DoWalkAnim` to own its
-frame selection and auxiliary-object state.
+It does not project or draw pixels. `modules/ai.s:ai_DoWalkAnim` and its
+`ai_DoAttackAnim` alias now consume that selection, the VBlank object workspace,
+the configured `AlienT` data, and the preceding auxiliary `ObjT` slot exactly:
+they publish the transient action/finished/facing values and source display
+descriptors without drawing pixels. This helper remains uncalled until a
+complete translated AI mode owns those transient results; it does not turn on
+partial alien dispatch.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,

@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "alien_runtime.h"
+#include "alien_animation.h"
 #include "alien_decision.h"
 #include "alien_flight.h"
 #include "alien_memory.h"
@@ -4568,6 +4569,177 @@ int main(int argc, char **argv)
             read_be16(slot_bytes + 40u) != 0u ||
             animation_random.state != expected_animation_random.state) {
             fprintf(stderr, "DOALLANIMS end-frame special is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_DoWalkAnim consumes one authored alien/auxiliary frame. */
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime animation_objects = {0};
+        ObjectAnimationRuntime animation_runtime;
+        AlienSetup animation_setup = {0};
+        AlienAnimationState animation_state;
+        GameAlienDefinition alien_definition;
+        GameAlienAnimationFrame alien_frame;
+        GameObjectDefinition auxiliary_definition;
+        GameObjectAnimationFrame auxiliary_frame;
+        uint16_t selected_alien = UINT16_MAX;
+        uint16_t selected_option = UINT16_MAX;
+        uint16_t selected_frame = UINT16_MAX;
+
+        for (uint16_t alien_index = 0u;
+             alien_index < GAME_LINK_ALIEN_COUNT && selected_alien == UINT16_MAX;
+             ++alien_index) {
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &alien_definition, error, sizeof(error)) ||
+                (int16_t)alien_definition.auxiliary_type < 0 ||
+                (int16_t)alien_definition.auxiliary_type >= GAME_LINK_OBJECT_COUNT) {
+                continue;
+            }
+            for (uint16_t option_index = 1u;
+                 option_index < GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT &&
+                 selected_alien == UINT16_MAX;
+                 ++option_index) {
+                for (uint16_t frame_index = 0u;
+                     frame_index < GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT;
+                     ++frame_index) {
+                    if (!game_link_get_alien_animation_frame(
+                            &game.game_link_catalog, alien_index, option_index, frame_index,
+                            &alien_frame, error, sizeof(error))) {
+                        fprintf(stderr, "could not read ai_DoWalkAnim source frame: %s\n", error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    if ((int8_t)alien_frame.bytes[8u] < 0 || alien_frame.bytes[8u] >=
+                        GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT ||
+                        !game_link_get_object_definition(
+                            &game.game_link_catalog, (uint16_t)alien_definition.auxiliary_type,
+                            &auxiliary_definition, error, sizeof(error)) ||
+                        !game_link_get_object_animation_frame(
+                            &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                            (uint16_t)alien_definition.auxiliary_type, alien_frame.bytes[8u],
+                            &auxiliary_frame, error, sizeof(error))) {
+                        continue;
+                    }
+                    selected_alien = alien_index;
+                    selected_option = option_index;
+                    selected_frame = frame_index;
+                    break;
+                }
+            }
+        }
+        if (selected_alien == UINT16_MAX ||
+            !game_link_get_alien_definition(&game.game_link_catalog, selected_alien,
+                                            &alien_definition, error, sizeof(error)) ||
+            !game_link_get_alien_animation_frame(
+                &game.game_link_catalog, selected_alien, selected_option, selected_frame,
+                &alien_frame, error, sizeof(error)) ||
+            !game_link_get_object_definition(
+                &game.game_link_catalog, (uint16_t)alien_definition.auxiliary_type,
+                &auxiliary_definition, error, sizeof(error)) ||
+            !game_link_get_object_animation_frame(
+                &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                (uint16_t)alien_definition.auxiliary_type, alien_frame.bytes[8u],
+                &auxiliary_frame, error, sizeof(error))) {
+            fprintf(stderr, "could not establish ai_DoWalkAnim auxiliary source fixture: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        animation_objects.slot_bytes = slot_bytes;
+        animation_objects.slot_count = 2u;
+        animation_objects.active_slot_count = 2u;
+        write_be16(slot_bytes + 0u, 3u);
+        write_be16(slot_bytes + 12u, UINT16_MAX);
+        write_be16(slot_bytes + 64u + 0u, 4u);
+        write_be16(slot_bytes + 64u + 4u, 0x1234u);
+        write_be16(slot_bytes + 64u + 12u, 7u);
+        write_be16(slot_bytes + 64u + 26u, 7u);
+        write_be16(slot_bytes + 64u + 30u, 2048u);
+        write_be16(slot_bytes + 64u + 40u, selected_frame);
+        slot_bytes[64u + 63u] = UINT8_MAX;
+        object_animation_runtime_init(&animation_runtime);
+        animation_runtime.workspace[1u][0u] = 3u;
+        animation_runtime.workspace[1u][1u] = (uint8_t)selected_frame;
+        animation_runtime.workspace[1u][2u] = (uint8_t)selected_option;
+        animation_runtime.workspace[1u][3u] = UINT8_MAX;
+        animation_setup.alien_type = selected_alien;
+        animation_setup.auxiliary_object_type = (int16_t)alien_definition.auxiliary_type;
+        animation_setup.vector_object_flag = (uint8_t)alien_definition.graphics_type;
+        if (!alien_animation_update_walk_or_attack(
+                &animation_objects, 1u, &animation_runtime, &game.game_link_catalog,
+                &game.math, &animation_setup, 0u, &animation_state, error, sizeof(error)) ||
+            animation_state.action != 3u || animation_state.finished != UINT8_MAX ||
+            animation_runtime.workspace[1u][0u] != 0u ||
+            animation_runtime.workspace[1u][1u] != UINT8_MAX ||
+            animation_runtime.workspace[1u][3u] != 0u ||
+            slot_bytes[64u + 9u] != alien_frame.bytes[0u] ||
+            slot_bytes[64u + 11u] !=
+                (uint8_t)((int16_t)((int8_t)alien_frame.bytes[1u] > 0 ?
+                    (int8_t)alien_frame.bytes[1u] : -(int16_t)(int8_t)alien_frame.bytes[1u]) -
+                          1) ||
+            read_be16(slot_bytes + 12u) != 7u ||
+            read_be16(slot_bytes + 26u) != 7u ||
+            read_be16(slot_bytes + 64u + 12u) != 7u ||
+            read_be16(slot_bytes + 64u + 26u) != 7u ||
+            read_be16(slot_bytes + 64u + 4u) != 0x1234u ||
+            slot_bytes[64u + 63u] != UINT8_MAX ||
+            read_be16(slot_bytes + 44u) !=
+                (uint16_t)((int16_t)(int8_t)alien_frame.bytes[9u] * 2) ||
+            read_be16(slot_bytes + 46u) !=
+                (uint16_t)((int16_t)(int8_t)alien_frame.bytes[10u] * 2)) {
+            fprintf(stderr, "ai_DoWalkAnim source state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if ((int8_t)alien_frame.bytes[1u] <= 0) {
+            if (slot_bytes[64u + 10u] != 128u) {
+                fprintf(stderr, "ai_DoWalkAnim flip descriptor is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        } else if (slot_bytes[64u + 10u] !=
+                   ((int8_t)animation_setup.vector_object_flag > 1 ?
+                    animation_setup.vector_object_flag : 0u)) {
+            fprintf(stderr, "ai_DoWalkAnim source effect descriptor is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (animation_setup.vector_object_flag == 1u) {
+            if (read_be16(slot_bytes + 64u + 6u) != UINT16_MAX ||
+                animation_state.facing != read_be16(alien_frame.bytes + 2u)) {
+                fprintf(stderr, "ai_DoWalkAnim vector source descriptor is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        } else if (read_be16(slot_bytes + 64u + 6u) !=
+                   read_be16(alien_frame.bytes + 2u)) {
+            fprintf(stderr, "ai_DoWalkAnim source size descriptor is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if ((int16_t)auxiliary_definition.graphics_type < 1) {
+            if (slot_bytes[9u] != auxiliary_frame.byte_0 ||
+                slot_bytes[11u] != auxiliary_frame.byte_1 ||
+                read_be16(slot_bytes + 6u) != auxiliary_frame.word_2) {
+                fprintf(stderr, "ai_DoWalkAnim bitmap auxiliary is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        } else if ((int16_t)auxiliary_definition.graphics_type == 1) {
+            if (slot_bytes[9u] != auxiliary_frame.byte_0 ||
+                slot_bytes[11u] != auxiliary_frame.byte_1 ||
+                read_be16(slot_bytes + 6u) != UINT16_MAX) {
+                fprintf(stderr, "ai_DoWalkAnim vector auxiliary is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        } else if (read_be16(slot_bytes + 8u) !=
+                   (uint16_t)(int16_t)-(int16_t)(int8_t)auxiliary_frame.byte_0 ||
+                   slot_bytes[11u] != auxiliary_frame.byte_1 ||
+                   read_be16(slot_bytes + 6u) != auxiliary_frame.word_2) {
+            fprintf(stderr, "ai_DoWalkAnim glare auxiliary is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }
