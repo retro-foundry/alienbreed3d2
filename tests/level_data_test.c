@@ -3,6 +3,7 @@
 
 #include "alien_runtime.h"
 #include "alien_memory.h"
+#include "alien_perception.h"
 #include "asset_io.h"
 #include "game_bootstrap.h"
 #include "game_link.h"
@@ -4044,6 +4045,44 @@ int main(int argc, char **argv)
                 (int16_t)expected_upper_control_point ||
             memory_alien_runtime.team_workspace[2u][4u] != 17) {
             fprintf(stderr, "ai_StorePlayerPosition upper-zone state is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:AI_LookForPlayer1 clears then writes a literal one on sight. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime perception_objects = {0};
+        PlayerRuntime perception_player = game.player;
+
+        perception_objects.slot_bytes = slot_bytes;
+        perception_objects.slot_count = 1u;
+        perception_objects.active_slot_count = 1u;
+        perception_player.x = 100;
+        perception_player.z = 200;
+        perception_player.y = 3 * 128;
+        perception_player.stood_in_top = 0u;
+        slot_bytes[17u] = UINT8_MAX;
+        write_be16(slot_bytes + 4u, 3u);
+        if (!alien_perception_look_for_player_one(
+                &perception_objects, 0u, &game.dynamic_level.runtime, &game.level_clips,
+                &perception_player, perception_player.zone_index, 90, 190,
+                error, sizeof(error)) ||
+            slot_bytes[17u] != 1u) {
+            fprintf(stderr, "AI_LookForPlayer1 visible source state is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        perception_player.stood_in_top = UINT8_MAX;
+        slot_bytes[17u] = UINT8_MAX;
+        if (!alien_perception_look_for_player_one(
+                &perception_objects, 0u, &game.dynamic_level.runtime, &game.level_clips,
+                &perception_player, perception_player.zone_index, 90, 190,
+                error, sizeof(error)) ||
+            slot_bytes[17u] != 0u) {
+            fprintf(stderr, "AI_LookForPlayer1 upper-zone rejection is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;

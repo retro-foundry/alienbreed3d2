@@ -233,6 +233,13 @@ authority for all game behavior and data formats.
   It is intentionally not called outside the source AI branches that have
   already established sight; `AI_LookForPlayer1` and the mode state machine
   remain to be translated rather than replaced by a global visibility pass.
+- [x] `src/alien_perception.*` now translates
+  `modules/ai.s:AI_LookForPlayer1`: it clears `ObjT_SeePlayer_b`, passes the
+  source caller-owned `newx`/`newz`, ObjT vertical/upper-zone state, and
+  source player words to the already translated gameplay-only
+  `objectmove.s:CanItBeSeen`, then writes the source literal one on sight.
+  It remains uncalled until the owning AI mode paths provide their exact
+  `newx`/`newz` update context.
 - [x] `src/level_runtime.*` exposes the source `ZoneT+48` signed-terminated
   `PVST` records for gameplay-only consumers. Every record and target is
   validated across all A-P levels. `src/object_visibility.*` now directly
@@ -551,6 +558,9 @@ spawn auxiliaries, or replace the still-unported animation sound event.
 `modules/ai.s:ai_StorePlayerPosition` is also available as a direct helper for
 the future source sight branches; it has not been invoked out of order merely
 to activate teams.
+`modules/ai.s:AI_LookForPlayer1` is likewise available through the existing
+source PVST/clip gameplay query, but waits for the AI branches that own its
+caller-provided position words.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
