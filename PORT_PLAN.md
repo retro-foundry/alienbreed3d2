@@ -65,6 +65,12 @@ authority for all game behavior and data formats.
   `KeyMap_vb`/one-shot `lastpressed` state; player control consumption remains
   pending. Persisting either preference family and host-side `boot.dat` slots
   remain pending.
+- [ ] Source save/load slots remain intentionally unavailable: the staged
+  authoritative media has no `ab3:boot.dat`, while `game_LoadPosition` and
+  `game_SavePosition` require and rewrite its complete six-record payload.
+  Do not synthesize default slots. This step can proceed only with an original
+  `boot.dat` template or an explicit decision to introduce a separately
+  versioned native save format.
 - [x] `src/level_runtime.*` resolves the `Game_Begin` TLBT/TLGT table bases,
   including the source's byte-16 `ZoneT` offset table and per-zone draw-graph
   offset table, plus every `ZoneT` in all campaign levels into endian-safe
