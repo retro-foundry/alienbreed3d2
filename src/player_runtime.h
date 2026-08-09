@@ -7,6 +7,7 @@
 #include "game_input.h"
 #include "game_math.h"
 #include "game_preferences.h"
+#include "level_dynamic_state.h"
 #include "level_runtime.h"
 
 /* Single-player subset of modules/player.s:Plr_Initialise. */
@@ -46,6 +47,8 @@ typedef struct {
     uint8_t squished;
     uint8_t stood_in_top;
     uint8_t used;
+    /* hires.s snapshots Used_b to Plr1_TmpSpcTap then clears Used_b each tick. */
+    uint8_t tmp_used;
     uint8_t fire;
     uint8_t clicked;
     uint8_t previous_use_key_state;
@@ -80,6 +83,7 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
                                   const GamePreferences *preferences,
                                   const GameMath *math,
                                   const LevelRuntime *runtime,
+                                  LevelDynamicState *dynamic_state,
                                   char *error, size_t error_size);
 
 #endif

@@ -28,4 +28,10 @@ int level_dynamic_state_get_level_range(LevelDynamicState *state, uint32_t offse
 int level_dynamic_state_get_graphics_range(LevelDynamicState *state, uint32_t offset,
                                            size_t length, uint8_t **out_bytes);
 
+/* EdgeT_Flags_w is the source's per-edge collision/event signal word. */
+int level_dynamic_state_get_edge_flags(const LevelDynamicState *state, uint32_t edge_index,
+                                       uint16_t *out_flags);
+int level_dynamic_state_or_edge_flags(LevelDynamicState *state, uint32_t edge_index,
+                                      uint16_t flags);
+
 #endif

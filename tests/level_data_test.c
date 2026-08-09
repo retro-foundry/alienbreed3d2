@@ -1136,6 +1136,8 @@ int main(int argc, char **argv)
             uint8_t *dynamic_graphics_byte;
             uint8_t original_level_byte;
             uint8_t original_graphics_byte;
+            uint16_t original_edge_flags;
+            uint16_t changed_edge_flags;
 
             if (game.object_runtime.active_slot_count != game.level_runtime.object_record_count ||
                 game.object_runtime.slot_count != game.level_runtime.object_record_count + 1u ||
@@ -1208,6 +1210,26 @@ int main(int argc, char **argv)
             }
             *dynamic_level_byte = original_level_byte;
             *dynamic_graphics_byte = original_graphics_byte;
+            if (game.level_runtime.edge_count != 0u &&
+                (!level_dynamic_state_get_edge_flags(&game.dynamic_level, 0u,
+                                                     &original_edge_flags) ||
+                 !level_dynamic_state_or_edge_flags(&game.dynamic_level, 0u, 0x0100u) ||
+                 !level_dynamic_state_get_edge_flags(&game.dynamic_level, 0u,
+                                                     &changed_edge_flags) ||
+                 changed_edge_flags != (uint16_t)(original_edge_flags | 0x0100u) ||
+                 !level_dynamic_state_get_level_range(
+                     &game.dynamic_level,
+                     game.dynamic_level.runtime.edge_table_offset + 14u, 2u,
+                     &dynamic_level_byte))) {
+                fprintf(stderr, "campaign level %u dynamic EdgeT flags are invalid\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (game.level_runtime.edge_count != 0u) {
+                dynamic_level_byte[0] = (uint8_t)(original_edge_flags >> 8);
+                dynamic_level_byte[1] = (uint8_t)original_edge_flags;
+            }
         }
         for (uint8_t current_control_point = 0u;
              current_control_point < LEVEL_NAVIGATION_CONTROL_POINT_LIMIT;
@@ -1774,6 +1796,28 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
+    {
+        PlayerRuntime use_snapshot_player = game.player;
+        GameInput use_snapshot_input;
+
+        game_input_init(&use_snapshot_input);
+        if (!game_input_set_raw_key(
+                &use_snapshot_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_OPERATE], 1,
+                error, sizeof(error)) ||
+            !player_runtime_update_discrete_controls(&use_snapshot_player,
+                                                     &use_snapshot_input, &control_defaults,
+                                                     &game.level_runtime, error,
+                                                     sizeof(error)) ||
+            !player_runtime_update_spatial(&use_snapshot_player, &use_snapshot_input,
+                                           &control_defaults, &game.preferences, &game.math,
+                                           &game.level_runtime, NULL, error, sizeof(error)) ||
+            use_snapshot_player.tmp_used != UINT8_MAX || use_snapshot_player.used != 0u) {
+            fprintf(stderr, "source operate pulse snapshot is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
     /*
      * modules/player.s:plr_KeyboardControl then Plr1_Fall, followed by
      * hires.s:Plr1_Control/MoveObject.  The first grounded tick enables
@@ -1794,13 +1838,13 @@ int main(int argc, char **argv)
                                                  error, sizeof(error)) ||
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,
-                                       error, sizeof(error)) ||
+                                       NULL, error, sizeof(error)) ||
         !player_runtime_update_discrete_controls(&controlled_player, &control_input,
                                                  &control_defaults, &game.level_runtime,
                                                  error, sizeof(error)) ||
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,
-                                       error, sizeof(error)) ||
+                                       NULL, error, sizeof(error)) ||
         controlled_player.decelerate == 0u ||
         controlled_player.snap_yaw_speed == 0 ||
         controlled_player.snap_z_speed == 0) {
@@ -1822,7 +1866,7 @@ int main(int argc, char **argv)
                                                  error, sizeof(error)) ||
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,
-                                       error, sizeof(error)) ||
+                                       NULL, error, sizeof(error)) ||
         controlled_player.look_offset != -4 || controlled_player.aim_speed != -512 ||
         !game_input_set_raw_key(&control_input,
                                 control_defaults.assigned_raw_keys[GAME_CONTROL_LOOK_UP], 0,
@@ -1835,7 +1879,7 @@ int main(int argc, char **argv)
                                                  error, sizeof(error)) ||
         !player_runtime_update_spatial(&controlled_player, &control_input, &control_defaults,
                                        &game.preferences, &game.math, &game.level_runtime,
-                                       error, sizeof(error)) ||
+                                       NULL, error, sizeof(error)) ||
         controlled_player.look_offset != 0 || controlled_player.aim_speed != 0) {
         fprintf(stderr, "source player keyboard look state is inconsistent: %s\n", error);
         game_bootstrap_destroy(&game);

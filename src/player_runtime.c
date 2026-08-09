@@ -93,7 +93,7 @@ static int player_runtime_divs16(int32_t dividend, int16_t divisor, int16_t *out
 
 static int player_runtime_get_edge(const LevelRuntime *runtime, uint16_t zone_index,
                                    uint32_t list_index, int extended, LevelEdge *out_edge,
-                                   char *error, size_t error_size)
+                                   uint32_t *out_edge_index, char *error, size_t error_size)
 {
     uint32_t edge_index = 0u;
 
@@ -105,7 +105,13 @@ static int player_runtime_get_edge(const LevelRuntime *runtime, uint16_t zone_in
                                             &edge_index, error, error_size))) {
         return 0;
     }
-    return level_runtime_get_edge(runtime, edge_index, out_edge, error, error_size);
+    if (!level_runtime_get_edge(runtime, edge_index, out_edge, error, error_size)) {
+        return 0;
+    }
+    if (out_edge_index) {
+        *out_edge_index = edge_index;
+    }
+    return 1;
 }
 
 static int player_runtime_edge_vertical_passable(int32_t crossing_y, int32_t thing_height,
@@ -223,6 +229,7 @@ static int player_runtime_primary_edge_hit(const LevelRuntime *runtime, const Le
                                    error, error_size)) {
             return 0;
         }
+        *out_hit = 1;
         return 1;
     }
     if (!player_runtime_divs16(cross, denominator, &crossing_distance,
@@ -485,6 +492,7 @@ static int player_runtime_move_static(const LevelRuntime *runtime, uint16_t *io_
                                       uint8_t *io_stood_in_top, int16_t old_x, int16_t old_z,
                                       int32_t old_y, int32_t new_y, int32_t thing_height,
                                       int32_t step_up, int16_t *io_new_x, int16_t *io_new_z,
+                                      LevelDynamicState *dynamic_state,
                                       char *error, size_t error_size)
 {
     uint16_t backup_zone = *io_zone_index;
@@ -502,13 +510,20 @@ static int player_runtime_move_static(const LevelRuntime *runtime, uint16_t *io_
         }
         for (uint32_t edge_list_index = 0u; edge_list_index < edge_count; ++edge_list_index) {
             LevelEdge edge;
+            uint32_t edge_index;
             int hit;
 
             if (!player_runtime_get_edge(runtime, *io_zone_index, edge_list_index, 0, &edge,
-                                         error, error_size) ||
+                                         &edge_index, error, error_size) ||
                 !player_runtime_primary_edge_hit(runtime, &edge, old_x, old_z, *io_new_x,
                                                  *io_new_z, old_y, new_y, thing_height, step_up,
                                                  io_new_x, io_new_z, &hit, error, error_size)) {
+                return 0;
+            }
+            if (hit != 0 && dynamic_state != NULL &&
+                !level_dynamic_state_or_edge_flags(dynamic_state, edge_index, 0x0100u)) {
+                player_runtime_set_error(error, error_size,
+                                         "failed to record source player edge contact");
                 return 0;
             }
         }
@@ -521,14 +536,21 @@ static int player_runtime_move_static(const LevelRuntime *runtime, uint16_t *io_
         for (uint32_t edge_list_index = 0u;
              edge_list_index < extended_edge_count; ++edge_list_index) {
             LevelEdge edge;
+            uint32_t edge_index;
             int hit;
 
             if (!player_runtime_get_edge(runtime, *io_zone_index, edge_list_index, 1, &edge,
-                                         error, error_size) ||
+                                         &edge_index, error, error_size) ||
                 !player_runtime_extended_edge_hit(runtime, &edge, old_x, old_z, *io_new_x,
                                                   *io_new_z, new_y, thing_height, step_up,
                                                   PLAYER_STEP_DOWN, io_new_x, io_new_z, &hit,
                                                   error, error_size)) {
+                return 0;
+            }
+            if (hit != 0 && dynamic_state != NULL &&
+                !level_dynamic_state_or_edge_flags(dynamic_state, edge_index, 0x0100u)) {
+                player_runtime_set_error(error, error_size,
+                                         "failed to record source player edge contact");
                 return 0;
             }
         }
@@ -550,7 +572,7 @@ static int player_runtime_move_static(const LevelRuntime *runtime, uint16_t *io_
             int32_t crossing_y;
 
             if (!player_runtime_get_edge(runtime, *io_zone_index, edge_list_index, 0, &edge,
-                                         error, error_size)) {
+                                         NULL, error, error_size)) {
                 return 0;
             }
             if (edge.join_zone_id < 0) {
@@ -851,6 +873,7 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
                                   const GamePreferences *preferences,
                                   const GameMath *math,
                                   const LevelRuntime *runtime,
+                                  LevelDynamicState *dynamic_state,
                                   char *error, size_t error_size)
 {
     LevelZone zone;
@@ -870,6 +893,13 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
                                  "spatial player update received invalid source state");
         return 0;
     }
+    if (dynamic_state != NULL &&
+        (dynamic_state->runtime.level_bytes != runtime->level_bytes ||
+         dynamic_state->runtime.graphics_bytes != runtime->graphics_bytes)) {
+        player_runtime_set_error(error, error_size,
+                                 "spatial update received a different mutable source level");
+        return 0;
+    }
     player_runtime_update_keyboard_look(player, input, controls);
     if (!player_runtime_update_keyboard_motion(player, input, controls, preferences, math,
                                                error, error_size) ||
@@ -883,6 +913,8 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
     player->tmp_y = player->snap_y;
     player->tmp_z = player->snap_z;
     player->tmp_height = player->snap_height;
+    player->tmp_used = player->used;
+    player->used = 0u;
 
     old_x = player_runtime_low_word(player->x);
     old_z = player_runtime_low_word(player->z);
@@ -929,7 +961,7 @@ int player_runtime_update_spatial(PlayerRuntime *player, const GameInput *input,
 
     if (!player_runtime_move_static(runtime, &player->zone_index, &player->stood_in_top,
                                     old_x, old_z, visual_y, visual_y, thing_height, step_up,
-                                    &new_x, &new_z, error, error_size) ||
+                                    &new_x, &new_z, dynamic_state, error, error_size) ||
         !level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
         return 0;
     }

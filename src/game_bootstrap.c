@@ -217,7 +217,8 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
                                                  error, error_size) ||
         !player_runtime_update_spatial(&game->player, &game->input, &game->controls,
                                        &game->preferences, &game->math,
-                                       &game->dynamic_level.runtime, error, error_size) ||
+                                       &game->dynamic_level.runtime, &game->dynamic_level,
+                                       error, error_size) ||
         !object_collectables_update_single_player(
             &game->object_runtime, &game->dynamic_level.runtime, &game->game_link_catalog,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,

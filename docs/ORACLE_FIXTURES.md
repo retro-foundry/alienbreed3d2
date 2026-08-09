@@ -4,10 +4,15 @@ The original Amiga execution is the authority for movement, collision, falling,
 object updates, projectile updates, timers, and sprite selection. The native
 player's maintained-source keyboard/fall/static-`MoveObject` path is now a
 direct fixed-point translation with a campaign regression. Capture fixtures
-when the original executable becomes available to validate it. Do not port a
-dynamic object, projectile, timer, or sprite routine from source inspection
-alone when its observable state depends on preceding routines or 68000
-register/flag behaviour.
+when the original executable becomes available to validate it independently.
+
+The current port policy permits direct translation from the maintained source
+when a bounded routine's data layout, control flow, and state changes can be
+identified and covered by source-derived regression tests. Preserve the source
+routine/table citation and use its exact named fields and fixed-point rules;
+do not invent behavior to fill gaps. A fixture remains the preferred extra
+check for behavior whose prerequisite state cannot be established from the
+maintained source, but it is not a gate on the dynamic-world milestone.
 
 The sole current exception is the narrow, table-driven Level B collectable
 regression in `src/object_collectables.*`: it reproduces the explicit
@@ -25,7 +30,7 @@ source revision, emulator model/CPU configuration, Kickstart/Workbench inputs,
 and frame timing in every fixture manifest. A fixture without that provenance
 cannot be used as a parity oracle.
 
-## Current local capture gate
+## Current local capture availability
 
 The maintained `hires.s` successfully assembles with the locally installed
 `vasmm68k_mot` when given the existing legacy Amiga include set, so the source
@@ -37,7 +42,7 @@ target/NDK headers. The installed FS-UAE setup contains no AB3D2 executable or
 game boot media to trace.
 
 Do not substitute a binary built with a different compiler or an older source
-archive as an oracle. To unblock capture, provide either:
+archive as an oracle. To enable the optional capture path, provide either:
 
 - a maintained-source `tkg_dev_<cpu>` executable plus the corresponding Amiga
   boot/media setup; or

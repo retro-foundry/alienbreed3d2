@@ -180,8 +180,11 @@ authority for all game behavior and data formats.
   `hires.s:Plr1_Control` commits that state through source fixed-point
   arithmetic, teleports, floor/roof transitions, and the primary plus extended
   static `EdgeT` sequences from `objectmove.s:MoveObject`; there is no PVS or
-  portal-rendering dependency. Its `TmpX/Y/Z/Height` snapshot now retains the
-  source game-loop values consumed by the first object interaction path.
+  portal-rendering dependency. Its `TmpX/Y/Z/Height/Used` snapshot now retains
+  the source game-loop values consumed by the first object interaction path,
+  then clears the one-tick use pulse. Static collision also records the source
+  `0x0100` player-contact bit in each mutable `EdgeT_Flags_w`, so mechanism
+  routines can consume that signal rather than a native proximity shortcut.
   Reaching the loaded level's authored `Lvl_ExitZoneID_w` (compared to
   `ZoneT_ID_w`, rather than a native zone-table index) now follows
   `hires.s:game_main_loop` into the direct-mode end-level handoff and preserves
@@ -331,9 +334,10 @@ authority for all game behavior and data formats.
   source comments and tests.
 - Expand asset tests from header validation to all GLFT entries, all 16 levels,
   optional-asset presence, decompressed sizes, and malformed-input failures.
-- For movement, collision, AI, projectile, timer, and visibility work, capture
-  focused emulator-oracle fixtures: input sequence, routine entry/exit,
-  relevant RAM window, and expected native-state result.
+- For movement, collision, AI, projectile, timer, and visibility work, derive
+  focused source-level regressions from the maintained routine, source-named
+  fields, and byte layouts. Emulator-oracle fixtures are valuable additional
+  validation when available, but are not a prerequisite for this port.
 - Validate in layers: asset load, level bootstrap, input-to-control state,
   control-to-simulation state, simulation-to-scene commands, then GPU output.
   Do not use a rendered frame as the only parity check.
@@ -353,30 +357,31 @@ authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
 objects, apply `Obj_DoCollision`, activate doors/lifts/switches, emit sprites,
-and create projectiles. Capture a focused original-runtime oracle fixture for
-each dynamic routine boundary before relying on it for parity. Follow the
-byte-exact capture contract in [`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md):
-at a minimum, record an input sequence, entry/exit RAM window, relevant
-registers/flags, and expected state for:
+and create projectiles. Translate each bounded slice directly from the
+maintained source and add source-derived regressions for its state changes and
+ordering. When an original-runtime fixture becomes available, follow the
+optional byte-exact capture contract in
+[`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md) to add an independent
+parity check. The highest-value optional boundaries are:
 
 - `hires.s:Plr1_Control` through its `Obj_DoCollision` call with active
   dynamic objects;
 - `newanims.s:ObjectHandler` through the object frame consumed by
   `objdrawhires.s:Draw_Objects`.
 
-The milestone is complete only when those fixtures replay against native tests,
-the equivalent single-player routines update source-named state in the same
-order, and resulting object/sprite/HUD commands use source asset IDs and frame
-records. No PVS, portal traversal, software framebuffer, or multiplayer state
-is required for that work.
+The milestone is complete when the equivalent single-player routines update
+source-named state in the same order, direct source-derived tests cover their
+bounded behavior, and resulting object/sprite/HUD commands use source asset
+IDs and frame records. No PVS, portal traversal, software framebuffer, or
+multiplayer state is required for that work.
 
 The local capture audit is recorded in
-[`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md#current-local-capture-gate).
+[`docs/ORACLE_FIXTURES.md`](docs/ORACLE_FIXTURES.md#current-local-capture-availability).
 The maintained assembly source can be assembled, but the source-faithful debug
 executable cannot yet be built or run with the locally available GCC/SDI and
-Amiga boot-media prerequisites. This is an evidence-collection dependency for
-the remaining dynamic-object work, not permission to infer behavior or use an
-older binary as an oracle.
+Amiga boot-media prerequisites. This leaves an optional independent validation
+path unavailable; it does not block direct, evidence-cited translation from
+the maintained source or justify using an older binary as an oracle.
 
 The immediately preceding preparation step is complete: the runtime decodes
 the source's object inventory grants and reproduces its inventory-limit helpers,
@@ -384,5 +389,6 @@ owns byte-exact mutable `ObjT`/object-point storage, and applies the narrow
 source collectable path for a current-zone/layer candidate. This does not port
 PVS/worry selection, `DEFANIMOBJ`, audio/messages, or any other
 `ObjectHandler` class. Do not generalize the pickup path into a full object
-update until the required `ObjectHandler` fixture establishes mutable `ObjT`
-initialization, worry, animation, and update ordering for the loaded level.
+update until the maintained `ObjectHandler` source establishes the mutable
+`ObjT` initialization, worry, animation, and update ordering for the loaded
+level.
