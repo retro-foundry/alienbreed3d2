@@ -34,7 +34,9 @@ authority for all game behavior and data formats.
   preparation only, not sprite emission or animation. The same layer decodes
   every four-word `ShootT` entry; `DEFAULTGAME` obtains its initial ammunition
   class through that checked source record, without implementing firing or
-  projectiles.
+  projectiles. All 20 42-byte `AlienT` entries are likewise decoded and every
+  loaded alien slot is validated against that catalog, without inferring AI
+  behaviour or updating an alien.
 - [x] Staged `ab3:`, `tkg1:`, `tkg2:`, and `sfx:` resource paths resolve to
   source assets without case-sensitive host assumptions. The `sfx:` entries
   have an exact one-for-one `media/ab3dsfx/samples/` mapping, verified for all

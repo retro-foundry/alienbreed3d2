@@ -101,6 +101,33 @@ static int shoot_definition_matches_source(const GameShootDefinition *definition
         definition->sound_effect == read_be16(source + 6u);
 }
 
+static int alien_definition_matches_source(const GameAlienDefinition *definition,
+                                           const uint8_t *source)
+{
+    return definition && source &&
+        definition->graphics_type == read_be16(source + 0u) &&
+        definition->default_behaviour == read_be16(source + 2u) &&
+        definition->reaction_time == read_be16(source + 4u) &&
+        definition->default_speed == read_be16(source + 6u) &&
+        definition->response_behaviour == read_be16(source + 8u) &&
+        definition->response_speed == read_be16(source + 10u) &&
+        definition->response_timeout == read_be16(source + 12u) &&
+        definition->damage_to_retreat == read_be16(source + 14u) &&
+        definition->damage_to_followup == read_be16(source + 16u) &&
+        definition->followup_behaviour == read_be16(source + 18u) &&
+        definition->followup_speed == read_be16(source + 20u) &&
+        definition->followup_timeout == read_be16(source + 22u) &&
+        definition->retreat_behaviour == read_be16(source + 24u) &&
+        definition->retreat_speed == read_be16(source + 26u) &&
+        definition->retreat_timeout == read_be16(source + 28u) &&
+        definition->bullet_type == read_be16(source + 30u) &&
+        definition->hit_points == read_be16(source + 32u) &&
+        definition->height == read_be16(source + 34u) &&
+        definition->girth == read_be16(source + 36u) &&
+        definition->splat_type == read_be16(source + 38u) &&
+        definition->auxiliary_type == read_be16(source + 40u);
+}
+
 int main(int argc, char **argv)
 {
     AssetBlob level_data = {0};
@@ -114,12 +141,14 @@ int main(int argc, char **argv)
     AssetBlob game_link_blob = {0};
     const uint8_t *table_bytes;
     const uint8_t *shoot_definition_bytes;
+    const uint8_t *alien_definition_bytes;
     const uint8_t *object_definition_bytes;
     const uint8_t *object_default_animation_bytes;
     const uint8_t *object_action_animation_bytes;
     const uint8_t *object_frame_data_bytes;
     size_t table_size;
     size_t shoot_definition_size;
+    size_t alien_definition_size;
     size_t object_definition_size;
     size_t object_default_animation_size;
     size_t object_action_animation_size;
@@ -130,6 +159,7 @@ int main(int argc, char **argv)
     uint16_t object_animation_index;
     uint16_t object_frame_data_index;
     uint16_t shoot_definition_index;
+    uint16_t alien_definition_index;
     int16_t trig_value;
     char text[128];
     uint8_t campaign_record[GAME_SESSION_RECORD_SIZE];
@@ -156,6 +186,7 @@ int main(int argc, char **argv)
     GameObjectAnimationFrame object_animation_frame;
     GameObjectFrameData object_frame_data;
     GameShootDefinition shoot_definition;
+    GameAlienDefinition alien_definition;
     uint32_t zone_edge_count;
     uint32_t zone_edge_index;
     uint32_t world_point_index;
@@ -258,6 +289,10 @@ int main(int argc, char **argv)
                          &shoot_definition_bytes, &shoot_definition_size) ||
         shoot_definition_size != (size_t)GAME_LINK_GUN_COUNT *
                                       GAME_LINK_SHOOT_DEFINITION_SIZE ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_ALIEN_DEFINITIONS,
+                         &alien_definition_bytes, &alien_definition_size) ||
+        alien_definition_size != (size_t)GAME_LINK_ALIEN_COUNT *
+                                      GAME_LINK_ALIEN_DEFINITION_SIZE ||
         !game_link_table(&game_link, GAME_LINK_TABLE_OBJECT_DEFINITIONS,
                          &object_definition_bytes, &object_definition_size) ||
         object_definition_size != (size_t)GAME_LINK_OBJECT_COUNT *
@@ -297,6 +332,21 @@ int main(int argc, char **argv)
         fprintf(stderr, "GLFT catalog parsing is inconsistent: %s\n", error);
         asset_blob_release(&game_link_blob);
         return 1;
+    }
+    for (alien_definition_index = 0u;
+         alien_definition_index < GAME_LINK_ALIEN_COUNT;
+         ++alien_definition_index) {
+        if (!game_link_get_alien_definition(&game_link, alien_definition_index,
+                                            &alien_definition, error, sizeof(error)) ||
+            !alien_definition_matches_source(
+                &alien_definition,
+                alien_definition_bytes + (size_t)alien_definition_index *
+                    GAME_LINK_ALIEN_DEFINITION_SIZE)) {
+            fprintf(stderr, "GLFT alien definition %u is inconsistent: %s\n",
+                    alien_definition_index, error);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
     }
     for (shoot_definition_index = 0u;
          shoot_definition_index < GAME_LINK_GUN_COUNT;
@@ -384,7 +434,9 @@ int main(int argc, char **argv)
         game_link_get_object_frame_data(&game_link, 0u, GAME_LINK_OBJECT_FRAME_DATA_COUNT,
                                         &object_frame_data, error, sizeof(error)) ||
         game_link_get_shoot_definition(&game_link, GAME_LINK_GUN_COUNT,
-                                       &shoot_definition, error, sizeof(error))) {
+                                       &shoot_definition, error, sizeof(error)) ||
+        game_link_get_alien_definition(&game_link, GAME_LINK_ALIEN_COUNT,
+                                       &alien_definition, error, sizeof(error))) {
         fprintf(stderr, "GLFT object-record bounds checks are inconsistent\n");
         asset_blob_release(&game_link_blob);
         return 1;
@@ -1153,7 +1205,11 @@ int main(int argc, char **argv)
                 object_slot.type_id != source[16u] ||
                 object_slot.sees_player != source[17u] ||
                 object_slot.entity_type != source[54u] ||
-                object_slot.which_animation != source[55u]) {
+                object_slot.which_animation != source[55u] ||
+                (object_slot.type_id == 0u &&
+                 object_slot.entity_type >= GAME_LINK_ALIEN_COUNT) ||
+                (object_slot.type_id == 1u &&
+                 object_slot.entity_type >= GAME_LINK_OBJECT_COUNT)) {
                 fprintf(stderr, "campaign level %u object %u is invalid: %s\n",
                         level_index, object_index, error);
                 game_bootstrap_destroy(&game);

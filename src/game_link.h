@@ -19,6 +19,7 @@ typedef struct {
 /* defs.i:ODefT_SizeOf_l and O_FrameStoreSize/O_AnimSize. */
 enum {
     GAME_LINK_SHOOT_DEFINITION_SIZE = 8,
+    GAME_LINK_ALIEN_DEFINITION_SIZE = 42,
     GAME_LINK_OBJECT_DEFINITION_SIZE = 40,
     GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE = 6,
     GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT = 20,
@@ -89,11 +90,37 @@ typedef struct {
     uint16_t sound_effect;
 } GameShootDefinition;
 
+/* defs.i:AlienT, consumed by newaliencontrol.s:ItsAnAlien. */
+typedef struct {
+    uint16_t graphics_type;
+    uint16_t default_behaviour;
+    uint16_t reaction_time;
+    uint16_t default_speed;
+    uint16_t response_behaviour;
+    uint16_t response_speed;
+    uint16_t response_timeout;
+    uint16_t damage_to_retreat;
+    uint16_t damage_to_followup;
+    uint16_t followup_behaviour;
+    uint16_t followup_speed;
+    uint16_t followup_timeout;
+    uint16_t retreat_behaviour;
+    uint16_t retreat_speed;
+    uint16_t retreat_timeout;
+    uint16_t bullet_type;
+    uint16_t hit_points;
+    uint16_t height;
+    uint16_t girth;
+    uint16_t splat_type;
+    uint16_t auxiliary_type;
+} GameAlienDefinition;
+
 enum {
     GAME_LINK_LEVEL_COUNT = 16,
     GAME_LINK_OBJECT_COUNT = 30,
     GAME_LINK_BULLET_COUNT = 20,
     GAME_LINK_GUN_COUNT = 10,
+    GAME_LINK_ALIEN_COUNT = 20,
     GAME_LINK_SFX_COUNT = 64,
     /* modules/res.s:RES_NUM_SFX; the original loader consumes slots 0-58. */
     GAME_LINK_SFX_LOAD_COUNT = 59,
@@ -159,6 +186,9 @@ int game_link_get_object_frame_data(const GameLink *link, uint16_t object_index,
                                     char *error, size_t error_size);
 int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
                                    GameShootDefinition *out_definition,
+                                   char *error, size_t error_size);
+int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
+                                   GameAlienDefinition *out_definition,
                                    char *error, size_t error_size);
 
 /* Fixed 40-byte labels have no NUL terminator in the shipped game link. */

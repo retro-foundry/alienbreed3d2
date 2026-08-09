@@ -34,6 +34,8 @@ first game's software renderer:
   endian-safe read views. Their mode-dependent bytes remain data only: sprites
   are not emitted until the original `ObjectHandler` update sequence has a
   replayable oracle fixture;
+- exposes all 20 `AlienT` records used by `ItsAnAlien` and validates every
+  loaded alien-slot type against that catalog, without starting an AI update;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload) while keeping host save storage
   unported. The default starting ammunition class is read through the checked

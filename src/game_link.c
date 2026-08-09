@@ -16,10 +16,10 @@ enum {
     GLFT_SFX_PATH_SIZE = 60,
     GLFT_BULLET_COUNT = GAME_LINK_BULLET_COUNT,
     GLFT_GUN_COUNT = GAME_LINK_GUN_COUNT,
-    GLFT_ALIEN_COUNT = 20,
+    GLFT_ALIEN_COUNT = GAME_LINK_ALIEN_COUNT,
     GLFT_BULLET_DEFINITION_SIZE = 300,
     GLFT_SHOOT_DEFINITION_SIZE = GAME_LINK_SHOOT_DEFINITION_SIZE,
-    GLFT_ALIEN_DEFINITION_SIZE = 42,
+    GLFT_ALIEN_DEFINITION_SIZE = GAME_LINK_ALIEN_DEFINITION_SIZE,
     GLFT_OBJECT_DEFINITION_SIZE = GAME_LINK_OBJECT_DEFINITION_SIZE,
     GLFT_OBJECT_ANIMATION_SIZE = GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT *
                                  GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE,
@@ -322,6 +322,47 @@ int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
     definition.delay = game_link_read_be16(source + 2u);
     definition.bullet_count = game_link_read_be16(source + 4u);
     definition.sound_effect = game_link_read_be16(source + 6u);
+    *out_definition = definition;
+    return 1;
+}
+
+int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
+                                   GameAlienDefinition *out_definition,
+                                   char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    const uint8_t *source;
+    GameAlienDefinition definition;
+
+    if (!out_definition || alien_index >= GAME_LINK_ALIEN_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_ALIEN_DEFINITIONS, &bytes, &size) ||
+        size != (size_t)GAME_LINK_ALIEN_COUNT * GAME_LINK_ALIEN_DEFINITION_SIZE) {
+        game_link_set_error(error, error_size, "alien definition is outside the GLFT table");
+        return 0;
+    }
+    source = bytes + (size_t)alien_index * GAME_LINK_ALIEN_DEFINITION_SIZE;
+    definition.graphics_type = game_link_read_be16(source + 0u);
+    definition.default_behaviour = game_link_read_be16(source + 2u);
+    definition.reaction_time = game_link_read_be16(source + 4u);
+    definition.default_speed = game_link_read_be16(source + 6u);
+    definition.response_behaviour = game_link_read_be16(source + 8u);
+    definition.response_speed = game_link_read_be16(source + 10u);
+    definition.response_timeout = game_link_read_be16(source + 12u);
+    definition.damage_to_retreat = game_link_read_be16(source + 14u);
+    definition.damage_to_followup = game_link_read_be16(source + 16u);
+    definition.followup_behaviour = game_link_read_be16(source + 18u);
+    definition.followup_speed = game_link_read_be16(source + 20u);
+    definition.followup_timeout = game_link_read_be16(source + 22u);
+    definition.retreat_behaviour = game_link_read_be16(source + 24u);
+    definition.retreat_speed = game_link_read_be16(source + 26u);
+    definition.retreat_timeout = game_link_read_be16(source + 28u);
+    definition.bullet_type = game_link_read_be16(source + 30u);
+    definition.hit_points = game_link_read_be16(source + 32u);
+    definition.height = game_link_read_be16(source + 34u);
+    definition.girth = game_link_read_be16(source + 36u);
+    definition.splat_type = game_link_read_be16(source + 38u);
+    definition.auxiliary_type = game_link_read_be16(source + 40u);
     *out_definition = definition;
     return 1;
 }
