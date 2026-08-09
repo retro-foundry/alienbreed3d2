@@ -467,6 +467,8 @@ int main(int argc, char **argv)
     const uint8_t *table_bytes;
     const uint8_t *shoot_definition_bytes;
     const uint8_t *alien_definition_bytes;
+    const uint8_t *alien_brightness_bytes;
+    const uint8_t *alien_shoot_definition_bytes;
     const uint8_t *alien_animation_bytes;
     const uint8_t *object_definition_bytes;
     const uint8_t *object_default_animation_bytes;
@@ -524,6 +526,7 @@ int main(int argc, char **argv)
     GameObjectAnimationFrame object_animation_frame;
     GameObjectFrameData object_frame_data;
     GameShootDefinition shoot_definition;
+    GameShootDefinition alien_shoot_definition;
     GameAlienDefinition alien_definition;
     GameAlienAnimationFrame alien_animation_frame;
     GameBulletDefinition bullet_definition;
@@ -741,6 +744,12 @@ int main(int argc, char **argv)
                          &alien_definition_bytes, &alien_definition_size) ||
         alien_definition_size != (size_t)GAME_LINK_ALIEN_COUNT *
                                       GAME_LINK_ALIEN_DEFINITION_SIZE ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_ALIEN_BRIGHTNESS,
+                         &alien_brightness_bytes, &table_size) ||
+        table_size != (size_t)GAME_LINK_ALIEN_COUNT * 2u ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_ALIEN_SHOOT_DEFINITIONS,
+                         &alien_shoot_definition_bytes, &table_size) ||
+        table_size != (size_t)GAME_LINK_ALIEN_COUNT * GAME_LINK_SHOOT_DEFINITION_SIZE ||
         !game_link_table(&game_link, GAME_LINK_TABLE_ALIEN_ANIMATIONS,
                          &alien_animation_bytes, &alien_animation_size) ||
         alien_animation_size != (size_t)GAME_LINK_ALIEN_COUNT *
@@ -835,6 +844,17 @@ int main(int argc, char **argv)
          ++alien_definition_index) {
         if (!game_link_get_alien_definition(&game_link, alien_definition_index,
                                             &alien_definition, error, sizeof(error)) ||
+            !game_link_get_alien_brightness(&game_link, alien_definition_index,
+                                            &trig_value, error, sizeof(error)) ||
+            trig_value != (int16_t)read_be16(
+                alien_brightness_bytes + (size_t)alien_definition_index * 2u) ||
+            !game_link_get_alien_shoot_definition(
+                &game_link, alien_definition_index, &alien_shoot_definition,
+                error, sizeof(error)) ||
+            !shoot_definition_matches_source(
+                &alien_shoot_definition,
+                alien_shoot_definition_bytes + (size_t)alien_definition_index *
+                    GAME_LINK_SHOOT_DEFINITION_SIZE) ||
             !alien_definition_matches_source(
                 &alien_definition,
                 alien_definition_bytes + (size_t)alien_definition_index *
@@ -976,6 +996,11 @@ int main(int argc, char **argv)
                                        &shoot_definition, error, sizeof(error)) ||
         game_link_get_alien_definition(&game_link, GAME_LINK_ALIEN_COUNT,
                                        &alien_definition, error, sizeof(error)) ||
+        game_link_get_alien_brightness(&game_link, GAME_LINK_ALIEN_COUNT,
+                                       &trig_value, error, sizeof(error)) ||
+        game_link_get_alien_shoot_definition(&game_link, GAME_LINK_ALIEN_COUNT,
+                                             &alien_shoot_definition,
+                                             error, sizeof(error)) ||
         game_link_get_alien_animation_frame(
             &game_link, 0u, GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT, 0u,
             &alien_animation_frame, error, sizeof(error)) ||

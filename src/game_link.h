@@ -259,6 +259,14 @@ int game_link_get_gun_object_type(const GameLink *link, uint16_t gun_index,
 int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
                                    GameAlienDefinition *out_definition,
                                    char *error, size_t error_size);
+/* newaliencontrol.s:ItsAnAlien negates this source word before ai_DoTorch. */
+int game_link_get_alien_brightness(const GameLink *link, uint16_t alien_index,
+                                   int16_t *out_brightness,
+                                   char *error, size_t error_size);
+/* newaliencontrol.s:ItsAnAlien's source ShootT for alien-fired bullets. */
+int game_link_get_alien_shoot_definition(const GameLink *link, uint16_t alien_index,
+                                         GameShootDefinition *out_definition,
+                                         char *error, size_t error_size);
 int game_link_get_alien_animation_frame(const GameLink *link, uint16_t alien_index,
                                         uint16_t animation_option, uint16_t frame_index,
                                         GameAlienAnimationFrame *out_frame,

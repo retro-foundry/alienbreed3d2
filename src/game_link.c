@@ -396,6 +396,47 @@ int game_link_get_alien_definition(const GameLink *link, uint16_t alien_index,
     return 1;
 }
 
+int game_link_get_alien_brightness(const GameLink *link, uint16_t alien_index,
+                                   int16_t *out_brightness,
+                                   char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+
+    if (!out_brightness || alien_index >= GAME_LINK_ALIEN_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_ALIEN_BRIGHTNESS, &bytes, &size) ||
+        size != (size_t)GAME_LINK_ALIEN_COUNT * 2u) {
+        game_link_set_error(error, error_size, "alien brightness is outside the GLFT table");
+        return 0;
+    }
+    *out_brightness = (int16_t)game_link_read_be16(bytes + (size_t)alien_index * 2u);
+    return 1;
+}
+
+int game_link_get_alien_shoot_definition(const GameLink *link, uint16_t alien_index,
+                                         GameShootDefinition *out_definition,
+                                         char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    const uint8_t *source;
+    GameShootDefinition definition;
+
+    if (!out_definition || alien_index >= GAME_LINK_ALIEN_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_ALIEN_SHOOT_DEFINITIONS, &bytes, &size) ||
+        size != (size_t)GAME_LINK_ALIEN_COUNT * GAME_LINK_SHOOT_DEFINITION_SIZE) {
+        game_link_set_error(error, error_size, "alien shoot definition is outside the GLFT table");
+        return 0;
+    }
+    source = bytes + (size_t)alien_index * GAME_LINK_SHOOT_DEFINITION_SIZE;
+    definition.bullet_type = game_link_read_be16(source + 0u);
+    definition.delay = game_link_read_be16(source + 2u);
+    definition.bullet_count = game_link_read_be16(source + 4u);
+    definition.sound_effect = game_link_read_be16(source + 6u);
+    *out_definition = definition;
+    return 1;
+}
+
 int game_link_get_alien_animation_frame(const GameLink *link, uint16_t alien_index,
                                         uint16_t animation_option, uint16_t frame_index,
                                         GameAlienAnimationFrame *out_frame,

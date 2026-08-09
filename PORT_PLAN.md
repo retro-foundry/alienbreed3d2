@@ -575,6 +575,9 @@ selection without assuming a movement mode or alien-definition setup.
 `ai_CheckFloorCeiling` are available as a separate source vertical-flight
 helper. They retain the $\pm$32 velocity limits and source word-level room
 clamps, but are not invoked without a translated flying mode.
+`src/game_link.*` also now exposes the checked `GLFT_AlienBrights_l` and
+`GLFT_AlienShootDefs_l` records consumed by `ItsAnAlien`, without assigning
+their torch, projectile, or audio behavior before the owning AI branches.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
