@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "game_math.h"
 #include "level_runtime.h"
 #include "player_runtime.h"
 
@@ -72,5 +73,19 @@ int lighting_runtime_brighten_points(LightingRuntime *runtime, const LevelRuntim
                                      int16_t brightness, int16_t x, int16_t z,
                                      int32_t vertical_position, uint16_t zone_index,
                                      char *error, size_t error_size);
+
+/*
+ * newanims.s:Anim_BrightenPointsAngle. The directional gate reads the source
+ * SinCosTable at angle_address before applying anim_BrightenPoints' room-height
+ * components.
+ */
+int lighting_runtime_brighten_points_angle(LightingRuntime *runtime,
+                                           const LevelRuntime *level,
+                                           const GameMath *math,
+                                           int16_t brightness, int16_t x, int16_t z,
+                                           int32_t vertical_position,
+                                           uint16_t zone_index,
+                                           uint16_t angle_address,
+                                           char *error, size_t error_size);
 
 #endif

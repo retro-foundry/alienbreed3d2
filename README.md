@@ -72,8 +72,10 @@ first game's software renderer:
   and `hires.s:DOALLANIMS`' source-timed alien frame/action workspace update;
   the source AI's isolated player-memory, sight, facing, grounded-route,
   room-state, vertical-flight, and per-alien setup helpers; the source single-player
-  weapon cooldown/ammunition/hitscan/projectile-launch/flight path; enemy
-  behavior, dynamic blast/brightness, and audio remain in progress;
+  weapon cooldown/ammunition/hitscan/projectile-launch/flight path; the
+  source directional point-brightness helper is present for later alien torch,
+  projectile, and blast callers; enemy behavior, dynamic blast, and audio
+  remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

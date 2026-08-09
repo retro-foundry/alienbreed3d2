@@ -99,6 +99,16 @@ static int32_t lighting_runtime_sub32(int32_t left, int32_t right)
     return (int32_t)((uint32_t)left - (uint32_t)right);
 }
 
+static int32_t lighting_runtime_add32(int32_t left, int32_t right)
+{
+    return (int32_t)((uint32_t)left + (uint32_t)right);
+}
+
+static int32_t lighting_runtime_neg32(int32_t value)
+{
+    return (int32_t)(UINT32_C(0) - (uint32_t)value);
+}
+
 static int lighting_runtime_get_animation_value(const LightingRuntime *runtime,
                                                 uint16_t source_index,
                                                 int16_t *out_value,
@@ -614,6 +624,181 @@ int lighting_runtime_brighten_points(LightingRuntime *runtime, const LevelRuntim
             lighting_runtime_apply_bright_room(runtime, &zone, visible_zone_index,
                                                 border_index, distance, brightness,
                                                 vertical_position);
+        }
+    }
+}
+
+static int lighting_runtime_directional_distance(const GameMath *math,
+                                                 uint16_t angle_address,
+                                                 int16_t signed_x_distance,
+                                                 int16_t signed_z_distance,
+                                                 int16_t absolute_x_distance,
+                                                 int16_t absolute_z_distance,
+                                                 int16_t *out_distance,
+                                                 int *out_in_front,
+                                                 char *error, size_t error_size)
+{
+    int16_t sine;
+    int16_t cosine;
+    int32_t forward_distance;
+    int32_t base_distance;
+    int32_t lateral_distance;
+    int16_t directional_distance;
+
+    if (!out_distance || !out_in_front ||
+        !game_math_sine(math, angle_address, &sine, error, error_size) ||
+        !game_math_cosine(math, angle_address, &cosine, error, error_size)) {
+        return 0;
+    }
+
+    /* newanims.s:Anim_BrightenPointsAngle's first MULS/ADD.L pair. */
+    forward_distance = lighting_runtime_add32(
+        (int32_t)cosine * (int32_t)signed_z_distance,
+        (int32_t)sine * (int32_t)signed_x_distance);
+    if (forward_distance <= 0) {
+        *out_in_front = 0;
+        return 1;
+    }
+
+    base_distance = lighting_runtime_add32(
+        lighting_runtime_neg32(forward_distance), 30 * 65536);
+    if (base_distance < 0) {
+        base_distance = 0;
+    }
+    /* The second MULS pair produces the signed lateral distance. */
+    lateral_distance = lighting_runtime_sub32(
+        (int32_t)sine * (int32_t)signed_z_distance,
+        (int32_t)cosine * (int32_t)signed_x_distance);
+    if (lateral_distance <= 0) {
+        lateral_distance = lighting_runtime_neg32(lateral_distance);
+    }
+    directional_distance = (int16_t)(uint16_t)
+        ((uint32_t)lighting_runtime_add32(lateral_distance, base_distance) << 2u >> 16u);
+    *out_distance = lighting_runtime_add16(
+        lighting_runtime_add16(absolute_z_distance, directional_distance), absolute_x_distance);
+    *out_in_front = 1;
+    return 1;
+}
+
+int lighting_runtime_brighten_points_angle(LightingRuntime *runtime,
+                                           const LevelRuntime *level,
+                                           const GameMath *math,
+                                           int16_t brightness, int16_t x, int16_t z,
+                                           int32_t vertical_position,
+                                           uint16_t zone_index,
+                                           uint16_t angle_address,
+                                           char *error, size_t error_size)
+{
+    uint32_t visible_list_index;
+
+    if (!runtime || !level || !math || zone_index >= level->zone_count ||
+        level->zone_count > LIGHTING_RUNTIME_POINT_ZONE_CAPACITY) {
+        lighting_runtime_set_error(
+            error, error_size, "Anim_BrightenPointsAngle received invalid source lighting state");
+        return 0;
+    }
+    if (runtime->lighting_enabled == 0u) {
+        return 1;
+    }
+
+    /* newanims.s:bright_points_A follows the source zone's complete PVST list. */
+    for (visible_list_index = 0u; ; ++visible_list_index) {
+        LevelPotentialVisibility visible_zone;
+        LevelZone room;
+        uint16_t visible_zone_index;
+        uint32_t border_stream_index;
+        uint16_t source_d3 = 9u;
+
+        if (visible_list_index > level->zone_count) {
+            lighting_runtime_set_error(error, error_size,
+                                       "Anim_BrightenPointsAngle PVST list has no terminator");
+            return 0;
+        }
+        if (!level_runtime_get_zone_potential_visibility(level, zone_index, visible_list_index,
+                                                         &visible_zone, error, error_size)) {
+            return 0;
+        }
+        if (visible_zone.zone_index < 0) {
+            return 1;
+        }
+        visible_zone_index = (uint16_t)visible_zone.zone_index;
+        if (visible_zone_index >= level->zone_count ||
+            !level_runtime_get_zone(level, visible_zone_index, &room, error, error_size)) {
+            return 0;
+        }
+        border_stream_index = (uint32_t)visible_zone_index *
+            LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT;
+
+        for (;;) {
+            uint16_t marker_zone_index;
+            uint16_t marker_index;
+            int16_t world_point_index;
+            LevelWorldPoint point;
+            int16_t signed_x_distance;
+            int16_t signed_z_distance;
+            int16_t absolute_x_distance;
+            int16_t absolute_z_distance;
+            int16_t distance;
+            int in_front;
+
+            /*
+             * The source's .behind_point path uses DBRA d7, not d3. Preserve
+             * that register-level walk, including its ability to continue into
+             * the next contiguous zone-marker block, while keeping it bounded
+             * by the loaded source level.
+             */
+            if (border_stream_index >= (uint32_t)level->zone_count *
+                                             LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT) {
+                lighting_runtime_set_error(
+                    error, error_size,
+                    "Anim_BrightenPointsAngle directional marker walk escapes source level");
+                return 0;
+            }
+            marker_zone_index = (uint16_t)(border_stream_index /
+                                            LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT);
+            marker_index = (uint16_t)(border_stream_index %
+                                      LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT);
+            if (!level_runtime_get_zone_border_point(level, marker_zone_index, marker_index,
+                                                      &world_point_index, error, error_size)) {
+                return 0;
+            }
+            if (world_point_index < 0) {
+                break;
+            }
+            if ((uint32_t)world_point_index >= level->world_point_count ||
+                !level_runtime_get_world_point(level, (uint16_t)world_point_index, &point,
+                                               error, error_size)) {
+                return 0;
+            }
+            signed_x_distance = lighting_runtime_add16(point.x, lighting_runtime_neg16(x));
+            signed_z_distance = lighting_runtime_add16(point.z, lighting_runtime_neg16(z));
+            absolute_x_distance = signed_x_distance > 0 ? signed_x_distance :
+                lighting_runtime_neg16(signed_x_distance);
+            absolute_z_distance = signed_z_distance > 0 ? signed_z_distance :
+                lighting_runtime_neg16(signed_z_distance);
+            if (!lighting_runtime_directional_distance(
+                    math, angle_address, signed_x_distance, signed_z_distance,
+                    absolute_x_distance, absolute_z_distance, &distance, &in_front,
+                    error, error_size)) {
+                return 0;
+            }
+            ++border_stream_index;
+            if (!in_front) {
+                uint16_t source_d7 = (uint16_t)signed_z_distance;
+
+                source_d7 = (uint16_t)(source_d7 - 1u);
+                if (source_d7 != UINT16_MAX) {
+                    continue;
+                }
+                break;
+            }
+            lighting_runtime_apply_bright_room(runtime, &room, marker_zone_index, marker_index,
+                                                distance, brightness, vertical_position);
+            source_d3 = (uint16_t)(source_d3 - 1u);
+            if (source_d3 != UINT16_MAX) {
+                continue;
+            }
+            break;
         }
     }
 }

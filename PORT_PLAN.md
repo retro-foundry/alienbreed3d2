@@ -637,9 +637,12 @@ it does not rasterize pixels. `newanims.s:anim_BrightenPoints` is now an
 uncalled source helper: it retains `_Anim_LightingEnabled_b`, its complete
 positive `darken_points` walk, and its non-positive PVST/border-point update,
 including the floor/roof and upper-floor/upper-roof components and their
-source lower clamp. `Anim_BrightenPointsAngle`, projectile/blast callers, and
-alien torches remain with their owning source routines, so no dynamic-light
-substitute has been introduced.
+source lower clamp. `newanims.s:Anim_BrightenPointsAngle` is also available
+as an uncalled helper for `modules/ai.s:ai_DoTorch`: it reads the exact source
+`bigsine` direction, retains the front-only distance formula, room-height
+components, and even the source `.behind_point` `DBRA d7` marker walk. Its
+alien, projectile, and blast callers remain with their owning source routines,
+so no dynamic-light substitute has been introduced.
 `newanims.s:Flash` is now available as an uncalled source helper for those
 later projectile/blast owners. It preserves its `-20` lower clamp, signed
 `ZoneT_Points_w` walk, lower current-point pair writes, explicit source-zone

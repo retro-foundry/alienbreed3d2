@@ -4945,6 +4945,93 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            {
+                /* newanims.s:Anim_BrightenPointsAngle's front-only torch path. */
+                LightingRuntime directional_lighting;
+                int16_t angle_sine;
+                int16_t angle_cosine;
+                int16_t expected_directional_brightness = 1000;
+                uint16_t matching_visible_zones = 0u;
+
+                lighting_runtime_init(&directional_lighting);
+                if (!game_math_sine(&game.math, 0u, &angle_sine, error, sizeof(error)) ||
+                    !game_math_cosine(&game.math, 0u, &angle_cosine, error, sizeof(error)) ||
+                    angle_sine != 0 || angle_cosine != 32767) {
+                    fprintf(stderr, "Anim_BrightenPointsAngle source angle fixture is invalid: %s\n",
+                            error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                for (uint32_t visible_index = 0u;
+                     visible_index <= game.dynamic_level.runtime.zone_count; ++visible_index) {
+                    LevelPotentialVisibility visible_zone;
+
+                    if (!level_runtime_get_zone_potential_visibility(
+                            &game.dynamic_level.runtime, lighting_player.zone_index, visible_index,
+                            &visible_zone, error, sizeof(error))) {
+                        fprintf(stderr, "Anim_BrightenPointsAngle PVST fixture is invalid: %s\n",
+                                error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    if (visible_zone.zone_index < 0) {
+                        break;
+                    }
+                    if ((uint16_t)visible_zone.zone_index == bright_zone_index) {
+                        ++matching_visible_zones;
+                    }
+                }
+                directional_lighting.current_point_brightness[bright_zone_index]
+                    [(size_t)bright_marker_index * 4u] = 1000;
+                for (uint16_t matching_index = 0u;
+                     matching_index < matching_visible_zones; ++matching_index) {
+                    /* angle 0, dz 1: ((30*65536 - 32767) << 2) high word is 118. */
+                    expected_directional_brightness = source_add16(
+                        expected_directional_brightness, -197);
+                    if (expected_directional_brightness < 300) {
+                        expected_directional_brightness = 300;
+                    }
+                }
+                if (matching_visible_zones == 0u ||
+                    !lighting_runtime_brighten_points_angle(
+                        &directional_lighting, &game.dynamic_level.runtime, &game.math, -200,
+                        bright_point.x, source_add16(bright_point.z, -1), bright_zone.floor,
+                        lighting_player.zone_index, 0u, error, sizeof(error)) ||
+                    directional_lighting.current_point_brightness[bright_zone_index]
+                        [(size_t)bright_marker_index * 4u] != expected_directional_brightness) {
+                    fprintf(stderr,
+                            "newanims.s:Anim_BrightenPointsAngle front-light state is inconsistent: %s\n",
+                            error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                directional_lighting.current_point_brightness[bright_zone_index]
+                    [(size_t)bright_marker_index * 4u] = 1000;
+                if (!lighting_runtime_brighten_points_angle(
+                        &directional_lighting, &game.dynamic_level.runtime, &game.math, -200,
+                        bright_point.x, source_add16(bright_point.z, 1), bright_zone.floor,
+                        lighting_player.zone_index, 0u, error, sizeof(error)) ||
+                    directional_lighting.current_point_brightness[bright_zone_index]
+                        [(size_t)bright_marker_index * 4u] != 1000) {
+                    fprintf(stderr,
+                            "newanims.s:Anim_BrightenPointsAngle behind-point gate is inconsistent: %s\n",
+                            error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                directional_lighting.lighting_enabled = 0u;
+                if (!lighting_runtime_brighten_points_angle(
+                        &directional_lighting, &game.dynamic_level.runtime, &game.math, -200,
+                        bright_point.x, source_add16(bright_point.z, -1), bright_zone.floor,
+                        lighting_player.zone_index, 0u, error, sizeof(error)) ||
+                    directional_lighting.current_point_brightness[bright_zone_index]
+                        [(size_t)bright_marker_index * 4u] != 1000) {
+                    fprintf(stderr,
+                            "Anim_BrightenPointsAngle lighting-enable gate is inconsistent: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
             before_disabled = dynamic_lighting.current_point_brightness[bright_zone_index]
                                                                         [(size_t)bright_marker_index * 4u];
             dynamic_lighting.lighting_enabled = 0u;
