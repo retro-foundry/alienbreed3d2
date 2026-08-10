@@ -23,7 +23,9 @@ enum {
     RENDERER_OPENGL_SOURCE_LIGHT_ATTRIBUTE = 2,
     RENDERER_OPENGL_SOURCE_COLOR_ATTRIBUTE = 3,
     RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY = 64,
-    RENDERER_OPENGL_WINDOW_MINIMUM_SIZE = 1
+    RENDERER_OPENGL_WINDOW_MINIMUM_SIZE = 1,
+    /* objdrawhires.s:predoglare selects a distinct cached vector conversion. */
+    RENDERER_OPENGL_VECTOR_SOURCE_EFFECT_GLARE = 1
 };
 
 /*
@@ -2888,6 +2890,7 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                                                        size_t source_map_offset,
                                                        uint8_t minimum_u, uint8_t maximum_u,
                                                        uint8_t minimum_v, uint8_t maximum_v,
+                                                       int glare,
                                                        uint8_t **out_pixels,
                                                        uint8_t **out_exponent_pixels,
                                                        uint8_t **out_floor_pixels,
@@ -2911,8 +2914,8 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
         !sprite->source_light_palette_bytes || !sprite->source_display_palette_bytes ||
         source_map_offset >= sprite->source_palette_byte_count ||
         (size_t)width > SIZE_MAX / (size_t)height / 4u ||
-        sprite->source_light_palette_byte_count <
-            (size_t)(VECTOR_LIGHT_PALETTE_BASE_ROW + 32u) * VECTOR_LIGHT_PALETTE_ROW_WIDTH) {
+        (glare == 0 && sprite->source_light_palette_byte_count <
+            (size_t)(VECTOR_LIGHT_PALETTE_BASE_ROW + 32u) * VECTOR_LIGHT_PALETTE_ROW_WIDTH)) {
         renderer_opengl_set_error(error, error_size, "source vector texture descriptor is invalid");
         return 0;
     }
@@ -2926,6 +2929,8 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
         renderer_opengl_set_error(error, error_size, "source vector texture conversion allocation failed");
         return 0;
     }
+    memset(exponent_pixels, 0, (size_t)width * height * 4u);
+    memset(floor_pixels, 0, (size_t)width * height * 4u);
     for (uint16_t y = 0u; y < height; ++y) {
         for (uint16_t x = 0u; x < width; ++x) {
             /*
@@ -2976,6 +2981,44 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                 return 0;
             }
             source_texel = sprite->source_palette_bytes[source_texel_offset];
+            if (glare != 0) {
+                /*
+                 * objdrawhires.s:predoglare resets a1 to
+                 * Draw_TexturePalettePtr_l - 512, then indexes the source
+                 * texel's 512-byte glare row with the existing framebuffer
+                 * palette index. Resolve the row over palette entry zero for
+                 * the modern additive-emission texture, just as the bitmap
+                 * glare path does.
+                 */
+                if (source_texel == 0u) {
+                    memset(pixels + pixel_offset, 0, 4u);
+                    continue;
+                }
+                source_light_palette_offset = (size_t)(source_texel - 1u) * 512u;
+                if (source_light_palette_offset > sprite->source_light_palette_byte_count ||
+                    256u > sprite->source_light_palette_byte_count -
+                               source_light_palette_offset) {
+                    free(pixels);
+                    free(exponent_pixels);
+                    free(floor_pixels);
+                    renderer_opengl_set_error(error, error_size,
+                                              "source vector glare palette is outside its asset");
+                    return 0;
+                }
+                source_colour = sprite->source_light_palette_bytes[source_light_palette_offset];
+                if (!renderer_opengl_write_palette_texel(
+                        pixels, pixel_offset,
+                        sprite->source_display_palette_bytes,
+                        sprite->source_display_palette_byte_count, source_colour, 0)) {
+                    free(pixels);
+                    free(exponent_pixels);
+                    free(floor_pixels);
+                    renderer_opengl_set_error(error, error_size,
+                                              "source vector glare palette references an invalid display colour");
+                    return 0;
+                }
+                continue;
+            }
             source_light_palette_offset =
                 (size_t)VECTOR_LIGHT_PALETTE_BASE_ROW *
                     VECTOR_LIGHT_PALETTE_ROW_WIDTH + source_texel;
@@ -3027,6 +3070,7 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
                                                      size_t source_map_offset,
                                                      uint8_t minimum_u, uint8_t maximum_u,
                                                      uint8_t minimum_v, uint8_t maximum_v,
+                                                     int glare,
                                                      const RendererOpenGLTexture **out_texture,
                                                      char *error, size_t error_size)
 {
@@ -3058,6 +3102,8 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
             cached->source_display_palette_bytes == sprite->source_display_palette_bytes &&
             cached->source_display_palette_byte_count == sprite->source_display_palette_byte_count &&
             cached->source_asset_id == (uint32_t)source_map_offset &&
+            cached->source_effect == (glare != 0 ? RENDERER_OPENGL_VECTOR_SOURCE_EFFECT_GLARE :
+                                                   0u) &&
             memcmp(&cached->texture_window, &key_window, sizeof(key_window)) == 0 &&
             cached->vector_v_offset == minimum_v) {
             *out_texture = cached;
@@ -3065,7 +3111,7 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
         }
     }
     if (!renderer_opengl_decode_vector_face_texture(
-            sprite, source_map_offset, minimum_u, maximum_u, minimum_v, maximum_v,
+            sprite, source_map_offset, minimum_u, maximum_u, minimum_v, maximum_v, glare,
             &pixels, &exponent_pixels, &floor_pixels, &width, &height, error, error_size) ||
         /* Vector faces are real 3D materials, not pixel-locked bitmap sprites. */
         !renderer_opengl_create_texture(pixels, width, height, 0, 1, 0, &texture, error, error_size) ||
@@ -3105,7 +3151,9 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
         sprite->source_light_palette_bytes, sprite->source_light_palette_byte_count,
         sprite->source_display_palette_bytes, sprite->source_display_palette_byte_count,
         (uint32_t)source_map_offset, key_window, {0}, minimum_v, width, height,
-        RENDERER_OPENGL_TEXTURE_VECTOR, 0u, 0u, exponent_texture, floor_texture
+        RENDERER_OPENGL_TEXTURE_VECTOR,
+        glare != 0 ? RENDERER_OPENGL_VECTOR_SOURCE_EFFECT_GLARE : 0u,
+        0u, exponent_texture, floor_texture
     };
     *out_texture = &renderer->textures[renderer->texture_count - 1u];
     return 1;
@@ -3283,10 +3331,11 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                  * doapoly reads the terminal word at trailer + 4 into the
                  * adjacent `draw_PreGouraud_b`/`draw_Gouraud_b` bytes.  The
                  * low byte (`draw_Gouraud_b`) selects draw_PutInLinesGouraud
-                 * and gotlurvelyshading.  The high byte is the separate
-                 * pre-Gouraud/glare flag, evaluated later in doapoly.
+                 * and gotlurvelyshading.  On the non-Gouraud path the high
+                 * byte selects predoglare's palette-table blend path.
                  */
                 int source_gouraud = face_bytes[5u] != 0u;
+                int source_glare = source_gouraud == 0 && face_bytes[4u] != 0u;
                 uint8_t minimum_u = UINT8_MAX;
                 uint8_t maximum_u = 0u;
                 uint8_t minimum_v = UINT8_MAX;
@@ -3322,6 +3371,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     !renderer_opengl_find_vector_face_texture(
                         renderer, sprite, source_map_offset,
                         minimum_u, maximum_u, minimum_v, maximum_v,
+                        source_glare,
                         &texture, error, error_size)) {
                     goto done;
                 }
@@ -3364,7 +3414,10 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                          */
                         vertex.v = ((float)(source_corner[3u] - minimum_v) + 0.5f) /
                             ((float)(maximum_v - minimum_v) + 1.0f);
-                        if (!source_gouraud) {
+                        if (source_glare != 0) {
+                            /* predoglare bypasses the normal face-light palette row. */
+                            vertex.source_light = 1.0f;
+                        } else if (!source_gouraud) {
                             /* The source flat palette row is continuous GPU lighting. */
                             vertex.source_light = source_light;
                         }
@@ -3400,11 +3453,23 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 }
                 renderer->gl.active_texture(GL_TEXTURE0);
                 glBindTexture(GL_TEXTURE_2D, texture->texture);
-                renderer_opengl_use_texture_light_response(renderer, texture);
+                if (source_glare != 0) {
+                    renderer_opengl_use_default_light_response(renderer);
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_ONE, GL_ONE);
+                    glDepthMask(GL_FALSE);
+                } else {
+                    renderer_opengl_use_texture_light_response(renderer, texture);
+                }
                 renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
-                if (!renderer_opengl_draw_vertices(renderer, vertices + face_vertex_start,
-                                                   vertex_count - face_vertex_start,
-                                                   GL_TRIANGLES, error, error_size)) {
+                result = renderer_opengl_draw_vertices(renderer, vertices + face_vertex_start,
+                                                        vertex_count - face_vertex_start,
+                                                        GL_TRIANGLES, error, error_size);
+                if (source_glare != 0) {
+                    glDepthMask(GL_TRUE);
+                    glDisable(GL_BLEND);
+                }
+                if (result == 0) {
                     goto done;
                 }
                 free(vertices);
