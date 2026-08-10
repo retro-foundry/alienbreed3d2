@@ -1078,6 +1078,48 @@ static int renderer_opengl_build_lighted_sprite_palette(const SceneSprite *sprit
     return 1;
 }
 
+/*
+ * `draw_bitmap_additive` and `draw_bitmap_glare` do not index a direct
+ * object palette.  Their source bytes select a 5-bit source texel and use it
+ * as a row in a palette-index blend table, over the indexed framebuffer.  A
+ * GPU renderer has no indexed framebuffer to mutate, so resolve the table's
+ * authored result over palette entry zero into a true-colour emission texel
+ * once at upload time.  The resulting texture is later composited with GPU
+ * additive blending; no palette state or screen-column effect is retained.
+ */
+static int renderer_opengl_write_effect_sprite_texel(uint8_t *pixels, size_t pixel_offset,
+                                                     const SceneSprite *sprite,
+                                                     uint8_t source_texel,
+                                                     int glare)
+{
+    size_t table_offset;
+    uint8_t output_index;
+
+    if (source_texel == 0u) {
+        memset(pixels + pixel_offset, 0, 4u);
+        return 1;
+    }
+    if (glare != 0) {
+        /* draw_bitmap_glare uses Draw_TexturePalettePtr - 512, then texel*512. */
+        table_offset = (size_t)(source_texel - 1u) * 512u;
+    } else {
+        /* draw_bitmap_additive uses the texel's 256-byte destination-index row. */
+        table_offset = (size_t)source_texel * 256u;
+    }
+    if (table_offset > sprite->source_palette_byte_count ||
+        256u > sprite->source_palette_byte_count - table_offset) {
+        return 0;
+    }
+    /* The first table value is the source effect composited over colour zero. */
+    output_index = sprite->source_palette_bytes[table_offset];
+    if (!renderer_opengl_write_palette_texel(
+            pixels, pixel_offset, sprite->source_display_palette_bytes,
+            sprite->source_display_palette_byte_count, output_index, output_index == 0u)) {
+        return 0;
+    }
+    return 1;
+}
+
 static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
                                                   const SceneCamera *camera,
                                                   uint8_t **out_pixels, uint16_t *out_width,
@@ -1092,6 +1134,7 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
     size_t table_offset;
     size_t palette_offset = 0u;
     int lighted;
+    int source_blend;
     uint8_t lighted_palette[256];
 
     if (!sprite || !camera || !out_pixels || !out_width || !out_height || !sprite->source_bytes ||
@@ -1111,6 +1154,9 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
         return 0;
     }
     lighted = (sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u;
+    source_blend = lighted == 0 &&
+        (sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP ||
+         (sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u);
     /* objdrawhires.s:draw_Bitmap indexes one of four 256-byte light palettes. */
     if (lighted != 0) {
         uint8_t light_palette = (uint8_t)(sprite->source_effect & 0x7fu);
@@ -1194,7 +1240,7 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
 
                 source_texel = bitmap_source_decode_packed_texel(packed_word, pack);
             }
-            if (lighted == 0 &&
+            if (lighted == 0 && source_blend == 0 &&
                 (palette_offset > sprite->source_palette_byte_count ||
                  (size_t)source_texel * 2u + 2u >
                     sprite->source_palette_byte_count - palette_offset)) {
@@ -1202,6 +1248,17 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
                 renderer_opengl_set_error(error, error_size,
                                           "source bitmap sprite palette is invalid");
                 return 0;
+            }
+            if (source_blend != 0) {
+                if (!renderer_opengl_write_effect_sprite_texel(
+                        pixels, ((size_t)y * width + x) * 4u, sprite, source_texel,
+                        sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP)) {
+                    free(pixels);
+                    renderer_opengl_set_error(error, error_size,
+                                              "source bitmap effect blend table is invalid");
+                    return 0;
+                }
+                continue;
             }
             color_index = lighted != 0 ? lighted_palette[source_texel] :
                 sprite->source_palette_bytes[palette_offset + (size_t)source_texel * 2u];
@@ -2289,7 +2346,11 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     bottom_v = (full_top_y - bottom_y) / (full_top_y - full_bottom_y);
     left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ? 1.0f : 0.0f;
     right_u = 1.0f - left_u;
-    source_light = renderer_opengl_sprite_light(sprite->source_light_level);
+    additive = (sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u ||
+        sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP;
+    /* Source additive/glare paths blend their table result directly onto the
+     * framebuffer; they do not select a room-light palette row. */
+    source_light = additive != 0 ? 1.0f : renderer_opengl_sprite_light(sprite->source_light_level);
     vertices[0] = (RendererOpenGLVertex){center_x - right_x * half_width, top_y,
                                           center_z - right_z * half_width, left_u, top_v, source_light,
                                           1.0f, 1.0f, 1.0f};
@@ -2306,8 +2367,6 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
                                           1.0f, 1.0f, 1.0f};
     renderer->gl.active_texture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
-    additive = (sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u ||
-        sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP;
     renderer->gl.uniform_1f(renderer->opacity_uniform,
                             sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP ? 0.8f : 1.0f);
     if (additive != 0) {
