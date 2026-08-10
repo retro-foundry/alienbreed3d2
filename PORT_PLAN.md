@@ -97,10 +97,13 @@ authority for all game behavior and data formats.
   `GLFT_FrameData_l` strip span and its authored source-unit auxiliary offsets
   and half-extents. The renderer maps source 8.8 Y through the matching
   x<<7 projection basis (`y / 128`), so floors, camera, sector clips, and
-  world billboards share the source's physical vertical scale. Every source
-  column in a frame is therefore decoded and world billboard size/placement
-  follows `transform.s:RotateLevelPts` and `draw_Bitmap` without applying the
-  source horizontal projection scale twice.
+  world billboards share the source's physical vertical scale. Fixed source
+  objects also publish their `Collectable`/`Activatable`/`Decoration`
+  floor-or-ceiling origin, allowing full bitmap frames to sit on geometry
+  rather than preserving the old screen-column floor cut. Every source column
+  in a frame is therefore decoded and world billboard size/placement follows
+  `transform.s:RotateLevelPts` and `draw_Bitmap` without applying the source
+  horizontal projection scale twice.
 - [x] `objdrawhires.s:draw_bitmap_lighted` now follows its own direct 8-bit
   WAD/PTR column format and 256-entry selected object-light palette, instead
   of incorrectly extracting an ordinary bitmap's packed 5-bit third.

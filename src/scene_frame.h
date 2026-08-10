@@ -144,6 +144,18 @@ typedef enum {
     SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON
 } SceneSpritePresentation;
 
+/*
+ * newaliencontrol.s:Collectable/Activatable/Decoration reset fixed objects to
+ * their source floor or roof before applying their selected animation frame.
+ * The old renderer subsequently clipped their screen columns to the room;
+ * modern 3D presentation keeps that source surface origin explicit.
+ */
+typedef enum {
+    SCENE_SPRITE_SURFACE_ANCHOR_FREE,
+    SCENE_SPRITE_SURFACE_ANCHOR_FLOOR,
+    SCENE_SPRITE_SURFACE_ANCHOR_CEILING
+} SceneSpriteSurfaceAnchor;
+
 enum {
     /* objdrawhires.s:draw_Bitmap's byte-10 render controls. */
     SCENE_SPRITE_FLAG_FLIP_HORIZONTAL = 1u << 0,
@@ -177,6 +189,7 @@ typedef struct {
     SceneWorldPoint position;
     SceneSpriteSource source;
     SceneSpritePresentation presentation;
+    SceneSpriteSurfaceAnchor surface_anchor;
     uint32_t source_asset_id;
     uint32_t source_record_id;
     uint16_t frame_index;
