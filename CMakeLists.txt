@@ -36,6 +36,7 @@ set(AB3D2_CORE_SOURCES
   src/alien_memory.c
   src/alien_pause.c
   src/alien_perception.c
+  src/alien_prowl.c
   src/alien_setup.c
   src/alien_spatial.c
   src/alien_spawn.c

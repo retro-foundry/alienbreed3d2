@@ -470,8 +470,8 @@ authority for all game behavior and data formats.
      `object_movement.*` now preserves `MoveObject`'s source primary and
      extended-edge passes; `player_shoot.*` uses its explicit zero-extension
      trace for the `plr1_HitscanFailed` pool write.
-     Next: bind `Obj_DoCollision`'s caller-owned source `a2` extents in the
-     remaining alien `ObjectHandler` paths, then port the audio portions of
+     Next: compose `ai_Widget`'s established caller-owned source `a2` words
+     into the remaining prowl movement path, then port the audio portions of
      `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; it intentionally
      does not synthesize the unported sound effect.
@@ -541,7 +541,7 @@ selection while menu work is deferred; this allows the gameplay loop to enter
 authored populated levels such as B without a temporary native menu.
 
 The next milestone is source-backed dynamic world state: initialize and update
-objects, establish `Obj_DoCollision`'s raw source-register binding, and
+objects, carry each source caller's `Obj_DoCollision` register view, and
 complete the remaining source-order alien handling. The door/lift and
 bounded object slices are complete. `src/object_scene.*` now emits the raw render
 descriptor for every live source object without renderer visibility logic,
@@ -662,6 +662,14 @@ writing its mode/animation byte and adding `ai_AnimFacing_w`. Its caller must
 supply the captured source frame word; no native timing rule is introduced.
 It remains outside `ObjectHandler` while the global AI dispatcher, its other
 modes, and the narrative consumer are incomplete.
+`modules/ai.s:ai_Widget` is now an uncalled direct helper for the later
+`ai_ProwlFly` body. It retains the source player-noise control-point query,
+team `SeenBy` handoff, per-entity memory reset, `GetNextCPt`/`ONLYSEE`
+selection, and its eight failed-candidate random sequence. Crucially, it
+publishes the exact caller-owned `a2` word view that reaches `Obj_DoCollision`:
+the object-point base for no-team paths or the selected team workspace for
+team paths. It does not infer one global collision table or activate prowl
+movement before the rest of its source body is translated.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:
@@ -721,12 +729,12 @@ add source-derived regressions for its state changes and ordering.
 point-word-based `CollId` lookup, active-list terminator, type/behaviour and
 upper-zone gates, raw `a2 + type*8` vertical interval, 80-unit X/Z tests, and
 the X-dominant approach test. It explicitly requires the raw caller-owned
-`a2` words instead of assigning them a guessed global meaning. The maintained
-AI paths still do not establish one stable `a2` table across every call, and
-no corresponding named table exists in this source tree. The helper therefore
-remains uncalled; keep live object-to-object collision absent until that
-sequel register contract is established from maintained-source evidence. The
-first game's implementation is not authority for the values.
+`a2` words instead of assigning them a guessed global meaning. The source
+`ai_Widget` trace now establishes the later prowl caller's two concrete views:
+object-point words without a team, or the selected team workspace otherwise.
+Other callers still require their own maintained-source register evidence, so
+the helper remains uncalled and no live object-to-object collision is enabled.
+The first game's implementation is not authority for the values.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their

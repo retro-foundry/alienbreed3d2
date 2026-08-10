@@ -82,8 +82,10 @@ first game's software renderer:
   message consumer. `modules/ai.s:ai_PauseBriefly` now composes the exact
   damage/death, walk-animation, source-frame-timer, torch, sight, front, and
   darkness branches; it remains uncalled until the complete alien dispatcher
-  and message consumer own it in source order. Enemy behavior, dynamic blast,
-  and audio remain in progress;
+  and message consumer own it in source order. `modules/ai.s:ai_Widget` also
+  now preserves its player-noise/team-memory target selection and caller-owned
+  collision words for the later prowl movement mode. Enemy behavior, dynamic
+  blast, and audio remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

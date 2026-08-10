@@ -14,6 +14,7 @@
 #include "alien_memory.h"
 #include "alien_pause.h"
 #include "alien_perception.h"
+#include "alien_prowl.h"
 #include "alien_setup.h"
 #include "alien_spatial.h"
 #include "alien_spawn.h"
@@ -6236,6 +6237,160 @@ int main(int argc, char **argv)
                 (uint16_t)(0x1000u + pause_state.animation.facing)) {
             fprintf(stderr, "ai_PauseBriefly expired no-front source state is inconsistent: %s\n",
                     error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_Widget retains team memory and its raw a2 collision view. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime prowl_objects = {0};
+        AlienRuntime prowl_runtime;
+        PlayerRuntime prowl_player = game.player;
+        GameRandom prowl_random;
+        AlienProwlWidgetState prowl_state;
+        LevelZone prowl_player_zone;
+        uint16_t player_control_point;
+
+        prowl_objects.slot_bytes = slot_bytes;
+        prowl_objects.slot_count = 1u;
+        prowl_objects.active_slot_count = 1u;
+        prowl_objects.point_bytes = point_bytes;
+        prowl_objects.point_count = 2u;
+        for (uint16_t word_index = 0u; word_index < ALIEN_RUNTIME_WORKSPACE_WORD_COUNT;
+             ++word_index) {
+            write_be16(point_bytes + (size_t)word_index * sizeof(uint16_t),
+                       (uint16_t)(0x1000u + word_index));
+        }
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 28u, 0u);
+        write_be16(slot_bytes + 32u, 0u);
+        slot_bytes[21u] = UINT8_MAX;
+        alien_runtime_init(&prowl_runtime);
+        alien_runtime_begin_level(&prowl_runtime);
+        prowl_runtime.entity_workspace[0u][5u] = 123;
+        prowl_runtime.entity_workspace[0u][6u] = 456;
+        game_random_init(&prowl_random);
+        if (!alien_prowl_widget(
+                &prowl_runtime, &prowl_objects, 0u, &game.dynamic_level.runtime,
+                &game.level_navigation, &prowl_player, 0, 0u, &prowl_random,
+                &prowl_state, error, sizeof(error)) ||
+            read_be16(slot_bytes + 32u) != 0u || prowl_state.middle_control_point != 0u ||
+            prowl_state.only_see != 0u || prowl_runtime.entity_workspace[0u][5u] != 0 ||
+            prowl_runtime.entity_workspace[0u][6u] != 0) {
+            fprintf(stderr, "ai_Widget no-team source state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint16_t word_index = 0u; word_index < ALIEN_RUNTIME_WORKSPACE_WORD_COUNT;
+             ++word_index) {
+            if (prowl_state.words[word_index] != (int16_t)(0x1000u + word_index)) {
+                fprintf(stderr, "ai_Widget object-point a2 source view is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+
+        {
+            uint8_t navigation_links[LEVEL_NAVIGATION_MAP_BYTES] = {0};
+            LevelNavigation prowl_navigation = {0};
+            LevelRuntime prowl_level = {0};
+            GameRandom expected_random;
+
+            /* Ground `ONLYSEE` reroutes through ai_Widget's one-random eight-try loop. */
+            navigation_links[1u] = UINT8_C(0x81);
+            prowl_navigation.walk_links = navigation_links;
+            prowl_navigation.walk_links_size = sizeof(navigation_links);
+            prowl_navigation.fly_links = navigation_links;
+            prowl_navigation.fly_links_size = sizeof(navigation_links);
+            prowl_level.control_point_count = 2u;
+            memset(slot_bytes, 0, sizeof(slot_bytes));
+            write_be16(slot_bytes + 0u, 0u);
+            write_be16(slot_bytes + 28u, 0u);
+            write_be16(slot_bytes + 32u, 1u);
+            slot_bytes[21u] = UINT8_MAX;
+            alien_runtime_init(&prowl_runtime);
+            alien_runtime_begin_level(&prowl_runtime);
+            game_random_init(&prowl_random);
+            expected_random = prowl_random;
+            (void)game_random_next(&expected_random);
+            if (!alien_prowl_widget(
+                    &prowl_runtime, &prowl_objects, 0u, &prowl_level,
+                    &prowl_navigation, &prowl_player, 0, 0u, &prowl_random,
+                    &prowl_state, error, sizeof(error)) ||
+                read_be16(slot_bytes + 32u) != 1u ||
+                prowl_state.middle_control_point != 1u ||
+                prowl_state.only_see != UINT8_MAX ||
+                prowl_random.state != expected_random.state) {
+                fprintf(stderr, "ai_Widget ground ONLYSEE reroute is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+
+        memset(slot_bytes, 0, sizeof(slot_bytes));
+        write_be16(slot_bytes + 0u, 1u);
+        write_be16(slot_bytes + 28u, 0u);
+        write_be16(slot_bytes + 32u, 7u);
+        slot_bytes[21u] = 2u;
+        alien_runtime_init(&prowl_runtime);
+        alien_runtime_begin_level(&prowl_runtime);
+        for (uint16_t word_index = 0u; word_index < ALIEN_RUNTIME_WORKSPACE_WORD_COUNT;
+             ++word_index) {
+            prowl_runtime.team_workspace[2u][word_index] = (int16_t)(200u + word_index);
+        }
+        prowl_runtime.team_workspace[2u][3u] = 0;
+        prowl_runtime.team_workspace[2u][4u] = 7;
+        game_random_init(&prowl_random);
+        if (!alien_prowl_widget(
+                &prowl_runtime, &prowl_objects, 0u, &game.dynamic_level.runtime,
+                &game.level_navigation, &prowl_player, 0, UINT8_MAX, &prowl_random,
+                &prowl_state, error, sizeof(error)) ||
+            read_be16(slot_bytes + 32u) != 0u || prowl_state.middle_control_point != 0u ||
+            prowl_runtime.entity_workspace[1u][0u] != 200 ||
+            prowl_runtime.entity_workspace[1u][2u] != -1 ||
+            prowl_runtime.entity_workspace[1u][5u] != 205 ||
+            prowl_runtime.entity_workspace[1u][6u] != 206) {
+            fprintf(stderr, "ai_Widget team-memory source state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint16_t word_index = 0u; word_index < ALIEN_RUNTIME_WORKSPACE_WORD_COUNT;
+             ++word_index) {
+            if (prowl_state.words[word_index] !=
+                (word_index == 3u ? 0 : (word_index == 4u ? 7 :
+                                          (int16_t)(200u + word_index)))) {
+                fprintf(stderr, "ai_Widget team a2 source view is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+
+        if (!level_runtime_get_zone(&game.dynamic_level.runtime, prowl_player.zone_index,
+                                    &prowl_player_zone, error, sizeof(error))) {
+            fprintf(stderr, "ai_Widget player-noise zone fixture is unavailable: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        prowl_player.stood_in_top = 0u;
+        player_control_point = (uint8_t)(prowl_player_zone.control_point >> 8u);
+        memset(slot_bytes, 0, sizeof(slot_bytes));
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 28u, player_control_point);
+        write_be16(slot_bytes + 32u, 0u);
+        slot_bytes[21u] = UINT8_MAX;
+        alien_runtime_init(&prowl_runtime);
+        alien_runtime_begin_level(&prowl_runtime);
+        game_random_init(&prowl_random);
+        if (!alien_prowl_widget(
+                &prowl_runtime, &prowl_objects, 0u, &game.dynamic_level.runtime,
+                &game.level_navigation, &prowl_player, 100, 0u, &prowl_random,
+                &prowl_state, error, sizeof(error)) ||
+            read_be16(slot_bytes + 32u) != player_control_point ||
+            prowl_state.middle_control_point != player_control_point ||
+            prowl_state.only_see != 0u) {
+            fprintf(stderr, "ai_Widget player-noise source state is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
