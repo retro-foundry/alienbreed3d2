@@ -2,6 +2,7 @@
 #define AB3D2_RENDERER_OPENGL_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "render_view.h"
 #include "scene_frame.h"
@@ -17,5 +18,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                             const RenderView *view, char *error, size_t error_size);
 /* Hidden-window smoke coverage for Plr1_Use's camera-space companion pass. */
 size_t renderer_opengl_last_view_weapon_coverage(const RendererOpenGL *renderer);
+/* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
+uint64_t renderer_opengl_last_frame_rgb_checksum(const RendererOpenGL *renderer);
 
 #endif

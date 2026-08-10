@@ -411,6 +411,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
     uint16_t last_level = app->gpu_smoke_all_levels != 0 ? 15u : first_level;
 
     for (uint16_t level_index = first_level; level_index <= last_level; ++level_index) {
+        uint64_t source_lighting_checksum;
         if (level_index != first_level &&
             (!game_session_select_level(&app->game.session, level_index, error, sizeof(error)) ||
              !game_bootstrap_start_selected_single_player(&app->game, app->data_root,
@@ -439,6 +440,35 @@ static int game_app_run_gpu_smoke(GameApp *app)
         if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
             fprintf(stderr,
                     "[RENDER] GPU smoke weapon pass did not change any framebuffer pixels "
+                    "for Level %c\n", (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
+        source_lighting_checksum = renderer_last_frame_rgb_checksum(app->renderer);
+        /*
+         * A complete-scene frame must react to the live `CurrentPointBrights`
+         * words, including geometry outside the source PVS. Use an exaggerated
+         * but valid source value so this hidden smoke detects a missing wall,
+         * floor, or ceiling palette-light pass without relying on a screenshot.
+         */
+        for (uint16_t zone_index = 0u;
+             zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
+            for (uint16_t point_index = 0u;
+                 point_index < LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT; ++point_index) {
+                app->game.lighting_runtime.current_point_brightness[zone_index][point_index] = -345;
+            }
+        }
+        scene_frame_begin(&app->frame);
+        if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+            !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
+            fprintf(stderr, "[RENDER] GPU light-response smoke failed for Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        if (renderer_last_frame_rgb_checksum(app->renderer) == source_lighting_checksum) {
+            fprintf(stderr,
+                    "[RENDER] GPU smoke source Gouraud lighting did not change world output "
                     "for Level %c\n", (char)('A' + level_index));
             app->exit_code = 1;
             return 0;

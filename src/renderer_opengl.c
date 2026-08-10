@@ -117,6 +117,7 @@ struct RendererOpenGL {
     size_t texture_count;
     size_t texture_capacity;
     size_t last_view_weapon_coverage;
+    uint64_t last_frame_rgb_checksum;
     uint8_t measure_view_weapon_coverage;
 };
 
@@ -485,8 +486,8 @@ static int renderer_opengl_decode_wall_texture(const SceneMaterial *material,
             }
             /* The source strip is indexed through its 32 x 32 shade table in the shader. */
             pixels[((size_t)y * window->u_period + x) * 4u] = packed_texel;
-            pixels[((size_t)y * window->u_period + x) * 4u + 3u] =
-                packed_texel == 0u ? 0u : UINT8_MAX;
+            /* draw_ScreenWallStripGouraud writes palette entry zero; it is not a cutout key. */
+            pixels[((size_t)y * window->u_period + x) * 4u + 3u] = UINT8_MAX;
         }
     }
     *out_pixels = pixels;
@@ -2103,6 +2104,11 @@ size_t renderer_opengl_last_view_weapon_coverage(const RendererOpenGL *renderer)
     return renderer ? renderer->last_view_weapon_coverage : 0u;
 }
 
+uint64_t renderer_opengl_last_frame_rgb_checksum(const RendererOpenGL *renderer)
+{
+    return renderer ? renderer->last_frame_rgb_checksum : UINT64_C(0);
+}
+
 typedef struct {
     const SceneSprite *sprite;
     float depth;
@@ -2141,6 +2147,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         return 0;
     }
     renderer->last_view_weapon_coverage = 0u;
+    renderer->last_frame_rgb_checksum = UINT64_C(0);
     for (size_t index = 0u; index < frame->count; ++index) {
         if (frame->commands[index].type == SCENE_COMMAND_CAMERA) {
             camera = &frame->commands[index].data.camera;
@@ -2311,6 +2318,39 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                 free(before_pixels);
             }
         }
+    }
+    if (renderer->measure_view_weapon_coverage != 0u) {
+        size_t pixel_byte_count;
+        uint8_t *pixels;
+
+        if ((size_t)drawable_width > SIZE_MAX / (size_t)drawable_height / 4u) {
+            renderer_opengl_set_error(error, error_size,
+                                      "GPU smoke framebuffer checksum buffer is too large");
+            return 0;
+        }
+        pixel_byte_count = (size_t)drawable_width * (size_t)drawable_height * 4u;
+        pixels = malloc(pixel_byte_count);
+        if (!pixels) {
+            renderer_opengl_set_error(error, error_size,
+                                      "GPU smoke framebuffer checksum allocation failed");
+            return 0;
+        }
+        glReadPixels(0, 0, drawable_width, drawable_height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        if (glGetError() != GL_NO_ERROR) {
+            free(pixels);
+            renderer_opengl_set_error(error, error_size,
+                                      "GPU smoke framebuffer checksum readback failed");
+            return 0;
+        }
+        for (size_t pixel_offset = 0u; pixel_offset < pixel_byte_count; pixel_offset += 4u) {
+            uint64_t rgb = (uint64_t)pixels[pixel_offset] * UINT64_C(3) +
+                (uint64_t)pixels[pixel_offset + 1u] * UINT64_C(5) +
+                (uint64_t)pixels[pixel_offset + 2u] * UINT64_C(7);
+
+            renderer->last_frame_rgb_checksum +=
+                rgb * (uint64_t)(pixel_offset / 4u + 1u);
+        }
+        free(pixels);
     }
     SDL_GL_SwapWindow(renderer->window);
     return 1;
