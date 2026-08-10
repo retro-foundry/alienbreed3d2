@@ -153,6 +153,10 @@ authority for all game behavior and data formats.
   Emscripten skips FetchContent, builds an `ab3d2.html` WebGL target with the
   browser-safe main loop, and preloads the lower-case `stage_media.py` asset
   tree as `/data`.
+- [x] Native direct play queries SDL's active desktop mode before creating the
+  OpenGL window, then renders to the complete drawable rather than a fixed
+  1280x720 request. The hidden GPU smoke path intentionally stays 1280x720 so
+  its all-level validation remains bounded and independent of monitor layout.
 
 The renderer uses continuous GPU light interpolation from the live source
 brightness tables instead of reproducing Amiga palette dithering. HUD glyphs,

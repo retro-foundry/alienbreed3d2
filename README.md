@@ -49,7 +49,9 @@ are isolated from source player state and do not replace the original aim/look
 state. The renderer blends completed source-frame scene snapshots using the
 50 Hz VBlank remainder, so simulation cadence remains source-authentic while
 camera, mutable world geometry, sprites, and source light samples present
-smoothly at the host frame rate.
+smoothly at the host frame rate. Native direct play requests the active
+desktop resolution and renders directly to the full SDL drawable; the hidden
+GPU smoke test retains its bounded 1280x720 validation window.
 
 The headless regression starts a clean source-process runtime, selects each
 authored Level A--P session, and runs six source VBlank-equivalent direct-play

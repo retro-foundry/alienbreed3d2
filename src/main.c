@@ -25,6 +25,29 @@ static int make_default_data_root(char *out_root, size_t out_root_size)
     return written >= 0 && (size_t)written < out_root_size;
 }
 
+/*
+ * Native presentation owns this display choice. The source's 320-wide draw
+ * state remains entirely in SceneFrame; renderer_opengl.c already renders to
+ * the full SDL drawable each host frame.
+ */
+static int game_app_get_desktop_resolution(int *out_width, int *out_height,
+                                           char *error, size_t error_size)
+{
+    SDL_DisplayMode mode;
+
+    if (!out_width || !out_height ||
+        SDL_GetDesktopDisplayMode(0, &mode) != 0 || mode.w <= 0 || mode.h <= 0) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size, "SDL desktop display mode is unavailable: %s",
+                           SDL_GetError());
+        }
+        return 0;
+    }
+    *out_width = mode.w;
+    *out_height = mode.h;
+    return 1;
+}
+
 /* Source campaign identifiers are SETPLAYERS' contiguous lowercase a..p. */
 static int level_index_from_argument(const char *text, uint16_t *out_level_index)
 {
@@ -309,8 +332,16 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     }
     app->frame_initialized = 1;
     renderer_config.backend = RENDERER_BACKEND_OPENGL;
-    renderer_config.window_width = 1280;
-    renderer_config.window_height = 720;
+    if (app->gpu_smoke) {
+        /* Keep the opt-in hidden smoke bounded and independent of desktop layout. */
+        renderer_config.window_width = 1280;
+        renderer_config.window_height = 720;
+    } else if (!game_app_get_desktop_resolution(&renderer_config.window_width,
+                                                &renderer_config.window_height,
+                                                error, sizeof(error))) {
+        fprintf(stderr, "[PLATFORM] %s\n", error);
+        return 0;
+    }
     renderer_config.window_title = "Alien Breed 3D II: The Killing Grounds";
     renderer_config.hidden_window = app->gpu_smoke;
     app->renderer = renderer_create(&renderer_config, error, sizeof(error));
