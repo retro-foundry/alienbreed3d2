@@ -58,10 +58,11 @@ authority for all game behavior and data formats.
 - [x] `objdrawhires.s:doapoly` vector polygons retain their authored point
   index/U/V records. The OpenGL backend decodes each selected signed
   `Draw_TextureMapsPtr` offset with its four-byte source texel stride and
-  resolves every texel through that face's `Draw_TexturePalettePtr` light row
-  before caching a crisp GPU texture. Vector models, including Player 1's
-  companion weapon, therefore use source texture detail rather than a single
-  representative face colour.
+  converts it once through the neutral bright `Draw_TexturePalettePtr` row.
+  The source face/zone brightness state is submitted as a continuous GPU
+  light multiplier rather than baked into palette-indexed texture variants.
+  Vector models, including Player 1's companion weapon, therefore use source
+  texture detail rather than a single representative face colour.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.
