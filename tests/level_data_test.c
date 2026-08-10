@@ -14,6 +14,7 @@
 #include "alien_perception.h"
 #include "alien_setup.h"
 #include "alien_spatial.h"
+#include "alien_spawn.h"
 #include "alien_torch.h"
 #include "asset_io.h"
 #include "game_bootstrap.h"
@@ -5837,6 +5838,85 @@ int main(int argc, char **argv)
             fprintf(stderr, "Anim_ExplodeIntoBits source pool/count state is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
+        }
+    }
+    {
+        /* modules/ai.s:ai_JustDied's three-child spawned-alien branch. */
+        uint8_t slot_bytes[42u * OBJECT_RUNTIME_SLOT_BYTE_COUNT];
+        uint8_t point_bytes[42u * OBJECT_RUNTIME_POINT_BYTE_COUNT];
+        ObjectRuntime spawn_objects = {0};
+        GameAlienDefinition child_definition = {0};
+        uint32_t spawned_count = 0u;
+        uint8_t *parent_slot;
+
+        memset(slot_bytes, 0xa5, sizeof(slot_bytes));
+        memset(point_bytes, 0x5a, sizeof(point_bytes));
+        spawn_objects.slot_bytes = slot_bytes;
+        spawn_objects.slot_count = 42u;
+        spawn_objects.active_slot_count = 1u;
+        spawn_objects.alien_shot_first_slot = 1u;
+        spawn_objects.point_bytes = point_bytes;
+        spawn_objects.point_count = 42u;
+        parent_slot = slot_bytes;
+        write_be16(parent_slot + 0u, 1u);
+        write_be16(parent_slot + 4u, 0x1234u);
+        write_be16(parent_slot + 12u, 7u);
+        write_be16(parent_slot + 28u, 0x2468u);
+        write_be16(parent_slot + 30u, 0x1357u);
+        write_be32(parent_slot + 50u, UINT32_C(0x89abcdef));
+        parent_slot[63u] = UINT8_MAX;
+        write_be32(point_bytes + 1u * OBJECT_RUNTIME_POINT_BYTE_COUNT, UINT32_C(0x11223344));
+        write_be32(point_bytes + 1u * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(0x55667788));
+        for (uint32_t child_slot_index = 22u; child_slot_index <= 26u;
+             child_slot_index += 2u) {
+            uint8_t *child_slot = slot_bytes +
+                (size_t)child_slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            write_be16(child_slot + 0u, (uint16_t)child_slot_index);
+            write_be16(child_slot + 12u, UINT16_MAX);
+        }
+        /* The third candidate is free solely because EntT_HitPoints_b is zero. */
+        write_be16(slot_bytes + 26u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 9u);
+        slot_bytes[26u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 0u;
+        child_definition.hit_points = 0x1234u;
+        if (!alien_spawn_smaller(&spawn_objects, 0u, &child_definition, 6u, &spawned_count,
+                                 error, sizeof(error)) ||
+            spawned_count != 3u) {
+            fprintf(stderr, "ai_JustDied spawned-alien allocation is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint32_t child_slot_index = 22u; child_slot_index <= 26u;
+             child_slot_index += 2u) {
+            uint8_t *child_slot = slot_bytes +
+                (size_t)child_slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+            uint8_t *preceding_slot = child_slot - OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+            uint8_t *child_point = point_bytes +
+                (size_t)child_slot_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+
+            if (child_slot[16u] != 0u || child_slot[17u] != 0xa5u ||
+                child_slot[18u] != 0x34u || child_slot[19u] != 0u ||
+                child_slot[20u] != 0u || child_slot[21u] != UINT8_MAX ||
+                child_slot[24u] != UINT8_MAX || child_slot[25u] != 0xa5u ||
+                read_be16(child_slot + 4u) != 0x1234u ||
+                read_be16(child_slot + 12u) != 7u || read_be16(child_slot + 26u) != 7u ||
+                read_be16(child_slot + 28u) != 0x2468u ||
+                read_be16(child_slot + 30u) != 0x1357u ||
+                read_be16(child_slot + 32u) != 0x2468u ||
+                read_be16(child_slot + 34u) != 0u || read_be16(child_slot + 40u) != 0u ||
+                read_be16(child_slot + 42u) != 0u || read_be16(child_slot + 44u) != 0u ||
+                read_be16(child_slot + 46u) != 0u ||
+                read_be32(child_slot + 50u) != UINT32_C(0x89abcdef) ||
+                child_slot[54u] != 6u || child_slot[55u] != 0u ||
+                child_slot[63u] != UINT8_MAX || preceding_slot[16u] != 3u ||
+                read_be16(preceding_slot + 12u) != UINT16_MAX ||
+                memcmp(child_point, point_bytes + 1u * OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                       OBJECT_RUNTIME_POINT_BYTE_COUNT) != 0) {
+                fprintf(stderr, "ai_JustDied spawned-alien state is inconsistent\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
     }
     {

@@ -631,6 +631,13 @@ word, signed divide-by-four threshold, byte damage reset, timers, one
 response. The fatal `ai_JustDied` body remains uncalled: its narrative,
 kill-progression, and spawned-alien effects must be ported as one complete
 source routine before this helper can enter live alien dispatch.
+`modules/ai.s:ai_JustDied`'s spawned-alien branch is now an uncalled helper:
+it begins one record after `AI_OtherAlienDataPtrs_vl`, retains its every-other-
+slot ten-probe scan and zero-hit-points reuse condition, then creates at most
+three source child records. The helper preserves its low-byte hit-point and
+display-text writes, full object-point copy, predecessor AUX state, and all
+source field widths. Narrative submission and `STATS_KILL` progression remain
+with the owning complete death routine; no partial alien dispatch is enabled.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:
