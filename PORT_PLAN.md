@@ -102,7 +102,8 @@ authority for all game behavior and data formats.
   room columns. The depth-buffer presenter therefore biases `ItsABullet` and
   `Anim_ExplodeIntoBits` sprites a small distance toward the camera, retaining
   their source state while keeping impacts, gibs, flames, and shots on the
-  visible side of their wall/floor/roof contact.
+  visible side of their contact. The all-level hidden GPU smoke now submits
+  authored projectile source descriptors through that same flagged path.
 - [x] Fixed floor/ceiling objects use the selected live `ZoneT_Floor`/`Roof`
   scene boundary as their 3D anchor. `newaliencontrol.s:Collectable` writes
   that surface before `DEFANIMOBJ` adds a frame-local Y offset, so anchoring

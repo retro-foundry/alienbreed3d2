@@ -460,10 +460,14 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
             }
             command.type = SCENE_COMMAND_SPRITE;
             command.data.sprite.position = camera->position;
-            /* A four-unit forward offset is ahead of the near plane and ordinary
-             * level walls, while retaining the authored billboard dimensions. */
-            command.data.sprite.position.x += sine / 4096;
-            command.data.sprite.position.z += cosine / 4096;
+            /*
+             * Keep the exact ItsABullet descriptor comfortably beyond the
+             * presentation-only contact bias.  This drives the same
+             * projectile path that draws a live wall impact rather than
+             * testing an unflagged synthetic billboard.
+             */
+            command.data.sprite.position.x += sine / 256;
+            command.data.sprite.position.z += cosine / 256;
             command.data.sprite.source = glare != 0 ? SCENE_SPRITE_SOURCE_GLARE_BITMAP :
                                                        SCENE_SPRITE_SOURCE_OBJECT_BITMAP;
             command.data.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
@@ -474,7 +478,8 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
             command.data.sprite.source_clip_bottom_y = camera->position.y + 65536;
             command.data.sprite.source_width = (uint8_t)(animation.word_2 >> 8u);
             command.data.sprite.source_height = (uint8_t)animation.word_2;
-            command.data.sprite.flags = glare != 0 ? 0u : SCENE_SPRITE_FLAG_ADDITIVE;
+            command.data.sprite.flags = (uint8_t)(SCENE_SPRITE_FLAG_PROJECTILE |
+                (glare != 0 ? 0u : SCENE_SPRITE_FLAG_ADDITIVE));
             command.data.sprite.source_effect = glare != 0 ? 0u : 6u;
             command.data.sprite.frame_metrics.pointer_table_index = frame_data.pointer_table_index;
             command.data.sprite.frame_metrics.down_strip = frame_data.down_strip;
@@ -538,8 +543,8 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
             }
             command.type = SCENE_COMMAND_SPRITE;
             command.data.sprite.position = camera->position;
-            command.data.sprite.position.x += sine / 4096;
-            command.data.sprite.position.z += cosine / 4096;
+            command.data.sprite.position.x += sine / 256;
+            command.data.sprite.position.z += cosine / 256;
             command.data.sprite.source = SCENE_SPRITE_SOURCE_GLARE_BITMAP;
             command.data.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
             command.data.sprite.source_asset_id = asset_index;
@@ -549,6 +554,7 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
             command.data.sprite.source_clip_bottom_y = camera->position.y + 65536;
             command.data.sprite.source_width = (uint8_t)(animation.word_2 >> 8u);
             command.data.sprite.source_height = (uint8_t)animation.word_2;
+            command.data.sprite.flags = SCENE_SPRITE_FLAG_PROJECTILE;
             command.data.sprite.frame_metrics.pointer_table_index = frame_data.pointer_table_index;
             command.data.sprite.frame_metrics.down_strip = frame_data.down_strip;
             command.data.sprite.frame_metrics.strip_count = frame_data.strip_count;
