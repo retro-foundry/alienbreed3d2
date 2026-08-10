@@ -30,8 +30,11 @@ rasterization, PVS, portals, or zone ordering. It decodes the maintained
 WAD/PTR frame data, vector models, `rawbackpacked`, and `waterfile` into GPU
 resources. It forward-renders source-textured geometry, smooth source-driven
 light gradients, sky, animated water, bitmap/glare effects, vector objects,
-and Player 1's live companion weapon. This is original source art with a
-continuous lighting presentation—not a PBR conversion. HUD text, menus, and
+and Player 1's live companion weapon. World and vector materials are converted
+once to true colour with per-source-texel continuous linear-light responses,
+so source brightness retains its authored hue shift without runtime palette
+row selection. This is original source art with a continuous lighting
+presentation—not a PBR conversion. HUD text, menus, and
 multiplayer are not included. The
 detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live

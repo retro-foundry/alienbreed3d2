@@ -54,7 +54,7 @@ authority for all game behavior and data formats.
   water-frame state. The backend converts the source wall palette prefix and
   packed 5-bit wall strips, `floortile` plus row-32 `newtexturemaps.pal`, and
   object WAD/PTR frame columns to filtered/crisp RGBA GPU textures. World
-  conversion resolves one neutral source row and fits a per-channel
+  conversion resolves one neutral source row and fits each source texel's
   linear-light response (including any authored dark-row residual) from the
   complete source shade table before upload. Walls, floors, ceilings, and
   water use ordinary linearly filtered mipmapped RGBA textures; the source's
