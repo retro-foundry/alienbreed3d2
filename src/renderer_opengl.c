@@ -149,12 +149,17 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
 }
 
 /*
- * World lighting is not an RGB multiplier. hiresgourwall.s and hires.s both
- * subtract their 300-centred CurrentPointBrights entry, add a source-space
- * depth term, then index the material's palette-light rows. The source row
- * zero is brightest. Material conversion resolves that row up front, while
- * this continuous inverse row coordinate preserves the source light range in
- * the user-requested filtered RGBA presentation.
+ * World lighting is not an RGB multiplier.  The original paths first turn
+ * their 300-centred CurrentPointBrights entry into a palette-row coordinate.
+ * Keep the two source equations separate:
+ *
+ * - hiresgourwall.s doubles a wall's point delta before the final ASR #1,
+ *   yielding point_delta + view_depth / 256.
+ * - hires.s:goursides/dofloorGOUR uses point_delta + view_depth / 512.
+ *
+ * The source row zero is brightest.  Material conversion resolves that
+ * neutral row once; the continuous inverse row coordinate retains the live
+ * source light range in the filtered GPU presentation.
  */
 static float renderer_opengl_world_palette_light(const SceneVertex *source_vertex,
                                                  const SceneCamera *camera,
@@ -182,12 +187,12 @@ static float renderer_opengl_world_palette_light(const SceneVertex *source_verte
     }
 
     if (primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
-        /* hiresgourwall.s: ASR #7, add CurrentPointBrights - 300, ASR #1. */
-        shade = ((float)source_vertex->source_light_level - 300.0f +
-                 forward_depth / 128.0f) * 0.5f;
+        /* hiresgourwall.s: (2 * point_delta + (depth >> 7)) >> 1. */
+        shade = (float)source_vertex->source_light_level - 300.0f +
+            forward_depth / 256.0f;
         row_count = 32.0f;
     } else {
-        /* hires.s:goursides/dofloorGOUR: point delta plus the /512 floor depth term. */
+        /* hires.s:goursides/dofloorGOUR: point delta plus the /512 depth term. */
         shade = (float)source_vertex->source_light_level - 300.0f +
             forward_depth / 512.0f;
         row_count = 31.0f;
@@ -428,6 +433,37 @@ static int renderer_opengl_write_palette_texel(uint8_t *pixels, size_t pixel_off
         pixels[pixel_offset + 3u] = 0u;
     }
     return 1;
+}
+
+/* The source palette is display-referred RGB.  Keep that encoding on the
+ * GLES2/OpenGL 2.1 texture, then explicitly convert around GPU lighting. */
+static float renderer_opengl_srgb_to_linear(float component)
+{
+    if (component <= 0.04045f) {
+        return component / 12.92f;
+    }
+    return powf((component + 0.055f) / 1.055f, 2.4f);
+}
+
+static float renderer_opengl_linear_to_srgb(float component)
+{
+    if (component <= 0.0031308f) {
+        return component * 12.92f;
+    }
+    return 1.055f * powf(component, 1.0f / 2.4f) - 0.055f;
+}
+
+static uint8_t renderer_opengl_linear_to_srgb_byte(float component)
+{
+    float encoded = renderer_opengl_linear_to_srgb(component);
+
+    if (encoded <= 0.0f) {
+        return 0u;
+    }
+    if (encoded >= 1.0f) {
+        return UINT8_MAX;
+    }
+    return (uint8_t)(encoded * 255.0f + 0.5f);
 }
 
 static int renderer_opengl_decode_wall_texture(const SceneMaterial *material,
@@ -777,6 +813,7 @@ static int renderer_opengl_create_texture(const uint8_t *pixels, uint16_t width,
                     size_t source_y = (size_t)y * 2u;
 
                     for (uint32_t component = 0u; component < 4u; ++component) {
+                        float linear_total = 0.0f;
                         uint32_t total = 0u;
                         uint32_t samples = 0u;
 
@@ -786,13 +823,22 @@ static int renderer_opengl_create_texture(const uint8_t *pixels, uint16_t width,
                                 size_t actual_y = source_y + sample_y;
 
                                 if (actual_x < level_width && actual_y < level_height) {
-                                    total += level_pixels[(actual_y * level_width + actual_x) *
-                                                          4u + component];
+                                    uint8_t sample = level_pixels[(actual_y * level_width + actual_x) *
+                                                                  4u + component];
+
+                                    if (component < 3u) {
+                                        linear_total += renderer_opengl_srgb_to_linear(
+                                            (float)sample / 255.0f);
+                                    } else {
+                                        total += sample;
+                                    }
                                     ++samples;
                                 }
                             }
                         }
-                        next_pixels[destination + component] = (uint8_t)(total / samples);
+                        next_pixels[destination + component] = component < 3u ?
+                            renderer_opengl_linear_to_srgb_byte(linear_total / (float)samples) :
+                            (uint8_t)(total / samples);
                     }
                 }
             }
@@ -1251,10 +1297,23 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "varying vec3 v_source_color;\n"
         "uniform sampler2D u_texture;\n"
         "uniform float u_opacity;\n"
+        "vec3 srgb_to_linear(vec3 color) {\n"
+        "  vec3 low = color / 12.92;\n"
+        "  vec3 high = pow((color + 0.055) / 1.055, vec3(2.4));\n"
+        "  return mix(high, low, step(color, vec3(0.04045)));\n"
+        "}\n"
+        "vec3 linear_to_srgb(vec3 color) {\n"
+        "  vec3 low = color * 12.92;\n"
+        "  vec3 high = 1.055 * pow(max(color, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;\n"
+        "  return mix(high, low, step(color, vec3(0.0031308)));\n"
+        "}\n"
         "void main() {\n"
         "  vec4 color = texture2D(u_texture, v_texture_coordinate);\n"
+        "  vec3 source_light;\n"
         "  if (color.a < 0.5) discard;\n"
-        "  gl_FragColor = vec4(color.rgb * v_source_light * v_source_color,\n"
+        "  source_light = max(vec3(v_source_light) * v_source_color, vec3(0.0));\n"
+        "  gl_FragColor = vec4(linear_to_srgb(srgb_to_linear(color.rgb) *\n"
+        "                                    srgb_to_linear(source_light)),\n"
         "                      color.a * u_opacity);\n"
         "}\n";
 #else
@@ -1264,10 +1323,23 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "varying vec3 v_source_color;\n"
         "uniform sampler2D u_texture;\n"
         "uniform float u_opacity;\n"
+        "vec3 srgb_to_linear(vec3 color) {\n"
+        "  vec3 low = color / 12.92;\n"
+        "  vec3 high = pow((color + 0.055) / 1.055, vec3(2.4));\n"
+        "  return mix(high, low, step(color, vec3(0.04045)));\n"
+        "}\n"
+        "vec3 linear_to_srgb(vec3 color) {\n"
+        "  vec3 low = color * 12.92;\n"
+        "  vec3 high = 1.055 * pow(max(color, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;\n"
+        "  return mix(high, low, step(color, vec3(0.0031308)));\n"
+        "}\n"
         "void main() {\n"
         "  vec4 color = texture2D(u_texture, v_texture_coordinate);\n"
+        "  vec3 source_light;\n"
         "  if (color.a < 0.5) discard;\n"
-        "  gl_FragColor = vec4(color.rgb * v_source_light * v_source_color,\n"
+        "  source_light = max(vec3(v_source_light) * v_source_color, vec3(0.0));\n"
+        "  gl_FragColor = vec4(linear_to_srgb(srgb_to_linear(color.rgb) *\n"
+        "                                    srgb_to_linear(source_light)),\n"
         "                      color.a * u_opacity);\n"
         "}\n";
 #endif
