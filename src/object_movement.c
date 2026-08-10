@@ -124,23 +124,24 @@ static int object_movement_point_is_on_source_edge(int16_t point_x, int16_t poin
         object_movement_sub16(point_x, edge->x), shift_x);
     int16_t local_z = object_movement_sub16(
         object_movement_sub16(point_z, edge->z), shift_z);
-    int16_t comparison_x = delta_x;
-    int16_t comparison_z = delta_z;
+    int16_t magnitude_x = delta_x;
+    int16_t magnitude_z = delta_z;
 
     /*
-     * objectmove.s:othercheck uses the point's own X/Z signs to orient the
-     * corresponding edge components before it chooses an axis. The final
-     * range test then uses the original signed component. Do not turn this
-     * into an absolute-distance test: player MoveObject traces rely on these
-     * asymmetric four-unit contact bounds.
+     * objectmove.s:othercheck first selects the dominant *edge* component:
+     * it negates a negative delta with NEG.W, then chooses Z only if that
+     * magnitude exceeds X.  The following bounds still use the original
+     * signed component.  Selecting from the point signs instead makes an
+     * adjacent shifted wall extend across an opened door, so Player 1 is
+     * stopped even though DoorRoutine has lowered the joined ZoneT roof.
      */
-    if (local_x < 0) {
-        comparison_x = (int16_t)(UINT16_C(0) - (uint16_t)comparison_x);
+    if (magnitude_x < 0) {
+        magnitude_x = (int16_t)(UINT16_C(0) - (uint16_t)magnitude_x);
     }
-    if (local_z < 0) {
-        comparison_z = (int16_t)(UINT16_C(0) - (uint16_t)comparison_z);
+    if (magnitude_z < 0) {
+        magnitude_z = (int16_t)(UINT16_C(0) - (uint16_t)magnitude_z);
     }
-    if (comparison_z > comparison_x) {
+    if (magnitude_z > magnitude_x) {
         if (local_z > 0) {
             if (delta_z < -OBJECT_MOVEMENT_CONTACT_MARGIN ||
                 local_z > object_movement_add16(delta_z,

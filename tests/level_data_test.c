@@ -2789,6 +2789,7 @@ int main(int argc, char **argv)
             int16_t expected_velocity;
             uint16_t observed_edge_flags;
             LevelZone dynamic_door_zone;
+            LevelEdge dynamic_door_edge;
             uint16_t door_index = 0u;
 
             while (door_index < game.level_mechanisms.door_count &&
@@ -2801,6 +2802,9 @@ int main(int argc, char **argv)
                 if (!level_mechanisms_get_door_wall(&game.level_mechanisms, door_index, 0u,
                                                     &door_wall, error, sizeof(error)) ||
                     door_wall.edge_index < 0 || door.wall_data_offset < 36u ||
+                    !level_runtime_get_edge(&game.dynamic_level.runtime,
+                                            (uint16_t)door_wall.edge_index,
+                                            &dynamic_door_edge, error, sizeof(error)) ||
                     !level_dynamic_state_get_graphics_range(
                         &game.dynamic_level, door.wall_data_offset - 36u, 36u,
                         &door_header) ||
@@ -2864,6 +2868,137 @@ int main(int argc, char **argv)
                             level_index, error);
                     game_bootstrap_destroy(&game);
                     return 1;
+                }
+                {
+                    /*
+                     * DoorRoutine changes the joined door zone's Roof_l in
+                     * the same mutable level that Plr1_Control's MoveObject
+                     * trace consumes.  Cross an authored door edge after
+                     * writing its fully-open source position, rather than
+                     * merely checking the animated graphics record.
+                     */
+                    LevelDynamicState door_collision_state = {0};
+                    MechanismRuntime door_collision_mechanism;
+                    PlayerRuntime collision_player = {0};
+                    GameInput collision_input;
+                    LevelZone collision_owner_zone;
+                    LevelZone collision_door_zone;
+                    uint8_t *collision_header;
+                    uint16_t owner_zone_index = UINT16_MAX;
+                    int16_t normal_x;
+                    int16_t normal_z;
+                    int16_t middle_x;
+                    int16_t middle_z;
+
+                    for (uint16_t zone_index = 0u;
+                         zone_index < game.level_runtime.zone_count &&
+                         owner_zone_index == UINT16_MAX;
+                         ++zone_index) {
+                        uint32_t edge_count;
+
+                        if (!level_runtime_get_zone_edge_count(&game.level_runtime, zone_index,
+                                                               &edge_count, error,
+                                                               sizeof(error))) {
+                            fprintf(stderr, "campaign level %u door owner lookup failed: %s\n",
+                                    level_index, error);
+                            game_bootstrap_destroy(&game);
+                            return 1;
+                        }
+                        for (uint32_t edge_list_index = 0u;
+                             edge_list_index < edge_count;
+                             ++edge_list_index) {
+                            uint32_t edge_index;
+
+                            if (!level_runtime_get_zone_edge_index(
+                                    &game.level_runtime, zone_index, edge_list_index,
+                                    &edge_index, error, sizeof(error))) {
+                                fprintf(stderr,
+                                        "campaign level %u door owner lookup failed: %s\n",
+                                        level_index, error);
+                                game_bootstrap_destroy(&game);
+                                return 1;
+                            }
+                            if (edge_index == (uint16_t)door_wall.edge_index) {
+                                owner_zone_index = zone_index;
+                                break;
+                            }
+                        }
+                    }
+                    if (owner_zone_index == UINT16_MAX ||
+                        dynamic_door_edge.join_zone_id != door.zone_id ||
+                        !level_dynamic_state_init(&door_collision_state, &game.level_runtime,
+                                                  error, sizeof(error)) ||
+                        !level_dynamic_state_get_graphics_range(
+                            &door_collision_state, door.wall_data_offset - 36u, 36u,
+                            &collision_header)) {
+                        fprintf(stderr,
+                                "campaign level %u door has no mutable collision path: %s\n",
+                                level_index, error);
+                        level_dynamic_state_destroy(&door_collision_state);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    write_be16(collision_header + 22u, (uint16_t)door.top);
+                    write_be16(collision_header + 24u, 0u);
+                    mechanism_runtime_init(&door_collision_mechanism);
+                    if (!mechanism_runtime_update_doors_single_player(
+                            &door_collision_mechanism, &door_collision_state,
+                            &game.level_mechanisms, &door_player, 1u, error, sizeof(error)) ||
+                        !level_runtime_get_zone(&door_collision_state.runtime, owner_zone_index,
+                                                &collision_owner_zone, error, sizeof(error)) ||
+                        !level_runtime_get_zone(&door_collision_state.runtime,
+                                                (uint16_t)door.zone_id,
+                                                &collision_door_zone, error, sizeof(error)) ||
+                        collision_door_zone.roof !=
+                            (int32_t)source_asr16_2(door.top) * 256) {
+                        fprintf(stderr,
+                                "campaign level %u DoorRoutine did not publish an open "
+                                "collision zone: %s\n",
+                                level_index, error);
+                        level_dynamic_state_destroy(&door_collision_state);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    normal_x = dynamic_door_edge.z_length < 0 ? 16 :
+                        dynamic_door_edge.z_length > 0 ? -16 : 0;
+                    normal_z = dynamic_door_edge.x_length > 0 ? 16 :
+                        dynamic_door_edge.x_length < 0 ? -16 : 0;
+                    middle_x = (int16_t)((int32_t)dynamic_door_edge.x +
+                                         dynamic_door_edge.x_length / 2);
+                    middle_z = (int16_t)((int32_t)dynamic_door_edge.z +
+                                         dynamic_door_edge.z_length / 2);
+                    collision_player.x = player_runtime_world_to_position(
+                        (int16_t)(middle_x - normal_x));
+                    collision_player.z = player_runtime_world_to_position(
+                        (int16_t)(middle_z - normal_z));
+                    collision_player.snap_x = player_runtime_world_to_position(
+                        (int16_t)(middle_x + normal_x));
+                    collision_player.snap_z = player_runtime_world_to_position(
+                        (int16_t)(middle_z + normal_z));
+                    collision_player.height = 12 * 1024;
+                    collision_player.snap_height = collision_player.height;
+                    collision_player.snap_target_height = collision_player.height;
+                    collision_player.snap_squished_height = collision_player.height;
+                    collision_player.y = collision_owner_zone.floor - collision_player.height;
+                    collision_player.snap_y = collision_player.y;
+                    collision_player.snap_target_y = collision_player.y;
+                    collision_player.zone_index = owner_zone_index;
+                    game_input_init(&collision_input);
+                    if ((normal_x == 0 && normal_z == 0) ||
+                        !player_runtime_update_spatial(
+                            &collision_player, &collision_input, &control_defaults,
+                            &game.preferences, &game.math, &door_collision_state.runtime,
+                            &door_collision_state, error, sizeof(error)) ||
+                        collision_player.zone_index != (uint16_t)door.zone_id) {
+                        fprintf(stderr,
+                                "campaign level %u player could not cross its fully open "
+                                "source door (zone=%u expected=%d): %s\n",
+                                level_index, collision_player.zone_index, door.zone_id, error);
+                        level_dynamic_state_destroy(&door_collision_state);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    level_dynamic_state_destroy(&door_collision_state);
                 }
                 if (door.open_duration > 0) {
                     write_be16(door_header + 22u, (uint16_t)door.top);

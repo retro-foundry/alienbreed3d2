@@ -474,8 +474,12 @@ multiplayer work is planned.
   interaction and weapon paths, then clears the one-tick use and click pulses.
   Static collision also records the source
   `0x0100` player-contact bit in each mutable `EdgeT_Flags_w`, including the
-  source `othercheck` signed four-unit contact bounds, so mechanism routines
-  can consume that signal rather than a native proximity shortcut.
+  source `othercheck` dominant-`EdgeT`-component (`NEG.W`) axis selection and
+  signed four-unit contact bounds, so mechanism routines can consume that
+  signal rather than a native proximity shortcut. The authored Level A–P
+  collision fixture opens each available door through `DoorRoutine`'s mutable
+  `ZoneT_Roof_l`, then moves Player 1 across its linked source `EdgeT`; an
+  adjacent shifted wall may not block that fully open doorway.
   `src/player_entity.*` now publishes the `hires.s:Plr1_Use` fields required by
   the live shared `ObjT` state: the player-one type, point position, zone,
   centre height, current angle, targetability, and upper-zone flag. Its
