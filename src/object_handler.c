@@ -16,6 +16,7 @@ enum {
     OBJECT_SLOT_ENTITY_ZONE_ID = 26u,
     OBJECT_SLOT_DOORS_AND_LIFTS_HELD = 50u,
     OBJECT_SLOT_ENTITY_TYPE = 54u,
+    OBJECT_SLOT_WORRY = 62u,
     OBJECT_TYPE_OBJECT = 1u,
     OBJECT_TYPE_PROJECTILE = 2u,
     OBJECT_BEHAVIOUR_COLLECTABLE = 0u,
@@ -48,10 +49,31 @@ static void object_handler_write_be16(uint8_t *target, uint16_t value)
     target[1] = (uint8_t)value;
 }
 
+static int object_handler_copy_alien_auxiliary(ObjectRuntime *objects, uint32_t slot_index,
+                                               uint8_t *slot, char *error, size_t error_size)
+{
+    uint8_t *previous_slot;
+
+    /* newanims.s:ObjectHandler accesses ObjT_ZoneID_w+ENT_PREV after ItsAnAlien. */
+    if (slot_index == 0u ||
+        !object_runtime_get_slot_bytes(objects, slot_index - 1u, &previous_slot)) {
+        object_handler_set_error(error, error_size,
+                                 "ItsAnAlien preceding source AUX slot is unavailable");
+        return 0;
+    }
+    if ((int16_t)object_handler_read_be16(previous_slot + OBJECT_SLOT_ZONE_ID) >= 0) {
+        object_handler_write_be16(previous_slot + OBJECT_SLOT_ZONE_ID,
+                                  object_handler_read_be16(slot + OBJECT_SLOT_ZONE_ID));
+        object_handler_write_be16(previous_slot + OBJECT_SLOT_ENTITY_ZONE_ID,
+                                  object_handler_read_be16(slot + OBJECT_SLOT_ENTITY_ZONE_ID));
+    }
+    return 1;
+}
+
 int object_handler_update_single_player(
     ObjectRuntime *objects, LevelDynamicState *dynamic_level,
     MechanismRuntime *mechanism_runtime, AlienRuntime *alien_runtime,
-    const GameLink *game_link,
+    const GameLink *game_link, const ObjectHandlerAlienContext *alien_context,
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
     uint32_t *out_collected_count, char *error, size_t error_size)
@@ -59,8 +81,12 @@ int object_handler_update_single_player(
     const LevelRuntime *level;
     uint32_t collected_count = 0u;
 
-    if (!objects || !dynamic_level || !mechanism_runtime || !alien_runtime || !game_link || !player ||
-        !inventory || !limits ||
+    if (!objects || !dynamic_level || !mechanism_runtime || !alien_runtime || !game_link ||
+        !alien_context || !alien_context->animation_runtime || !alien_context->lighting_runtime ||
+        !alien_context->navigation || !alien_context->clips || !alien_context->progression ||
+        !alien_context->explosion_runtime || !alien_context->math || !alien_context->random ||
+        !alien_context->observation || !alien_context->dispatch_workspace ||
+        !alien_context->messages || !alien_context->preferences || !player || !inventory || !limits ||
         objects->active_slot_count > objects->slot_count ||
         player->zone_index >= dynamic_level->runtime.zone_count) {
         object_handler_set_error(error, error_size,
@@ -95,11 +121,39 @@ int object_handler_update_single_player(
                     (uint16_t)object_handler_read_be32(
                         slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD);
             }
-            /* newaliencontrol.s:ItsAnAlien:.no_enemies. */
-            if (alien_runtime->no_enemies == 0u) {
-                object_handler_write_be16(slot + OBJECT_SLOT_ZONE_ID, UINT16_MAX);
+            if (slot[OBJECT_SLOT_WORRY] != 0u) {
+                if (alien_runtime->no_enemies == 0u) {
+                    /* newaliencontrol.s:ItsAnAlien:.no_enemies. */
+                    object_handler_write_be16(slot + OBJECT_SLOT_ZONE_ID, UINT16_MAX);
+                } else {
+                    AlienSetup setup;
+                    AlienDispatchState dispatch;
+
+                    if (!alien_setup_from_slot(objects, slot_index, &dynamic_level->runtime,
+                                               game_link, &setup, error, error_size) ||
+                        !alien_dispatch_update(
+                            objects, slot_index, alien_runtime,
+                            alien_context->animation_runtime, alien_context->lighting_runtime,
+                            dynamic_level, alien_context->navigation, alien_context->clips,
+                            game_link, alien_context->progression,
+                            alien_context->explosion_runtime, alien_context->math,
+                            alien_context->random, player, &setup, alien_context->observation,
+                            frame_ticks, alien_context->dispatch_workspace, &dispatch,
+                            error, error_size) ||
+                        (dispatch.narrative.bytes &&
+                         !message_runtime_push_line(
+                             alien_context->messages, dispatch.narrative.bytes,
+                             dispatch.narrative.length_and_tag,
+                             alien_context->preferences->show_messages,
+                             error, error_size))) {
+                        return 0;
+                    }
+                }
+                if (!object_handler_copy_alien_auxiliary(objects, slot_index, slot,
+                                                         error, error_size)) {
+                    return 0;
+                }
             }
-            /* TODO(port): newaliencontrol.s:ItsAnAlien. */
             continue;
         }
         if (slot[OBJECT_SLOT_TYPE_ID] == OBJECT_TYPE_PROJECTILE) {

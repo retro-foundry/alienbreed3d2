@@ -34,6 +34,7 @@
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
 #include "lighting_runtime.h"
+#include "message_runtime.h"
 #include "object_collectables.h"
 #include "object_collision.h"
 #include "object_explosion.h"
@@ -498,6 +499,7 @@ int main(int argc, char **argv)
     SceneFrame frame;
     SceneCommand command;
     GameBootstrap game;
+    ObjectHandlerAlienContext object_handler_context;
     GameLink game_link;
     AssetBlob game_link_blob = {0};
     const uint8_t *table_bytes;
@@ -631,6 +633,50 @@ int main(int argc, char **argv)
         fprintf(stderr, "SETPLAYERS single-player alien gate is inconsistent\n");
         return 1;
     }
+    {
+        /* c/message.c:Msg_Init/Msg_PushLine in the source small-screen mode. */
+        uint8_t level_messages[MESSAGE_RUNTIME_LEVEL_MESSAGE_COUNT *
+                               MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH] = {0};
+        uint8_t glyph_spacing[MESSAGE_RUNTIME_GLYPH_SPACING_BYTE_COUNT];
+        static const uint8_t text_line[] = {'H', 'U', 'D', '!'};
+        MessageRuntime messages;
+        SceneFrame message_frame;
+
+        error[0] = '\0';
+        memset(glyph_spacing, 0x10, sizeof(glyph_spacing));
+        memcpy(level_messages + MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH,
+               "ONE  SPACE", sizeof("ONE  SPACE"));
+        if (!message_runtime_init(&messages, level_messages, sizeof(level_messages),
+                                  glyph_spacing, sizeof(glyph_spacing), error, sizeof(error)) ||
+            level_messages[0u] != 0u ||
+            memcmp(level_messages + MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH,
+                   "ONE SPACE", sizeof("ONE SPACE")) != 0 ||
+            !message_runtime_push_line(
+                &messages, text_line,
+                (uint16_t)(sizeof(text_line) |
+                           (MESSAGE_RUNTIME_TAG_OPTIONS << MESSAGE_RUNTIME_TAG_SHIFT)),
+                0u, error, sizeof(error)) ||
+            message_runtime_visible_line_count(&messages) != 0u ||
+            !message_runtime_push_line(
+                &messages, text_line,
+                (uint16_t)(sizeof(text_line) |
+                           (MESSAGE_RUNTIME_TAG_OPTIONS << MESSAGE_RUNTIME_TAG_SHIFT)),
+                UINT8_MAX, error, sizeof(error)) ||
+            message_runtime_visible_line_count(&messages) != 1u ||
+            !scene_frame_init(&message_frame, 1u) ||
+            !message_runtime_submit_hud(&messages, &message_frame) ||
+            message_frame.count != 1u ||
+            message_frame.commands[0u].type != SCENE_COMMAND_HUD_TEXT ||
+            message_frame.commands[0u].data.hud_text.text != (const char *)text_line ||
+            message_frame.commands[0u].data.hud_text.text_byte_count != sizeof(text_line) ||
+            message_frame.commands[0u].data.hud_text.x != 20 ||
+            message_frame.commands[0u].data.hud_text.y != 164 ||
+            message_frame.commands[0u].data.hud_text.style_id != MESSAGE_RUNTIME_TAG_OPTIONS) {
+            fprintf(stderr, "c/message.c source line-ring handoff is inconsistent: %s\n", error);
+            return 1;
+        }
+        scene_frame_destroy(&message_frame);
+    }
     for (uint16_t workspace_index = 0u;
          workspace_index < ALIEN_RUNTIME_ENTITY_COUNT; ++workspace_index) {
         alien_runtime.entity_workspace[workspace_index][6u] =
@@ -742,6 +788,7 @@ int main(int argc, char **argv)
     }
     command.type = SCENE_COMMAND_HUD_TEXT;
     command.data.hud_text.text = "test";
+    command.data.hud_text.text_byte_count = 4u;
     command.data.hud_text.x = 0;
     command.data.hud_text.y = 0;
     command.data.hud_text.style_id = 0;
@@ -1119,6 +1166,18 @@ int main(int argc, char **argv)
         fprintf(stderr, "%s\n", error);
         return 1;
     }
+    object_handler_context.animation_runtime = &game.object_animation_runtime;
+    object_handler_context.lighting_runtime = &game.lighting_runtime;
+    object_handler_context.navigation = &game.level_navigation;
+    object_handler_context.clips = &game.level_clips;
+    object_handler_context.progression = &game.progression;
+    object_handler_context.explosion_runtime = &game.object_explosion_runtime;
+    object_handler_context.math = &game.math;
+    object_handler_context.random = &game.random;
+    object_handler_context.observation = &game.object_observation;
+    object_handler_context.dispatch_workspace = &game.alien_dispatch_workspace;
+    object_handler_context.messages = &game.message_runtime;
+    object_handler_context.preferences = &game.preferences;
     if (game.random.state != 234u) {
         fprintf(stderr, "Game_Start source random seed is inconsistent\n");
         game_bootstrap_destroy(&game);
@@ -1941,7 +2000,7 @@ int main(int argc, char **argv)
                 if (!object_handler_update_single_player(
                         &game.object_runtime, &game.dynamic_level, &game.mechanism_runtime,
                         &game.alien_runtime,
-                        &game.game_link_catalog, &activatable_player,
+                        &game.game_link_catalog, &object_handler_context, &activatable_player,
                         &activatable_inventory, &game.inventory_limits, 1u,
                         NULL, error, sizeof(error)) ||
                     activatable_slot[55u] != UINT8_MAX ||
@@ -2000,7 +2059,7 @@ int main(int argc, char **argv)
                             &game.object_runtime, &game.dynamic_level,
                             &game.mechanism_runtime,
                             &game.alien_runtime,
-                            &game.game_link_catalog, &game.player,
+                            &game.game_link_catalog, &object_handler_context, &game.player,
                             &game.session.player1_inventory, &game.inventory_limits, 1u,
                             NULL, error, sizeof(error)) ||
                         read_be16(passive_slot + 4u) != (uint16_t)passive_height ||
@@ -2040,7 +2099,7 @@ int main(int argc, char **argv)
                             &game.object_runtime, &game.dynamic_level,
                             &game.mechanism_runtime,
                             &game.alien_runtime,
-                            &game.game_link_catalog, &game.player,
+                            &game.game_link_catalog, &object_handler_context, &game.player,
                             &game.session.player1_inventory, &game.inventory_limits, 1u,
                             NULL, error, sizeof(error)) ||
                         passive_slot[18u] != 0u ||
@@ -3668,7 +3727,7 @@ int main(int argc, char **argv)
         if (!object_handler_update_single_player(
                 &projectile_objects, &game.dynamic_level, &game.mechanism_runtime,
                 &game.alien_runtime,
-                &game.game_link_catalog,
+                &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             slot_bytes[52u] != ((int16_t)(uint16_t)projectile_bullet.animation_frames < 1 ?
@@ -4035,39 +4094,43 @@ int main(int argc, char **argv)
     }
     {
         /* ObjectHandler:JUMPALIEN ORs a living entity's held door/lift mask first. */
-        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t slot_bytes[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime lock_objects = {0};
         MechanismRuntime lock_runtime;
 
         lock_objects.slot_bytes = slot_bytes;
-        lock_objects.slot_count = 2u;
-        lock_objects.active_slot_count = 2u;
+        lock_objects.slot_count = 3u;
+        lock_objects.active_slot_count = 3u;
+        /* The source's alien postamble reaches the immediately preceding AUX slot. */
         write_be16(slot_bytes + 0u, 0u);
         write_be16(slot_bytes + 12u, 0u);
-        slot_bytes[16u] = 0u;
-        slot_bytes[18u] = UINT8_MAX;
-        write_be32(slot_bytes + 50u, 0x00000005u);
-        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        slot_bytes[16u] = 3u;
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 1u);
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = UINT8_MAX;
+        write_be32(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00000005u);
+        write_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
         mechanism_runtime_init(&lock_runtime);
         alien_runtime_init(&lock_alien_runtime);
         alien_runtime_begin_single_player(&lock_alien_runtime);
         lock_runtime.door_and_lift_locks = 0x0002u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
-                &game.game_link_catalog,
+                &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             lock_runtime.door_and_lift_locks != 0x0007u ||
-            read_be16(slot_bytes + 26u) != 0u) {
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) != 0u) {
             fprintf(stderr, "ObjectHandler alien lock preamble is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
-        slot_bytes[18u] = 0u;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 0u;
         lock_runtime.door_and_lift_locks = 0u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
-                &game.game_link_catalog,
+                &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             lock_runtime.door_and_lift_locks != 0u) {
@@ -4076,16 +4139,19 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
-        write_be16(slot_bytes + 12u, 0u);
-        write_be16(slot_bytes + 26u, 0u);
-        slot_bytes[18u] = UINT8_MAX;
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u, 0u);
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = UINT8_MAX;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 62u] = UINT8_MAX;
         lock_alien_runtime.no_enemies = 0u;
         lock_runtime.door_and_lift_locks = 0u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
-                &game.game_link_catalog,
+                &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) != UINT16_MAX ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) != 0u ||
             read_be16(slot_bytes + 12u) != UINT16_MAX ||
             read_be16(slot_bytes + 26u) != 0u ||
             lock_runtime.door_and_lift_locks != 0x0005u) {
@@ -4094,15 +4160,15 @@ int main(int argc, char **argv)
             return 1;
         }
         alien_runtime_begin_single_player(&lock_alien_runtime);
-        write_be16(slot_bytes + 12u, UINT16_MAX);
-        slot_bytes[18u] = UINT8_MAX;
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, UINT16_MAX);
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = UINT8_MAX;
         lock_runtime.door_and_lift_locks = 0u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
-                &game.game_link_catalog,
+                &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
-            read_be16(slot_bytes + 26u) != UINT16_MAX ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) != UINT16_MAX ||
             lock_runtime.door_and_lift_locks != 0u) {
             fprintf(stderr, "ObjectHandler negative alien-zone gate is inconsistent: %s\n",
                     error);
@@ -8406,7 +8472,7 @@ int main(int argc, char **argv)
          * empty left/right clip lists, then a single edge joining the two
          * lower layers at source height 10 << 7.
          */
-        uint8_t level_bytes[256u] = {0};
+        uint8_t level_bytes[300u] = {0};
         uint8_t graphics_bytes[64u] = {0};
         uint8_t clip_bytes[6u] = {0xffu, 0xffu, 0xffu, 0xffu, 0u, 0u};
         AssetBlob clips = {clip_bytes, 4u};

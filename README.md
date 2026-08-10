@@ -14,6 +14,17 @@ executable as a lower-case `data/` tree. The Amiga volume path `AB3:Includes/tes
 The initial desktop target establishes the port boundary without reusing the
 first game's software renderer:
 
+The active direct-play path now runs the source single-player control,
+weapon, object/mechanism, worry, and `ItsAnAlien` update ordering. Every
+complete AI route enters through `newanims.s:ObjectHandler` only when its
+source worry byte is set; source death narratives enter the GPU-neutral
+small-screen message ring and appear as byte-ranged HUD commands. The SDL
+presenter remains intentionally status-only, so this is simulation and scene
+production rather than a software-rendered game. Menus remain deferred and
+multiplayer is not included. The detailed inventory below records the
+source-backed foundations; older references to an unbound AI dispatcher are
+superseded by this live integration.
+
 - loads the authoritative `test.lnk` game database and `TEXT_FILE` narrative;
 - unpacks (including stored and LHA-compressed `=SB=` records), parses, and validates the map, fly map, `twolev.bin`,
   `twolev.graph.bin`, and clip stream for every campaign level (`A`–`P`). The
@@ -39,10 +50,11 @@ first game's software renderer:
 - exposes the 30 source `ODefT` object definitions, both 20-frame six-byte
   object animation tables, and the 32 eight-byte bitmap metrics per object as
   endian-safe read views. Object commands expose the source-selected mode and
-  frame; pending AI and moving-projectile paths do not receive invented
-  animation;
-- exposes all 20 `AlienT` records used by `ItsAnAlien` and validates every
-  loaded alien-slot type against that catalog, without starting an AI update;
+  frame; live AI and moving-projectile paths consume those source-selected
+  values without invented animation;
+- exposes all 20 `AlienT` records used by `ItsAnAlien`, validates every
+  loaded alien-slot type against that catalog, and supplies the exact setup
+  input for the live worried-alien update;
   `Game_Begin`'s exact per-level alien/team workspace and damage initialization
   is owned separately, including the source's intentionally preserved trailing
   workspace words and boredom storage. The single-player `SETPLAYERS` alien

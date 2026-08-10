@@ -10,6 +10,14 @@ static void alien_dispatch_set_error(char *error, size_t error_size, const char 
     }
 }
 
+static void alien_dispatch_publish_narrative(AlienDispatchState *state,
+                                             const AlienJustDiedState *death)
+{
+    if (death->narrative.bytes) {
+        state->narrative = death->narrative;
+    }
+}
+
 int alien_dispatch_update(
     ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
     ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
@@ -49,6 +57,7 @@ int alien_dispatch_update(
                 player, setup, 0u, frame_ticks, &state.prowl, error, error_size)) {
             return 0;
         }
+        alien_dispatch_publish_narrative(&state, &state.prowl.death);
         break;
     case ALIEN_MAIN_BEHAVIOR_PROWL_RANDOM_FLYING:
         if (!alien_prowl_random_update(
@@ -57,6 +66,7 @@ int alien_dispatch_update(
                 player, setup, UINT8_MAX, frame_ticks, &state.prowl, error, error_size)) {
             return 0;
         }
+        alien_dispatch_publish_narrative(&state, &state.prowl.death);
         break;
     case ALIEN_MAIN_BEHAVIOR_CHARGE:
     case ALIEN_MAIN_BEHAVIOR_CHARGE_TO_SIDE:
@@ -68,6 +78,7 @@ int alien_dispatch_update(
                 frame_ticks, &workspace->movement, &state.charge, error, error_size)) {
             return 0;
         }
+        alien_dispatch_publish_narrative(&state, &state.charge.death);
         break;
     case ALIEN_MAIN_BEHAVIOR_CHARGE_FLYING:
     case ALIEN_MAIN_BEHAVIOR_CHARGE_TO_SIDE_FLYING:
@@ -78,6 +89,7 @@ int alien_dispatch_update(
                 frame_ticks, &workspace->movement, &state.charge, error, error_size)) {
             return 0;
         }
+        alien_dispatch_publish_narrative(&state, &state.charge.death);
         break;
     case ALIEN_MAIN_BEHAVIOR_ATTACK_WITH_GUN:
     case ALIEN_MAIN_BEHAVIOR_ATTACK_WITH_GUN_FLYING: {
@@ -94,12 +106,15 @@ int alien_dispatch_update(
                     random, player, setup, observation, &state.hitscan, error, error_size)) {
                 return 0;
             }
+            alien_dispatch_publish_narrative(&state, &state.hitscan.death);
         } else if (!alien_attack_with_projectile_update(
                        objects, slot_index, alien_runtime, animation_runtime, lighting,
                        &dynamic_level->runtime, clips, game_link, progression,
                        explosion_runtime, math, random, player, setup, &state.projectile,
                        error, error_size)) {
             return 0;
+        } else {
+            alien_dispatch_publish_narrative(&state, &state.projectile.death);
         }
         break;
     }
@@ -110,6 +125,7 @@ int alien_dispatch_update(
                 math, random, player, setup, frame_ticks, &state.pause, error, error_size)) {
             return 0;
         }
+        alien_dispatch_publish_narrative(&state, &state.pause.death);
         break;
     case ALIEN_MAIN_BEHAVIOR_APPROACH:
     case ALIEN_MAIN_BEHAVIOR_APPROACH_TO_SIDE:
@@ -128,6 +144,7 @@ int alien_dispatch_update(
                 frame_ticks, &workspace->movement, &state.charge, error, error_size)) {
             return 0;
         }
+        alien_dispatch_publish_narrative(&state, &state.charge.death);
         break;
     case ALIEN_MAIN_BEHAVIOR_DIE:
         if (!alien_death_update(

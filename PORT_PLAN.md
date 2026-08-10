@@ -28,7 +28,28 @@ authority for all game behavior and data formats.
 
 ## Current completed foundation
 
-### Latest milestone: PVS-free whole-level scene production
+### Latest milestone: live `ItsAnAlien` dispatch and GPU-neutral message handoff
+
+- [x] `src/message_runtime.*` directly ports the small-screen `c/message.c`
+  `Msg_Init` and `Msg_PushLine` line-ring boundary. `Game_Begin` now loads
+  the source glyph-spacing table, preprocesses the ten mutable 160-byte level
+  messages before runtime parsing, and publishes exact byte-ranged HUD text
+  commands. The status presenter consumes those commands without rasterizing
+  them. The source has no `Msg_Tick` caller in this path, so no native expiry
+  clock has been invented.
+- [x] `src/object_handler.*` now owns the complete source context needed at
+  `newanims.s:ObjectHandler`: it retains the living-alien lock preamble,
+  enters `ItsAnAlien` only for a worried slot, applies the source no-enemies
+  gate only on that path, invokes the dispatcher with the prior-frame
+  observation, and copies the immediately preceding AUX zone pair in source
+  order. `src/alien_dispatch.*` returns fatal-death narrative requests to the
+  handler, which pushes them through the source message ring subject to
+  `Prefs_ShowMessages_b`.
+- [x] The no-op presenter remains deliberately unchanged. The future backend
+  receives whole-level camera/material/geometry/sprite/HUD intent and does
+  not need PVS, portals, or software rendering.
+
+### Earlier completed foundation
 
 - [x] `src/game_link.*` provides a bounds-checked view of every `GLFT` table
   from `defs.i`. It now decodes all 30 `ODefT` records, both source 20-by-6-
@@ -583,7 +604,7 @@ authority for all game behavior and data formats.
 - Keep unported behavior absent and marked `TODO(port): <source>:<routine>`;
   never replace it with fabricated gameplay or a software renderer.
 
-## Next gameplay milestone
+## Historical implementation trace
 
 The campaign bootstrap/whole-level scene milestone is complete. The native
 executable now enters the source default single-player session directly in
@@ -920,3 +941,40 @@ full lock behaviour, narrative audio/messages, alien behaviour, or projectile
 blast/brightness/audio. The
 missing systems must use the maintained source's mutable `ObjT` initialization,
 worry, animation, and update ordering rather than a generalized object update.
+
+## Current implementation status and remaining plan
+
+The direct single-player path now runs source-backed player control, weapons,
+object/mechanism updates, worry generation, live alien dispatch, and a
+whole-level scene submission. It intentionally bypasses menus and retains a
+diagnostic-only SDL presenter until the GPU renderer exists. Multiplayer,
+software rendering, PVS traversal, and portal-order rendering remain out of
+scope by design.
+
+1. **GPU presentation for direct gameplay**
+   - Select a cross-platform graphics API without changing `scene_frame.h`'s
+     producer contract.
+   - Convert the authoritative material, palette, texture-coordinate, vector,
+     bitmap, sprite, and glyph data only from demonstrated source formats.
+   - Render every submitted loaded-level primitive in a single whole-level
+     pass, then sprites and byte-ranged HUD/message text. Do not make
+     visibility culling, PVS, or portals a prerequisite.
+   - Replace the status-only presenter only after it consumes camera,
+     geometry, material, sprite, and HUD commands with source-derived tests.
+
+2. **Finish deliberately absent source event outputs**
+   - Map original music and sound-effect event calls to a native audio backend
+     while retaining source event/timing decisions; do not emulate Paula or
+     synthesize substitute sounds.
+   - Trace the remaining source-owned blast/brightness/event branches before
+     enabling each one. Keep any branch absent until its original caller and
+     state ownership are established.
+
+3. **Direct-play validation**
+   - Extend focused source fixtures for worried live aliens, message/death
+     requests, and their exact ObjT/AUX ordering as routes are exercised in
+     authored levels.
+   - Maintain the full A--P asset/bootstrap regression and add renderer output
+     validation separately from simulation-state validation.
+   - Keep menus deferred until direct game presentation, input, simulation,
+     and audio work end to end; do not reintroduce multiplayer.

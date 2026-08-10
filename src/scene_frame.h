@@ -138,7 +138,9 @@ typedef struct {
 } SceneSprite;
 
 typedef struct {
+    /* Exact source bytes; consumers must not require a trailing NUL. */
     const char *text;
+    uint16_t text_byte_count;
     int16_t x;
     int16_t y;
     uint32_t style_id;

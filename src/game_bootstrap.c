@@ -68,6 +68,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     memset(&game->level_graphics_header, 0, sizeof(game->level_graphics_header));
     memset(&game->level_mechanisms, 0, sizeof(game->level_mechanisms));
     memset(&game->level_navigation, 0, sizeof(game->level_navigation));
+    memset(&game->message_runtime, 0, sizeof(game->message_runtime));
     level_dynamic_state_destroy(&game->dynamic_level);
     mechanism_runtime_init(&game->mechanism_runtime);
     memset(&game->level_runtime, 0, sizeof(game->level_runtime));
@@ -163,6 +164,18 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
         !game_math_init(&game->sine_table, &game->math, error, error_size)) {
         goto fail;
     }
+    /* data/draw_data.s incbins this table for c/message.c's proportional splitting. */
+    if (!asset_io_load(data_root, "includes/glyph_spacing.bin", &game->glyph_spacing,
+                       error, error_size)) {
+        goto fail;
+    }
+    if (game->glyph_spacing.size != MESSAGE_RUNTIME_GLYPH_SPACING_BYTE_COUNT) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "glyph spacing table is not the source 256-byte payload");
+        }
+        goto fail;
+    }
     /* controlloop.s:Game_Start: Game_StoryFile_vb */
     if (!asset_io_load(data_root, "includes/text_file", &game->story_text, error, error_size)) {
         goto fail;
@@ -183,6 +196,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     game_random_init(&game->random);
     object_animation_runtime_init(&game->object_animation_runtime);
     lighting_runtime_init(&game->lighting_runtime);
+    object_explosion_runtime_init(&game->object_explosion_runtime);
     return 1;
 
 fail:
@@ -213,6 +227,7 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
                                         char *error, size_t error_size)
 {
     LevelZone player_zone;
+    ObjectHandlerAlienContext alien_context;
 
     if (!game || game->level_data.size == 0u) {
         if (error && error_size > 0u) {
@@ -251,6 +266,19 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     }
     /* newanims.s:objmoveanim clears this immediately before Plr1_Shot. */
     game->player.noise_volume = 0;
+    alien_context.animation_runtime = &game->object_animation_runtime;
+    alien_context.lighting_runtime = &game->lighting_runtime;
+    alien_context.navigation = &game->level_navigation;
+    alien_context.clips = &game->level_clips;
+    alien_context.progression = &game->progression;
+    alien_context.explosion_runtime = &game->object_explosion_runtime;
+    alien_context.math = &game->math;
+    alien_context.random = &game->random;
+    /* ObjectHandler uses the source observation produced at the prior tick's tail. */
+    alien_context.observation = &game->object_observation;
+    alien_context.dispatch_workspace = &game->alien_dispatch_workspace;
+    alien_context.messages = &game->message_runtime;
+    alien_context.preferences = &game->preferences;
     if (!player_shoot_update_single_player(
             &game->object_runtime, &game->dynamic_level, &game->object_observation,
             &game->player, &game->session.player1_inventory, &game->game_link_catalog,
@@ -258,7 +286,7 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
         !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level, &game->mechanism_runtime,
             &game->alien_runtime,
-            &game->game_link_catalog,
+            &game->game_link_catalog, &alien_context,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,
             1u, NULL, error, error_size) ||
         !mechanism_runtime_update_doors_single_player(
@@ -429,7 +457,10 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
             return 0;
         }
     }
-    if (!level_bootstrap_parse(&game->level_data, &game->level, error, error_size) ||
+    if (!message_runtime_init(&game->message_runtime, game->level_data.bytes,
+                              game->level_data.size, game->glyph_spacing.bytes,
+                              game->glyph_spacing.size, error, error_size) ||
+        !level_bootstrap_parse(&game->level_data, &game->level, error, error_size) ||
         !level_graphics_bootstrap_parse(&game->level_graphics,
                                         &game->level_graphics_header, error, error_size) ||
         !level_mechanisms_init(&game->level_graphics, &game->level_graphics_header,
@@ -482,9 +513,12 @@ void game_bootstrap_destroy(GameBootstrap *game)
     memset(&game->inventory_limits, 0, sizeof(game->inventory_limits));
     asset_blob_release(&game->sine_table);
     memset(&game->math, 0, sizeof(game->math));
+    asset_blob_release(&game->glyph_spacing);
     alien_runtime_init(&game->alien_runtime);
     object_animation_runtime_init(&game->object_animation_runtime);
     lighting_runtime_init(&game->lighting_runtime);
+    object_explosion_runtime_init(&game->object_explosion_runtime);
+    memset(&game->alien_dispatch_workspace, 0, sizeof(game->alien_dispatch_workspace));
     memset(&game->session, 0, sizeof(game->session));
     memset(&game->preferences, 0, sizeof(game->preferences));
     game_progression_init(&game->progression);
@@ -511,10 +545,13 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
     primitive_count = (size_t)game->static_scene.wall_count + game->static_scene.flat_count;
     if (!object_scene_count_active(&game->object_runtime, &sprite_count, NULL, 0u) ||
         primitive_count > (SIZE_MAX - 2u) / 2u ||
-        sprite_count > SIZE_MAX - (2u + primitive_count * 2u)) {
+        sprite_count > SIZE_MAX - (2u + primitive_count * 2u) ||
+        message_runtime_visible_line_count(&game->message_runtime) >
+            SIZE_MAX - (2u + primitive_count * 2u + sprite_count)) {
         return 0;
     }
-    required_commands = 2u + primitive_count * 2u + sprite_count;
+    required_commands = 2u + primitive_count * 2u + sprite_count +
+        message_runtime_visible_line_count(&game->message_runtime);
     if (!scene_frame_reserve(frame, required_commands)) {
         return 0;
     }
@@ -601,8 +638,12 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             return 0;
         }
     }
+    if (!message_runtime_submit_hud(&game->message_runtime, frame)) {
+        return 0;
+    }
     command.type = SCENE_COMMAND_HUD_TEXT;
     command.data.hud_text.text = game->level_data.size != 0 ? level_status : menu_status;
+    command.data.hud_text.text_byte_count = (uint16_t)strlen(command.data.hud_text.text);
     command.data.hud_text.x = 0;
     command.data.hud_text.y = 0;
     command.data.hud_text.style_id = 0;

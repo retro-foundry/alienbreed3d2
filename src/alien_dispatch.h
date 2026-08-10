@@ -24,6 +24,8 @@ typedef struct {
 typedef struct {
     AlienMainRoute route;
     AlienMainBehavior behavior;
+    /* modules/ai.s:ai_JustDied's Msg_PushLine input, if this mode produced one. */
+    AlienDeathNarrative narrative;
     AlienProwlState prowl;
     AlienChargeState charge;
     AlienPauseState pause;
@@ -36,8 +38,8 @@ typedef struct {
 /*
  * modules/ai.s:AI_MainRoutine and its ai_DoDefault/ai_DoResponse/
  * ai_DoFollowup selections. The caller has already performed ItsAnAlien's
- * source setup and owns any later message consumption. This boundary stays
- * unbound until ObjectHandler receives the complete source tick context.
+ * source setup. ObjectHandler consumes any returned narrative request after
+ * the selected source mode has completed.
  */
 int alien_dispatch_update(
     ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,

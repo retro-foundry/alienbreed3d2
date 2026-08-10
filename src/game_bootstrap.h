@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "alien_runtime.h"
+#include "alien_dispatch.h"
 #include "asset_io.h"
 #include "game_controls.h"
 #include "game_input.h"
@@ -21,9 +22,11 @@
 #include "level_runtime.h"
 #include "level_static_scene.h"
 #include "lighting_runtime.h"
+#include "message_runtime.h"
 #include "mechanism_runtime.h"
 #include "object_runtime.h"
 #include "object_animation.h"
+#include "object_explosion.h"
 #include "object_observation.h"
 #include "player_runtime.h"
 #include "scene_frame.h"
@@ -36,6 +39,8 @@ typedef struct {
     GameInventoryConsumableLimits inventory_limits;
     AssetBlob sine_table;
     GameMath math;
+    /* data/draw_data.s incbins the proportional source message spacing table. */
+    AssetBlob glyph_spacing;
     GameSharedResources shared_resources;
     GameControls controls;
     GameInput input;
@@ -50,6 +55,10 @@ typedef struct {
     ObjectAnimationRuntime object_animation_runtime;
     /* Source dynamic light state; its room-brightness output feeds AI. */
     LightingRuntime lighting_runtime;
+    /* newanims.s:Anim_ExplodeIntoBits source-global radius state. */
+    ObjectExplosionRuntime object_explosion_runtime;
+    /* ItsAnAlien's retained cross-object motion/torch globals. */
+    AlienDispatchWorkspace alien_dispatch_workspace;
     GameSession session;
     AssetBlob story_text;
     uint16_t active_level_index;
@@ -73,6 +82,8 @@ typedef struct {
     MechanismRuntime mechanism_runtime;
     ObjectRuntime object_runtime;
     ObjectObservation object_observation;
+    /* c/message.c:Msg_Init/Msg_PushLine's per-level source line ring. */
+    MessageRuntime message_runtime;
     LevelStaticScene static_scene;
     PlayerRuntime player;
 } GameBootstrap;
@@ -92,12 +103,11 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
                                                 char *error, size_t error_size);
 /*
  * Single-player source order: hires.s:DOALLANIMS, plr_KeyboardControl, Plr1_Control, Plr1_Shot,
- * the partial ObjectHandler dispatch (collectables, activatables,
- * destructibles, and decorations in source ObjT slot order), DoorRoutine, LiftRoutine,
+ * ObjectHandler's source ObjT dispatch (including worry-gated ItsAnAlien), DoorRoutine, LiftRoutine,
  * CalcPLR1InLine's object observation workspace, then a retained whole-level
  * scene refresh from the mutable graph, followed by the source single-player
- * exit-zone completion check. Alien and projectile paths remain outside this
- * focused update.
+ * exit-zone completion check. The renderer consumes the resulting scene frame
+ * separately and remains a diagnostic status presenter for now.
  */
 int game_bootstrap_update_single_player(GameBootstrap *game,
                                         char *error, size_t error_size);

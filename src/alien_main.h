@@ -46,7 +46,7 @@ int alien_main_route(ObjectRuntime *objects, uint32_t slot_index,
 
 /*
  * Routes an AI_MainRoutine branch through the AlienT mode-word comparisons.
- * The selected behavior remains uncalled until its complete body is ported.
+ * alien_dispatch_update owns execution of the selected complete source body.
  */
 int alien_main_select_behavior(AlienMainRoute route, const AlienSetup *setup,
                                AlienMainBehavior *out_behavior,

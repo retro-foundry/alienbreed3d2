@@ -44,9 +44,8 @@ typedef struct {
 
 /*
  * modules/ai.s:ai_JustDied. The source Msg_PushLine call is returned as an
- * exact narrative request because the GPU-neutral message consumer is still
- * separate from alien simulation. The helper itself remains uncalled until
- * its AI dispatcher and message consumer can own that handoff in source order.
+ * exact narrative request. The source-order dispatcher returns it to
+ * ObjectHandler, which hands it to the GPU-neutral message ring.
  */
 int alien_death_just_died(ObjectRuntime *objects, uint32_t slot_index,
                           const LevelRuntime *level, const GameLink *game_link,
