@@ -480,8 +480,11 @@ authority for all game behavior and data formats.
      hitscan/projectile choice from each `AlienT`/`BulT` pair, without starting
      either attack body. `objectmove.s:CalcDist` and `HeadTowards` now retain
      the two Newton-style source iterations, range backtrack, and speed proposal
-     required by the projectile firing helper. Next: port one complete source
-     attack body and its firing helper, then the audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
+     required by the projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
+     now uses that state to allocate a source alien-shot pool entry and write
+     its projectile launch fields without filling in its separate audio calls.
+     Next: port the complete projectile attack body, then the audio portions of
+     `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
      for either an empty or successful trigger, without synthesizing the
@@ -706,6 +709,14 @@ distance approximation (separate from `HeadTowardsAng`'s three steps), source
 `xdiff`/`zdiff` results, `GotThere` zero-length preservation, range backtrack,
 and speed proposal. No caller consumes them yet, so they do not alter player or
 alien movement before the owning projectile attack helper is complete.
+`newaliencontrol.s:FireAtPlayer1` is now an uncalled direct projectile helper.
+It scans the source alien-shot pool by negative `ObjT_ZoneID_w`, preserves the
+source's byte-only power write and untouched status/animation/gravity/flags,
+calculates lead and optional `SHOTOFFMULT` launch offset through the source
+approach helpers, and writes its projectile point, velocity, zone, vertical,
+enemy-mask, and upper-zone state. Its `Aud_*`, `PlayEcho`, and `MakeSomeNoise`
+calls remain absent until the source audio-event/backend work is ported. The
+owning projectile attack body remains outside `ObjectHandler`.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

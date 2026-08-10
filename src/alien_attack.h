@@ -4,8 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "alien_setup.h"
 #include "game_link.h"
 #include "object_runtime.h"
+#include "player_runtime.h"
 
 /*
  * modules/ai.s:ai_AttackCommon's mutable SHOT* globals.  These are the
@@ -25,5 +27,18 @@ int alien_attack_setup_from_slot(const ObjectRuntime *objects, uint32_t slot_ind
                                 const GameLink *game_link,
                                 AlienAttackSetup *out_setup,
                                 char *error, size_t error_size);
+
+/*
+ * newaliencontrol.s:FireAtPlayer1. `attack_setup` is the preceding
+ * ai_AttackCommon handoff and `alien_setup` is ItsAnAlien's SHOTYOFF/
+ * SHOTOFFMULT handoff. Audio writes/MakeSomeNoise remain absent with the
+ * unported audio backend.
+ */
+int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_index,
+                                    const PlayerRuntime *player,
+                                    const AlienSetup *alien_setup,
+                                    const AlienAttackSetup *attack_setup,
+                                    uint8_t *out_spawned,
+                                    char *error, size_t error_size);
 
 #endif

@@ -94,10 +94,12 @@ first game's software renderer:
   `SHOTSHIFT` state plus its hitscan/projectile branch from each `AlienT` and
   `BulT`; its firing bodies remain uncalled. `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
-  and speed proposal for that projectile firing helper. `ai_DoTakeDamage`
-  likewise completes the selected nonfatal reaction animation and heading
-  branch with explicit source torch inputs. Enemy behavior, dynamic blast,
-  and audio remain in progress;
+  and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
+  now allocates and initializes its source alien-projectile state, including
+  predictive lead and lateral launch offset; its separate audio calls remain
+  absent. `ai_DoTakeDamage` likewise completes the selected nonfatal reaction
+  animation and heading branch with explicit source torch inputs. Enemy
+  behavior, dynamic blast, and audio remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

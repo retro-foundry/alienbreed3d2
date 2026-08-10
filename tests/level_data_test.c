@@ -4422,6 +4422,185 @@ int main(int argc, char **argv)
         }
     }
     {
+        /* newaliencontrol.s:FireAtPlayer1's alien-shot allocation and launch writes. */
+        enum {
+            FIRE_ALIEN_SLOT = 0u,
+            FIRE_PLAYER_SLOT = 1u,
+            FIRE_SHOT_FIRST_SLOT = 2u,
+            FIRE_SLOT_COUNT = FIRE_SHOT_FIRST_SLOT + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT
+        };
+        uint8_t slot_bytes[FIRE_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT];
+        uint8_t point_bytes[FIRE_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT];
+        ObjectRuntime fire_objects = {0};
+        PlayerRuntime fire_player = {0};
+        AlienSetup fire_alien_setup = {0};
+        AlienAttackSetup fire_attack_setup = {0};
+        ObjectApproach expected_approach = {0};
+        uint8_t spawned = 0u;
+        int16_t expected_vertical_divisor;
+        int16_t expected_vertical_speed;
+        int32_t expected_accumulated_y;
+        int16_t future_x;
+        int16_t future_z;
+
+        memset(slot_bytes, 0xa5, sizeof(slot_bytes));
+        memset(point_bytes, 0x5a, sizeof(point_bytes));
+        fire_objects.slot_bytes = slot_bytes;
+        fire_objects.slot_count = FIRE_SLOT_COUNT;
+        fire_objects.active_slot_count = FIRE_SLOT_COUNT;
+        fire_objects.alien_shot_first_slot = FIRE_SHOT_FIRST_SLOT;
+        fire_objects.player1_slot = FIRE_PLAYER_SLOT;
+        fire_objects.point_bytes = point_bytes;
+        fire_objects.point_count = FIRE_SLOT_COUNT;
+        write_be16(slot_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   FIRE_ALIEN_SLOT);
+        write_be16(slot_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, 50u);
+        write_be16(slot_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 3u);
+        slot_bytes[FIRE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 63u] = UINT8_MAX;
+        write_be32(point_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u,
+                   UINT32_C(0x00641111));
+        write_be32(point_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(0x00c82222));
+        write_be16(slot_bytes + FIRE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, 80u);
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            uint32_t slot_index = FIRE_SHOT_FIRST_SLOT + shot_index;
+
+            write_be16(slot_bytes + slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                       (uint16_t)slot_index);
+            write_be16(slot_bytes + slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                       UINT16_MAX);
+        }
+        write_be32(point_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u,
+                   UINT32_C(0x5555beef));
+        write_be32(point_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(0x6666face));
+        fire_player.x = 500;
+        fire_player.z = -100;
+        fire_alien_setup.shot_y_offset = 1234;
+        fire_alien_setup.shot_offset_multiplier = 128;
+        fire_attack_setup.shot_type = 3u;
+        fire_attack_setup.shot_power = 7u;
+        fire_attack_setup.shot_speed = 16u;
+        fire_attack_setup.shot_shift = 4u;
+        expected_approach.old_x = 100;
+        expected_approach.old_z = 200;
+        expected_approach.new_x = (int16_t)fire_player.x;
+        expected_approach.new_z = (int16_t)fire_player.z;
+        if (!object_heading_calculate_distance(&expected_approach, error, sizeof(error))) {
+            fprintf(stderr, "FireAtPlayer1 distance fixture is invalid: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        expected_approach.new_x = source_add16(
+            expected_approach.new_x,
+            (int16_t)source_asr32_count(
+                (int32_t)expected_approach.x_difference * expected_approach.distance / 16,
+                4u));
+        expected_approach.new_z = source_add16(
+            expected_approach.new_z,
+            (int16_t)source_asr32_count(
+                (int32_t)expected_approach.z_difference * expected_approach.distance / 16,
+                4u));
+        future_x = expected_approach.new_x;
+        future_z = expected_approach.new_z;
+        expected_approach.range = 0;
+        expected_approach.speed = 16;
+        if (!object_heading_towards(&expected_approach, error, sizeof(error))) {
+            fprintf(stderr, "FireAtPlayer1 heading fixture is invalid: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        {
+            int16_t source_x_offset = (int16_t)source_asr32_count(
+                (int32_t)fire_alien_setup.shot_offset_multiplier *
+                    (int16_t)(expected_approach.new_x - expected_approach.old_x),
+                8u);
+            int16_t source_z_offset = (int16_t)source_asr32_count(
+                (int32_t)fire_alien_setup.shot_offset_multiplier *
+                    (int16_t)(expected_approach.new_z - expected_approach.old_z),
+                8u);
+
+            expected_approach.old_x = source_add16(expected_approach.old_x,
+                                                    source_z_offset);
+            expected_approach.old_z = (int16_t)((uint16_t)expected_approach.old_z -
+                                                (uint16_t)source_x_offset);
+            expected_approach.new_x = future_x;
+            expected_approach.new_z = future_z;
+            if (!object_heading_towards(&expected_approach, error, sizeof(error))) {
+                fprintf(stderr, "FireAtPlayer1 offset heading fixture is invalid: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        expected_accumulated_y = 50 * 128 + fire_alien_setup.shot_y_offset;
+        expected_vertical_divisor = (int16_t)source_asr32_count(expected_approach.distance, 4u);
+        if (expected_vertical_divisor <= 0) {
+            expected_vertical_divisor = 1;
+        }
+        expected_vertical_speed = (int16_t)(((80 - 20) * 128 - expected_accumulated_y) * 2 /
+                                            expected_vertical_divisor);
+        if (!alien_attack_fire_at_player_one(
+                &fire_objects, FIRE_ALIEN_SLOT, &fire_player, &fire_alien_setup,
+                &fire_attack_setup, &spawned, error, sizeof(error)) ||
+            spawned != UINT8_MAX ||
+            slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] != 2u ||
+            read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 58u) !=
+                0u ||
+            slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 31u] != 3u ||
+            slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 28u] != 7u ||
+            slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 29u] != 0xa5u ||
+            read_be16(point_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u) !=
+                (uint16_t)expected_approach.new_x ||
+            read_be16(point_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 2u) !=
+                UINT16_C(0xbeef) ||
+            read_be16(point_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u) !=
+                (uint16_t)expected_approach.new_z ||
+            read_be16(point_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 6u) !=
+                UINT16_C(0xface) ||
+            read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u) !=
+                (uint16_t)(expected_approach.new_x - expected_approach.old_x) ||
+            read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 22u) !=
+                (uint16_t)(expected_approach.new_z - expected_approach.old_z) ||
+            read_be32(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 36u) !=
+                UINT32_C(0x32) ||
+            read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) !=
+                3u ||
+            read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u) !=
+                50u ||
+            read_be32(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u) !=
+                (uint32_t)expected_accumulated_y ||
+            slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 63u] != UINT8_MAX ||
+            read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) !=
+                (uint16_t)expected_vertical_speed ||
+            slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 62u] != UINT8_MAX ||
+            slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 30u] != 0xa5u ||
+            slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 52u] != 0xa5u ||
+            read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u) !=
+                UINT16_C(0xa5a5) ||
+            read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 60u) !=
+                UINT16_C(0xa5a5)) {
+            fprintf(stderr, "FireAtPlayer1 source projectile state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            write_be16(slot_bytes + (FIRE_SHOT_FIRST_SLOT + shot_index) *
+                           OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                       0u);
+        }
+        spawned = UINT8_MAX;
+        if (!alien_attack_fire_at_player_one(
+                &fire_objects, FIRE_ALIEN_SLOT, &fire_player, &fire_alien_setup,
+                &fire_attack_setup, &spawned, error, sizeof(error)) ||
+            spawned != 0u) {
+            fprintf(stderr, "FireAtPlayer1 exhausted-pool path is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         /* modules/ai.s flying helpers accelerate and clamp around source room bounds. */
         uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime flight_objects = {0};
