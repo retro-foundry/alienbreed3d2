@@ -1034,27 +1034,16 @@ int player_runtime_update_spatial_with_motion(
     step_up = (player->ducked != 0u || player->squished != 0u) ?
         PLAYER_SMALL_STEP_UP : PLAYER_STEP_UP;
 
-    /* hires.s:Plr1_Control's teleport path precedes static MoveObject. */
-    if (zone.teleport_zone >= 0) {
-        LevelZone destination;
-        int32_t relative_y = player_runtime_sub32(visual_y, zone.floor);
-
-        if (!level_runtime_get_zone(runtime, (uint16_t)zone.teleport_zone, &destination,
-                                    error, error_size)) {
-            return 0;
-        }
-        player->zone_index = (uint16_t)zone.teleport_zone;
-        player->x = player_runtime_replace_low_word(player->snap_x, zone.teleport_x);
-        player->z = player_runtime_replace_low_word(player->snap_z, zone.teleport_z);
-        player->snap_x = player->x;
-        player->snap_z = player->z;
-        player->y = player_runtime_add32(destination.floor, relative_y);
-        player->snap_y = player->y;
-        player->snap_target_y = player->y;
-        player->snap_target_y = player_runtime_sub32(destination.floor, player->height);
-        object_motion_runtime_set_new_words(motion_runtime, zone.teleport_x, zone.teleport_z);
-        return 1;
-    }
+    /*
+     * hires.s:Plr1_Control probes a ZoneT teleport destination with
+     * Obj_DoCollision and only commits the destination when hitwall is clear.
+     * PlayerRuntime owns the static MoveObject slice; its caller has not yet
+     * supplied the player entity and the raw caller a2 collision words that
+     * Obj_DoCollision requires.  Therefore teleport metadata must not be
+     * treated as an unconditional position write: retain the authored player
+     * state and continue through the static collision path until that probe is
+     * owned by the dynamic object-runtime slice.
+     */
 
     if (!player_runtime_move_static(runtime, &player->zone_index, &player->stood_in_top,
                                     old_x, old_z, visual_y, visual_y, thing_height, step_up,

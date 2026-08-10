@@ -14,11 +14,12 @@
 #define AB3D2_TLBT_SIZE 54u
 
 typedef struct {
-    uint16_t player1_start_x;
-    uint16_t player1_start_z;
+    /* TLBT stores these as UWORDs, but Plr_Initialise consumes them as signed X/Z words. */
+    int16_t player1_start_x;
+    int16_t player1_start_z;
     uint16_t player1_start_zone;
-    uint16_t player2_start_x;
-    uint16_t player2_start_z;
+    int16_t player2_start_x;
+    int16_t player2_start_z;
     uint16_t player2_start_zone;
     uint16_t control_point_count;
     uint16_t point_count;

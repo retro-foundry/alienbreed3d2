@@ -9,6 +9,15 @@ import sys
 from pathlib import Path
 
 
+# media/levels/level_a is a compact development fixture in the retained source tree.
+# The maintained runtime still opens AB3:levels/level_a, while the playable
+# authored A bundle is retained verbatim under demolevels/level_a. Overlay
+# only the staged alias;
+# neither source asset is changed.
+AUTHORED_LEVEL_A_SOURCE = Path("demolevels") / "level_a"
+RUNTIME_LEVEL_A_DESTINATION = Path("levels") / "level_a"
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", required=True, type=Path)
@@ -51,6 +60,19 @@ def main() -> int:
         target = destination.joinpath(*(part.lower() for part in relative.parts))
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source_file, target)
+
+    authored_level_a = source / AUTHORED_LEVEL_A_SOURCE
+    if not authored_level_a.is_dir():
+        print(
+            f"error: playable authored Level A bundle is missing: {authored_level_a}",
+            file=sys.stderr,
+        )
+        return 1
+    runtime_level_a = destination / RUNTIME_LEVEL_A_DESTINATION
+    for source_file in authored_level_a.iterdir():
+        if source_file.is_file():
+            runtime_level_a.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_file, runtime_level_a / source_file.name.lower())
 
     return 0
 

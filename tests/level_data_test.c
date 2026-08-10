@@ -798,8 +798,10 @@ int main(int argc, char **argv)
         asset_blob_release(&level_data);
         return 1;
     }
+    /* demolevels/level_a is the authored bundle staged at levels/level_a. */
     if (level.zone_count == 0 || level.point_count == 0 ||
-        level.player1_start_zone >= level.zone_count) {
+        level.player1_start_x != -808 || level.player1_start_z != 184 ||
+        level.player1_start_zone != 3u || level.player1_start_zone >= level.zone_count) {
         fprintf(stderr, "LEVEL_A TLBT values are inconsistent\n");
         asset_blob_release(&level_data);
         return 1;
@@ -3672,6 +3674,15 @@ int main(int argc, char **argv)
                 &game.object_observation, &game.object_runtime, &game.player, &game.math,
                 error, sizeof(error))) {
             fprintf(stderr, "source exit-zone setup is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* Level A's authored start resolves its static connected-zone chain first. */
+        if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
+            !object_observation_matches_source(
+                &game.object_observation, &game.object_runtime, &game.player, &game.math,
+                error, sizeof(error))) {
+            fprintf(stderr, "source exit-zone settle is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }

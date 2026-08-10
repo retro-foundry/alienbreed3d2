@@ -22,7 +22,8 @@ enum {
     RENDERER_OPENGL_WINDOW_MINIMUM_SIZE = 1
 };
 
-static const float renderer_opengl_source_unit = 1.0f / 256.0f;
+/* Source Y coordinates are 8.8 fixed point; X/Z coordinates are integer words. */
+static const float renderer_opengl_source_y_unit = 1.0f / 256.0f;
 static const float renderer_opengl_pi = 3.14159265358979323846f;
 static const float renderer_opengl_near_plane = 0.05f;
 static const float renderer_opengl_far_plane = 8192.0f;
@@ -113,16 +114,19 @@ static void renderer_opengl_set_sdl_error(char *error, size_t error_size, const 
 }
 
 /*
- * The source scene coordinates share the gameplay fixed-point world.  The
- * renderer only converts units and the source's down-positive Y axis; it
- * leaves topology, positions, and source yaw untouched.
+ * modules/transform.s:RotateLevelPts subtracts and rotates the low X/Z words
+ * directly.  In contrast, player height is 12*1024 and floor/roof records
+ * use the same 8.8 Y domain (for example, Level A is y=0..-32768).  Preserve
+ * that mixed source representation here: integer X/Z units, 8.8 down-positive
+ * Y converted to native up-positive units.  The low-word conversion also
+ * matches the source's `move.w Plr_XOff_l` and `move.w Plr_ZOff_l` reads.
  */
 static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out_x,
                                         float *out_y, float *out_z)
 {
-    *out_x = (float)point->x * renderer_opengl_source_unit;
-    *out_y = -(float)point->y * renderer_opengl_source_unit;
-    *out_z = (float)point->z * renderer_opengl_source_unit;
+    *out_x = (float)(int16_t)(uint16_t)point->x;
+    *out_y = -(float)point->y * renderer_opengl_source_y_unit;
+    *out_z = (float)(int16_t)(uint16_t)point->z;
 }
 
 static void renderer_opengl_make_vertex(RendererOpenGLVertex *out_vertex,
@@ -764,16 +768,22 @@ static void renderer_opengl_view_projection(float out_matrix[16], const SceneCam
     float eye_x;
     float eye_y;
     float eye_z;
-    float yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 16384.0f);
+    /*
+     * hires.s:DrawDisplay indexes SinCosTable_vw with Vis_AngPos_w, a byte
+     * address.  The source comments document 4,096 words (8,192 bytes) for
+     * one 2pi cycle.  modules/transform.s:RotateLevelPts then forms the
+     * camera-space axes as x' = cos(x) - sin(z), z' = sin(x) + cos(z).
+     */
+    float yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
     float pitch = view->pitch_degrees * (renderer_opengl_pi / 180.0f);
-    float forward_x = -sinf(yaw) * cosf(pitch);
+    float forward_x = sinf(yaw) * cosf(pitch);
     float forward_y = sinf(pitch);
-    float forward_z = -cosf(yaw) * cosf(pitch);
+    float forward_z = cosf(yaw) * cosf(pitch);
     float right_x = cosf(yaw);
     float right_z = -sinf(yaw);
-    float up_x = -right_z * forward_y;
-    float up_y = right_z * forward_x - right_x * forward_z;
-    float up_z = right_x * forward_y;
+    float up_x = right_z * forward_y;
+    float up_y = forward_z * right_x - forward_x * right_z;
+    float up_z = -right_x * forward_y;
     float field_of_view = 70.0f * (renderer_opengl_pi / 180.0f);
     float focal_length = 1.0f / tanf(field_of_view * 0.5f);
 
@@ -1161,7 +1171,8 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
         return 0;
     }
     renderer_opengl_world_point(&sprite->position, &center_x, &center_y, &center_z);
-    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 16384.0f);
+    /* Same Vis_AngPos_w byte-addressed angle convention as the world camera. */
+    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
     right_x = cosf(yaw);
     right_z = -sinf(yaw);
     /* objdrawhires.s applies its auxiliary bitmap offsets in 128 source units. */

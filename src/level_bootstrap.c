@@ -8,6 +8,11 @@ static uint16_t read_be16(const uint8_t *source)
     return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
 }
 
+static int16_t read_be16s(const uint8_t *source)
+{
+    return (int16_t)read_be16(source);
+}
+
 static uint32_t read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
@@ -48,11 +53,12 @@ int level_bootstrap_parse(const AssetBlob *level_data, LevelBootstrap *out_level
 
     header = level_data->bytes + AB3D2_LEVEL_MESSAGE_BYTES;
     memset(&level, 0, sizeof(level));
-    level.player1_start_x = read_be16(header + 0u);
-    level.player1_start_z = read_be16(header + 2u);
+    /* modules/player.s:Plr_Initialise moves these coordinate words into X/Z state. */
+    level.player1_start_x = read_be16s(header + 0u);
+    level.player1_start_z = read_be16s(header + 2u);
     level.player1_start_zone = read_be16(header + 4u);
-    level.player2_start_x = read_be16(header + 6u);
-    level.player2_start_z = read_be16(header + 8u);
+    level.player2_start_x = read_be16s(header + 6u);
+    level.player2_start_z = read_be16s(header + 8u);
     level.player2_start_zone = read_be16(header + 10u);
     level.control_point_count = read_be16(header + 12u);
     level.point_count = read_be16(header + 14u);
