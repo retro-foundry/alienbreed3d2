@@ -195,8 +195,9 @@ authority for all game behavior and data formats.
   the player-shot pool, copies its source point, and applies byte-sized damage
   plus impact direction. `src/object_projectiles.*` then translates the
   `ItsABullet` stationary pop branch for that status: its source bitmap/glare/
-  additive descriptor, frame advance, and `FREE_ENT` release are dispatched
-  in `ObjectHandler` slot order. `src/player_shoot.*` also now translates
+  additive descriptor, frame advance, immediate source point-brightness call,
+  and `FREE_ENT` release are dispatched in `ObjectHandler` slot order.
+  `src/player_shoot.*` also now translates
   `newplayershoot.s:firefive`, which creates a non-hitscan volley directly in
   the source player-shot pool: exact centred firing angles, speed/vertical
   clamp, launch coordinates, and projectile bytes are covered by regression
@@ -204,10 +205,12 @@ authority for all game behavior and data formats.
   `ItsABullet:notpopping` path: signed lifetime comparison/tick, source frame
   descriptor, roof/floor bounce or impact, fixed-point Vec2L/vertical motion,
   zero-extension `MoveObject` contact, horizontal reflection or impact, and
-  the source direct-target segment test/damage write. `ObjectHandler` supplies
-  the mutable level state needed by that trace, so non-hitscan player volleys
-  now advance in the live game loop. Brightness, impact audio, and
-  `ComputeBlast` remain unported rather than substituted. `src/object_movement.*`
+  the source direct-target segment test/damage write, and the immediate
+  `anim_BrightenPoints` call after a moving `MoveObject` trace. `ObjectHandler`
+  supplies the mutable level and source lighting state needed by those paths,
+  so non-hitscan player volleys now advance in the live game loop. Impact
+  audio and `ComputeBlast` remain unported rather than substituted.
+  `src/object_movement.*`
   now translates `objectmove.s:MoveObject`'s primary and non-zero-`Obj_ExtLen_w`
   extended-edge passes: source height-opening checks, edge flag writes,
   exit-first contact coordinates, and bounded joined-zone/layer transitions all
@@ -844,7 +847,7 @@ as an uncalled helper for `modules/ai.s:ai_DoTorch`: it reads the exact source
 components, and even the source `.behind_point` `DBRA d7` marker walk. Its
 `modules/ai.s:ai_DoTorch` caller is likewise available as an uncalled helper:
 it preserves the negative `ALIENBRIGHT` gate and its `newx`/`newz`, slot Y,
-angle, and zone handoff. The remaining alien modes, projectile, and blast
+angle, and zone handoff. The remaining alien modes and blast
 callers remain with their owning source routines, so no dynamic-light
 substitute has been introduced.
 `newanims.s:Anim_ExplodeIntoBits` is now an uncalled source helper for the
@@ -862,10 +865,12 @@ a native flash or invoke an unported damage effect by itself.
 `src/object_projectiles.*` now runs
   each live `ItsABullet:notpopping` projectile through the source lifetime,
   graphics descriptor/frame, vertical response, fixed-point movement,
-  zero-extension wall trace/reflection-or-impact, and direct-target hit path;
-  that state is dispatched from `ObjectHandler` using the mutable level.
-  Brightness, blast damage, and audio remain in their later source branches
-  and are not replaced. The reusable `CanItBeSeen` query now
+  zero-extension wall trace/reflection-or-impact, direct-target hit path, and
+  immediate source `anim_BrightenPoints` call after a moving trace; that state
+  is dispatched from `ObjectHandler` using the mutable level and lighting
+  runtime. Its pop branch uses the same source point-brightness call before
+  the next pop frame. Blast damage and audio remain in their later source
+  branches and are not replaced. The reusable `CanItBeSeen` query now
 retains source gameplay PVST/clip/height behavior but is deliberately not
 wired until the owning alien path is translated. `firefive` now creates the
 source non-hitscan launch state, and its `ItsABullet` movement/collision path
@@ -874,8 +879,8 @@ including non-zero `Obj_ExtLen_w` primary/extended-edge collision, its
 exit-first wall contact, and joined-zone state. `player_shoot.*` consumes the
 explicit zero-extension boundary to create the source miss effect.
 The source fire/cooldown/ammunition control is wired before `ObjectHandler`,
-so the remaining projectile work is blast/audio/brightness rather than launch
-or basic flight/collision.
+so the remaining projectile work is blast/audio rather than launch, basic
+  flight/collision, or point brightness.
 Translate each remaining bounded slice directly from the maintained source and
 add source-derived regressions for its state changes and ordering.
 

@@ -201,18 +201,42 @@ static void object_projectiles_apply_animation_descriptor(
     }
 }
 
+/* newanims.s:ItsABullet:.nobright's immediate anim_BrightenPoints handoff. */
+static int object_projectiles_apply_point_brightness(
+    LightingRuntime *lighting_runtime, const LevelRuntime *level,
+    const GameBulletAnimationFrame *frame, int16_t x, int16_t z,
+    int32_t vertical_position, uint16_t zone_index,
+    char *error, size_t error_size)
+{
+    if (frame->byte_5 == 0u) {
+        return 1;
+    }
+    return lighting_runtime_brighten_points(
+        lighting_runtime, level, object_projectiles_neg16((int16_t)frame->byte_5),
+        x, z, vertical_position, zone_index, error, error_size);
+}
+
 int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_index,
-                                          const GameLink *game_link,
-                                          char *error, size_t error_size)
+                                           const LevelDynamicState *dynamic_level,
+                                           LightingRuntime *lighting_runtime,
+                                           const GameLink *game_link,
+                                           char *error, size_t error_size)
 {
     uint8_t *slot;
+    uint8_t *point;
     uint16_t bullet_index;
     uint16_t frame_index;
     uint16_t next_frame;
+    uint16_t point_index;
+    int16_t zone_index;
     GameBulletDefinition bullet;
     GameBulletAnimationFrame frame;
 
-    if (!objects || !game_link || slot_index >= objects->active_slot_count ||
+    if (!objects || !dynamic_level || !lighting_runtime || !game_link ||
+        !dynamic_level->level_bytes ||
+        dynamic_level->runtime.level_bytes != dynamic_level->level_bytes ||
+        dynamic_level->runtime.graphics_bytes != dynamic_level->graphics_bytes ||
+        slot_index >= objects->active_slot_count ||
         objects->active_slot_count > objects->slot_count ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
         object_projectiles_set_error(error, error_size,
@@ -246,6 +270,33 @@ int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_
         slot[OBJECT_PROJECTILE_ANIMATION] = 0u;
     } else {
         slot[OBJECT_PROJECTILE_ANIMATION] = (uint8_t)next_frame;
+        /*
+         * The source fetches ObjRotated's point after retaining the next pop
+         * frame, then derives Anim_BrightY_l from ObjT_YPos_w << 7.
+         */
+        if (frame.byte_5 != 0u) {
+            point_index = object_projectiles_read_be16(slot + OBJECT_PROJECTILE_POINT_INDEX);
+            zone_index = object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_ZONE_ID);
+            if (zone_index < 0) {
+                object_projectiles_set_error(error, error_size,
+                                             "ItsABullet impact brightness has an invalid zone");
+                return 0;
+            }
+            if (!object_runtime_get_point_bytes(objects, point_index, &point)) {
+                object_projectiles_set_error(error, error_size,
+                                             "ItsABullet impact brightness has an invalid source point");
+                return 0;
+            }
+            if (!object_projectiles_apply_point_brightness(
+                    lighting_runtime, &dynamic_level->runtime, &frame,
+                    object_projectiles_high_word(object_projectiles_read_be32s(point)),
+                    object_projectiles_high_word(object_projectiles_read_be32s(point + 4u)),
+                    (int32_t)object_projectiles_read_be16s(
+                        slot + OBJECT_PROJECTILE_VERTICAL_POSITION) * 128,
+                    (uint16_t)zone_index, error, error_size)) {
+                return 0;
+            }
+        }
     }
     return 1;
 }
@@ -418,6 +469,7 @@ static int object_projectiles_check_direct_target_collision(
 
 int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint32_t slot_index,
                                                      LevelDynamicState *dynamic_level,
+                                                     LightingRuntime *lighting_runtime,
                                                      const GameLink *game_link,
                                                      uint16_t frame_ticks,
                                                      char *error, size_t error_size)
@@ -442,7 +494,7 @@ int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint
     uint8_t timed_out = 0u;
     ObjectMovementTrace trace = {0};
 
-    if (!objects || !dynamic_level || !game_link ||
+    if (!objects || !dynamic_level || !lighting_runtime || !game_link ||
         !dynamic_level->level_bytes ||
         dynamic_level->runtime.level_bytes != dynamic_level->level_bytes ||
         dynamic_level->runtime.graphics_bytes != dynamic_level->graphics_bytes ||
@@ -627,6 +679,13 @@ int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint
         new_x = object_projectiles_replace_high_word(new_x, trace.new_x);
         new_z = object_projectiles_replace_high_word(new_z, trace.new_z);
         new_y = trace.new_y;
+        /* ItsABullet only brightens after the `lalal` MoveObject path. */
+        if (!object_projectiles_apply_point_brightness(
+                lighting_runtime, &dynamic_level->runtime, &frame,
+                trace.new_x, trace.new_z, new_y, trace.zone_index,
+                error, error_size)) {
+            return 0;
+        }
     }
     slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] = trace.stood_in_top;
     if (trace.wall_bounce != 0u && trace.hit_wall != 0u) {

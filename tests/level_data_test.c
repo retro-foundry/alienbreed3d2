@@ -3860,6 +3860,10 @@ int main(int argc, char **argv)
         int16_t second_cosine;
         int16_t projectile_speed;
         uint32_t spawned_count = 0u;
+        LightingRuntime projectile_lighting;
+        LightingRuntime expected_projectile_lighting;
+        int16_t projectile_old_x;
+        int16_t projectile_old_z;
 
         for (uint16_t bullet_index = 0u; bullet_index < GAME_LINK_BULLET_COUNT;
              ++bullet_index) {
@@ -3950,17 +3954,41 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        lighting_runtime_init(&projectile_lighting);
+        expected_projectile_lighting = projectile_lighting;
+        projectile_old_x = (int16_t)(read_be32(point_bytes) >> 16u);
+        projectile_old_z = (int16_t)(read_be32(point_bytes + 4u) >> 16u);
         if (!game_link_get_bullet_animation_frame(
                 &game.game_link_catalog, GAME_LINK_BULLET_ANIMATION_FLIGHT,
                 projectile_bullet_index, 0u, &projectile_frame, error, sizeof(error)) ||
             !object_projectiles_update_flight_animation_slot(
-                &projectile_objects, 0u, &game.dynamic_level, &game.game_link_catalog, 1u,
+                &projectile_objects, 0u, &game.dynamic_level, &projectile_lighting,
+                &game.game_link_catalog, 1u,
                 error, sizeof(error)) ||
             read_be16(slot_bytes + 6u) != projectile_frame.word_2 ||
             slot_bytes[11u] != projectile_frame.byte_1 ||
             slot_bytes[52u] != ((int16_t)(uint16_t)projectile_bullet.animation_frames < 1 ?
                                      0u : 1u)) {
             fprintf(stderr, "ItsABullet source flight animation is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (projectile_old_x == (int16_t)(read_be32(point_bytes) >> 16u) &&
+            projectile_old_z == (int16_t)(read_be32(point_bytes + 4u) >> 16u)) {
+            fprintf(stderr, "ItsABullet source brightness fixture did not move\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (!lighting_runtime_brighten_points(
+                &expected_projectile_lighting, &game.dynamic_level.runtime,
+                (int16_t)-(int16_t)projectile_frame.byte_5,
+                (int16_t)(read_be32(point_bytes) >> 16u),
+                (int16_t)(read_be32(point_bytes + 4u) >> 16u),
+                (int32_t)read_be32(slot_bytes + 44u) - 5 * 128,
+                read_be16(slot_bytes + 12u), error, sizeof(error)) ||
+            memcmp(&projectile_lighting, &expected_projectile_lighting,
+                   sizeof(projectile_lighting)) != 0) {
+            fprintf(stderr, "ItsABullet source flight brightness is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
@@ -4025,8 +4053,9 @@ int main(int argc, char **argv)
             write_be32(flight_level_bytes + 6u, 100000u);
             write_be32(flight_level_bytes + 10u, 100000u);
             write_be32(flight_level_bytes + 14u, 100000u);
-            write_be16(flight_level_bytes + 32u, 48u);
+            write_be16(flight_level_bytes + 32u, 56u);
             write_be16(flight_level_bytes + 48u, UINT16_MAX);
+            write_be16(flight_level_bytes + 56u, UINT16_MAX);
             if (!level_dynamic_state_init(&flight_dynamic, &flight_level, error, sizeof(error))) {
                 fprintf(stderr, "could not initialize ItsABullet source fixture: %s\n", error);
                 game_bootstrap_destroy(&game);
@@ -4059,7 +4088,8 @@ int main(int argc, char **argv)
             write_be16(flight_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
                        UINT16_MAX);
             if (!object_projectiles_update_flight_animation_slot(
-                    &flight_objects, 0u, &flight_dynamic, &game.game_link_catalog, 1u,
+                    &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
+                    &game.game_link_catalog, 1u,
                     error, sizeof(error)) ||
                 read_be16(flight_slot_bytes + 12u) != 0u ||
                 read_be16(flight_slot_bytes + 26u) != 0u ||
@@ -4125,9 +4155,10 @@ int main(int argc, char **argv)
             write_be32(flight_level_bytes + 6u, 200000u);
             write_be32(flight_level_bytes + 10u, 100000u);
             write_be32(flight_level_bytes + 14u, 200000u);
-            write_be16(flight_level_bytes + 32u, 48u);
-            write_be16(flight_level_bytes + 48u, 0u);
-            write_be16(flight_level_bytes + 50u, UINT16_MAX);
+            write_be16(flight_level_bytes + 32u, 56u);
+            write_be16(flight_level_bytes + 48u, UINT16_MAX);
+            write_be16(flight_level_bytes + 56u, 0u);
+            write_be16(flight_level_bytes + 58u, UINT16_MAX);
             /* The same vertical solid edge used by the MoveObject source fixture. */
             write_be16(flight_level_bytes + 64u, 10u);
             write_be16(flight_level_bytes + 66u, 20u);
@@ -4155,7 +4186,8 @@ int main(int argc, char **argv)
             write_be32(flight_point_bytes + 4u, UINT32_C(0x000a0000));
             write_be32(flight_slot_bytes + 18u, UINT32_C(0x00140000));
             if (!object_projectiles_update_flight_animation_slot(
-                    &flight_objects, 0u, &flight_dynamic, &flight_link, 1u,
+                    &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
+                    &flight_link, 1u,
                     error, sizeof(error)) ||
                 flight_slot_bytes[30u] != 0u ||
                 read_be32(flight_point_bytes + 0u) != UINT32_C(0x000a0000) ||
@@ -4173,7 +4205,8 @@ int main(int argc, char **argv)
             write_be32(flight_slot_bytes + 44u, 0u);
             write_be32(flight_point_bytes + 0u, 0u);
             if (!object_projectiles_update_flight_animation_slot(
-                    &flight_objects, 0u, &flight_dynamic, &flight_link, 1u,
+                    &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
+                    &flight_link, 1u,
                     error, sizeof(error)) ||
                 flight_slot_bytes[30u] != 1u ||
                 read_be32(flight_point_bytes + 0u) != UINT32_C(0x000a0000) ||
@@ -4195,7 +4228,8 @@ int main(int argc, char **argv)
             write_be16(flight_slot_bytes + 42u, 256u);
             write_be32(flight_slot_bytes + 44u, 99000u);
             if (!object_projectiles_update_flight_animation_slot(
-                    &flight_objects, 0u, &flight_dynamic, &flight_link, 1u,
+                    &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
+                    &flight_link, 1u,
                     error, sizeof(error)) ||
                 flight_slot_bytes[30u] != 0u ||
                 read_be16(flight_slot_bytes + 42u) != UINT16_C(0xff80) ||
@@ -4214,7 +4248,8 @@ int main(int argc, char **argv)
             write_be16(flight_slot_bytes + 42u, 0u);
             write_be32(flight_slot_bytes + 44u, 0u);
             if (!object_projectiles_update_flight_animation_slot(
-                    &flight_objects, 0u, &flight_dynamic, &flight_link, 1u,
+                    &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
+                    &flight_link, 1u,
                     error, sizeof(error)) ||
                 flight_slot_bytes[30u] != 1u || read_be16(flight_slot_bytes + 58u) != 1u) {
                 fprintf(stderr, "ItsABullet source lifetime expiry is inconsistent: %s\n", error);
@@ -6701,7 +6736,10 @@ int main(int argc, char **argv)
     }
     {
         uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
         ObjectRuntime impact_objects = {0};
+        LightingRuntime impact_lighting;
+        LightingRuntime expected_impact_lighting;
         GameBulletDefinition impact_bullet = {0};
         GameBulletAnimationFrame impact_frame;
         uint16_t impact_bullet_index = UINT16_MAX;
@@ -6732,13 +6770,24 @@ int main(int argc, char **argv)
         impact_objects.slot_bytes = slot_bytes;
         impact_objects.slot_count = 1u;
         impact_objects.active_slot_count = 1u;
+        impact_objects.point_bytes = point_bytes;
+        impact_objects.point_count = 1u;
+        lighting_runtime_init(&impact_lighting);
         write_be16(slot_bytes + 0u, 0u);
         write_be16(slot_bytes + 12u, 0u);
         slot_bytes[16u] = 2u;
         slot_bytes[30u] = 1u;
         slot_bytes[31u] = (uint8_t)impact_bullet_index;
-        if (!object_projectiles_update_impact_slot(
-                &impact_objects, 0u, &game.game_link_catalog, error, sizeof(error)) ||
+        expected_impact_lighting = impact_lighting;
+        if (!lighting_runtime_brighten_points(
+                &expected_impact_lighting, &game.dynamic_level.runtime,
+                (int16_t)-(int16_t)impact_frame.byte_5, 0, 0, 0, 0u,
+                error, sizeof(error)) ||
+            !object_projectiles_update_impact_slot(
+                &impact_objects, 0u, &game.dynamic_level, &impact_lighting,
+                &game.game_link_catalog, error, sizeof(error)) ||
+            memcmp(&impact_lighting, &expected_impact_lighting,
+                   sizeof(impact_lighting)) != 0 ||
             read_be16(slot_bytes + 6u) != impact_frame.word_2 ||
             slot_bytes[11u] != impact_frame.byte_1 || slot_bytes[52u] != 1u) {
             fprintf(stderr, "ItsABullet source impact animation start is inconsistent: %s\n",
@@ -6768,7 +6817,8 @@ int main(int argc, char **argv)
              ++update_count) {
             if (slot_bytes[30u] == 0u ||
                 !object_projectiles_update_impact_slot(
-                    &impact_objects, 0u, &game.game_link_catalog, error, sizeof(error))) {
+                    &impact_objects, 0u, &game.dynamic_level, &impact_lighting,
+                    &game.game_link_catalog, error, sizeof(error))) {
                 break;
             }
         }

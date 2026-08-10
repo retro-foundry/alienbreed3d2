@@ -73,10 +73,11 @@ gameplay-first scope.
   owned `ObjT` runtime array. Player 1's source `ENT_NEXT_2` companion weapon
   entity is also republished each update from `GLFT_GunObjects_l`, so firing
   updates its real object state. The bounded stationary impact state created by
-  `plr1_HitscanSucceded` advances its original `ItsABullet` pop frames and
-  releases its source slot. Live `firefive` projectiles now retain the source
-  lifetime, fixed-point movement, floor/roof/wall response, and direct target
-  collision path; brightness, blast, and audio remain unported;
+  `plr1_HitscanSucceded` advances its original `ItsABullet` pop frames,
+  source point-brightness call, and source-slot release. Live `firefive`
+  projectiles now retain the source lifetime, fixed-point movement,
+  floor/roof/wall response, direct target collision, and post-`MoveObject`
+  point-brightness call; blast and audio remain unported;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload). The native Load Position and Save
   Position menus use the original six-record, 420-byte `boot.dat` layout at a
@@ -154,8 +155,8 @@ gameplay-first scope.
   handoff with the source damage/death exit, attack animation, heading, memory,
   torch, and finished/sight transitions, but remains uncalled. `ai_DoTakeDamage`
   likewise completes the selected nonfatal reaction animation and heading
-  branch with explicit source torch inputs. Enemy behavior, dynamic blast, and
-  audio remain in progress;
+  branch with explicit source torch inputs. Enemy behavior and dynamic blast
+  remain in progress; audio is deliberately deferred;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

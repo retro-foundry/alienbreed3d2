@@ -177,11 +177,13 @@ int object_handler_update_single_player(
             uint8_t popping = slot[30u];
 
             if ((popping != 0u &&
-                 !object_projectiles_update_impact_slot(objects, slot_index, game_link,
+                 !object_projectiles_update_impact_slot(objects, slot_index, dynamic_level,
+                                                        alien_context->lighting_runtime, game_link,
                                                         error, error_size)) ||
                 (popping == 0u &&
                  !object_projectiles_update_flight_animation_slot(
-                     objects, slot_index, dynamic_level, game_link, frame_ticks,
+                     objects, slot_index, dynamic_level, alien_context->lighting_runtime,
+                     game_link, frame_ticks,
                      error, error_size))) {
                 return 0;
             }
