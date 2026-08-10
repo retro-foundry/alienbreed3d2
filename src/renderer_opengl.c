@@ -2234,17 +2234,16 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     right_x = cosf(yaw);
     right_z = -sinf(yaw);
     /*
-     * transform.s:RotateObjectPts stores its X/Z result as an ordinary source
-     * world word: the 15-bit SinCosTable product is doubled before SWAP, then
-     * draw_Bitmap shifts that word by seven.  Its horizontal source size and
-     * auxiliary word go through that identical <<7/depth projection, so they
-     * remain whole native world units.  The vertical word instead originates
-     * in the 8.8 Y domain and therefore retains its 128/256 half-unit scale.
+     * transform.s:RotateLevelPts has already supplied draw_Bitmap's
+     * horizontal <<7 projection factor in ObjRotated. SceneWorldPoint is the
+     * pre-rotated PC world form, so applying that factor again here stretches
+     * a billboard by 256 relative to its vertical source extent. Retain the
+     * same 8.8-to-native half-unit conversion on every presented axis.
      */
-    center_x += right_x * (float)sprite->source_aux_offset_x;
-    center_z += right_z * (float)sprite->source_aux_offset_x;
+    center_x += right_x * (float)sprite->source_aux_offset_x * 0.5f;
+    center_z += right_z * (float)sprite->source_aux_offset_x * 0.5f;
     center_y -= (float)sprite->source_aux_offset_y * 0.5f;
-    half_width = (float)sprite->source_width;
+    half_width = (float)sprite->source_width * 0.5f;
     half_height = (float)sprite->source_height * 0.5f;
     /*
      * Passive source objects commonly keep their vertical origin directly on

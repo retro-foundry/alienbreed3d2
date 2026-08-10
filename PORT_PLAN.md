@@ -96,11 +96,8 @@ authority for all game behavior and data formats.
 - [x] Bitmap WAD/PTR conversion now honours `draw_Bitmap`'s doubled
   `GLFT_FrameData_l` strip span and its authored source-unit auxiliary offsets
   and half-extents. Every source column in a frame is therefore decoded and
-  world billboard size/placement follows `transform.s:RotateObjectPts` and
-  `draw_Bitmap`: horizontal half-extents/auxiliary offsets remain whole source
-  world units, while the source 8.8 vertical words retain their half-unit
-  conversion. The backend does not apply the source horizontal projection
-  scale twice.
+  world billboard size/placement follows `transform.s:RotateLevelPts` and
+  `draw_Bitmap` without applying the source horizontal projection scale twice.
 - [x] `objdrawhires.s:draw_bitmap_lighted` now follows its own direct 8-bit
   WAD/PTR column format and 256-entry selected object-light palette, instead
   of incorrectly extracting an ordinary bitmap's packed 5-bit third.
