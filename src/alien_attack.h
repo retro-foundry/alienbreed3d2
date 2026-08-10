@@ -14,6 +14,7 @@
 #include "level_dynamic_state.h"
 #include "object_heading.h"
 #include "object_movement.h"
+#include "object_observation.h"
 #include "object_runtime.h"
 #include "object_explosion.h"
 #include "player_runtime.h"
@@ -66,6 +67,40 @@ int alien_attack_shoot_player_one(ObjectRuntime *objects, uint32_t alien_slot_in
                                   const PlayerRuntime *player, GameRandom *random,
                                   AlienHitscanMissState *out_state,
                                   char *error, size_t error_size);
+
+/* Source outputs from modules/ai.s:ai_AttackWithHitScan. */
+typedef struct {
+    AlienAttackSetup setup;
+    AlienAnimationState animation;
+    AlienDamageState damage;
+    AlienJustDiedState death;
+    ObjectHeading heading;
+    AlienHitscanMissState miss;
+    int32_t chance_roll;
+    int32_t chance_distance;
+    int16_t impact_x;
+    int16_t impact_z;
+    uint8_t damage_taken;
+    uint8_t got_out;
+    uint8_t player_hit;
+    uint8_t player_missed;
+} AlienHitscanAttackState;
+
+/*
+ * modules/ai.s:ai_AttackWithHitScan after ai_AttackCommon's setup. The
+ * observation is the preceding default RotateObjectPts ObjRotated state,
+ * which this source mode uses for its hit chance. The direct mode remains
+ * unbound until the source AI dispatcher and narrative consumer own its
+ * ObjectHandler order.
+ */
+int alien_attack_with_hitscan_update(
+    ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
+    ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
+    LevelDynamicState *dynamic_level, const AssetBlob *clips, const GameLink *game_link,
+    GameProgression *progression, ObjectExplosionRuntime *explosion_runtime,
+    const GameMath *math, GameRandom *random, const PlayerRuntime *player,
+    const AlienSetup *alien_setup, const ObjectObservation *observation,
+    AlienHitscanAttackState *out_state, char *error, size_t error_size);
 
 /* Source outputs from modules/ai.s:ai_AttackWithProjectile. */
 typedef struct {

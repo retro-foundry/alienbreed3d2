@@ -4747,6 +4747,180 @@ int main(int argc, char **argv)
         }
     }
     {
+        /* modules/ai.s:ai_AttackWithHitScan's action/finished direct-hit branch. */
+        enum {
+            HITSCAN_ATTACK_AUXILIARY_SLOT = 0u,
+            HITSCAN_ATTACK_ALIEN_SLOT = 1u,
+            HITSCAN_ATTACK_PLAYER_SLOT = 2u,
+            HITSCAN_ATTACK_SLOT_COUNT = HITSCAN_ATTACK_PLAYER_SLOT + 1u,
+            HITSCAN_ATTACK_POINT_COUNT = 2u
+        };
+        uint8_t slot_bytes[HITSCAN_ATTACK_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[HITSCAN_ATTACK_POINT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime attack_objects = {0};
+        ObjectObservation attack_observation;
+        ObjectAnimationRuntime attack_animation;
+        LightingRuntime attack_lighting;
+        AlienRuntime attack_runtime;
+        ObjectExplosionRuntime attack_explosion;
+        GameProgression attack_progression;
+        GameRandom attack_random;
+        GameRandom expected_random;
+        PlayerRuntime attack_player = game.player;
+        AlienSetup attack_alien_setup;
+        AlienHitscanAttackState attack_state;
+        GameAlienDefinition attack_definition;
+        GameBulletDefinition attack_bullet;
+        uint16_t attack_alien = UINT16_MAX;
+        uint16_t random_value;
+        int32_t squared_view_distance;
+        int32_t expected_chance_distance;
+        int16_t impact_root;
+        int16_t expected_impact_x;
+        int16_t expected_impact_z;
+        int16_t initial_impact_x = 5;
+        int16_t initial_impact_z = 6;
+
+        for (uint16_t alien_index = 0u; alien_index < GAME_LINK_ALIEN_COUNT; ++alien_index) {
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &attack_definition, error, sizeof(error)) ||
+                !game_link_get_bullet_definition(&game.game_link_catalog,
+                                                 attack_definition.bullet_type,
+                                                 &attack_bullet, error, sizeof(error))) {
+                fprintf(stderr, "could not scan ai_AttackWithHitScan source data: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (attack_definition.girth <= 2u &&
+                (int16_t)attack_definition.auxiliary_type >= 0 &&
+                attack_definition.auxiliary_type < GAME_LINK_OBJECT_COUNT &&
+                attack_bullet.is_hitscan != 0u && (uint8_t)attack_bullet.hit_damage != 0u) {
+                attack_alien = alien_index;
+                break;
+            }
+        }
+        if (attack_alien == UINT16_MAX) {
+            fprintf(stderr, "no source hitscan alien supports ai_AttackWithHitScan\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        attack_objects.slot_bytes = slot_bytes;
+        attack_objects.slot_count = HITSCAN_ATTACK_SLOT_COUNT;
+        attack_objects.active_slot_count = HITSCAN_ATTACK_SLOT_COUNT;
+        attack_objects.player1_slot = HITSCAN_ATTACK_PLAYER_SLOT;
+        attack_objects.point_bytes = point_bytes;
+        attack_objects.point_count = HITSCAN_ATTACK_POINT_COUNT;
+        slot_bytes[HITSCAN_ATTACK_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 3u;
+        write_be16(slot_bytes + HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   0u);
+        write_be16(slot_bytes + HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   attack_player.zone_index);
+        slot_bytes[HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] =
+            (uint8_t)attack_alien;
+        write_be32(point_bytes + 0u, UINT32_C(0x00640000));
+        write_be32(point_bytes + 4u, UINT32_C(0x00c80000));
+        attack_player.x = 100;
+        attack_player.z = 600;
+        attack_player.tmp_x = attack_player.x;
+        attack_player.tmp_y = attack_player.y;
+        attack_player.tmp_z = attack_player.z;
+        attack_player.yaw = 0u;
+        write_be16(slot_bytes + HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                   (uint16_t)source_asr32_7(attack_player.y));
+        slot_bytes[HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 63u] =
+            attack_player.stood_in_top;
+        write_be16(slot_bytes + HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   1u);
+        write_be16(slot_bytes + HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                   (uint16_t)source_asr32_7(attack_player.y));
+        write_be16(slot_bytes + HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   attack_player.zone_index);
+        slot_bytes[HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] = 0x10u;
+        write_be16(slot_bytes + HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u,
+                   (uint16_t)initial_impact_x);
+        write_be16(slot_bytes + HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u,
+                   (uint16_t)initial_impact_z);
+        write_be32(point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u, UINT32_C(0x00640000));
+        write_be32(point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u, UINT32_C(0x02580000));
+        if (!alien_setup_from_slot(&attack_objects, HITSCAN_ATTACK_ALIEN_SLOT,
+                                   &game.dynamic_level.runtime, &game.game_link_catalog,
+                                   &attack_alien_setup, error, sizeof(error))) {
+            fprintf(stderr, "ai_AttackWithHitScan setup fixture is invalid: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        object_observation_init(&attack_observation);
+        if (!object_observation_update_single_player(
+                &attack_observation, &attack_objects, &attack_player, &game.math,
+                error, sizeof(error))) {
+            fprintf(stderr, "ai_AttackWithHitScan ObjRotated fixture is invalid: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        object_animation_runtime_init(&attack_animation);
+        attack_animation.workspace[HITSCAN_ATTACK_ALIEN_SLOT][0u] = UINT8_MAX;
+        attack_animation.workspace[HITSCAN_ATTACK_ALIEN_SLOT][1u] = UINT8_MAX;
+        attack_animation.workspace[HITSCAN_ATTACK_ALIEN_SLOT][2u] = 0u;
+        attack_animation.workspace[HITSCAN_ATTACK_ALIEN_SLOT][3u] = UINT8_MAX;
+        lighting_runtime_init(&attack_lighting);
+        alien_runtime_init(&attack_runtime);
+        alien_runtime_begin_level(&attack_runtime);
+        object_explosion_runtime_init(&attack_explosion);
+        game_progression_init(&attack_progression);
+        game_random_init(&attack_random);
+        expected_random = attack_random;
+        random_value = game_random_next(&expected_random);
+        squared_view_distance =
+            (int32_t)((uint32_t)((int32_t)attack_observation.rotated_x[0u] *
+                                 attack_observation.rotated_x[0u]) +
+                      (uint32_t)((int32_t)attack_observation.rotated_z[0u] *
+                                 attack_observation.rotated_z[0u]));
+        expected_chance_distance = source_asr32_count(squared_view_distance, 6u);
+        if (!alien_math_calc_sqrt(400 * 400, &impact_root, error, sizeof(error))) {
+            fprintf(stderr, "ai_AttackWithHitScan impact root fixture is invalid: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        expected_impact_x = 0;
+        expected_impact_z = (int16_t)(-(400 * (int32_t)(uint8_t)attack_bullet.hit_damage) /
+                                      (impact_root * 2));
+        if (!alien_attack_with_hitscan_update(
+                &attack_objects, HITSCAN_ATTACK_ALIEN_SLOT, &attack_runtime,
+                &attack_animation, &attack_lighting, &game.dynamic_level, &game.level_clips,
+                &game.game_link_catalog, &attack_progression, &attack_explosion, &game.math,
+                &attack_random, &attack_player, &attack_alien_setup, &attack_observation,
+                &attack_state, error, sizeof(error)) ||
+            attack_state.setup.is_hitscan != UINT8_MAX ||
+            attack_state.animation.action != UINT8_MAX ||
+            attack_state.animation.finished != UINT8_MAX ||
+            attack_state.player_hit != UINT8_MAX || attack_state.player_missed != 0u ||
+            attack_state.chance_roll != (int32_t)((random_value & UINT16_C(0x7fff)) << 2u) ||
+            attack_state.chance_distance != expected_chance_distance ||
+            attack_state.chance_roll <= attack_state.chance_distance ||
+            attack_state.impact_x != expected_impact_x ||
+            attack_state.impact_z != expected_impact_z ||
+            attack_random.state != expected_random.state ||
+            attack_runtime.heading_angle != attack_state.heading.angle ||
+            slot_bytes[HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] !=
+                (uint8_t)(0x10u + (uint8_t)attack_bullet.hit_damage) ||
+            read_be16(slot_bytes + HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                          42u) != (uint16_t)(initial_impact_x - expected_impact_x) ||
+            read_be16(slot_bytes + HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                          44u) != (uint16_t)(initial_impact_z - expected_impact_z) ||
+            slot_bytes[HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 20u] != 2u ||
+            slot_bytes[HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 55u] != 0u ||
+            read_be16(slot_bytes + HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                          34u) != (uint16_t)attack_alien_setup.followup_timer ||
+            read_be16(slot_bytes + HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                          40u) != 0u ||
+            attack_runtime.entity_workspace[0u][0u] != (int16_t)attack_player.x ||
+            attack_runtime.entity_workspace[0u][1u] != (int16_t)attack_player.z) {
+            fprintf(stderr, "ai_AttackWithHitScan direct-hit state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         /* modules/ai.s flying helpers accelerate and clamp around source room bounds. */
         uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime flight_objects = {0};

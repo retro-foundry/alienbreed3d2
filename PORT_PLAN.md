@@ -490,9 +490,12 @@ authority for all game behavior and data formats.
      `newaliencontrol.s:SHOOTPLAYER1` now traces its source randomized
      player-snapshot ray through repeated zero-extension `MoveObject` calls,
      then writes the resulting wall-impact state to the first free player-shot
-     pool slot. It too remains outside the global dispatcher. Next: port the
-     complete hitscan attack body, then the audio portions of
-     `newplayershoot.s`. The complete source `Plr1_Shot`
+     pool slot. `ai_AttackWithHitScan` now composes that source miss path or
+     its direct Player 1 hit/impact path around the attack animation, heading,
+     memory, sight, torch, and mode transitions, still outside the global
+     dispatcher. Next: finish the remaining `ItsAnAlien` collision/dispatcher
+     routes, then the audio portions of `newplayershoot.s`. The complete source
+     `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
      for either an empty or successful trigger, without synthesizing the
@@ -740,9 +743,16 @@ signed-word `GetRand >> 4` lateral and vertical spread, repeatedly invokes the
 zero-extension `MoveObject` path until a wall contact, and initializes only
 the exact stationary impact fields in the first negative-zone player-shot
 slot. The caller's `oldx`/`oldz`/`newx`/`newz` globals and separate audio
-calls remain outside this native helper. `ai_AttackWithHitScan` still owns the
-shot decision, damage route, animation, torch, and mode transitions and
-remains unbound.
+calls remain outside this native helper.
+`modules/ai.s:ai_AttackWithHitScan` is now a complete but uncalled mode. It
+preserves the source damage/death exit, attack-animation and persistent
+`AngRet` update, player-memory/sight/front gate, and the `ObjRotated_vl`
+signed-square chance calculation from the prior default `RotateObjectPts`
+refresh. An action either invokes `SHOOTPLAYER1` or writes the source
+byte-wrapping Player 1 damage plus `ai_CalcSqrt`/`DIVS` impact impulse, before
+its torch and finished-animation transition. It remains outside the global
+dispatcher until every required `ItsAnAlien` route and narrative owner can
+run in source order.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

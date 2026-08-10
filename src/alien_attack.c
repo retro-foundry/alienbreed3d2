@@ -5,6 +5,7 @@
 
 #include "alien_memory.h"
 #include "alien_decision.h"
+#include "alien_math.h"
 #include "alien_perception.h"
 #include "alien_torch.h"
 #include "object_heading.h"
@@ -25,6 +26,8 @@ enum {
     ALIEN_ATTACK_SLOT_CURRENT_ANGLE = 30u,
     ALIEN_ATTACK_SLOT_TIMER1 = 34u,
     ALIEN_ATTACK_SLOT_TIMER2 = 40u,
+    ALIEN_ATTACK_SLOT_IMPACT_X = 42u,
+    ALIEN_ATTACK_SLOT_IMPACT_Z = 44u,
     ALIEN_ATTACK_SLOT_WHICH_ANIMATION = 55u,
     ALIEN_ATTACK_SLOT_ENTITY_TYPE = 54u,
     ALIEN_ATTACK_SHOT_VELOCITY_X = 18u,
@@ -141,13 +144,13 @@ static int alien_attack_divs16(int32_t dividend, int16_t divisor,
     if (!out_quotient || divisor == 0 ||
         (dividend == INT32_MIN && divisor == -1)) {
         alien_attack_set_error(error, error_size,
-                               "FireAtPlayer1 DIVS received invalid source operands");
+                               "alien attack DIVS received invalid source operands");
         return 0;
     }
     quotient = dividend / divisor;
     if (quotient < INT16_MIN || quotient > INT16_MAX) {
         alien_attack_set_error(error, error_size,
-                               "FireAtPlayer1 DIVS quotient exceeds a source word");
+                               "alien attack DIVS quotient exceeds a source word");
         return 0;
     }
     *out_quotient = (int16_t)quotient;
@@ -486,6 +489,234 @@ int alien_attack_shoot_player_one(ObjectRuntime *objects, uint32_t alien_slot_in
         state.impact_spawned = UINT8_MAX;
         *out_state = state;
         return 1;
+    }
+    *out_state = state;
+    return 1;
+}
+
+static int alien_attack_apply_hitscan_player_impact(
+    ObjectRuntime *objects, const uint8_t *alien_point,
+    const PlayerRuntime *player, const AlienAttackSetup *setup,
+    AlienHitscanAttackState *state, char *error, size_t error_size)
+{
+    uint8_t *player_slot;
+    int16_t x_difference;
+    int16_t z_difference;
+    int32_t squared_distance;
+    int16_t square_root;
+    int16_t impact_divisor;
+
+    if (!objects || !alien_point || !player || !setup || !state ||
+        !object_runtime_get_player1_slot_bytes(objects, &player_slot)) {
+        alien_attack_set_error(error, error_size,
+                               "ai_AttackWithHitScan has no Player 1 source entity");
+        return 0;
+    }
+    /* `add.b SHOTPOWER,EntT_DamageTaken_b(Plr1_ObjectPtr_l)`. */
+    player_slot[ALIEN_ATTACK_SLOT_DAMAGE_TAKEN] =
+        (uint8_t)(player_slot[ALIEN_ATTACK_SLOT_DAMAGE_TAKEN] + setup->shot_power);
+
+    x_difference = alien_attack_sub16(
+        alien_attack_read_be16s(alien_point), (int16_t)(uint16_t)player->tmp_x);
+    z_difference = alien_attack_sub16(
+        alien_attack_read_be16s(alien_point + 4u), (int16_t)(uint16_t)player->tmp_z);
+    squared_distance = alien_attack_add32(
+        alien_attack_muls16(x_difference, x_difference),
+        alien_attack_muls16(z_difference, z_difference));
+    if (!alien_math_calc_sqrt(squared_distance, &square_root, error, error_size)) {
+        return 0;
+    }
+    /* ai_CalcSqrt returns d2; DIVS below reads the low word after ADD.L d2,d2. */
+    impact_divisor = (int16_t)alien_attack_add32(square_root, square_root);
+    if (!alien_attack_divs16(alien_attack_muls16((int16_t)setup->shot_power, x_difference),
+                             impact_divisor, &state->impact_x, error, error_size) ||
+        !alien_attack_divs16(alien_attack_muls16((int16_t)setup->shot_power, z_difference),
+                             impact_divisor, &state->impact_z, error, error_size)) {
+        return 0;
+    }
+    alien_attack_write_be16(player_slot + ALIEN_ATTACK_SLOT_IMPACT_X,
+                            (uint16_t)alien_attack_sub16(
+                                alien_attack_read_be16s(
+                                    player_slot + ALIEN_ATTACK_SLOT_IMPACT_X),
+                                state->impact_x));
+    alien_attack_write_be16(player_slot + ALIEN_ATTACK_SLOT_IMPACT_Z,
+                            (uint16_t)alien_attack_sub16(
+                                alien_attack_read_be16s(
+                                    player_slot + ALIEN_ATTACK_SLOT_IMPACT_Z),
+                                state->impact_z));
+    state->player_hit = UINT8_MAX;
+    return 1;
+}
+
+int alien_attack_with_hitscan_update(
+    ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
+    ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
+    LevelDynamicState *dynamic_level, const AssetBlob *clips, const GameLink *game_link,
+    GameProgression *progression, ObjectExplosionRuntime *explosion_runtime,
+    const GameMath *math, GameRandom *random, const PlayerRuntime *player,
+    const AlienSetup *alien_setup, const ObjectObservation *observation,
+    AlienHitscanAttackState *out_state, char *error, size_t error_size)
+{
+    const LevelRuntime *level;
+    uint8_t *slot;
+    uint8_t *point;
+    uint16_t point_index;
+    uint16_t zone_index;
+    int16_t point_x;
+    int16_t point_z;
+    AlienHitscanAttackState state;
+
+    if (!objects || !alien_runtime || !animation_runtime || !lighting || !dynamic_level ||
+        !clips || !game_link || !progression || !explosion_runtime || !math || !random ||
+        !player || !alien_setup || !observation || !out_state || slot_index == 0u ||
+        slot_index >= objects->active_slot_count || slot_index >= ALIEN_RUNTIME_ENTITY_COUNT ||
+        slot_index >= OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT ||
+        player->zone_index >= dynamic_level->runtime.zone_count ||
+        !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
+        alien_attack_set_error(error, error_size,
+                               "ai_AttackWithHitScan received invalid source state");
+        return 0;
+    }
+    level = &dynamic_level->runtime;
+    point_index = alien_attack_read_be16(slot + ALIEN_ATTACK_SLOT_POINT_INDEX);
+    zone_index = alien_attack_read_be16(slot + ALIEN_ATTACK_SLOT_ZONE_ID);
+    if (point_index >= objects->point_count ||
+        point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT || zone_index >= level->zone_count ||
+        !object_runtime_get_point_bytes(objects, point_index, &point)) {
+        alien_attack_set_error(error, error_size,
+                               "ai_AttackWithHitScan has an invalid source point or zone");
+        return 0;
+    }
+    memset(&state, 0, sizeof(state));
+    if (!alien_attack_setup_from_slot(objects, slot_index, game_link, &state.setup,
+                                      error, error_size)) {
+        return 0;
+    }
+    if (state.setup.is_hitscan == 0u) {
+        alien_attack_set_error(error, error_size,
+                               "ai_AttackWithHitScan selected a projectile source bullet");
+        return 0;
+    }
+
+    if (slot[ALIEN_ATTACK_SLOT_DAMAGE_TAKEN] != 0u) {
+        state.damage_taken = UINT8_MAX;
+        slot[ALIEN_ATTACK_SLOT_CURRENT_MODE] = ALIEN_ATTACK_DAMAGE_MODE;
+        if (!alien_damage_take(objects, slot_index, alien_runtime, animation_runtime, math,
+                               random, player, &state.damage, error, error_size)) {
+            return 0;
+        }
+        if (state.damage.route == ALIEN_DAMAGE_ROUTE_JUST_DIED) {
+            if (!alien_death_just_died(objects, slot_index, level, game_link, progression,
+                                       animation_runtime, explosion_runtime, math, random,
+                                       &state.death, error, error_size)) {
+                return 0;
+            }
+            state.got_out = state.death.got_out;
+        } else {
+            state.got_out = state.damage.got_out;
+        }
+        if (state.got_out != 0u) {
+            *out_state = state;
+            return 1;
+        }
+    }
+
+    if (!alien_animation_update_walk_or_attack(
+            objects, slot_index, animation_runtime, game_link, math, alien_setup, player->yaw,
+            &state.animation, error, error_size)) {
+        return 0;
+    }
+    state.heading.old_x = alien_attack_read_be16s(point);
+    state.heading.old_z = alien_attack_read_be16s(point + 4u);
+    state.heading.new_x = (int16_t)(uint16_t)player->x;
+    state.heading.new_z = (int16_t)(uint16_t)player->z;
+    state.heading.range = -20;
+    state.heading.speed = 20;
+    state.heading.angle = alien_runtime->heading_angle;
+    if (!object_heading_towards_angle(math, &state.heading, error, error_size)) {
+        return 0;
+    }
+    alien_runtime->heading_angle = state.heading.angle;
+    alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_CURRENT_ANGLE, state.heading.angle);
+    if (!alien_memory_store_player_position(alien_runtime, objects, slot_index, level, player,
+                                            error, error_size)) {
+        return 0;
+    }
+
+    point_x = alien_attack_read_be16s(point);
+    point_z = alien_attack_read_be16s(point + 4u);
+    if (!alien_perception_look_for_player_one(objects, slot_index, level, clips, player,
+                                              zone_index, point_x, point_z,
+                                              error, error_size)) {
+        return 0;
+    }
+    slot[ALIEN_ATTACK_SLOT_CURRENT_MODE] = 0u;
+    if (slot[ALIEN_ATTACK_SLOT_SEES_PLAYER] == 0u) {
+        slot[ALIEN_ATTACK_SLOT_WHICH_ANIMATION] = 0u;
+        alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_TIMER2, 0u);
+        alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_TIMER1,
+                                (uint16_t)alien_setup->followup_timer);
+        /* ai_AttackWithHitScan writes Timer2 twice on this source branch. */
+        alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_TIMER2, 0u);
+        alien_attack_add_facing(slot, state.animation.facing);
+        *out_state = state;
+        return 1;
+    }
+    {
+        uint8_t in_front;
+
+        if (!alien_decision_check_in_front(objects, slot_index, player, math, &in_front,
+                                           error, error_size)) {
+            return 0;
+        }
+        if (in_front == 0u) {
+            slot[ALIEN_ATTACK_SLOT_WHICH_ANIMATION] = 0u;
+            alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_TIMER2, 0u);
+            alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_TIMER1,
+                                    (uint16_t)alien_setup->followup_timer);
+            /* ai_AttackWithHitScan writes Timer2 twice on this source branch. */
+            alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_TIMER2, 0u);
+            alien_attack_add_facing(slot, state.animation.facing);
+            *out_state = state;
+            return 1;
+        }
+    }
+    slot[ALIEN_ATTACK_SLOT_CURRENT_MODE] = ALIEN_ATTACK_RESPONSE_MODE;
+    slot[ALIEN_ATTACK_SLOT_WHICH_ANIMATION] = 1u;
+    alien_attack_add_facing(slot, state.animation.facing);
+
+    if (state.animation.action != 0u) {
+        int32_t squared_view_distance = alien_attack_add32(
+            alien_attack_muls16(observation->rotated_x[point_index],
+                                observation->rotated_x[point_index]),
+            alien_attack_muls16(observation->rotated_z[point_index],
+                                observation->rotated_z[point_index]));
+
+        state.chance_roll = (int32_t)((game_random_next(random) & UINT16_C(0x7fff)) << 2u);
+        state.chance_distance = alien_attack_asr32(squared_view_distance, 6u);
+        if (state.chance_roll > state.chance_distance) {
+            if (!alien_attack_apply_hitscan_player_impact(
+                    objects, point, player, &state.setup, &state, error, error_size)) {
+                return 0;
+            }
+        } else if (!alien_attack_shoot_player_one(objects, slot_index, dynamic_level, player,
+                                                  random, &state.miss, error, error_size)) {
+            return 0;
+        } else {
+            state.player_missed = UINT8_MAX;
+        }
+    }
+
+    if (!alien_torch_apply(lighting, level, math, objects, slot_index, alien_setup,
+                           point_x, point_z, error, error_size)) {
+        return 0;
+    }
+    if (state.animation.finished != 0u) {
+        slot[ALIEN_ATTACK_SLOT_WHICH_ANIMATION] = 0u;
+        slot[ALIEN_ATTACK_SLOT_CURRENT_MODE] = ALIEN_ATTACK_FOLLOWUP_MODE;
+        alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_TIMER1,
+                                (uint16_t)alien_setup->followup_timer);
+        alien_attack_write_be16(slot + ALIEN_ATTACK_SLOT_TIMER2, 0u);
     }
     *out_state = state;
     return 1;
