@@ -535,7 +535,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     memset(&game->math, 0, sizeof(game->math));
     asset_blob_release(&game->glyph_spacing);
     alien_runtime_init(&game->alien_runtime);
-    object_animation_runtime_init(&game->object_animation_runtime);
+    object_animation_runtime_destroy(&game->object_animation_runtime);
     lighting_runtime_init(&game->lighting_runtime);
     object_explosion_runtime_init(&game->object_explosion_runtime);
     memset(&game->alien_dispatch_workspace, 0, sizeof(game->alien_dispatch_workspace));

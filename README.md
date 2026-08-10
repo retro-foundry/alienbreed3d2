@@ -28,6 +28,12 @@ multiplayer is not included. The detailed inventory below records the
 source-backed foundations; older references to an unbound AI dispatcher are
 superseded by this live integration.
 
+The headless regression starts each authored Level A--P session and runs two
+source VBlank-equivalent direct-play ticks. This covers the initial worry pass
+and its following worried-object update; its Level O case also proves that the
+native `DOALLANIMS` workspace follows the source terminator-delimited ObjT
+list rather than rejecting an authored list beyond its fixed BSS prefix.
+
 The shared-resource loader also now decodes the original `CSFX` Fibonacci
 sample payloads exactly as the source file loader does. Source sound-event
 routing and playback are deliberately deferred from the current

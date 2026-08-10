@@ -1,6 +1,8 @@
 #include "object_animation.h"
 
+#include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 enum {
@@ -63,6 +65,76 @@ void object_animation_runtime_init(ObjectAnimationRuntime *runtime)
     }
 }
 
+void object_animation_runtime_destroy(ObjectAnimationRuntime *runtime)
+{
+    if (!runtime) {
+        return;
+    }
+    free(runtime->extended_workspace);
+    memset(runtime, 0, sizeof(*runtime));
+}
+
+int object_animation_runtime_reserve(ObjectAnimationRuntime *runtime, uint32_t slot_count,
+                                     char *error, size_t error_size)
+{
+    uint32_t required_extended_slots;
+    size_t old_byte_count;
+    size_t new_byte_count;
+    uint8_t *extended_workspace;
+
+    if (!runtime) {
+        object_animation_set_error(error, error_size,
+                                   "ObjectWorkspace reserve received null runtime state");
+        return 0;
+    }
+    if (slot_count <= OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT) {
+        return 1;
+    }
+    required_extended_slots = slot_count - OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT;
+    if (required_extended_slots <= runtime->extended_workspace_slot_count) {
+        return 1;
+    }
+    if (required_extended_slots > SIZE_MAX / OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT) {
+        object_animation_set_error(error, error_size,
+                                   "ObjectWorkspace source list exceeds host allocation limits");
+        return 0;
+    }
+    old_byte_count = (size_t)runtime->extended_workspace_slot_count *
+        OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT;
+    new_byte_count = (size_t)required_extended_slots *
+        OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT;
+    extended_workspace = realloc(runtime->extended_workspace, new_byte_count);
+    if (!extended_workspace) {
+        object_animation_set_error(error, error_size,
+                                   "ObjectWorkspace host tail allocation failed");
+        return 0;
+    }
+    memset(extended_workspace + old_byte_count, 0, new_byte_count - old_byte_count);
+    runtime->extended_workspace = extended_workspace;
+    runtime->extended_workspace_slot_count = required_extended_slots;
+    return 1;
+}
+
+uint8_t *object_animation_runtime_workspace(ObjectAnimationRuntime *runtime,
+                                            uint32_t slot_index)
+{
+    uint32_t extended_slot_index;
+
+    if (!runtime) {
+        return NULL;
+    }
+    if (slot_index < OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT) {
+        return runtime->workspace[slot_index];
+    }
+    extended_slot_index = slot_index - OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT;
+    if (!runtime->extended_workspace ||
+        extended_slot_index >= runtime->extended_workspace_slot_count) {
+        return NULL;
+    }
+    return runtime->extended_workspace +
+        (size_t)extended_slot_index * OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT;
+}
+
 int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
                                           ObjectRuntime *objects,
                                           const GameLink *game_link,
@@ -70,10 +142,13 @@ int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
                                           char *error, size_t error_size)
 {
     if (!runtime || !objects || !game_link || !random || !objects->slot_bytes ||
-        objects->active_slot_count > objects->slot_count ||
-        objects->active_slot_count > OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT) {
+        objects->active_slot_count > objects->slot_count) {
         object_animation_set_error(error, error_size,
                                    "DOALLANIMS received invalid source animation state");
+        return 0;
+    }
+    if (!object_animation_runtime_reserve(runtime, objects->active_slot_count,
+                                          error, error_size)) {
         return 0;
     }
 
@@ -86,7 +161,7 @@ int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
 
     for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
         uint8_t *slot;
-        uint8_t *workspace = runtime->workspace[slot_index];
+        uint8_t *workspace = object_animation_runtime_workspace(runtime, slot_index);
         uint16_t timer2;
         uint16_t next_timer2;
         uint8_t option;
@@ -97,7 +172,7 @@ int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
         GameAlienAnimationFrame current_frame;
         GameAlienAnimationFrame next_frame;
 
-        if (!object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
+        if (!workspace || !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
             object_animation_set_error(error, error_size,
                                        "DOALLANIMS slot is outside the owned source list");
             return 0;

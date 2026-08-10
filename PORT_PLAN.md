@@ -275,7 +275,13 @@ authority for all game behavior and data formats.
   `GetRand` special-frame behavior. Animation sound byte five remains absent
   until the native audio event path exists; no sound or AI substitute is made.
   The workspace is intentionally preserved across level loads, as in the
-  source, for the later `modules/ai.s` consumers.
+  source, for the later `modules/ai.s` consumers. The native runtime retains
+  the exact 300-entry source BSS prefix and reserves a zeroed tail only when a
+  loaded terminator-delimited ObjT list exceeds it: `DOALLANIMS` itself has no
+  list-length branch before its eight-byte workspace advance, so rejecting an
+  authored list would be a host-only behavior. The full A--P direct-play
+  regression now runs two VBlank-equivalent ticks per level; Level O covers
+  this source list-size boundary.
 - [x] `src/alien_memory.*` now translates
   `modules/ai.s:ai_StorePlayerPosition`'s per-entity and optional team memory
   writes: source low player coordinate words, player ZoneT ID, lower/upper
@@ -1043,8 +1049,9 @@ scope by design.
      ObjT/AUX ordering. Extend equivalent source fixtures for the remaining
      live-alien routes as authored levels exercise them; retain coverage of
      successful collectable, destructible, and death message handoffs.
-   - Maintain the full A--P asset/bootstrap regression and add renderer output
-     validation separately from simulation-state validation.
+   - Maintain the full A--P asset/bootstrap and two-tick direct-play
+     regression, and add renderer output validation separately from
+     simulation-state validation.
    - Keep menus deferred until direct game presentation, input, and simulation
      work end to end. Audio is intentionally deferred; do not reintroduce
      multiplayer.

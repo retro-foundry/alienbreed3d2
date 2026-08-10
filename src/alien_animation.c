@@ -175,7 +175,6 @@ int alien_animation_update_walk_or_attack(
         !setup || !out_state || slot_index == 0u ||
         slot_index >= objects->active_slot_count ||
         objects->active_slot_count > objects->slot_count ||
-        objects->active_slot_count > OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot) ||
         !object_runtime_get_slot_bytes(objects, slot_index - 1u, &auxiliary_slot)) {
         alien_animation_set_error(error, error_size,
@@ -183,7 +182,16 @@ int alien_animation_update_walk_or_attack(
         return 0;
     }
 
-    workspace = animation_runtime->workspace[slot_index];
+    if (!object_animation_runtime_reserve(animation_runtime, objects->active_slot_count,
+                                          error, error_size)) {
+        return 0;
+    }
+    workspace = object_animation_runtime_workspace(animation_runtime, slot_index);
+    if (!workspace) {
+        alien_animation_set_error(error, error_size,
+                                  "ai_DoWalkAnim source workspace is unavailable");
+        return 0;
+    }
     animation_option = workspace[ALIEN_ANIMATION_WORKSPACE_OPTION];
     if (animation_option == 0u && setup->vector_object_flag != 1u) {
         if (!object_viewpoint_select_frame(

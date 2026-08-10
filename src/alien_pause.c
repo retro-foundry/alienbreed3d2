@@ -71,10 +71,13 @@ int alien_pause_briefly_update(
     if (!objects || !alien_runtime || !animation_runtime || !lighting || !level || !clips ||
         !game_link || !progression || !explosion_runtime || !math || !random || !player ||
         !setup || !out_state || slot_index >= objects->active_slot_count ||
-        slot_index >= OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT ||
         player->zone_index >= level->zone_count ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
         alien_pause_set_error(error, error_size, "ai_PauseBriefly received invalid source state");
+        return 0;
+    }
+    if (!object_animation_runtime_reserve(animation_runtime, objects->active_slot_count,
+                                          error, error_size)) {
         return 0;
     }
     memset(&state, 0, sizeof(state));

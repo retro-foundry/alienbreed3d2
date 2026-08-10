@@ -424,11 +424,14 @@ int alien_prowl_random_update(
         !random || !player || !setup || !out_state ||
         slot_index == 0u || slot_index >= objects->active_slot_count ||
         slot_index >= ALIEN_RUNTIME_ENTITY_COUNT ||
-        slot_index >= OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT ||
         player->zone_index >= dynamic_level->runtime.zone_count ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot) ||
         !object_runtime_get_slot_bytes(objects, slot_index - 1u, &previous_slot)) {
         alien_prowl_set_error(error, error_size, "ai_ProwlFly received invalid source state");
+        return 0;
+    }
+    if (!object_animation_runtime_reserve(animation_runtime, objects->active_slot_count,
+                                          error, error_size)) {
         return 0;
     }
     level = &dynamic_level->runtime;

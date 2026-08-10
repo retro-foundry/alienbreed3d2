@@ -3519,6 +3519,43 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    /*
+     * hires.s:objmoveanim's first VBlank prepares the later worry pass; the
+     * following VBlank reaches the worried ObjectHandler paths.  Run that
+     * direct single-player update boundary for every authored level without
+     * forcing the separate source exit-zone completion path.
+     */
+    if (!game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error))) {
+        fprintf(stderr, "could not restore DEFAULTGAME before direct-play campaign smoke test: %s\n",
+                error);
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    for (level_index = 0u; level_index < GAME_LINK_LEVEL_COUNT; ++level_index) {
+        if (!game_session_select_level(&game.session, level_index, error, sizeof(error)) ||
+            !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error))) {
+            fprintf(stderr, "campaign level %u could not start direct-play smoke test: %s\n",
+                    level_index, error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game.dynamic_level.runtime.exit_zone_id = -1;
+        game_input_init(&game.input);
+        if (!game_bootstrap_update_single_player_at_time(&game, 20u, error, sizeof(error)) ||
+            !game_bootstrap_update_single_player_at_time(&game, 40u, error, sizeof(error)) ||
+            game.session.level_finished != 0u || game.message_time_milliseconds != 40u ||
+            game.static_scene.wall_count == 0u ||
+            (game.object_runtime.active_slot_count > OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT &&
+             (!game.object_animation_runtime.extended_workspace ||
+              game.object_animation_runtime.extended_workspace_slot_count <
+                  game.object_runtime.active_slot_count -
+                      OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT))) {
+            fprintf(stderr, "campaign level %u direct-play two-tick smoke test is inconsistent: %s\n",
+                    level_index, error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
     /* hires.s:game_main_loop ends a single-player level on Lvl_ExitZoneID_w. */
     if (!game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error)) ||
         !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||

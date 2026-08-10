@@ -117,6 +117,7 @@ int alien_death_just_died(ObjectRuntime *objects, uint32_t slot_index,
                           char *error, size_t error_size)
 {
     uint8_t *slot;
+    uint8_t *animation_workspace;
     uint8_t *point;
     uint16_t point_index;
     uint8_t alien_type;
@@ -127,9 +128,18 @@ int alien_death_just_died(ObjectRuntime *objects, uint32_t slot_index,
     if (!objects || !level || !game_link || !progression || !animation_runtime ||
         !explosion_runtime || !math || !random || !out_state ||
         slot_index >= objects->active_slot_count ||
-        slot_index >= OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
         alien_death_set_error(error, error_size, "ai_JustDied received invalid source state");
+        return 0;
+    }
+    if (!object_animation_runtime_reserve(animation_runtime, objects->active_slot_count,
+                                          error, error_size)) {
+        return 0;
+    }
+    animation_workspace = object_animation_runtime_workspace(animation_runtime, slot_index);
+    if (!animation_workspace) {
+        alien_death_set_error(error, error_size,
+                              "ai_JustDied source workspace is unavailable");
         return 0;
     }
     memset(&state, 0, sizeof(state));
@@ -186,7 +196,7 @@ int alien_death_just_died(ObjectRuntime *objects, uint32_t slot_index,
     slot[ALIEN_DEATH_SLOT_CURRENT_MODE] = 5u;
     slot[ALIEN_DEATH_SLOT_WHICH_ANIMATION] = 3u;
     alien_death_write_be16(slot + ALIEN_DEATH_SLOT_TIMER2, 0u);
-    animation_runtime->workspace[slot_index][ALIEN_DEATH_WORKSPACE_SPECIAL_FRAME] = UINT8_MAX;
+    animation_workspace[ALIEN_DEATH_WORKSPACE_SPECIAL_FRAME] = UINT8_MAX;
     state.got_out = UINT8_MAX;
     *out_state = state;
     return 1;

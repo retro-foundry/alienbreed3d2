@@ -17,16 +17,30 @@ enum {
 /*
  * Native ownership of bss/tables_bss.s:ObjectWorkspace_vl and hires.s:thistime.
  * This storage is shared with the later modules/ai.s animation consumers, so it
- * is process-lifetime state and is not reset when a new level begins.
+ * is process-lifetime state and is not reset when a new level begins. The
+ * source DOALLANIMS loop has no 300-slot guard before its `addq #8,a5`.
+ * Loaded authored lists may therefore continue past the fixed BSS prefix; the
+ * native tail retains the same eight-byte-per-slot mapping without treating a
+ * valid source terminator-delimited list as an error or writing past host memory.
  */
 typedef struct {
     uint8_t thistime;
     uint8_t workspace[OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT]
                      [OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT];
+    uint8_t *extended_workspace;
+    uint32_t extended_workspace_slot_count;
 } ObjectAnimationRuntime;
 
 /* Source BSS/data initialization before the first VBlank game update. */
 void object_animation_runtime_init(ObjectAnimationRuntime *runtime);
+void object_animation_runtime_destroy(ObjectAnimationRuntime *runtime);
+
+/* Ensure the source's terminator-delimited ObjT list has a matching workspace. */
+int object_animation_runtime_reserve(ObjectAnimationRuntime *runtime, uint32_t slot_count,
+                                     char *error, size_t error_size);
+/* Returns the eight-byte source workspace for one ObjT slot, or NULL if unreserved. */
+uint8_t *object_animation_runtime_workspace(ObjectAnimationRuntime *runtime,
+                                            uint32_t slot_index);
 
 /*
  * hires.s:DOALLANIMS, called first by hires.s:dosomething.  It preserves the
