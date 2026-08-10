@@ -98,6 +98,10 @@ authority for all game behavior and data formats.
   auxiliary offsets and half-extents. The renderer maps source 8.8 Y through
   the matching x<<7 projection basis (`y / 128`), so floors, camera, sector
   clips, and world billboards share the source's physical vertical scale.
+- [x] Fixed floor/ceiling objects use the selected live `ZoneT_Floor`/`Roof`
+  scene boundary as their 3D anchor. `newaliencontrol.s:Collectable` writes
+  that surface before `DEFANIMOBJ` adds a frame-local Y offset, so anchoring
+  to the final `ObjT_YPos` would make pickups such as med kits float or sink.
   Every source column and row in a frame is therefore decoded and world
   billboard size/placement follows `transform.s:RotateLevelPts` and
   `draw_Bitmap` without applying the source horizontal projection scale twice.

@@ -2400,19 +2400,19 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     half_width = (float)sprite->source_width;
     half_height = (float)sprite->source_height;
     /*
-     * A fixed ObjT's source Y origin is its selected floor/roof, not the
-     * geometric centre of the image.  draw_Bitmap's projected column path
-     * clips the opposite half of that image at the surface; anchoring the
-     * GPU quad here gives complete-level 3D the intended standing/hanging
-     * object without that software-only crop.  Dynamic entities retain their
-     * centred source placement.
+     * newaliencontrol.s:Collectable writes the chosen ZoneT_Floor/Roof to
+     * ObjT_YPos before DEFANIMOBJ. DEFANIMOBJ then adds its frame-local
+     * signed vertical byte, so ObjT_YPos alone is not the fixed object's
+     * physical surface. Use the live source sector boundary retained by the
+     * scene command as the 3D anchor; the original column renderer hides this
+     * distinction by clipping the image at that same boundary.
      */
     if (sprite->surface_attachment == SCENE_SPRITE_SURFACE_FLOOR) {
-        full_bottom_y = center_y;
-        full_top_y = center_y + half_height * 2.0f;
+        full_bottom_y = -(float)sprite->source_clip_bottom_y * renderer_opengl_source_y_unit;
+        full_top_y = full_bottom_y + half_height * 2.0f;
     } else if (sprite->surface_attachment == SCENE_SPRITE_SURFACE_CEILING) {
-        full_top_y = center_y;
-        full_bottom_y = center_y - half_height * 2.0f;
+        full_top_y = -(float)sprite->source_clip_top_y * renderer_opengl_source_y_unit;
+        full_bottom_y = full_top_y - half_height * 2.0f;
     } else {
         full_top_y = center_y + half_height;
         full_bottom_y = center_y - half_height;
