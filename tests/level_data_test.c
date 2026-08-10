@@ -4286,6 +4286,111 @@ int main(int argc, char **argv)
         }
     }
     {
+        uint8_t slot_bytes[4u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime lock_objects = {0};
+        MechanismRuntime lock_runtime;
+        AlienRuntime object_lock_alien_runtime;
+        GameObjectDefinition destructible_definition;
+        uint8_t collectable_type = UINT8_MAX;
+        uint8_t activatable_type = UINT8_MAX;
+        uint8_t destructible_type = UINT8_MAX;
+        uint16_t object_zone_index;
+
+        for (uint8_t object_type = 0u; object_type < GAME_LINK_OBJECT_COUNT; ++object_type) {
+            GameObjectDefinition definition;
+
+            if (!game_link_get_object_definition(&game.game_link_catalog, object_type,
+                                                 &definition, error, sizeof(error))) {
+                fprintf(stderr, "could not read source object lock definition: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (definition.behaviour == 0u && collectable_type == UINT8_MAX) {
+                collectable_type = object_type;
+            } else if (definition.behaviour == 1u && activatable_type == UINT8_MAX) {
+                activatable_type = object_type;
+            } else if (definition.behaviour == 2u && definition.hit_points > 0u &&
+                       definition.hit_points <= UINT8_MAX && destructible_type == UINT8_MAX) {
+                destructible_type = object_type;
+                destructible_definition = definition;
+            }
+        }
+        if (game.dynamic_level.runtime.zone_count < 2u || collectable_type == UINT8_MAX ||
+            activatable_type == UINT8_MAX || destructible_type == UINT8_MAX) {
+            fprintf(stderr, "source object lock fixtures are unavailable\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        object_zone_index = game.player.zone_index == 0u ? 1u : 0u;
+        lock_objects.slot_bytes = slot_bytes;
+        lock_objects.slot_count = 4u;
+        lock_objects.active_slot_count = 4u;
+        for (uint32_t slot_index = 0u; slot_index < 3u; ++slot_index) {
+            uint8_t *slot = slot_bytes + (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            write_be16(slot + 0u, (uint16_t)slot_index);
+            write_be16(slot + 12u, object_zone_index);
+            slot[16u] = 1u;
+        }
+        slot_bytes[54u] = collectable_type;
+        write_be32(slot_bytes + 50u, 0x00000001u);
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] = activatable_type;
+        write_be32(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00000002u);
+        slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] = destructible_type;
+        write_be32(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00000004u);
+        write_be16(slot_bytes + 3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        mechanism_runtime_init(&lock_runtime);
+        alien_runtime_init(&object_lock_alien_runtime);
+        alien_runtime_begin_single_player(&object_lock_alien_runtime);
+        lock_runtime.door_and_lift_locks = 0x0010u;
+        if (!object_handler_update_single_player(
+                &lock_objects, &game.dynamic_level, &lock_runtime, &object_lock_alien_runtime,
+                &game.game_link_catalog, &object_handler_context,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            lock_runtime.door_and_lift_locks != 0x0017u ||
+            read_be16(slot_bytes + 26u) != object_zone_index ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) != object_zone_index ||
+            read_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) !=
+                object_zone_index) {
+            fprintf(stderr, "ObjectHandler source object lock acquisition is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        object_lock_alien_runtime.no_enemies = 0u;
+        lock_runtime.door_and_lift_locks = 0x0010u;
+        if (!object_handler_update_single_player(
+                &lock_objects, &game.dynamic_level, &lock_runtime, &object_lock_alien_runtime,
+                &game.game_link_catalog, &object_handler_context,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            lock_runtime.door_and_lift_locks != 0x0010u) {
+            fprintf(stderr, "ObjectHandler source no-enemies object lock gate is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        alien_runtime_begin_single_player(&object_lock_alien_runtime);
+        slot_bytes[55u] = UINT8_MAX;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 55u] = UINT8_MAX;
+        slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] =
+            (uint8_t)destructible_definition.hit_points;
+        slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 0u;
+        lock_runtime.door_and_lift_locks = 0x0010u;
+        if (!object_handler_update_single_player(
+                &lock_objects, &game.dynamic_level, &lock_runtime, &object_lock_alien_runtime,
+                &game.game_link_catalog, &object_handler_context,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            lock_runtime.door_and_lift_locks != 0x0010u) {
+            fprintf(stderr, "ObjectHandler active/dead object lock suppression is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         /* modules/ai.s:ai_CheckInFront reads the source point high words and Tmp snapshot. */
         uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         uint8_t point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};

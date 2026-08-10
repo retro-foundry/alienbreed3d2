@@ -15,7 +15,8 @@ The initial desktop target establishes the port boundary without reusing the
 first game's software renderer:
 
 The active direct-play path now runs the source single-player control,
-weapon, object/mechanism, worry, and `ItsAnAlien` update ordering. Every
+weapon, object/mechanism (including source-held door/lift locks), worry, and
+`ItsAnAlien` update ordering. Every
 complete AI route enters through `newanims.s:ObjectHandler` only when its
 source worry byte is set. Source death, successful collectable, and
 destructible narratives enter the GPU-neutral small-screen message ring and

@@ -13,9 +13,11 @@ enum {
     OBJECT_SLOT_ZONE_ID = 12u,
     OBJECT_SLOT_TYPE_ID = 16u,
     OBJECT_SLOT_ENTITY_HIT_POINTS = 18u,
+    OBJECT_SLOT_ENTITY_DAMAGE_TAKEN = 19u,
     OBJECT_SLOT_ENTITY_ZONE_ID = 26u,
     OBJECT_SLOT_DOORS_AND_LIFTS_HELD = 50u,
     OBJECT_SLOT_ENTITY_TYPE = 54u,
+    OBJECT_SLOT_WHICH_ANIMATION = 55u,
     OBJECT_SLOT_WORRY = 62u,
     OBJECT_TYPE_OBJECT = 1u,
     OBJECT_TYPE_PROJECTILE = 2u,
@@ -68,6 +70,21 @@ static int object_handler_copy_alien_auxiliary(ObjectRuntime *objects, uint32_t 
                                   object_handler_read_be16(slot + OBJECT_SLOT_ENTITY_ZONE_ID));
     }
     return 1;
+}
+
+static int object_handler_object_holds_locks(const uint8_t *slot,
+                                             const GameObjectDefinition *definition)
+{
+    if (definition->behaviour == OBJECT_BEHAVIOUR_COLLECTABLE ||
+        definition->behaviour == OBJECT_BEHAVIOUR_ACTIVATABLE) {
+        /* newaliencontrol.s:Collectable/Activatable bypass this in GUNHELD/ACTIVATED. */
+        return slot[OBJECT_SLOT_WHICH_ANIMATION] == 0u;
+    }
+    if (definition->behaviour == OBJECT_BEHAVIOUR_DESTRUCTIBLE) {
+        /* newaliencontrol.s:Destructable reaches StillHere only below the hit threshold. */
+        return (uint16_t)slot[OBJECT_SLOT_ENTITY_DAMAGE_TAKEN] < definition->hit_points;
+    }
+    return 0;
 }
 
 int object_handler_update_single_player(
@@ -176,6 +193,12 @@ int object_handler_update_single_player(
         if (!game_link_get_object_definition(game_link, slot[OBJECT_SLOT_ENTITY_TYPE],
                                              &definition, error, error_size)) {
             return 0;
+        }
+        /* newaliencontrol.s:Collectable/Activatable/StillHere's AI_NoEnemies lock branches. */
+        if (alien_runtime->no_enemies != 0u &&
+            object_handler_object_holds_locks(slot, &definition)) {
+            mechanism_runtime->door_and_lift_locks |=
+                (uint16_t)object_handler_read_be32(slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD);
         }
         if (definition.behaviour == OBJECT_BEHAVIOUR_COLLECTABLE) {
             if (!object_collectables_update_slot_single_player(

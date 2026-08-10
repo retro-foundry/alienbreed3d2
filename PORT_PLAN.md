@@ -39,6 +39,9 @@ authority for all game behavior and data formats.
   clock has been invented.
 - [x] `src/object_handler.*` now owns the complete source context needed at
   `newanims.s:ObjectHandler`: it retains the living-alien lock preamble,
+  the `newaliencontrol.s:Collectable`, `Activatable`, and `StillHere`
+  `AI_NoEnemies_b` object-lock branches (including their active/dead
+  suppression),
   enters `ItsAnAlien` only for a worried slot, applies the source no-enemies
   gate only on that path, invokes the dispatcher with the prior-frame
   observation, and copies the immediately preceding AUX zone pair in source
@@ -395,8 +398,8 @@ authority for all game behavior and data formats.
   grant attempt. `src/object_passives.*` ports the source destructible
   damage-threshold/hit-point transition, authored destruction narrative, and
   action animation, plus the worry-gated decoration placement/default
-  animation. It deliberately leaves object locks and AI worry selection out
-  of scope until their owning systems exist. Dynamic `Obj_DoCollision`,
+  animation. `ObjectHandler` now owns their source lock acquisition; AI worry
+  selection remains with its owning system. Dynamic `Obj_DoCollision`,
   switches, enemies, and sounds remain absent until their owning routines are
   ported. Active source object render descriptors are emitted; live projectile
   movement and the stationary hitscan-impact pop state are source-backed.
@@ -953,7 +956,7 @@ the source's object inventory grants and reproduces its inventory-limit helpers,
 owns byte-exact mutable `ObjT`/object-point storage, and applies the translated
 collectable, bounded activatable, destructible, and decoration paths in
 `ObjectHandler`'s source slot order. This does not port PVS/worry selection,
-full lock behaviour, narrative audio, alien behaviour, or projectile
+native narrative audio, alien behaviour, or projectile
 blast/brightness/audio. The
 missing systems must use the maintained source's mutable `ObjT` initialization,
 worry, animation, and update ordering rather than a generalized object update.
