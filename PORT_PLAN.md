@@ -478,8 +478,10 @@ authority for all game behavior and data formats.
      mode in source order. `ai_AttackCommon` now also derives its source-width
      `SHOTTYPE`, `SHOTPOWER`, `SHOTSPEED`, and `SHOTSHIFT` globals and its
      hitscan/projectile choice from each `AlienT`/`BulT` pair, without starting
-     either attack body. Next: port one complete source attack body and its
-     firing helper, then the audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
+     either attack body. `objectmove.s:CalcDist` and `HeadTowards` now retain
+     the two Newton-style source iterations, range backtrack, and speed proposal
+     required by the projectile firing helper. Next: port one complete source
+     attack body and its firing helper, then the audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
      for either an empty or successful trigger, without synthesizing the
@@ -698,6 +700,12 @@ for `SHOTSPEED`, low-word decrement for `SHOTSHIFT`, and nonzero
 `ai_AttackWithProjectile` bodies still own their source animation, sight,
 damage, miss/projectile spawn, torch, and mode-transition effects, so neither
 is enabled merely by this setup state.
+`objectmove.s:CalcDist` and `HeadTowards` are now available as distinct direct
+helpers for `FireAtPlayer1`. They retain their shared two-step word precision
+distance approximation (separate from `HeadTowardsAng`'s three steps), source
+`xdiff`/`zdiff` results, `GotThere` zero-length preservation, range backtrack,
+and speed proposal. No caller consumes them yet, so they do not alter player or
+alien movement before the owning projectile attack helper is complete.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

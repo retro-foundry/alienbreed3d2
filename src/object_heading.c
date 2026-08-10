@@ -20,6 +20,11 @@ static int16_t object_heading_sub16(int16_t left, int16_t right)
     return (int16_t)((uint16_t)left - (uint16_t)right);
 }
 
+static int16_t object_heading_neg16(int16_t value)
+{
+    return (int16_t)(0u - (uint16_t)value);
+}
+
 static int32_t object_heading_add32(int32_t left, int32_t right)
 {
     return (int32_t)((uint32_t)left + (uint32_t)right);
@@ -60,21 +65,22 @@ static int object_heading_divs16(int32_t dividend, int16_t divisor,
     if (!out_quotient || divisor == 0 ||
         (dividend == INT32_MIN && divisor == -1)) {
         object_heading_set_error(error, error_size,
-                                 "HeadTowardsAng DIVS received invalid source operands");
+                                 "object heading DIVS received invalid source operands");
         return 0;
     }
     quotient = dividend / divisor;
     if (quotient < INT16_MIN || quotient > INT16_MAX) {
         object_heading_set_error(error, error_size,
-                                 "HeadTowardsAng DIVS quotient exceeds a source word");
+                                 "object heading DIVS quotient exceeds a source word");
         return 0;
     }
     *out_quotient = (int16_t)quotient;
     return 1;
 }
 
-/* objectmove.s:HeadTowardsAng's three source Newton-style word iterations. */
+/* objectmove.s:CalcDist/HeadTowards/HeadTowardsAng source Newton word iterations. */
 static int object_heading_source_distance(int32_t squared_distance,
+                                          uint8_t iteration_count,
                                           int16_t *out_distance,
                                           char *error, size_t error_size)
 {
@@ -92,7 +98,7 @@ static int object_heading_source_distance(int32_t squared_distance,
         return 1;
     }
     distance = UINT32_C(1) << (uint32_t)(highest_bit / 2);
-    for (uint8_t iteration = 0u; iteration < 3u; ++iteration) {
+    for (uint8_t iteration = 0u; iteration < iteration_count; ++iteration) {
         int16_t distance_word = (int16_t)distance;
         int32_t correction = object_heading_sub32(
             object_heading_muls16(distance_word, distance_word), squared_distance);
@@ -111,6 +117,87 @@ static int object_heading_source_distance(int32_t squared_distance,
         }
     }
     *out_distance = (int16_t)distance;
+    return 1;
+}
+
+int object_heading_calculate_distance(ObjectApproach *approach,
+                                      char *error, size_t error_size)
+{
+    int32_t squared_distance;
+
+    if (!approach) {
+        object_heading_set_error(error, error_size, "CalcDist received invalid source state");
+        return 0;
+    }
+    approach->x_difference = object_heading_sub16(approach->new_x, approach->old_x);
+    approach->z_difference = object_heading_sub16(approach->new_z, approach->old_z);
+    squared_distance = object_heading_add32(
+        object_heading_muls16(approach->x_difference, approach->x_difference),
+        object_heading_muls16(approach->z_difference, approach->z_difference));
+    /* CalcDist clears distaway before its zero-length early return. */
+    approach->distance = 0;
+    if (squared_distance == 0) {
+        return 1;
+    }
+    return object_heading_source_distance(squared_distance, 2u, &approach->distance,
+                                          error, error_size);
+}
+
+int object_heading_towards(ObjectApproach *approach,
+                           char *error, size_t error_size)
+{
+    int16_t movement;
+    int16_t component;
+
+    if (!object_heading_calculate_distance(approach, error, error_size)) {
+        return 0;
+    }
+    /* HeadTowards returns here without changing GotThere when the points coincide. */
+    if (approach->distance == 0) {
+        return 1;
+    }
+    if (approach->distance <= approach->range) {
+        approach->got_there = UINT8_MAX;
+        /*
+         * Unlike HeadTowardsAng, HeadTowards backtracks its existing target
+         * by Range units instead of replacing it with the old point.
+         */
+        if (!object_heading_divs16(
+                object_heading_muls16(approach->x_difference, approach->range),
+                approach->distance, &component, error, error_size)) {
+            return 0;
+        }
+        approach->new_x = object_heading_add16(approach->new_x,
+                                                object_heading_neg16(component));
+        if (!object_heading_divs16(
+                object_heading_muls16(approach->z_difference, approach->range),
+                approach->distance, &component, error, error_size)) {
+            return 0;
+        }
+        approach->new_z = object_heading_add16(approach->new_z,
+                                                object_heading_neg16(component));
+        return 1;
+    }
+
+    approach->got_there = 0u;
+    movement = object_heading_add16(approach->speed, approach->range);
+    if (movement >= approach->distance) {
+        movement = approach->distance;
+        approach->got_there = UINT8_MAX;
+    }
+    movement = object_heading_sub16(movement, approach->range);
+    if (!object_heading_divs16(
+            object_heading_muls16(approach->x_difference, movement), approach->distance,
+            &component, error, error_size)) {
+        return 0;
+    }
+    approach->new_x = object_heading_add16(approach->old_x, component);
+    if (!object_heading_divs16(
+            object_heading_muls16(approach->z_difference, movement), approach->distance,
+            &component, error, error_size)) {
+        return 0;
+    }
+    approach->new_z = object_heading_add16(approach->old_z, component);
     return 1;
 }
 
@@ -143,7 +230,7 @@ int object_heading_towards_angle(const GameMath *math, ObjectHeading *heading,
     if (distance_squared == 0) {
         return 1;
     }
-    if (!object_heading_source_distance(distance_squared, &distance, error, error_size)) {
+    if (!object_heading_source_distance(distance_squared, 3u, &distance, error, error_size)) {
         return 0;
     }
 

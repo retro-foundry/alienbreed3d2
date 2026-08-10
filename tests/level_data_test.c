@@ -6706,10 +6706,53 @@ int main(int argc, char **argv)
         level_dynamic_state_destroy(&prowl_dynamic);
     }
     {
-        /* objectmove.s:HeadTowardsAng's zero-distance, range, and speed paths. */
+        /* objectmove.s:CalcDist/HeadTowards and HeadTowardsAng source paths. */
+        ObjectApproach approach = {0};
         ObjectHeading heading = {0};
         int16_t heading_sine;
         int16_t heading_cosine;
+
+        approach.new_x = 3;
+        approach.new_z = 4;
+        if (!object_heading_calculate_distance(&approach, error, sizeof(error)) ||
+            approach.x_difference != 3 || approach.z_difference != 4 ||
+            approach.distance != 5) {
+            fprintf(stderr, "CalcDist source state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memset(&approach, 0, sizeof(approach));
+        approach.new_x = 100;
+        approach.speed = 20;
+        if (!object_heading_towards(&approach, error, sizeof(error)) ||
+            approach.distance != 101 || approach.got_there != 0u ||
+            approach.new_x != 19 || approach.new_z != 0) {
+            fprintf(stderr, "HeadTowards speed path is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memset(&approach, 0, sizeof(approach));
+        approach.new_z = 10;
+        approach.range = 20;
+        if (!object_heading_towards(&approach, error, sizeof(error)) ||
+            approach.distance != 10 || approach.got_there != UINT8_MAX ||
+            approach.new_x != 0 || approach.new_z != -10) {
+            fprintf(stderr, "HeadTowards range path is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memset(&approach, 0, sizeof(approach));
+        approach.old_x = 12;
+        approach.old_z = -7;
+        approach.new_x = 12;
+        approach.new_z = -7;
+        approach.got_there = 0x5au;
+        if (!object_heading_towards(&approach, error, sizeof(error)) ||
+            approach.distance != 0 || approach.got_there != 0x5au) {
+            fprintf(stderr, "HeadTowards zero-distance path is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
 
         heading.old_x = 12;
         heading.old_z = -7;

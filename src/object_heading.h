@@ -19,6 +19,28 @@ typedef struct {
     uint8_t got_there;
 } ObjectHeading;
 
+/* Source workspace shared by objectmove.s:CalcDist and HeadTowards. */
+typedef struct {
+    int16_t old_x;
+    int16_t old_z;
+    int16_t new_x;
+    int16_t new_z;
+    int16_t x_difference;
+    int16_t z_difference;
+    int16_t distance;
+    int16_t range;
+    int16_t speed;
+    uint8_t got_there;
+} ObjectApproach;
+
+/* Direct objectmove.s:CalcDist translation. */
+int object_heading_calculate_distance(ObjectApproach *approach,
+                                      char *error, size_t error_size);
+
+/* Direct objectmove.s:HeadTowards translation. */
+int object_heading_towards(ObjectApproach *approach,
+                           char *error, size_t error_size);
+
 /*
  * Direct objectmove.s:HeadTowardsAng translation. It advances `new_x/new_z`
  * toward the original proposal and writes the source's coarse AngRet result.
