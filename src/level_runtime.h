@@ -213,6 +213,15 @@ int level_runtime_get_zone_extended_edge_index(const LevelRuntime *runtime,
                                                char *error, size_t error_size);
 int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
                            LevelEdge *out_edge, char *error, size_t error_size);
+/*
+ * modules/ai.s:ai_ProwlFly and ai_FlyToCPTHeight index
+ * Lvl_ControlPointCoordsPtr_l directly with the source word. Keep that
+ * pointer-style access separate from the validated table view below.
+ */
+int level_runtime_get_control_point_source_address(const LevelRuntime *runtime,
+                                                   uint16_t control_point_index,
+                                                   LevelControlPoint *out_control_point,
+                                                   char *error, size_t error_size);
 int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t control_point_index,
                                     LevelControlPoint *out_control_point,
                                     char *error, size_t error_size);

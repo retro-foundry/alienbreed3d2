@@ -479,9 +479,12 @@ int alien_prowl_random_update(
             old_x, old_z, error, error_size) ||
         !alien_prowl_widget(alien_runtime, objects, slot_index, level, navigation, player,
                             player->noise_volume, flying, random, &state.widget,
-                            error, error_size) ||
-        !level_runtime_get_control_point(level, state.widget.middle_control_point,
-                                         &control_point, error, error_size)) {
+                            error, error_size)) {
+        return 0;
+    }
+    /* ai_ProwlFly indexes Lvl_ControlPointCoordsPtr_l directly after GetNextCPt. */
+    if (!level_runtime_get_control_point_source_address(
+            level, state.widget.middle_control_point, &control_point, error, error_size)) {
         return 0;
     }
 

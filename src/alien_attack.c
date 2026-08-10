@@ -141,17 +141,24 @@ static int alien_attack_divs16(int32_t dividend, int16_t divisor,
 {
     int32_t quotient;
 
-    if (!out_quotient || divisor == 0 ||
-        (dividend == INT32_MIN && divisor == -1)) {
+    if (!out_quotient || divisor == 0) {
         alien_attack_set_error(error, error_size,
                                "alien attack DIVS received invalid source operands");
         return 0;
     }
+    /*
+     * 68000 DIVS.W leaves Dn unchanged on quotient overflow; modules/ai.s
+     * ignores the V flag and subsequently consumes Dn's low word. Preserve
+     * that destination-register result for ai_AttackWithHitScan and FireAtPlayer1.
+     */
+    if (dividend == INT32_MIN && divisor == -1) {
+        *out_quotient = (int16_t)(uint16_t)dividend;
+        return 1;
+    }
     quotient = dividend / divisor;
     if (quotient < INT16_MIN || quotient > INT16_MAX) {
-        alien_attack_set_error(error, error_size,
-                               "alien attack DIVS quotient exceeds a source word");
-        return 0;
+        *out_quotient = (int16_t)(uint16_t)dividend;
+        return 1;
     }
     *out_quotient = (int16_t)quotient;
     return 1;

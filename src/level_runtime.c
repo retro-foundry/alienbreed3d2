@@ -605,18 +605,18 @@ int level_runtime_get_edge(const LevelRuntime *runtime, uint32_t edge_index,
     return 1;
 }
 
-int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t control_point_index,
-                                    LevelControlPoint *out_control_point,
-                                    char *error, size_t error_size)
+int level_runtime_get_control_point_source_address(const LevelRuntime *runtime,
+                                                   uint16_t control_point_index,
+                                                   LevelControlPoint *out_control_point,
+                                                   char *error, size_t error_size)
 {
     const uint8_t *source;
     LevelControlPoint control_point;
     size_t control_point_offset;
 
-    if (!runtime || !runtime->level_bytes || !out_control_point ||
-        control_point_index >= runtime->control_point_count) {
+    if (!runtime || !runtime->level_bytes || !out_control_point) {
         level_runtime_set_error(error, error_size,
-                                "requested control point is outside the runtime view");
+                                "source-addressed control point received invalid runtime state");
         return 0;
     }
     control_point_offset = (size_t)runtime->control_point_coordinates_offset +
@@ -624,7 +624,7 @@ int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t contro
     if (control_point_offset > runtime->level_size ||
         LEVEL_RUNTIME_CONTROL_POINT_SIZE > runtime->level_size - control_point_offset) {
         level_runtime_set_error(error, error_size,
-                                "requested control point is outside the runtime view");
+                                "source-addressed control point is outside loaded level data");
         return 0;
     }
     source = runtime->level_bytes + control_point_offset;
@@ -634,6 +634,19 @@ int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t contro
     control_point.unknown_word = level_runtime_read_be16s(source + 6u);
     *out_control_point = control_point;
     return 1;
+}
+
+int level_runtime_get_control_point(const LevelRuntime *runtime, uint16_t control_point_index,
+                                    LevelControlPoint *out_control_point,
+                                    char *error, size_t error_size)
+{
+    if (!runtime || control_point_index >= runtime->control_point_count) {
+        level_runtime_set_error(error, error_size,
+                                "requested control point is outside the runtime view");
+        return 0;
+    }
+    return level_runtime_get_control_point_source_address(runtime, control_point_index,
+                                                          out_control_point, error, error_size);
 }
 
 int level_runtime_get_world_point(const LevelRuntime *runtime, uint32_t point_index,

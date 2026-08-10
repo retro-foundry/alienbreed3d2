@@ -280,8 +280,24 @@ authority for all game behavior and data formats.
   loaded terminator-delimited ObjT list exceeds it: `DOALLANIMS` itself has no
   list-length branch before its eight-byte workspace advance, so rejecting an
   authored list would be a host-only behavior. The full A--P direct-play
-  regression now runs two VBlank-equivalent ticks per level; Level O covers
-  this source list-size boundary.
+  regression starts from clean source-process state and runs six
+  VBlank-equivalent ticks per selected level, modeling `thistime` as
+  process-lifetime rather than level state; Level O covers this source
+  list-size boundary.
+- [x] `src/level_runtime.*` retains both the checked semantic control-point
+  table view and the separate source-addressed view required by
+  `modules/ai.s:ai_ProwlFly` and `ai_FlyToCPTHeight`. After `GetNextCPt`, the
+  source multiplies its result by eight and dereferences
+  `Lvl_ControlPointCoordsPtr_l` directly, including Level G's `$7f` route
+  result after its authored retry sequence. The native equivalent preserves
+  that pointer-style read while still requiring the addressed eight bytes to
+  remain inside the loaded level asset; normal consumers remain table-bounded.
+- [x] `src/alien_attack.c` now retains 68000 `DIVS.W` destination semantics:
+  when a quotient does not fit a signed word, the instruction sets overflow
+  but leaves the destination register unchanged. The live source code ignores
+  that flag and uses the register's low word, including Level K's hitscan
+  impulse path, so the native helper returns the pre-divide low word rather
+  than turning the source arithmetic edge into a host failure.
 - [x] `src/alien_memory.*` now translates
   `modules/ai.s:ai_StorePlayerPosition`'s per-entity and optional team memory
   writes: source low player coordinate words, player ZoneT ID, lower/upper
@@ -1049,9 +1065,10 @@ scope by design.
      ObjT/AUX ordering. Extend equivalent source fixtures for the remaining
      live-alien routes as authored levels exercise them; retain coverage of
      successful collectable, destructible, and death message handoffs.
-   - Maintain the full A--P asset/bootstrap and two-tick direct-play
-     regression, and add renderer output validation separately from
-     simulation-state validation.
+   - Maintain the clean-process full A--P asset/bootstrap and six-VBlank
+     direct-play regression, including the process-lifetime animation cadence,
+     and add renderer output validation separately from simulation-state
+     validation.
    - Keep menus deferred until direct game presentation, input, and simulation
      work end to end. Audio is intentionally deferred; do not reintroduce
      multiplayer.

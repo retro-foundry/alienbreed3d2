@@ -179,10 +179,11 @@ int alien_flight_move_toward_control_point_height(
 {
     LevelControlPoint control_point;
 
-    if (!level || !level_runtime_get_control_point(level, control_point_index,
-                                                    &control_point, error, error_size)) {
+    /* modules/ai.s:ai_FlyToCPTHeight indexes Lvl_ControlPointCoordsPtr_l directly. */
+    if (!level || !level_runtime_get_control_point_source_address(level, control_point_index,
+                                                                   &control_point, error, error_size)) {
         alien_flight_set_error(error, error_size,
-                               "ai_FlyToCPTHeight control point is outside the source table");
+                               "ai_FlyToCPTHeight control point is outside loaded source data");
         return 0;
     }
     return alien_flight_move_toward_height(objects, slot_index, level, zone_index,

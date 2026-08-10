@@ -3520,41 +3520,81 @@ int main(int argc, char **argv)
         }
     }
     /*
-     * hires.s:objmoveanim's first VBlank prepares the later worry pass; the
-     * following VBlank reaches the worried ObjectHandler paths.  Run that
-     * direct single-player update boundary for every authored level without
-     * forcing the separate source exit-zone completion path.
+     * hires.s:objmoveanim's first VBlank prepares the later worry pass. Its
+     * DOALLANIMS counter then waits five VBlanks before the sixth animation
+     * pass revisits those worried slots. Run that exact direct-play boundary
+     * for every authored level without forcing the separate source exit-zone
+     * completion path.
      */
-    if (!game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error))) {
-        fprintf(stderr, "could not restore DEFAULTGAME before direct-play campaign smoke test: %s\n",
-                error);
-        game_bootstrap_destroy(&game);
-        return 1;
-    }
-    for (level_index = 0u; level_index < GAME_LINK_LEVEL_COUNT; ++level_index) {
-        if (!game_session_select_level(&game.session, level_index, error, sizeof(error)) ||
-            !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error))) {
-            fprintf(stderr, "campaign level %u could not start direct-play smoke test: %s\n",
-                    level_index, error);
+    {
+        GameBootstrap direct_game;
+
+        /* This samples the direct campaign path from source process startup, not test-mutated BSS. */
+        memset(&direct_game, 0, sizeof(direct_game));
+        if (!game_bootstrap_init(&direct_game, argv[1], error, sizeof(error)) ||
+            !game_session_default(&direct_game.session, &direct_game.game_link_catalog,
+                                  error, sizeof(error))) {
+            fprintf(stderr, "could not initialize direct-play campaign smoke test: %s\n", error);
+            game_bootstrap_destroy(&direct_game);
             game_bootstrap_destroy(&game);
             return 1;
         }
-        game.dynamic_level.runtime.exit_zone_id = -1;
-        game_input_init(&game.input);
-        if (!game_bootstrap_update_single_player_at_time(&game, 20u, error, sizeof(error)) ||
-            !game_bootstrap_update_single_player_at_time(&game, 40u, error, sizeof(error)) ||
-            game.session.level_finished != 0u || game.message_time_milliseconds != 40u ||
-            game.static_scene.wall_count == 0u ||
-            (game.object_runtime.active_slot_count > OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT &&
-             (!game.object_animation_runtime.extended_workspace ||
-              game.object_animation_runtime.extended_workspace_slot_count <
-                  game.object_runtime.active_slot_count -
-                      OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT))) {
-            fprintf(stderr, "campaign level %u direct-play two-tick smoke test is inconsistent: %s\n",
-                    level_index, error);
-            game_bootstrap_destroy(&game);
-            return 1;
+        for (level_index = 0u; level_index < GAME_LINK_LEVEL_COUNT; ++level_index) {
+            uint8_t expected_animation_thistime;
+            int saw_animation_pass = 0;
+
+            if (!game_session_select_level(&direct_game.session, level_index, error, sizeof(error)) ||
+                !game_bootstrap_start_selected_single_player(
+                    &direct_game, argv[1], error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u could not start direct-play smoke test: %s\n",
+                        level_index, error);
+                game_bootstrap_destroy(&direct_game);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            direct_game.dynamic_level.runtime.exit_zone_id = -1;
+            game_input_init(&direct_game.input);
+            /* hires.s:thistime is process-lifetime state, not Game_Begin level state. */
+            expected_animation_thistime = direct_game.object_animation_runtime.thistime;
+            for (uint16_t frame_index = 1u; frame_index <= 6u; ++frame_index) {
+                expected_animation_thistime = (uint8_t)(expected_animation_thistime - 1u);
+                if ((int8_t)expected_animation_thistime <= 0) {
+                    expected_animation_thistime = 5u;
+                    saw_animation_pass = 1;
+                }
+                if (!game_bootstrap_update_single_player_at_time(
+                        &direct_game, (uint64_t)frame_index * 20u, error, sizeof(error))) {
+                    fprintf(stderr, "campaign level %u direct-play VBlank %u failed: %s\n",
+                            level_index, frame_index, error);
+                    game_bootstrap_destroy(&direct_game);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+            if (direct_game.session.level_finished != 0u ||
+                direct_game.message_time_milliseconds != 120u ||
+                direct_game.object_animation_runtime.thistime != expected_animation_thistime ||
+                saw_animation_pass == 0 || direct_game.static_scene.wall_count == 0u ||
+                (direct_game.object_runtime.active_slot_count >
+                     OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT &&
+                 (!direct_game.object_animation_runtime.extended_workspace ||
+                  direct_game.object_animation_runtime.extended_workspace_slot_count <
+                      direct_game.object_runtime.active_slot_count -
+                          OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT))) {
+                fprintf(stderr,
+                        "campaign level %u direct-play six-VBlank smoke is inconsistent: "
+                        "finished=%u time=%llu thistime=%u expected=%u pass=%d walls=%u: %s\n",
+                        level_index, (unsigned int)direct_game.session.level_finished,
+                        (unsigned long long)direct_game.message_time_milliseconds,
+                        (unsigned int)direct_game.object_animation_runtime.thistime,
+                        (unsigned int)expected_animation_thistime, saw_animation_pass,
+                        (unsigned int)direct_game.static_scene.wall_count, error);
+                game_bootstrap_destroy(&direct_game);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
+        game_bootstrap_destroy(&direct_game);
     }
     /* hires.s:game_main_loop ends a single-player level on Lvl_ExitZoneID_w. */
     if (!game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error)) ||
