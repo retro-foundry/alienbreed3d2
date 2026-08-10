@@ -3995,6 +3995,7 @@ int main(int argc, char **argv)
         GameObjectAnimationFrame collectable_frame;
         GameInventory collectable_grant;
         GameInventory original_inventory;
+        PlayerRuntime original_player;
         GameInventory expected_inventory;
         GameInventory full_inventory;
         GameObjectDefinition failed_collectable_definition;
@@ -4028,6 +4029,7 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        original_player = game.player;
         game.player.zone_index = 146u;
         game.player.stood_in_top = 0u;
         game.player.tmp_x = player_runtime_world_to_position(
@@ -4038,6 +4040,48 @@ int main(int argc, char **argv)
         game.player.tmp_y = collectable_zone.floor - game.player.tmp_height;
         memcpy(collectable_slot_original, collectable_slot, sizeof(collectable_slot_original));
         original_inventory = game.session.player1_inventory;
+        /*
+         * newaliencontrol.s:Collectable consumes a PVS worry for an object in
+         * a neighbouring zone/layer. Its source vertical placement comes from
+         * ShotT_InUpperZone_b, not Plr1's current zone/layer.
+         */
+        game.player.zone_index = 0u;
+        game.player.stood_in_top = UINT8_MAX;
+        game.player.tmp_x = player_runtime_world_to_position(
+            (int16_t)((int16_t)read_be16(collectable_point + 0u) +
+                      (int16_t)collectable_definition.collision_radius));
+        collectable_slot[62u] = 1u;
+        if (!game_link_get_object_animation_frame(
+                &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT, 0u,
+                read_be16(collectable_slot + 34u), &collectable_frame,
+                error, sizeof(error)) ||
+            !object_collectables_update_single_player(
+                &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits,
+                &game.message_runtime, game.preferences.show_messages,
+                0u, &collected_count, error, sizeof(error)) ||
+            collected_count != 0u || (int16_t)read_be16(collectable_slot + 12u) != 146 ||
+            collectable_slot[62u] != 0u ||
+            (int16_t)read_be16(collectable_slot + 4u) !=
+                (int16_t)(source_asr32_7(collectable_zone.floor) +
+                          (int16_t)collectable_frame.signed_byte_4 * 2) ||
+            read_be16(collectable_slot + 34u) != collectable_frame.next_timer1) {
+            fprintf(stderr, "Level B cross-zone collectable activation is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memcpy(collectable_slot, collectable_slot_original, sizeof(collectable_slot_original));
+        game.player = original_player;
+        game.session.player1_inventory = original_inventory;
+        game.player.zone_index = 146u;
+        game.player.stood_in_top = 0u;
+        game.player.tmp_x = player_runtime_world_to_position(
+            (int16_t)read_be16(collectable_point + 0u));
+        game.player.tmp_z = player_runtime_world_to_position(
+            (int16_t)read_be16(collectable_point + 4u));
+        game.player.tmp_height = 12 * 1024;
+        game.player.tmp_y = collectable_zone.floor - game.player.tmp_height;
         /* Exercise Plr1_CollectItem's authored display-text message branch. */
         write_be16(collectable_slot + 24u, 0u);
         game.preferences.show_messages = UINT8_MAX;

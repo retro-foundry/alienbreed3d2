@@ -19,6 +19,7 @@ enum {
     OBJECT_SLOT_WHICH_ANIMATION = 55u,
     OBJECT_SLOT_DOORS_AND_LIFTS_HELD = 50u,
     OBJECT_SLOT_WORRY = 62u,
+    OBJECT_SLOT_IN_UPPER_ZONE = 63u,
     OBJECT_TYPE_OBJECT = 1u,
     OBJECT_BEHAVIOUR_COLLECTABLE = 0u,
     /* defs.i:GLFT_OBJ_NAME_LENGTH. */
@@ -280,8 +281,7 @@ static int object_collectables_update_range_single_player(
             continue;
         }
         zone_id = object_collectables_read_be16s(slot + OBJECT_SLOT_ZONE_ID);
-        if (zone_id < 0 || (uint16_t)zone_id != player->zone_index ||
-            slot[OBJECT_SLOT_WORRY + 1u] != player->stood_in_top) {
+        if (zone_id < 0) {
             continue;
         }
         entity_type = slot[OBJECT_SLOT_ENTITY_TYPE];
@@ -304,11 +304,16 @@ static int object_collectables_update_range_single_player(
             return 0;
         }
 
-        /* ItsAnObject/Collectable's visible-object floor/roof placement. */
+        /*
+         * newaliencontrol.s:Collectable uses ShotT_InUpperZone_b from the
+         * object itself.  Its only visibility gate is ShotT_Worry_b: PVS can
+         * worry a pickup in a visible neighbouring zone before the player
+         * enters that zone, so do not substitute the player's zone/layer.
+         */
         if (definition.floor_ceiling == 0u) {
-            floor_or_roof = player->stood_in_top != 0u ? zone.upper_floor : zone.floor;
+            floor_or_roof = slot[OBJECT_SLOT_IN_UPPER_ZONE] != 0u ? zone.upper_floor : zone.floor;
         } else {
-            floor_or_roof = player->stood_in_top != 0u ? zone.upper_roof : zone.roof;
+            floor_or_roof = slot[OBJECT_SLOT_IN_UPPER_ZONE] != 0u ? zone.upper_roof : zone.roof;
         }
         object_collectables_write_be16(slot + OBJECT_SLOT_VERTICAL_POSITION,
                                        (uint16_t)object_collectables_asr32(floor_or_roof, 7u));
