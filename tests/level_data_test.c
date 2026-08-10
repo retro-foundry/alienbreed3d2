@@ -7261,7 +7261,13 @@ int main(int argc, char **argv)
         };
         uint8_t slot_bytes[CHARGE_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         uint8_t point_bytes[CHARGE_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        uint8_t charge_initial_slot_bytes[
+            CHARGE_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t charge_initial_point_bytes[
+            CHARGE_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        uint8_t charge_expected_flying_slot[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime charge_objects = {0};
+        ObjectRuntime charge_expected_flying_objects = {0};
         LevelDynamicState charge_dynamic = {0};
         ObjectAnimationRuntime charge_animation;
         ObjectExplosionRuntime charge_explosion;
@@ -7289,6 +7295,7 @@ int main(int argc, char **argv)
         int16_t charge_player_z;
         int16_t charge_alien_x;
         int16_t expected_charge_y;
+        int16_t expected_charge_flying_y;
 
         for (uint16_t zone_index = 0u; zone_index < game.dynamic_level.runtime.zone_count;
              ++zone_index) {
@@ -7414,6 +7421,8 @@ int main(int argc, char **argv)
                    (uint16_t)charge_alien_x);
         write_be16(point_bytes + CHARGE_ALIEN_POINT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
                    (uint16_t)charge_player_z);
+        memcpy(charge_initial_slot_bytes, slot_bytes, sizeof(slot_bytes));
+        memcpy(charge_initial_point_bytes, point_bytes, sizeof(point_bytes));
         if (!alien_setup_from_slot(&charge_objects, CHARGE_ALIEN_SLOT,
                                    &charge_dynamic.runtime, &game.game_link_catalog,
                                    &charge_setup, error, sizeof(error))) {
@@ -7462,6 +7471,62 @@ int main(int argc, char **argv)
                 (uint16_t)expected_charge_y ||
             charge_runtime.heading_angle != charge_state.heading.angle) {
             fprintf(stderr, "ai_Charge source movement state is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
+        /* ai_ChargeFlying keeps its height across ai_GetRoomStats, then flies. */
+        memcpy(slot_bytes, charge_initial_slot_bytes, sizeof(slot_bytes));
+        memcpy(point_bytes, charge_initial_point_bytes, sizeof(point_bytes));
+        object_animation_runtime_init(&charge_animation);
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][0u] = 1u;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][1u] = (uint8_t)charge_frame_index;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][2u] = (uint8_t)charge_option;
+        alien_runtime_init(&charge_runtime);
+        alien_runtime_begin_level(&charge_runtime);
+        lighting_runtime_init(&charge_lighting);
+        object_explosion_runtime_init(&charge_explosion);
+        game_progression_init(&charge_progression);
+        game_random_init(&charge_random);
+        charge_expected_flying_objects.slot_bytes = charge_expected_flying_slot;
+        charge_expected_flying_objects.slot_count = 1u;
+        charge_expected_flying_objects.active_slot_count = 1u;
+        memcpy(charge_expected_flying_slot,
+               charge_initial_slot_bytes +
+                   CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT,
+               sizeof(charge_expected_flying_slot));
+        if (!alien_flight_move_toward_player_height(
+                &charge_expected_flying_objects, 0u, &charge_dynamic.runtime,
+                charge_zone_index, &charge_player, charge_setup.thing_height,
+                error, sizeof(error))) {
+            fprintf(stderr, "ai_ChargeFlying expected flight state is invalid: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        expected_charge_flying_y = read_be16(charge_expected_flying_slot + 4u);
+        memset(&charge_workspace, 0, sizeof(charge_workspace));
+        if (!alien_charge_flying_update(
+                &charge_objects, CHARGE_ALIEN_SLOT, &charge_runtime, &charge_animation,
+                &charge_lighting, &charge_dynamic, &game.level_clips, &game.game_link_catalog,
+                &charge_progression, &charge_explosion, &game.math, &charge_random,
+                &charge_player, &charge_setup, 0u, 1u, &charge_workspace, &charge_state,
+                error, sizeof(error)) ||
+            charge_state.damage_taken != 0u || charge_state.got_out != 0u ||
+            charge_state.teleport.teleported != 0u ||
+            charge_state.heading.got_there != UINT8_MAX ||
+            charge_state.movement.step_down != 1000 * 256 ||
+            charge_state.damaged_player != UINT8_MAX ||
+            slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 7u ||
+            read_be16(slot_bytes + CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) !=
+                0u ||
+            read_be16(slot_bytes + CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u) !=
+                0u ||
+            read_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u) !=
+                (uint16_t)expected_charge_flying_y) {
+            fprintf(stderr, "ai_ChargeFlying source movement state is inconsistent: %s\n",
+                    error);
             level_dynamic_state_destroy(&charge_dynamic);
             game_bootstrap_destroy(&game);
             return 1;

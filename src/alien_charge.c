@@ -29,6 +29,7 @@ enum {
     ALIEN_CHARGE_PLAYER_IMPACT_Z = 44u,
     ALIEN_CHARGE_STEP_UP = 32 * 256,
     ALIEN_CHARGE_STEP_DOWN = 30 * 256,
+    ALIEN_CHARGE_FLY_STEP_DOWN = 1000 * 256,
     ALIEN_CHARGE_WALL_FLAGS = 0x0200u,
     ALIEN_CHARGE_ATTACK_MODE = 1u
 };
@@ -172,14 +173,34 @@ static int alien_charge_apply_player_impact(ObjectRuntime *objects,
     return 1;
 }
 
-int alien_charge_update(
+static int alien_charge_apply_player_damage(ObjectRuntime *objects,
+                                            const AlienAnimationState *animation,
+                                            AlienChargeState *state,
+                                            char *error, size_t error_size)
+{
+    uint8_t *player_slot;
+
+    if (!objects || !animation || !state ||
+        !object_runtime_get_player1_slot_bytes(objects, &player_slot)) {
+        alien_charge_set_error(error, error_size,
+                               "ai_ChargeFlyingCommon has no source Player 1 object");
+        return 0;
+    }
+    player_slot[ALIEN_CHARGE_PLAYER_DAMAGE_TAKEN] =
+        (uint8_t)(player_slot[ALIEN_CHARGE_PLAYER_DAMAGE_TAKEN] +
+                  (uint8_t)(animation->action << 1u));
+    state->damaged_player = UINT8_MAX;
+    return 1;
+}
+
+static int alien_charge_update_common(
     ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
     ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
     LevelDynamicState *dynamic_level, const LevelNavigation *navigation,
     const AssetBlob *clips, const GameLink *game_link, GameProgression *progression,
     ObjectExplosionRuntime *explosion_runtime, const GameMath *math,
     GameRandom *random, const PlayerRuntime *player, const AlienSetup *setup,
-    uint8_t to_side, uint16_t frame_ticks, AlienChargeWorkspace *workspace,
+    uint8_t to_side, uint8_t flying, uint16_t frame_ticks, AlienChargeWorkspace *workspace,
     AlienChargeState *out_state, char *error, size_t error_size)
 {
     const LevelRuntime *level;
@@ -190,10 +211,11 @@ int alien_charge_update(
     AlienChargeState state;
 
     if (!objects || !alien_runtime || !animation_runtime || !lighting || !dynamic_level ||
-        !navigation || !clips || !game_link || !progression || !explosion_runtime || !math ||
+        !clips || !game_link || !progression || !explosion_runtime || !math ||
         !random || !player || !setup || !workspace || !out_state || slot_index == 0u ||
         slot_index >= objects->active_slot_count || slot_index >= ALIEN_RUNTIME_ENTITY_COUNT ||
         slot_index >= OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT ||
+        (flying == 0u && !navigation) ||
         player->zone_index >= dynamic_level->runtime.zone_count ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
         alien_charge_set_error(error, error_size, "ai_ChargeCommon received invalid source state");
@@ -331,7 +353,8 @@ int alien_charge_update(
         state.movement.new_y = workspace->new_y;
         state.movement.thing_height = setup->thing_height;
         state.movement.step_up = ALIEN_CHARGE_STEP_UP;
-        state.movement.step_down = ALIEN_CHARGE_STEP_DOWN;
+        state.movement.step_down = flying != 0u ? ALIEN_CHARGE_FLY_STEP_DOWN :
+                                                  ALIEN_CHARGE_STEP_DOWN;
         state.movement.extension_length = setup->extended_wall_length;
         state.movement.wall_flags = ALIEN_CHARGE_WALL_FLAGS;
         state.movement.away_from_wall = setup->away_from_wall;
@@ -386,23 +409,45 @@ int alien_charge_update(
     }
 
     /* A successful CheckTeleport branches directly to .no_munch. */
-    if (state.teleport.teleported == 0u &&
+    if (flying == 0u && state.teleport.teleported == 0u &&
         !alien_charge_copy_previous_zone_pair(objects, slot_index, slot, error, error_size)) {
         return 0;
     }
-    if (state.heading.got_there != 0u && state.animation.action != 0u &&
-        !alien_charge_apply_player_impact(objects, &state.animation, workspace, frame_ticks,
-                                          &state, error, error_size)) {
-        return 0;
+    if (state.heading.got_there != 0u && state.animation.action != 0u) {
+        if (flying != 0u) {
+            if (!alien_charge_apply_player_damage(objects, &state.animation, &state,
+                                                  error, error_size)) {
+                return 0;
+            }
+        } else if (!alien_charge_apply_player_impact(objects, &state.animation, workspace,
+                                                      frame_ticks, &state, error, error_size)) {
+            return 0;
+        }
     }
-    if (!alien_memory_store_player_position(alien_runtime, objects, slot_index, level, player,
-                                            error, error_size) ||
+    {
+        int16_t flying_vertical_position = alien_charge_read_be16s(
+            slot + ALIEN_CHARGE_SLOT_VERTICAL_POSITION);
+
+        if (!alien_memory_store_player_position(alien_runtime, objects, slot_index, level, player,
+                                                error, error_size) ||
         !alien_spatial_store_room_stats(objects, slot_index, level, zone_index,
                                         workspace->new_x, workspace->new_z,
                                         setup->thing_height, error, error_size) ||
         !alien_spatial_store_current_control_point(objects, slot_index, level, zone_index,
-                                                   error, error_size) ||
-        !alien_torch_apply(lighting, level, math, objects, slot_index, setup,
+                                                   error, error_size)) {
+            return 0;
+        }
+        if (flying != 0u) {
+            alien_charge_write_be16(slot + ALIEN_CHARGE_SLOT_VERTICAL_POSITION,
+                                    (uint16_t)flying_vertical_position);
+            if (!alien_flight_move_toward_player_height(
+                    objects, slot_index, level, zone_index, player, setup->thing_height,
+                    error, error_size)) {
+                return 0;
+            }
+        }
+    }
+    if (!alien_torch_apply(lighting, level, math, objects, slot_index, setup,
                            workspace->new_x, workspace->new_z, error, error_size) ||
         !alien_perception_look_for_player_one(objects, slot_index, level, clips, player,
                                               zone_index, workspace->new_x, workspace->new_z,
@@ -412,14 +457,15 @@ int alien_charge_update(
     slot[ALIEN_CHARGE_SLOT_CURRENT_MODE] = 0u;
     if (slot[ALIEN_CHARGE_SLOT_SEES_PLAYER] != 0u) {
         uint8_t in_front;
-        uint8_t can_attack = 0u;
+        uint8_t can_attack = flying != 0u ? UINT8_MAX : 0u;
 
         if (!alien_decision_check_in_front(objects, slot_index, player, math, &in_front,
                                            error, error_size)) {
             return 0;
         }
         if (in_front != 0u) {
-            if (!alien_decision_check_attack_on_ground(objects, slot_index, level, navigation,
+            if (flying == 0u &&
+                !alien_decision_check_attack_on_ground(objects, slot_index, level, navigation,
                                                        player, &can_attack, error, error_size)) {
                 return 0;
             }
@@ -437,4 +483,36 @@ int alien_charge_update(
     alien_charge_add_facing(slot, state.animation.facing);
     *out_state = state;
     return 1;
+}
+
+int alien_charge_update(
+    ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
+    ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
+    LevelDynamicState *dynamic_level, const LevelNavigation *navigation,
+    const AssetBlob *clips, const GameLink *game_link, GameProgression *progression,
+    ObjectExplosionRuntime *explosion_runtime, const GameMath *math,
+    GameRandom *random, const PlayerRuntime *player, const AlienSetup *setup,
+    uint8_t to_side, uint16_t frame_ticks, AlienChargeWorkspace *workspace,
+    AlienChargeState *out_state, char *error, size_t error_size)
+{
+    return alien_charge_update_common(
+        objects, slot_index, alien_runtime, animation_runtime, lighting, dynamic_level,
+        navigation, clips, game_link, progression, explosion_runtime, math, random, player,
+        setup, to_side, 0u, frame_ticks, workspace, out_state, error, error_size);
+}
+
+int alien_charge_flying_update(
+    ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
+    ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
+    LevelDynamicState *dynamic_level, const AssetBlob *clips,
+    const GameLink *game_link, GameProgression *progression,
+    ObjectExplosionRuntime *explosion_runtime, const GameMath *math,
+    GameRandom *random, const PlayerRuntime *player, const AlienSetup *setup,
+    uint8_t to_side, uint16_t frame_ticks, AlienChargeWorkspace *workspace,
+    AlienChargeState *out_state, char *error, size_t error_size)
+{
+    return alien_charge_update_common(
+        objects, slot_index, alien_runtime, animation_runtime, lighting, dynamic_level,
+        NULL, clips, game_link, progression, explosion_runtime, math, random, player, setup,
+        to_side, UINT8_MAX, frame_ticks, workspace, out_state, error, error_size);
 }

@@ -109,9 +109,12 @@ first game's software renderer:
   ground damage/death, attack animation, pre-dispatch teleport probe,
   response-speed heading, side target, two collision probes, movement,
   auxiliary-slot, melee, room-state, torch, sight, and final mode branches.
-  They remain uncalled until the complete source alien dispatcher can own
-  every route in `ObjectHandler` order; flying charge and approach modes are
-  still pending.
+  `ai_ChargeFlying` and `ai_ChargeToSideFlying` now preserve their distinct
+  airborne route: its 1000-unit descent limit, byte-only melee damage,
+  vertical-state restore around room stats, and `ai_FlyToPlayerHeight` final
+  attack branch. All charge modes remain uncalled until the complete source
+  alien dispatcher can own every route in `ObjectHandler` order; approach
+  modes are still pending.
   `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`

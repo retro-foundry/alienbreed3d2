@@ -510,9 +510,12 @@ authority for all game behavior and data formats.
      mode/animation/facing branches. A successful teleport intentionally
      jumps over the AUX copy, as in the source. This complete mode remains
      uncalled until every `ItsAnAlien` route and its narrative ownership can
-     run in `ObjectHandler` order. Next: finish flying charge and the approach
-     routes, then the remaining dispatcher paths and the audio portions of
-     `newplayershoot.s`. The complete source
+     run in `ObjectHandler` order. `ai_ChargeFlying` and
+     `ai_ChargeToSideFlying` now preserve their distinct 1000*256 descent,
+     byte-only melee damage, no post-move AUX copy, vertical restore across
+     room stats, `ai_FlyToPlayerHeight`, and sight/front-only attack gate.
+     Next: finish the approach routes, then the remaining dispatcher paths and
+     the audio portions of `newplayershoot.s`. The complete source
      `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
@@ -865,8 +868,16 @@ animation's raw a2 table, teleport floor adjustment, optional `RunAround`,
 response-speed heading, the two source collision calls, movement, pre-room-
 stats AUX ownership, action-gated Player 1 byte damage/`DIVS` impact, memory,
 spatial state, torch, sight, and final source mode branches. It remains
-outside `ObjectHandler`; flying charge and all approach routes still need their
-complete source bodies before dispatcher integration.
+outside `ObjectHandler`; all approach routes still need their complete source
+bodies before dispatcher integration.
+
+The same module now directly translates `modules/ai.s:ai_ChargeFlying` and
+`ai_ChargeToSideFlying`. Its shared source-order body keeps the flight-specific
+differences explicit: `StepDownVal = 1000*256`, byte damage without the
+ground impact `DIVS`, no previous-AUX zone copy, saved moving height across
+`ai_GetRoomStats`, `ai_FlyToPlayerHeight`, and a sight/front-only attack
+selection. This remains an uncalled mode until all complete `ItsAnAlien`
+routes can enter the dispatcher together.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their

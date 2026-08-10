@@ -7,6 +7,7 @@
 #include "alien_animation.h"
 #include "alien_damage.h"
 #include "alien_death.h"
+#include "alien_flight.h"
 #include "alien_run_around.h"
 #include "alien_runtime.h"
 #include "alien_setup.h"
@@ -61,6 +62,22 @@ int alien_charge_update(
     ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
     LevelDynamicState *dynamic_level, const LevelNavigation *navigation,
     const AssetBlob *clips, const GameLink *game_link, GameProgression *progression,
+    ObjectExplosionRuntime *explosion_runtime, const GameMath *math,
+    GameRandom *random, const PlayerRuntime *player, const AlienSetup *setup,
+    uint8_t to_side, uint16_t frame_ticks, AlienChargeWorkspace *workspace,
+    AlienChargeState *out_state, char *error, size_t error_size);
+
+/*
+ * modules/ai.s:ai_ChargeFlying and ai_ChargeToSideFlying through their
+ * shared ai_ChargeFlyingCommon body. Unlike the ground pair, this source path
+ * preserves its moving vertical position across ai_GetRoomStats, then calls
+ * ai_FlyToPlayerHeight and does not require a grounded navigation query.
+ */
+int alien_charge_flying_update(
+    ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
+    ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
+    LevelDynamicState *dynamic_level, const AssetBlob *clips,
+    const GameLink *game_link, GameProgression *progression,
     ObjectExplosionRuntime *explosion_runtime, const GameMath *math,
     GameRandom *random, const PlayerRuntime *player, const AlienSetup *setup,
     uint8_t to_side, uint16_t frame_ticks, AlienChargeWorkspace *workspace,
