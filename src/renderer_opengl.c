@@ -1,5 +1,7 @@
 #include "renderer_opengl.h"
 
+#include "bitmap_source_decode.h"
+
 #include <limits.h>
 #include <math.h>
 #include <stddef.h>
@@ -1184,17 +1186,7 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
                 uint16_t packed_word =
                     renderer_opengl_read_be16(sprite->source_bytes + word_offset);
 
-                switch (pack) {
-                case 0u:
-                    source_texel = (uint8_t)(packed_word & 31u);
-                    break;
-                case 1u:
-                    source_texel = (uint8_t)((packed_word >> 5u) & 31u);
-                    break;
-                default:
-                    source_texel = (uint8_t)((packed_word >> 2u) & 31u);
-                    break;
-                }
+                source_texel = bitmap_source_decode_packed_texel(packed_word, pack);
             }
             if (lighted == 0 &&
                 (palette_offset > sprite->source_palette_byte_count ||

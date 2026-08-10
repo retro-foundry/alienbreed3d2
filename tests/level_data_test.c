@@ -24,6 +24,7 @@
 #include "alien_spawn.h"
 #include "alien_torch.h"
 #include "asset_io.h"
+#include "bitmap_source_decode.h"
 #include "game_bootstrap.h"
 #include "game_vblank_clock.h"
 #include "game_link.h"
@@ -729,6 +730,14 @@ int main(int argc, char **argv)
     int override_sources_ok;
     char save_path[1024];
     char error[256];
+
+    /* objdrawhires.s's three packed WAD-column extraction paths. */
+    if (bitmap_source_decode_packed_texel(UINT16_C(0x53c7), 0u) != 7u ||
+        bitmap_source_decode_packed_texel(UINT16_C(0x53c7), 1u) != 30u ||
+        bitmap_source_decode_packed_texel(UINT16_C(0x53c7), 2u) != 20u) {
+        fprintf(stderr, "source packed bitmap-column decoding is inconsistent\n");
+        return 1;
+    }
 
     if (argc != 3) {
         fprintf(stderr, "usage: %s <data-root> <archived-boot.dat>\n", argv[0]);
