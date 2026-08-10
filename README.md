@@ -102,7 +102,10 @@ first game's software renderer:
   floor-relative collision probe, temporary teleport X/Z, and source-zone
   ownership handoff for the remaining alien movement modes; it remains
   uncalled. `newaliencontrol.s:RunAround` now preserves its exact signed-word
-  side-target adjustment for the remaining charge/approach side modes. `objectmove.s:CalcDist` and
+  side-target adjustment for the remaining charge/approach side modes.
+  `modules/ai.s:ai_DoWalkAnim` now also retains the raw post-call `a2`
+  collision words, whose base changes when an auxiliary frame is active.
+  `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
   now allocates and initializes its source alien-projectile state, including

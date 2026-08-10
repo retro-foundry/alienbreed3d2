@@ -498,6 +498,9 @@ authority for all game behavior and data formats.
      replacement as an uncalled helper for the remaining charge/approach modes.
      `newaliencontrol.s:RunAround` now preserves its caller-owned signed-word
      side-target adjustment for the charge/approach side routes.
+     `modules/ai.s:ai_DoWalkAnim` now also retains the raw post-call `a2`
+     collision words: its auxiliary-frame path changes that register from the
+     initial alien-shoot base to the global object-definition base.
      Next: finish the remaining `ItsAnAlien` collision/dispatcher routes, then
      the audio portions of `newplayershoot.s`. The complete source
      `Plr1_Shot`
@@ -836,6 +839,13 @@ the complete charge and approach mode routines own its result in source order.
 coordinate globals, player temporary-position/trigonometric inputs, and
 signed-word lateral adjustment. It is available to the later side charge and
 approach routines but remains uncalled on its own.
+
+`src/alien_animation.*` now retains the raw a2 register view left by
+`modules/ai.s:ai_DoWalkAnim`/`ai_DoAttackAnim`: the initial first-two
+`GLFT_AlienShootDefs_l` records survive no-auxiliary frames, while an
+auxiliary-frame path replaces that view with leading `GLFT_ObjectDefs_l`
+words. This source-register handoff is ready for the remaining charge and
+approach `Obj_DoCollision` calls without inventing extents.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their

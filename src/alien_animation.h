@@ -14,6 +14,12 @@ typedef struct {
     uint8_t action;
     uint8_t finished;
     uint16_t facing;
+    /*
+     * Raw first eight words addressed by the source a2 register after
+     * ai_DoWalkAnim/ai_DoAttackAnim. Charge and approach pass this exact
+     * register view to objectmove.s:Obj_DoCollision.
+     */
+    int16_t collision_a2_words[8u];
 } AlienAnimationState;
 
 /*

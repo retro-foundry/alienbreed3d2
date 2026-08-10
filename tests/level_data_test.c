@@ -5941,7 +5941,10 @@ int main(int argc, char **argv)
         GameAlienDefinition alien_definition;
         GameAlienAnimationFrame alien_frame;
         GameObjectDefinition auxiliary_definition;
+        GameObjectDefinition collision_a2_definition;
         GameObjectAnimationFrame auxiliary_frame;
+        GameShootDefinition first_alien_shoot_definition;
+        GameShootDefinition second_alien_shoot_definition;
         uint16_t selected_alien = UINT16_MAX;
         uint16_t selected_option = UINT16_MAX;
         uint16_t selected_frame = UINT16_MAX;
@@ -5990,6 +5993,8 @@ int main(int argc, char **argv)
         if (selected_alien == UINT16_MAX ||
             !game_link_get_alien_definition(&game.game_link_catalog, selected_alien,
                                             &alien_definition, error, sizeof(error)) ||
+            !game_link_get_object_definition(&game.game_link_catalog, 0u,
+                                             &collision_a2_definition, error, sizeof(error)) ||
             !game_link_get_alien_animation_frame(
                 &game.game_link_catalog, selected_alien, selected_option, selected_frame,
                 &alien_frame, error, sizeof(error)) ||
@@ -6029,6 +6034,13 @@ int main(int argc, char **argv)
                 &animation_objects, 1u, &animation_runtime, &game.game_link_catalog,
                 &game.math, &animation_setup, 0u, &animation_state, error, sizeof(error)) ||
             animation_state.action != 3u || animation_state.finished != UINT8_MAX ||
+            animation_state.collision_a2_words[1u] !=
+                (int16_t)collision_a2_definition.graphics_type ||
+            animation_state.collision_a2_words[2u] != collision_a2_definition.active_timeout ||
+            animation_state.collision_a2_words[5u] !=
+                (int16_t)collision_a2_definition.impassible ||
+            animation_state.collision_a2_words[6u] !=
+                (int16_t)collision_a2_definition.default_animation_length ||
             animation_runtime.workspace[1u][0u] != 0u ||
             animation_runtime.workspace[1u][1u] != UINT8_MAX ||
             animation_runtime.workspace[1u][3u] != 0u ||
@@ -6098,6 +6110,34 @@ int main(int argc, char **argv)
                    slot_bytes[11u] != auxiliary_frame.byte_1 ||
                    read_be16(slot_bytes + 6u) != auxiliary_frame.word_2) {
             fprintf(stderr, "ai_DoWalkAnim glare auxiliary is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (!game_link_get_alien_shoot_definition(
+                &game.game_link_catalog, 0u, &first_alien_shoot_definition,
+                error, sizeof(error)) ||
+            !game_link_get_alien_shoot_definition(
+                &game.game_link_catalog, 1u, &second_alien_shoot_definition,
+                error, sizeof(error))) {
+            fprintf(stderr, "could not establish ai_DoWalkAnim no-auxiliary a2 fixture: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        animation_setup.auxiliary_object_type = -1;
+        if (!alien_animation_update_walk_or_attack(
+                &animation_objects, 1u, &animation_runtime, &game.game_link_catalog,
+                &game.math, &animation_setup, 0u, &animation_state, error, sizeof(error)) ||
+            animation_state.collision_a2_words[1u] !=
+                (int16_t)first_alien_shoot_definition.delay ||
+            animation_state.collision_a2_words[2u] !=
+                (int16_t)first_alien_shoot_definition.bullet_count ||
+            animation_state.collision_a2_words[5u] !=
+                (int16_t)second_alien_shoot_definition.delay ||
+            animation_state.collision_a2_words[6u] !=
+                (int16_t)second_alien_shoot_definition.bullet_count) {
+            fprintf(stderr, "ai_DoWalkAnim no-auxiliary a2 source state is inconsistent: %s\n",
+                    error);
             game_bootstrap_destroy(&game);
             return 1;
         }

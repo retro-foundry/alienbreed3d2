@@ -1,6 +1,7 @@
 #include "alien_animation.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "object_viewpoint.h"
 
@@ -104,6 +105,53 @@ static void alien_animation_apply_auxiliary_descriptor(
     }
 }
 
+/*
+ * ai_DoWalkAnim begins with ItsAnAlien's GLFT_AlienShootDefs_l a2 base. Its
+ * auxiliary descriptor path alone replaces a2 with GLFT_ObjectDefs before
+ * returning. Obj_DoCollision later reads 2(a2, type * 8) and 4(a2, type * 8),
+ * so retain the exact raw leading words instead of assigning collision sizes.
+ */
+static int alien_animation_capture_collision_a2(const GameLink *game_link,
+                                                int has_auxiliary_frame,
+                                                AlienAnimationState *state,
+                                                char *error, size_t error_size)
+{
+    if (has_auxiliary_frame != 0) {
+        GameObjectDefinition definition;
+
+        if (!game_link_get_object_definition(game_link, 0u, &definition, error, error_size)) {
+            return 0;
+        }
+        state->collision_a2_words[0u] = (int16_t)definition.behaviour;
+        state->collision_a2_words[1u] = (int16_t)definition.graphics_type;
+        state->collision_a2_words[2u] = definition.active_timeout;
+        state->collision_a2_words[3u] = (int16_t)definition.hit_points;
+        state->collision_a2_words[4u] = (int16_t)definition.explosive_force;
+        state->collision_a2_words[5u] = (int16_t)definition.impassible;
+        state->collision_a2_words[6u] = (int16_t)definition.default_animation_length;
+        state->collision_a2_words[7u] = (int16_t)definition.collision_radius;
+    } else {
+        GameShootDefinition first_definition;
+        GameShootDefinition second_definition;
+
+        if (!game_link_get_alien_shoot_definition(game_link, 0u, &first_definition,
+                                                  error, error_size) ||
+            !game_link_get_alien_shoot_definition(game_link, 1u, &second_definition,
+                                                  error, error_size)) {
+            return 0;
+        }
+        state->collision_a2_words[0u] = (int16_t)first_definition.bullet_type;
+        state->collision_a2_words[1u] = (int16_t)first_definition.delay;
+        state->collision_a2_words[2u] = (int16_t)first_definition.bullet_count;
+        state->collision_a2_words[3u] = (int16_t)first_definition.sound_effect;
+        state->collision_a2_words[4u] = (int16_t)second_definition.bullet_type;
+        state->collision_a2_words[5u] = (int16_t)second_definition.delay;
+        state->collision_a2_words[6u] = (int16_t)second_definition.bullet_count;
+        state->collision_a2_words[7u] = (int16_t)second_definition.sound_effect;
+    }
+    return 1;
+}
+
 int alien_animation_update_walk_or_attack(
     ObjectRuntime *objects, uint32_t slot_index,
     ObjectAnimationRuntime *animation_runtime, const GameLink *game_link,
@@ -167,6 +215,7 @@ int alien_animation_update_walk_or_attack(
         return 0;
     }
 
+    memset(&state, 0, sizeof(state));
     /* modules/ai.s's ai_DoAction_b, ai_FinishedAnim_b, and ai_AnimFacing_w. */
     state.action = workspace[ALIEN_ANIMATION_WORKSPACE_ACTION];
     workspace[ALIEN_ANIMATION_WORKSPACE_ACTION] = 0u;
@@ -177,6 +226,10 @@ int alien_animation_update_walk_or_attack(
         state.facing = alien_animation_read_be16(alien_frame.bytes + 2u);
     }
     workspace[ALIEN_ANIMATION_WORKSPACE_SPECIAL_FRAME] = UINT8_MAX;
+    if (!alien_animation_capture_collision_a2(game_link, has_auxiliary_frame, &state,
+                                              error, error_size)) {
+        return 0;
+    }
 
     alien_animation_write_be32(slot + ALIEN_ANIMATION_SLOT_DISPLAY_GRAPHICS, 0u);
     slot[ALIEN_ANIMATION_SLOT_DISPLAY_GRAPHICS + 1u] = alien_frame.bytes[0u];
