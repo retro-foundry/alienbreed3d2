@@ -83,4 +83,20 @@ int alien_charge_flying_update(
     uint8_t to_side, uint16_t frame_ticks, AlienChargeWorkspace *workspace,
     AlienChargeState *out_state, char *error, size_t error_size);
 
+/*
+ * modules/ai.s:ai_Approach, ai_ApproachToSide, ai_ApproachFlying, and
+ * ai_ApproachToSideFlying through ai_ApproachCommon. `flying` maps the source
+ * AI_FlyABit_w; the ground path requires `navigation` for ai_CheckAttackOnGround.
+ */
+int alien_approach_update(
+    ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
+    ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
+    LevelDynamicState *dynamic_level, const LevelNavigation *navigation,
+    const AssetBlob *clips, const GameLink *game_link, GameProgression *progression,
+    ObjectExplosionRuntime *explosion_runtime, const GameMath *math,
+    GameRandom *random, const PlayerRuntime *player, const AlienSetup *setup,
+    uint8_t flying, uint8_t to_side, uint16_t frame_ticks,
+    AlienChargeWorkspace *workspace, AlienChargeState *out_state,
+    char *error, size_t error_size);
+
 #endif

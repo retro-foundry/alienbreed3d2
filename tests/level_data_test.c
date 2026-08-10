@@ -7532,6 +7532,86 @@ int main(int argc, char **argv)
             return 1;
         }
 
+        /* ai_Approach's action-gated follow-up speed has no charge melee path. */
+        memcpy(slot_bytes, charge_initial_slot_bytes, sizeof(slot_bytes));
+        memcpy(point_bytes, charge_initial_point_bytes, sizeof(point_bytes));
+        object_animation_runtime_init(&charge_animation);
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][0u] = 1u;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][1u] = (uint8_t)charge_frame_index;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][2u] = (uint8_t)charge_option;
+        alien_runtime_init(&charge_runtime);
+        alien_runtime_begin_level(&charge_runtime);
+        lighting_runtime_init(&charge_lighting);
+        object_explosion_runtime_init(&charge_explosion);
+        game_progression_init(&charge_progression);
+        game_random_init(&charge_random);
+        memset(&charge_workspace, 0, sizeof(charge_workspace));
+        if (!alien_approach_update(
+                &charge_objects, CHARGE_ALIEN_SLOT, &charge_runtime, &charge_animation,
+                &charge_lighting, &charge_dynamic, &game.level_navigation, &game.level_clips,
+                &game.game_link_catalog, &charge_progression, &charge_explosion, &game.math,
+                &charge_random, &charge_player, &charge_setup, 0u, 0u, 1u,
+                &charge_workspace, &charge_state, error, sizeof(error)) ||
+            charge_state.damage_taken != 0u || charge_state.got_out != 0u ||
+            charge_state.teleport.teleported != 0u ||
+            charge_state.heading.speed !=
+                (int16_t)((int32_t)4 * charge_setup.followup_speed) ||
+            charge_state.movement.step_down != 30 * 256 ||
+            slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 5u) {
+            fprintf(stderr, "ai_Approach source movement state is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
+        /* ai_ApproachFlying flies first, then restores that height after room stats. */
+        memcpy(slot_bytes, charge_initial_slot_bytes, sizeof(slot_bytes));
+        memcpy(point_bytes, charge_initial_point_bytes, sizeof(point_bytes));
+        object_animation_runtime_init(&charge_animation);
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][0u] = 1u;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][1u] = (uint8_t)charge_frame_index;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][2u] = (uint8_t)charge_option;
+        alien_runtime_init(&charge_runtime);
+        alien_runtime_begin_level(&charge_runtime);
+        lighting_runtime_init(&charge_lighting);
+        object_explosion_runtime_init(&charge_explosion);
+        game_progression_init(&charge_progression);
+        game_random_init(&charge_random);
+        memset(charge_expected_flying_slot, 0, sizeof(charge_expected_flying_slot));
+        memcpy(charge_expected_flying_slot,
+               charge_initial_slot_bytes +
+                   CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT,
+               sizeof(charge_expected_flying_slot));
+        if (!alien_flight_move_toward_player_height(
+                &charge_expected_flying_objects, 0u, &charge_dynamic.runtime,
+                charge_zone_index, &charge_player, charge_setup.thing_height,
+                error, sizeof(error))) {
+            fprintf(stderr, "ai_ApproachFlying expected flight state is invalid: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        expected_charge_flying_y = read_be16(charge_expected_flying_slot + 4u);
+        memset(&charge_workspace, 0, sizeof(charge_workspace));
+        if (!alien_approach_update(
+                &charge_objects, CHARGE_ALIEN_SLOT, &charge_runtime, &charge_animation,
+                &charge_lighting, &charge_dynamic, NULL, &game.level_clips,
+                &game.game_link_catalog, &charge_progression, &charge_explosion, &game.math,
+                &charge_random, &charge_player, &charge_setup, UINT8_MAX, 0u, 1u,
+                &charge_workspace, &charge_state, error, sizeof(error)) ||
+            charge_state.damage_taken != 0u || charge_state.got_out != 0u ||
+            charge_state.teleport.teleported != 0u ||
+            charge_state.movement.step_down != 1000 * 256 ||
+            slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 5u ||
+            read_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u) !=
+                (uint16_t)expected_charge_flying_y) {
+            fprintf(stderr, "ai_ApproachFlying source movement state is inconsistent: %s\n",
+                    error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
         /* CheckTeleport's success branch skips ai_ChargeCommon's AUX zone copy. */
         if (charge_teleport_zone_index != UINT16_MAX) {
         memset(slot_bytes, 0, sizeof(slot_bytes));

@@ -114,7 +114,12 @@ first game's software renderer:
   vertical-state restore around room stats, and `ai_FlyToPlayerHeight` final
   attack branch. All charge modes remain uncalled until the complete source
   alien dispatcher can own every route in `ObjectHandler` order; approach
-  modes are still pending.
+  modes are still pending. `ai_Approach`, `ai_ApproachToSide`,
+  `ai_ApproachFlying`, and `ai_ApproachToSideFlying` now preserve their
+  action-gated follow-up speed, source collision/movement path, ground
+  reachability-before-sight order, mode-two timer/darkness gate, and the
+  airborne fly-before-room-stat vertical restore. They likewise remain
+  uncalled pending the complete dispatcher.
   `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`

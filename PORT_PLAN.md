@@ -514,8 +514,12 @@ authority for all game behavior and data formats.
      `ai_ChargeToSideFlying` now preserve their distinct 1000*256 descent,
      byte-only melee damage, no post-move AUX copy, vertical restore across
      room stats, `ai_FlyToPlayerHeight`, and sight/front-only attack gate.
-     Next: finish the approach routes, then the remaining dispatcher paths and
-     the audio portions of `newplayershoot.s`. The complete source
+     `ai_Approach`, `ai_ApproachToSide`, `ai_ApproachFlying`, and
+     `ai_ApproachToSideFlying` now preserve action-gated follow-up speed,
+     movement/collision, their source-order AUX copy, ground reachability
+     before sight, mode-two timer/darkness decision, and flying height update
+     before room-stat restoration. Next: finish the remaining dispatcher
+     paths and the audio portions of `newplayershoot.s`. The complete source
      `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
@@ -878,6 +882,16 @@ ground impact `DIVS`, no previous-AUX zone copy, saved moving height across
 `ai_GetRoomStats`, `ai_FlyToPlayerHeight`, and a sight/front-only attack
 selection. This remains an uncalled mode until all complete `ItsAnAlien`
 routes can enter the dispatcher together.
+
+`modules/ai.s:ai_Approach`, `ai_ApproachToSide`, `ai_ApproachFlying`, and
+`ai_ApproachToSideFlying` are now complete uncalled paths in
+`src/alien_charge.*`. They retain their own action-gated
+`AI_FollowupSpeed_w` movement, source collision/teleport/AUX order, no melee
+damage, ground `ai_CheckAttackOnGround` before sight, mode-two
+timer/darkness transition, and the airborne `ai_FlyToPlayerHeight` before
+room-stat vertical restore. No source route is yet connected to
+`ObjectHandler`; the dispatcher must own every remaining mode and its
+narrative effects in source order.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their
