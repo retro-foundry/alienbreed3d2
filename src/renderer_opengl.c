@@ -2199,6 +2199,8 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     float right_z;
     float half_width;
     float half_height;
+    float full_top_y;
+    float full_bottom_y;
     float top_y;
     float bottom_y;
     float top_v;
@@ -2261,15 +2263,17 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
      * centred source placement.
      */
     if (sprite->surface_attachment == SCENE_SPRITE_SURFACE_FLOOR) {
-        bottom_y = center_y;
-        top_y = center_y + half_height * 2.0f;
+        full_bottom_y = center_y;
+        full_top_y = center_y + half_height * 2.0f;
     } else if (sprite->surface_attachment == SCENE_SPRITE_SURFACE_CEILING) {
-        top_y = center_y;
-        bottom_y = center_y - half_height * 2.0f;
+        full_top_y = center_y;
+        full_bottom_y = center_y - half_height * 2.0f;
     } else {
-        top_y = center_y + half_height;
-        bottom_y = center_y - half_height;
+        full_top_y = center_y + half_height;
+        full_bottom_y = center_y - half_height;
     }
+    top_y = full_top_y;
+    bottom_y = full_bottom_y;
     clip_top_y = -(float)sprite->source_clip_top_y * renderer_opengl_source_y_unit;
     clip_bottom_y = -(float)sprite->source_clip_bottom_y * renderer_opengl_source_y_unit;
     if (top_y > clip_top_y) {
@@ -2281,12 +2285,8 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     if (top_y <= bottom_y) {
         return 1;
     }
-    top_v = (sprite->surface_attachment == SCENE_SPRITE_SURFACE_FLOOR ?
-                 center_y + half_height * 2.0f : center_y + half_height) - top_y;
-    top_v /= half_height * 2.0f;
-    bottom_v = (sprite->surface_attachment == SCENE_SPRITE_SURFACE_CEILING ?
-                    center_y : center_y + half_height) - bottom_y;
-    bottom_v /= half_height * 2.0f;
+    top_v = (full_top_y - top_y) / (full_top_y - full_bottom_y);
+    bottom_v = (full_top_y - bottom_y) / (full_top_y - full_bottom_y);
     left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ? 1.0f : 0.0f;
     right_u = 1.0f - left_u;
     source_light = renderer_opengl_sprite_light(sprite->source_light_level);
