@@ -126,11 +126,13 @@ int alien_damage_take(ObjectRuntime *objects, uint32_t slot_index,
         heading.new_z = (int16_t)(uint16_t)player->z;
         heading.range = -20;
         heading.speed = 100;
-        heading.angle = 0u;
+        /* objectmove.s:AngRet persists when HeadTowardsAng sees a zero vector. */
+        heading.angle = alien_runtime->heading_angle;
         heading.got_there = 0u;
         if (!object_heading_towards_angle(math, &heading, error, error_size)) {
             return 0;
         }
+        alien_runtime->heading_angle = heading.angle;
         alien_damage_write_be16(slot + ALIEN_DAMAGE_SLOT_CURRENT_ANGLE, heading.angle);
     } else {
         slot[ALIEN_DAMAGE_SLOT_CURRENT_MODE] = 4u;

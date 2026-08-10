@@ -483,8 +483,10 @@ authority for all game behavior and data formats.
      required by the projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
      now uses that state to allocate a source alien-shot pool entry and write
      its projectile launch fields without filling in its separate audio calls.
-     Next: port the complete projectile attack body, then the audio portions of
-     `newplayershoot.s`. The complete source `Plr1_Shot`
+     `ai_AttackWithProjectile` now composes the complete source projectile
+     attack body around that helper, still outside the global dispatcher.
+     Next: port the complete hitscan attack body and `SHOOTPLAYER1`, then the
+     audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
      for either an empty or successful trigger, without synthesizing the
@@ -717,6 +719,15 @@ approach helpers, and writes its projectile point, velocity, zone, vertical,
 enemy-mask, and upper-zone state. Its `Aud_*`, `PlayEcho`, and `MakeSomeNoise`
 calls remain absent until the source audio-event/backend work is ported. The
 owning projectile attack body remains outside `ObjectHandler`.
+`modules/ai.s:ai_AttackWithProjectile` is now a complete but uncalled mode.
+It starts with `ai_AttackCommon`'s authored projectile setup, preserves its
+damage/death return, attack-animation and persistent `AngRet` update,
+player-memory handoff, action-gated `FireAtPlayer1`, source-point torch,
+finished-animation followup, and unfinished-animation sight/front fallback.
+`ai_TakeDamage` now owns the corresponding conditional `AngRet` persistence:
+only its `HeadTowardsAng` reaction changes it, while the source hit-animation
+route leaves it untouched. The live dispatcher remains absent until its other
+routes and narrative ownership can be enabled in source order.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

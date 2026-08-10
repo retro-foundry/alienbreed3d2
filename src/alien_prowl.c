@@ -456,9 +456,6 @@ int alien_prowl_random_update(
             }
             state.got_out = state.death.got_out;
         } else {
-            /* ai_TakeDamage's HeadTowardsAng has just written the shared AngRet to this slot. */
-            alien_runtime->heading_angle = alien_prowl_read_be16(
-                slot + ALIEN_PROWL_MODE_SLOT_CURRENT_ANGLE);
             state.got_out = state.damage.got_out;
         }
         if (state.got_out != 0u) {

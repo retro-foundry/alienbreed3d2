@@ -97,9 +97,12 @@ first game's software renderer:
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
   now allocates and initializes its source alien-projectile state, including
   predictive lead and lateral launch offset; its separate audio calls remain
-  absent. `ai_DoTakeDamage` likewise completes the selected nonfatal reaction
-  animation and heading branch with explicit source torch inputs. Enemy
-  behavior, dynamic blast, and audio remain in progress;
+  absent. `modules/ai.s:ai_AttackWithProjectile` now composes that projectile
+  handoff with the source damage/death exit, attack animation, heading, memory,
+  torch, and finished/sight transitions, but remains uncalled. `ai_DoTakeDamage`
+  likewise completes the selected nonfatal reaction animation and heading
+  branch with explicit source torch inputs. Enemy behavior, dynamic blast, and
+  audio remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

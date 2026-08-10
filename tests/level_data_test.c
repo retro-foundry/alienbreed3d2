@@ -4601,6 +4601,144 @@ int main(int argc, char **argv)
         }
     }
     {
+        /* modules/ai.s:ai_AttackWithProjectile's action/finished attack branch. */
+        enum {
+            PROJECTILE_ATTACK_AUXILIARY_SLOT = 0u,
+            PROJECTILE_ATTACK_ALIEN_SLOT = 1u,
+            PROJECTILE_ATTACK_SHOT_FIRST_SLOT = 2u,
+            PROJECTILE_ATTACK_PLAYER_SLOT =
+                PROJECTILE_ATTACK_SHOT_FIRST_SLOT + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT,
+            PROJECTILE_ATTACK_SLOT_COUNT = PROJECTILE_ATTACK_PLAYER_SLOT + 1u
+        };
+        uint8_t slot_bytes[PROJECTILE_ATTACK_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[PROJECTILE_ATTACK_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime attack_objects = {0};
+        ObjectAnimationRuntime attack_animation;
+        LightingRuntime attack_lighting;
+        AlienRuntime attack_runtime;
+        ObjectExplosionRuntime attack_explosion;
+        GameProgression attack_progression;
+        GameRandom attack_random;
+        PlayerRuntime attack_player = game.player;
+        AlienSetup attack_alien_setup;
+        AlienProjectileAttackState attack_state;
+        GameAlienDefinition attack_definition;
+        GameBulletDefinition attack_bullet;
+        uint16_t attack_alien = UINT16_MAX;
+
+        for (uint16_t alien_index = 0u; alien_index < GAME_LINK_ALIEN_COUNT; ++alien_index) {
+            uint16_t source_shot_speed;
+
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &attack_definition, error, sizeof(error)) ||
+                !game_link_get_bullet_definition(&game.game_link_catalog,
+                                                 attack_definition.bullet_type,
+                                                 &attack_bullet, error, sizeof(error))) {
+                fprintf(stderr, "could not scan ai_AttackWithProjectile source data: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            source_shot_speed = (uint16_t)(UINT32_C(1) << (attack_bullet.speed & 31u));
+            if (attack_definition.girth <= 2u &&
+                (int16_t)attack_definition.auxiliary_type >= 0 &&
+                attack_definition.auxiliary_type < GAME_LINK_OBJECT_COUNT &&
+                attack_bullet.is_hitscan == 0u && source_shot_speed != 0u) {
+                attack_alien = alien_index;
+                break;
+            }
+        }
+        if (attack_alien == UINT16_MAX) {
+            fprintf(stderr, "no source projectile alien supports ai_AttackWithProjectile\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        attack_objects.slot_bytes = slot_bytes;
+        attack_objects.slot_count = PROJECTILE_ATTACK_SLOT_COUNT;
+        attack_objects.active_slot_count = PROJECTILE_ATTACK_SLOT_COUNT;
+        attack_objects.alien_shot_first_slot = PROJECTILE_ATTACK_SHOT_FIRST_SLOT;
+        attack_objects.player1_slot = PROJECTILE_ATTACK_PLAYER_SLOT;
+        attack_objects.point_bytes = point_bytes;
+        attack_objects.point_count = PROJECTILE_ATTACK_SLOT_COUNT;
+        write_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   PROJECTILE_ATTACK_ALIEN_SLOT);
+        write_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                   50u);
+        write_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   attack_player.zone_index);
+        write_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 30u,
+                   0u);
+        slot_bytes[PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] =
+            (uint8_t)attack_alien;
+        write_be32(point_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                   UINT32_C(0x00640000));
+        write_be32(point_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT +
+                       4u,
+                   UINT32_C(0x00c80000));
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            uint32_t slot_index = PROJECTILE_ATTACK_SHOT_FIRST_SLOT + shot_index;
+
+            write_be16(slot_bytes + slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                       (uint16_t)slot_index);
+            write_be16(slot_bytes + slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                       UINT16_MAX);
+        }
+        write_be16(slot_bytes + PROJECTILE_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                   80u);
+        attack_player.x = 500;
+        attack_player.z = -100;
+        attack_player.tmp_x = attack_player.x;
+        attack_player.tmp_z = attack_player.z;
+        if (!alien_setup_from_slot(&attack_objects, PROJECTILE_ATTACK_ALIEN_SLOT,
+                                   &game.dynamic_level.runtime, &game.game_link_catalog,
+                                   &attack_alien_setup, error, sizeof(error))) {
+            fprintf(stderr, "ai_AttackWithProjectile setup fixture is invalid: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        object_animation_runtime_init(&attack_animation);
+        attack_animation.workspace[PROJECTILE_ATTACK_ALIEN_SLOT][0u] = UINT8_MAX;
+        attack_animation.workspace[PROJECTILE_ATTACK_ALIEN_SLOT][1u] = UINT8_MAX;
+        attack_animation.workspace[PROJECTILE_ATTACK_ALIEN_SLOT][2u] = 0u;
+        attack_animation.workspace[PROJECTILE_ATTACK_ALIEN_SLOT][3u] = UINT8_MAX;
+        lighting_runtime_init(&attack_lighting);
+        alien_runtime_init(&attack_runtime);
+        alien_runtime_begin_level(&attack_runtime);
+        object_explosion_runtime_init(&attack_explosion);
+        game_progression_init(&attack_progression);
+        game_random_init(&attack_random);
+        if (!alien_attack_with_projectile_update(
+                &attack_objects, PROJECTILE_ATTACK_ALIEN_SLOT, &attack_runtime,
+                &attack_animation, &attack_lighting, &game.dynamic_level.runtime,
+                &game.level_clips, &game.game_link_catalog, &attack_progression,
+                &attack_explosion, &game.math, &attack_random, &attack_player,
+                &attack_alien_setup, &attack_state, error, sizeof(error)) ||
+            attack_state.setup.is_hitscan != 0u || attack_state.animation.action != UINT8_MAX ||
+            attack_state.animation.finished != UINT8_MAX ||
+            attack_state.projectile_spawned != UINT8_MAX ||
+            attack_runtime.heading_angle != attack_state.heading.angle ||
+            read_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                          30u) !=
+                (uint16_t)(attack_state.heading.angle + attack_state.animation.facing) ||
+            slot_bytes[PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 20u] != 2u ||
+            slot_bytes[PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 55u] != 0u ||
+            read_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                          34u) != (uint16_t)attack_alien_setup.followup_timer ||
+            read_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                          40u) != 0u ||
+            attack_runtime.entity_workspace[PROJECTILE_ATTACK_ALIEN_SLOT][0u] !=
+                (int16_t)attack_player.x ||
+            attack_runtime.entity_workspace[PROJECTILE_ATTACK_ALIEN_SLOT][1u] !=
+                (int16_t)attack_player.z ||
+            slot_bytes[PROJECTILE_ATTACK_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] !=
+                2u) {
+            fprintf(stderr, "ai_AttackWithProjectile finished-action state is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         /* modules/ai.s flying helpers accelerate and clamp around source room bounds. */
         uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime flight_objects = {0};
@@ -5421,6 +5559,7 @@ int main(int argc, char **argv)
             damage_state.got_out != UINT8_MAX || damage_runtime.damage[0u] != 5 ||
             slot_bytes[19u] != 0u || slot_bytes[20u] != 1u || slot_bytes[55u] != 1u ||
             read_be16(slot_bytes + 30u) != expected_heading.angle ||
+            damage_runtime.heading_angle != expected_heading.angle ||
             read_be16(slot_bytes + 34u) != 0u || read_be16(slot_bytes + 40u) != 0u ||
             damage_animation_runtime.workspace[0u][1u] != UINT8_MAX ||
             damage_random.state != expected_random.state) {
@@ -5445,7 +5584,8 @@ int main(int argc, char **argv)
             damage_state.route != ALIEN_DAMAGE_ROUTE_NONFATAL ||
             damage_state.got_out != UINT8_MAX || damage_runtime.damage[0u] != 4 ||
             slot_bytes[19u] != 0u || slot_bytes[20u] != 4u || slot_bytes[55u] != 2u ||
-            read_be16(slot_bytes + 30u) != 0x1234u || read_be16(slot_bytes + 34u) != 0u ||
+            read_be16(slot_bytes + 30u) != 0x1234u || damage_runtime.heading_angle != 0u ||
+            read_be16(slot_bytes + 34u) != 0u ||
             read_be16(slot_bytes + 40u) != 0u ||
             damage_animation_runtime.workspace[0u][1u] != UINT8_MAX) {
             fprintf(stderr, "ai_TakeDamage hit-animation reaction is inconsistent: %s\n", error);

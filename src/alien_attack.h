@@ -5,8 +5,15 @@
 #include <stdint.h>
 
 #include "alien_setup.h"
+#include "alien_animation.h"
+#include "alien_damage.h"
+#include "alien_death.h"
 #include "game_link.h"
+#include "game_progression.h"
+#include "lighting_runtime.h"
+#include "object_heading.h"
 #include "object_runtime.h"
+#include "object_explosion.h"
 #include "player_runtime.h"
 
 /*
@@ -40,5 +47,31 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
                                     const AlienAttackSetup *attack_setup,
                                     uint8_t *out_spawned,
                                     char *error, size_t error_size);
+
+/* Source outputs from modules/ai.s:ai_AttackWithProjectile. */
+typedef struct {
+    AlienAttackSetup setup;
+    AlienAnimationState animation;
+    AlienDamageState damage;
+    AlienJustDiedState death;
+    ObjectHeading heading;
+    uint8_t damage_taken;
+    uint8_t got_out;
+    uint8_t projectile_spawned;
+} AlienProjectileAttackState;
+
+/*
+ * modules/ai.s:ai_AttackWithProjectile after ai_AttackCommon's setup.
+ * The direct helper remains unbound until the source AI dispatcher and
+ * narrative consumer can own it in ObjectHandler order.
+ */
+int alien_attack_with_projectile_update(
+    ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
+    ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
+    const LevelRuntime *level, const AssetBlob *clips, const GameLink *game_link,
+    GameProgression *progression, ObjectExplosionRuntime *explosion_runtime,
+    const GameMath *math, GameRandom *random, const PlayerRuntime *player,
+    const AlienSetup *alien_setup, AlienProjectileAttackState *out_state,
+    char *error, size_t error_size);
 
 #endif
