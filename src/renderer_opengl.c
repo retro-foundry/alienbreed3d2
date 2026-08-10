@@ -1659,6 +1659,7 @@ static int renderer_opengl_vector_append(RendererOpenGLVertex **vertices,
 
 static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
                                                const SceneCamera *camera,
+                                               const RenderView *view,
                                                const uint8_t *point_bytes,
                                                int camera_space,
                                                RendererOpenGLVertex *out_vertex)
@@ -1672,7 +1673,7 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     float local_y;
     float local_z;
 
-    if (!sprite || !camera || !point_bytes || !out_vertex) {
+    if (!sprite || !camera || !view || !point_bytes || !out_vertex) {
         return 0;
     }
     source_point.x = renderer_opengl_read_be16s(point_bytes);
@@ -1687,11 +1688,22 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
         float camera_z;
         float camera_yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi /
                                                   renderer_opengl_source_angle_full_turn);
-        float companion_yaw;
-        float forward_x = sinf(camera_yaw);
-        float forward_z = cosf(camera_yaw);
+        float pitch = view->pitch_degrees * (renderer_opengl_pi / 180.0f);
+        float forward_x = sinf(camera_yaw) * cosf(pitch);
+        float forward_y = sinf(pitch);
+        float forward_z = cosf(camera_yaw) * cosf(pitch);
         float right_x = cosf(camera_yaw);
         float right_z = -sinf(camera_yaw);
+        float up_x = right_z * forward_y;
+        float up_y = forward_z * right_x - forward_x * right_z;
+        float up_z = -right_x * forward_y;
+        float source_relative_yaw = ((float)sprite->yaw -
+                                     renderer_opengl_source_angle_quarter_turn -
+                                     (float)camera->yaw) *
+            (2.0f * renderer_opengl_pi / renderer_opengl_source_angle_full_turn);
+        float source_view_x;
+        float source_view_z;
+        float bob;
 
         renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
         local_x = (float)source_point.x * 0.0125f;
@@ -1699,14 +1711,15 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
         local_z = (float)source_point.z * 0.0125f;
         /*
          * objdrawhires.s:draw_PolygonModel rotates every vector model by
-         * EntT_CurrentAngle_w - 2048 - Vis_AngPos_w.  The regular view
-         * matrix supplies the final -Vis_AngPos_w term, so position the
-         * companion in the camera's local area but rotate its source model
-         * by EntT_CurrentAngle_w - 2048 here.  Plr1_Use itself writes the
-         * companion angle as the player's reversed angle.
+         * EntT_CurrentAngle_w - 2048 - Vis_AngPos_w.  Perform that complete
+         * source-relative rotation in camera space: applying the ordinary
+         * world yaw first makes the companion turn the wrong way as the
+         * player turns.  Plr1_Use writes its reversed player angle.
          */
-        companion_yaw = ((float)sprite->yaw - renderer_opengl_source_angle_quarter_turn) *
-            (2.0f * renderer_opengl_pi / renderer_opengl_source_angle_full_turn);
+        source_view_x = local_x * sinf(source_relative_yaw) -
+            local_z * cosf(source_relative_yaw);
+        source_view_z = local_z * sinf(source_relative_yaw) +
+            local_x * cosf(source_relative_yaw);
         center_x = camera_x + forward_x * 1.3f - right_x * 0.35f;
         center_z = camera_z + forward_z * 1.3f - right_z * 0.35f;
         /*
@@ -1717,12 +1730,15 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
          * Keep that source bob as a small camera-space displacement instead
          * of placing the whole model at the player's body height.
          */
-        center_y = camera_y - 0.55f + (center_y - camera_y) * (1.0f / 64.0f);
-        out_vertex->x = center_x + cosf(companion_yaw) * local_x -
-            sinf(companion_yaw) * local_z;
-        out_vertex->y = center_y + local_y;
-        out_vertex->z = center_z + sinf(companion_yaw) * local_x +
-            cosf(companion_yaw) * local_z;
+        bob = (center_y - camera_y) * (1.0f / 64.0f);
+        center_x += up_x * (-0.55f + bob);
+        center_y = camera_y + up_y * (-0.55f + bob);
+        center_z += up_z * (-0.55f + bob);
+        out_vertex->x = center_x + right_x * source_view_x + forward_x * source_view_z +
+            up_x * local_y;
+        out_vertex->y = center_y + forward_y * source_view_z + up_y * local_y;
+        out_vertex->z = center_z + right_z * source_view_x + forward_z * source_view_z +
+            up_z * local_y;
     } else {
         local_x = (float)source_point.x * 0.5f;
         local_y = -(float)source_point.y * 0.25f;
@@ -1821,6 +1837,7 @@ static int renderer_opengl_vector_face_color(const SceneSprite *sprite,
 static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                               const SceneSprite *sprite,
                                               const SceneCamera *camera,
+                                              const RenderView *view,
                                               char *error, size_t error_size)
 {
     const uint8_t *bytes;
@@ -1839,7 +1856,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     uint32_t vertex_capacity = 0u;
     int result = 0;
 
-    if (!renderer || !sprite || !camera || sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
+    if (!renderer || !sprite || !camera || !view ||
+        sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
         !sprite->source_bytes || sprite->source_byte_count < 6u) {
         renderer_opengl_set_error(error, error_size, "source vector sprite descriptor is invalid");
         return 0;
@@ -1923,7 +1941,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
 
                     if (point_index >= point_count ||
                         !renderer_opengl_vector_model_point(
-                            sprite, camera,
+                            sprite, camera, view,
                             bytes + point_data_offset + (size_t)point_index * 6u,
                             sprite->presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON,
                             &vertex)) {
@@ -2207,7 +2225,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                     (sprite_x - camera_x) * sinf(yaw) + (sprite_z - camera_z) * cosf(yaw);
                 ++additive_count;
             } else if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-                        !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, error,
+                        !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view, error,
                                                            error_size)) ||
                        (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_sprite(renderer, sprite, camera, error,
@@ -2223,7 +2241,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         const SceneSprite *sprite = additive_sprites[index].sprite;
 
         if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-             !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, error, error_size)) ||
+             !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view, error, error_size)) ||
             (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_sprite(renderer, sprite, camera, error, error_size))) {
             free(additive_sprites);
@@ -2263,7 +2281,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             }
             glDisable(GL_DEPTH_TEST);
             if (command->data.sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
-                !renderer_opengl_draw_vector_sprite(renderer, &command->data.sprite, camera,
+                !renderer_opengl_draw_vector_sprite(renderer, &command->data.sprite, camera, view,
                                                    error, error_size)) {
                 glEnable(GL_DEPTH_TEST);
                 free(before_pixels);
