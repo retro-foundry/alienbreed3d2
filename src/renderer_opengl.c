@@ -236,7 +236,7 @@ static float renderer_opengl_world_palette_light(const SceneVertex *source_verte
     return 1.0f - shade / (row_count - 1.0f);
 }
 
-static float renderer_opengl_sprite_light(int16_t source_light)
+static float renderer_opengl_vector_base_light(int16_t source_light)
 {
     float result = 0.45f + ((float)source_light - 300.0f) / 96.0f;
 
@@ -2361,9 +2361,16 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     right_u = 1.0f - left_u;
     additive = (sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u ||
         sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP;
-    /* Source additive/glare paths blend their table result directly onto the
-     * framebuffer; they do not select a room-light palette row. */
-    source_light = additive != 0 ? 1.0f : renderer_opengl_sprite_light(sprite->source_light_level);
+    /*
+     * objdrawhires.s:draw_Bitmap sends ordinary bitmap texels through the
+     * selected object palette directly.  draw_bitmap_lighted instead first
+     * creates draw_Pals_vl from draw_ResetAngleBrights' zone samples, and the
+     * additive/glare path supplies its blend-table result directly.  The
+     * decoded texture already represents the respective source result, so a
+     * second generic room-light multiplier would darken every billboard (and
+     * double-apply lighting to the lighted modes).
+     */
+    source_light = 1.0f;
     vertices[0] = (RendererOpenGLVertex){center_x - right_x * half_width, top_y,
                                           center_z - right_z * half_width, left_u, top_v, source_light,
                                           1.0f, 1.0f, 1.0f};
@@ -2613,7 +2620,7 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     }
     out_vertex->u = 0.5f;
     out_vertex->v = 0.5f;
-    out_vertex->source_light = renderer_opengl_sprite_light(sprite->source_light_level);
+    out_vertex->source_light = renderer_opengl_vector_base_light(sprite->source_light_level);
     out_vertex->source_red = 1.0f;
     out_vertex->source_green = 1.0f;
     out_vertex->source_blue = 1.0f;

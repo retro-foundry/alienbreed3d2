@@ -113,6 +113,10 @@ authority for all game behavior and data formats.
   lower/upper angle rings and `data/draw_data.s:guff`. The GPU path rebuilds
   the source `draw_Pals_vl` lookup for each current view/light state before
   uploading that dynamic bitmap frame; static sprite assets remain cached.
+- [x] Bitmap presentation no longer applies a second generic room-light
+  multiplier after source palette resolution. `objdrawhires.s:draw_Bitmap`
+  presents ordinary palettes directly, while `draw_bitmap_lighted` and the
+  additive/glare modes carry their own source-derived palette or blend result.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.
