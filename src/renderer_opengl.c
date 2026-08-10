@@ -110,6 +110,8 @@ typedef struct {
     uint16_t height;
     uint8_t kind;
     uint8_t source_effect;
+    /* draw_Bitmap's direct 32-row palette selection for normal bitmaps. */
+    uint8_t source_palette_row;
     GLuint light_response_exponent_texture;
     GLuint light_response_floor_texture;
 } RendererOpenGLTexture;
@@ -175,6 +177,65 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
     *out_x = (float)(int16_t)(uint16_t)point->x;
     *out_y = -(float)point->y * renderer_opengl_source_y_unit;
     *out_z = (float)(int16_t)(uint16_t)point->z;
+}
+
+/*
+ * objdrawhires.s:draw_Bitmap adds ObjT_Brightness to the signed rotated
+ * depth after ASR.W #6.  draw_bitmap_lighted uses that same value as
+ * draw_BrightToAdd_w, while normal bitmaps use it to select a direct
+ * 32-colour palette row.  Keep one source-width calculation for both paths.
+ */
+static int renderer_opengl_sprite_bright_to_add(const SceneSprite *sprite,
+                                                const SceneCamera *camera,
+                                                int16_t *out_brightness,
+                                                char *error, size_t error_size)
+{
+    float sprite_x;
+    float sprite_y;
+    float sprite_z;
+    float camera_x;
+    float camera_y;
+    float camera_z;
+    float yaw;
+    int16_t source_depth;
+
+    if (!sprite || !camera || !out_brightness) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source bitmap brightness has no sprite or camera");
+        return 0;
+    }
+    renderer_opengl_world_point(&sprite->position, &sprite_x, &sprite_y, &sprite_z);
+    renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
+    (void)sprite_y;
+    (void)camera_y;
+    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
+    source_depth = (int16_t)(((sprite_x - camera_x) * sinf(yaw) +
+                              (sprite_z - camera_z) * cosf(yaw)) / 64.0f);
+    *out_brightness = (int16_t)((uint16_t)sprite->source_brightness +
+        (uint16_t)source_depth);
+    return 1;
+}
+
+static int renderer_opengl_normal_bitmap_palette_row(const SceneSprite *sprite,
+                                                      const SceneCamera *camera,
+                                                      uint8_t *out_row,
+                                                      char *error, size_t error_size)
+{
+    int16_t bright_to_add;
+
+    if (!out_row || !renderer_opengl_sprite_bright_to_add(sprite, camera, &bright_to_add,
+                                                           error, error_size)) {
+        return 0;
+    }
+    /* draw_ObjScaleCols_vw repeats its final offset after row 31. */
+    if (bright_to_add <= 0) {
+        *out_row = 0u;
+    } else if (bright_to_add >= 31) {
+        *out_row = 31u;
+    } else {
+        *out_row = (uint8_t)bright_to_add;
+    }
+    return 1;
 }
 
 /*
@@ -956,13 +1017,6 @@ static int renderer_opengl_build_lighted_sprite_palette(const SceneSprite *sprit
     int strongest;
     int16_t bright_to_add;
     int willy[49];
-    float sprite_x;
-    float sprite_y;
-    float sprite_z;
-    float camera_x;
-    float camera_y;
-    float camera_z;
-    float yaw;
 
     if (!sprite || !camera || !out_palette || !sprite->source_light_palette_bytes ||
         sprite->source_light_palette_byte_count < 16u * 7u * 16u ||
@@ -1041,14 +1095,10 @@ static int renderer_opengl_build_lighted_sprite_palette(const SceneSprite *sprit
                                   "source lighted bitmap directional balance is invalid");
         return 0;
     }
-    renderer_opengl_world_point(&sprite->position, &sprite_x, &sprite_y, &sprite_z);
-    renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
-    (void)sprite_y;
-    (void)camera_y;
-    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
-    bright_to_add = (int16_t)((uint16_t)sprite->source_brightness +
-        (uint16_t)((int16_t)(((sprite_x - camera_x) * sinf(yaw) +
-                              (sprite_z - camera_z) * cosf(yaw)) / 64.0f)));
+    if (!renderer_opengl_sprite_bright_to_add(sprite, camera, &bright_to_add,
+                                               error, error_size)) {
+        return 0;
+    }
     for (uint32_t row = 0u; row < 7u; ++row) {
         uint8_t source_direction = (uint8_t)(((UINT16_C(8192) - camera->yaw) &
                                                UINT16_C(8190)) >> 9u);
@@ -1144,6 +1194,7 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
     size_t palette_offset = 0u;
     int lighted;
     int source_blend;
+    uint8_t normal_palette_row;
     uint8_t lighted_palette[256];
 
     if (!sprite || !camera || !out_pixels || !out_width || !out_height || !sprite->source_bytes ||
@@ -1184,6 +1235,19 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
             256u > sprite->source_palette_byte_count - palette_offset) {
             renderer_opengl_set_error(error, error_size,
                                       "source bitmap light palette is outside its asset");
+            return 0;
+        }
+    } else if (source_blend == 0) {
+        if (!renderer_opengl_normal_bitmap_palette_row(sprite, camera, &normal_palette_row,
+                                                        error, error_size)) {
+            return 0;
+        }
+        /* draw_Bitmap's direct rows contain 32 source texels at two bytes each. */
+        palette_offset = (size_t)normal_palette_row * 64u;
+        if (palette_offset > sprite->source_palette_byte_count ||
+            64u > sprite->source_palette_byte_count - palette_offset) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source bitmap direct palette row is outside its asset");
             return 0;
         }
     }
@@ -1507,7 +1571,7 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
         texture, material->source_bytes, material->source_byte_count, material->source_palette_bytes,
         material->source_palette_byte_count, material->source_display_palette_bytes,
         material->source_display_palette_byte_count, material->source_asset_id, key_window, {0}, 0u,
-        width, height, (uint8_t)kind, 0u, exponent_texture, floor_texture
+        width, height, (uint8_t)kind, 0u, 0u, exponent_texture, floor_texture
     };
     *out_texture = &renderer->textures[renderer->texture_count - 1u];
     return 1;
@@ -1524,12 +1588,22 @@ static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const S
     GLuint texture = 0u;
 
     int lighted;
+    int source_blend;
+    uint8_t normal_palette_row = 0u;
 
     if (!renderer || !sprite || !camera || !out_texture || !out_transient) {
         renderer_opengl_set_error(error, error_size, "scene bitmap sprite texture request is invalid");
         return 0;
     }
     lighted = (sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u;
+    source_blend = lighted == 0 &&
+        (sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP ||
+         (sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u);
+    if (lighted == 0 && source_blend == 0 &&
+        !renderer_opengl_normal_bitmap_palette_row(sprite, camera, &normal_palette_row,
+                                                    error, error_size)) {
+        return 0;
+    }
     *out_transient = 0;
     if (lighted == 0) {
         for (size_t index = 0u; index < renderer->texture_count; ++index) {
@@ -1544,6 +1618,7 @@ static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const S
                 cached->source_display_palette_byte_count == sprite->source_display_palette_byte_count &&
                 cached->source_asset_id == sprite->source_asset_id &&
                 cached->source_effect == sprite->source_effect &&
+                cached->source_palette_row == normal_palette_row &&
                 memcmp(&cached->frame_metrics, &sprite->frame_metrics,
                        sizeof(sprite->frame_metrics)) == 0) {
                 *out_texture = cached->texture;
@@ -1576,7 +1651,7 @@ static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const S
         sprite->source_palette_byte_count, sprite->source_display_palette_bytes,
         sprite->source_display_palette_byte_count, sprite->source_asset_id, {0},
         sprite->frame_metrics, 0u, width, height, RENDERER_OPENGL_TEXTURE_SPRITE,
-        sprite->source_effect
+        sprite->source_effect, normal_palette_row
     };
     *out_texture = texture;
     return 1;
@@ -1648,7 +1723,7 @@ static int renderer_opengl_find_backdrop_texture(RendererOpenGL *renderer,
         texture, environment->backdrop_bytes, environment->backdrop_byte_count, NULL, 0u,
         environment->source_display_palette_bytes,
         environment->source_display_palette_byte_count, 0u, {0}, {0}, 0u,
-        BACKDROP_WIDTH, BACKDROP_HEIGHT, RENDERER_OPENGL_TEXTURE_BACKDROP, 0u
+        BACKDROP_WIDTH, BACKDROP_HEIGHT, RENDERER_OPENGL_TEXTURE_BACKDROP, 0u, 0u
     };
     *out_texture = texture;
     return 1;
@@ -2947,7 +3022,7 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
         sprite->source_light_palette_bytes, sprite->source_light_palette_byte_count,
         sprite->source_display_palette_bytes, sprite->source_display_palette_byte_count,
         (uint32_t)source_map_offset, key_window, {0}, minimum_v, width, height,
-        RENDERER_OPENGL_TEXTURE_VECTOR, 0u, exponent_texture, floor_texture
+        RENDERER_OPENGL_TEXTURE_VECTOR, 0u, 0u, exponent_texture, floor_texture
     };
     *out_texture = &renderer->textures[renderer->texture_count - 1u];
     return 1;
