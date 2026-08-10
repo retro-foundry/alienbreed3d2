@@ -38,6 +38,8 @@ uint8_t game_input_take_last_pressed(GameInput *input);
  * persists until modules/player.s derives its delta from old_mouse_y.
  */
 void game_input_add_mouse_motion(GameInput *input, int32_t delta_x, int32_t delta_y);
+/* Read the next source control tick's horizontal Sys_ReadMouse delta without consuming it. */
+int16_t game_input_peek_mouse_x(const GameInput *input);
 int16_t game_input_take_mouse_x(GameInput *input);
 
 #endif

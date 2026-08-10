@@ -71,6 +71,11 @@ void game_input_add_mouse_motion(GameInput *input, int32_t delta_x, int32_t delt
     input->mouse_y = (int16_t)((uint16_t)input->mouse_y + (uint16_t)delta_y);
 }
 
+int16_t game_input_peek_mouse_x(const GameInput *input)
+{
+    return input ? input->pending_mouse_x : 0;
+}
+
 int16_t game_input_take_mouse_x(GameInput *input)
 {
     int16_t delta_x;

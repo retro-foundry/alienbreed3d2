@@ -183,6 +183,9 @@ typedef struct {
     char data_root[1024];
     uint16_t selected_level_index;
     GameBootstrap game;
+    /* Completed source-frame endpoints retained for high-rate presentation. */
+    SceneFrame source_frame;
+    SceneFrame previous_source_frame;
     SceneFrame frame;
     Renderer *renderer;
     RenderView view;
@@ -190,6 +193,8 @@ typedef struct {
     GameVBlankClock vblank_clock;
     int sdl_initialized;
     int game_initialized;
+    int source_frame_initialized;
+    int previous_source_frame_initialized;
     int frame_initialized;
     int gpu_smoke;
     int gpu_smoke_all_levels;
@@ -206,6 +211,14 @@ static void game_app_shutdown(GameApp *app)
     if (app->frame_initialized) {
         scene_frame_destroy(&app->frame);
         app->frame_initialized = 0;
+    }
+    if (app->previous_source_frame_initialized) {
+        scene_frame_destroy(&app->previous_source_frame);
+        app->previous_source_frame_initialized = 0;
+    }
+    if (app->source_frame_initialized) {
+        scene_frame_destroy(&app->source_frame);
+        app->source_frame_initialized = 0;
     }
     if (app->game_initialized) {
         game_bootstrap_destroy(&app->game);
@@ -280,8 +293,18 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     app->game_initialized = 1;
-    if (!scene_frame_init(&app->frame, 1024u)) {
+    if (!scene_frame_init(&app->source_frame, 1024u)) {
         fprintf(stderr, "[SCENE] unable to allocate frame command buffer\n");
+        return 0;
+    }
+    app->source_frame_initialized = 1;
+    if (!scene_frame_init(&app->previous_source_frame, 1024u)) {
+        fprintf(stderr, "[SCENE] unable to allocate source snapshot buffer\n");
+        return 0;
+    }
+    app->previous_source_frame_initialized = 1;
+    if (!scene_frame_init(&app->frame, 1024u)) {
+        fprintf(stderr, "[SCENE] unable to allocate presentation frame buffer\n");
         return 0;
     }
     app->frame_initialized = 1;
@@ -304,6 +327,13 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     render_view_init(&app->view);
+    render_view_set_source_yaw(&app->view, app->game.player.yaw);
+    scene_frame_begin(&app->source_frame);
+    if (!game_bootstrap_submit_scene_frame(&app->game, &app->source_frame) ||
+        !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
+        fprintf(stderr, "[SCENE] unable to capture the initial source frame\n");
+        return 0;
+    }
     game_vblank_clock_reset(&app->vblank_clock, SDL_GetTicks64());
     if (!app->gpu_smoke && SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
@@ -312,6 +342,35 @@ static int game_app_init(GameApp *app, int argc, char **argv)
             "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes Level %c active\n",
             app->game.game_link.size, app->game.story_text.size,
             (char)('A' + app->game.active_level_index));
+    return 1;
+}
+
+/*
+ * The first PC port retains the source state immediately before its next
+ * 50 Hz update, then draws the blend to the completed source state using the
+ * VBlank remainder.  Keep the same scheduler shape at this GPU-neutral scene
+ * boundary: game logic continues to own every simulation value and renderer
+ * input only owns immutable endpoint copies.
+ */
+static int game_app_capture_source_frame(GameApp *app)
+{
+    if (!app) {
+        return 0;
+    }
+    scene_frame_begin(&app->source_frame);
+    return game_bootstrap_submit_scene_frame(&app->game, &app->source_frame);
+}
+
+static int game_app_build_presentation_frame(GameApp *app)
+{
+    if (!app || !scene_frame_interpolate(
+                    &app->frame, &app->previous_source_frame, &app->source_frame,
+                    game_vblank_clock_interpolation_alpha(&app->vblank_clock)) ||
+        app->frame.count == 0u || app->frame.commands[0u].type != SCENE_COMMAND_CAMERA) {
+        return 0;
+    }
+    /* Mouse X is presented at host cadence; source yaw remains untouched. */
+    app->frame.commands[0u].data.camera.yaw = render_view_yaw(&app->view);
     return 1;
 }
 
@@ -344,7 +403,10 @@ static void game_app_tick(GameApp *app)
         }
         if (event.type == SDL_MOUSEMOTION) {
             game_input_add_mouse_motion(&app->game.input, event.motion.xrel, event.motion.yrel);
-            /* Native real pitch is presentation state; source mouse input stays intact. */
+            /* Native real look is presentation state; source mouse input stays intact. */
+            if (app->game.player.mouse_active != 0u) {
+                render_view_add_mouse_yaw(&app->view, event.motion.xrel);
+            }
             render_view_add_mouse_motion(&app->view, event.motion.yrel,
                                          app->game.player.invert_mouse);
         }
@@ -373,8 +435,26 @@ static void game_app_tick(GameApp *app)
      */
     source_vblanks = game_vblank_clock_advance(&app->vblank_clock, SDL_GetTicks64());
     for (uint32_t vblank_index = 0u; vblank_index < source_vblanks; ++vblank_index) {
+        uint16_t previous_source_yaw = app->game.player.yaw;
+        int16_t consumed_mouse_x = app->game.player.mouse_active != 0u ?
+            game_input_peek_mouse_x(&app->game.input) : 0;
+
+        if (!scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
+            fprintf(stderr, "[SCENE] unable to snapshot the previous source frame\n");
+            app->exit_code = 1;
+            renderer_request_quit(app->renderer);
+            return;
+        }
         if (!game_bootstrap_update_single_player(&app->game, error, sizeof(error))) {
             fprintf(stderr, "[GAME] %s\n", error);
+            app->exit_code = 1;
+            renderer_request_quit(app->renderer);
+            return;
+        }
+        render_view_reconcile_source_yaw(&app->view, previous_source_yaw,
+                                         app->game.player.yaw, consumed_mouse_x);
+        if (!game_app_capture_source_frame(app)) {
+            fprintf(stderr, "[SCENE] unable to capture the completed source frame\n");
             app->exit_code = 1;
             renderer_request_quit(app->renderer);
             return;
@@ -390,9 +470,8 @@ static void game_app_tick(GameApp *app)
         renderer_request_quit(app->renderer);
         return;
     }
-    scene_frame_begin(&app->frame);
-    if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame)) {
-        fprintf(stderr, "[SCENE] source scene command submission failed\n");
+    if (!game_app_build_presentation_frame(app)) {
+        fprintf(stderr, "[SCENE] source scene interpolation failed\n");
         app->exit_code = 1;
         renderer_request_quit(app->renderer);
         return;

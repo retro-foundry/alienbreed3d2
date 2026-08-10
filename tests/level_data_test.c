@@ -817,6 +817,111 @@ int main(int argc, char **argv)
             fprintf(stderr, "desktop VBlank catch-up cap is inconsistent\n");
             return 1;
         }
+        game_vblank_clock_reset(&vblank_clock, 1000u);
+        if (game_vblank_clock_advance(&vblank_clock, 1007u) != 0u ||
+            game_vblank_clock_interpolation_alpha(&vblank_clock) < 0.349f ||
+            game_vblank_clock_interpolation_alpha(&vblank_clock) > 0.351f) {
+            fprintf(stderr, "desktop VBlank presentation interpolation alpha is inconsistent\n");
+            return 1;
+        }
+    }
+    {
+        SceneFrame previous = {0};
+        SceneFrame current = {0};
+        SceneFrame presentation = {0};
+        SceneVertex previous_vertices[3] = {
+            {{0, 0, 0}, 0, 0, 100},
+            {{10, 0, 0}, 64, 0, 120},
+            {{0, 0, 10}, 0, 64, 140}
+        };
+        SceneVertex current_vertices[3] = {
+            {{20, 20, 20}, 20, 10, 300},
+            {{30, 20, 20}, 84, 10, 320},
+            {{20, 20, 30}, 20, 74, 340}
+        };
+        SceneCommand previous_camera = {0};
+        SceneCommand current_camera = {0};
+        SceneCommand previous_geometry = {0};
+        SceneCommand current_geometry = {0};
+        SceneCommand previous_sprite = {0};
+        SceneCommand current_sprite = {0};
+
+        previous_camera.type = SCENE_COMMAND_CAMERA;
+        previous_camera.data.camera.position = (SceneWorldPoint){0, 0, 0};
+        previous_camera.data.camera.yaw = 8180u;
+        previous_camera.data.camera.look_offset = -20;
+        current_camera.type = SCENE_COMMAND_CAMERA;
+        current_camera.data.camera.position = (SceneWorldPoint){20, 40, 60};
+        current_camera.data.camera.yaw = 8u;
+        current_camera.data.camera.look_offset = 20;
+        previous_geometry.type = SCENE_COMMAND_GEOMETRY;
+        previous_geometry.data.geometry.vertices = previous_vertices;
+        previous_geometry.data.geometry.vertex_count = 3u;
+        previous_geometry.data.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
+        previous_geometry.data.geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_FLOOR;
+        previous_geometry.data.geometry.source_record_id = 42u;
+        current_geometry = previous_geometry;
+        current_geometry.data.geometry.vertices = current_vertices;
+        previous_sprite.type = SCENE_COMMAND_SPRITE;
+        previous_sprite.data.sprite.source_record_id = 7u;
+        previous_sprite.data.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+        previous_sprite.data.sprite.position = (SceneWorldPoint){0, 0, 0};
+        previous_sprite.data.sprite.yaw = 8180u;
+        previous_sprite.data.sprite.source_brightness = 100u;
+        previous_sprite.data.sprite.source_light_level = 100;
+        previous_sprite.data.sprite.source_bitmap_angle_brightness[0u] = 20;
+        previous_sprite.data.sprite.source_point_and_polygon_brightness[0u] = -20;
+        current_sprite = previous_sprite;
+        current_sprite.data.sprite.position = (SceneWorldPoint){20, 40, 60};
+        current_sprite.data.sprite.yaw = 8u;
+        current_sprite.data.sprite.source_brightness = 300u;
+        current_sprite.data.sprite.source_light_level = 300;
+        current_sprite.data.sprite.source_bitmap_angle_brightness[0u] = 60;
+        current_sprite.data.sprite.source_point_and_polygon_brightness[0u] = 20;
+
+        if (!scene_frame_init(&previous, 3u) || !scene_frame_init(&current, 3u) ||
+            !scene_frame_init(&presentation, 3u) ||
+            !scene_frame_submit(&previous, &previous_camera) ||
+            !scene_frame_submit(&previous, &previous_geometry) ||
+            !scene_frame_submit(&previous, &previous_sprite) ||
+            !scene_frame_submit(&current, &current_camera) ||
+            !scene_frame_submit(&current, &current_geometry) ||
+            !scene_frame_submit(&current, &current_sprite) ||
+            !scene_frame_interpolate(&presentation, &previous, &current, 0.5f) ||
+            presentation.count != 3u ||
+            presentation.commands[0u].data.camera.position.x != 10 ||
+            presentation.commands[0u].data.camera.position.y != 20 ||
+            presentation.commands[0u].data.camera.position.z != 30 ||
+            presentation.commands[0u].data.camera.yaw != 8190u ||
+            presentation.commands[0u].data.camera.look_offset != 0 ||
+            presentation.commands[1u].data.geometry.vertices == current_vertices ||
+            presentation.commands[1u].data.geometry.vertices[0u].position.x != 10 ||
+            presentation.commands[1u].data.geometry.vertices[0u].position.y != 10 ||
+            presentation.commands[1u].data.geometry.vertices[0u].source_light_level != 200 ||
+            presentation.commands[2u].data.sprite.position.x != 10 ||
+            presentation.commands[2u].data.sprite.position.y != 20 ||
+            presentation.commands[2u].data.sprite.yaw != 8190u ||
+            presentation.commands[2u].data.sprite.source_brightness != 200u ||
+            presentation.commands[2u].data.sprite.source_light_level != 200 ||
+            presentation.commands[2u].data.sprite.source_bitmap_angle_brightness[0u] != 40 ||
+            presentation.commands[2u].data.sprite.source_point_and_polygon_brightness[0u] != 0) {
+            fprintf(stderr, "source scene presentation interpolation is inconsistent\n");
+            scene_frame_destroy(&presentation);
+            scene_frame_destroy(&current);
+            scene_frame_destroy(&previous);
+            return 1;
+        }
+        current_vertices[0u].position.x = 999;
+        if (presentation.commands[1u].data.geometry.vertices[0u].position.x != 10) {
+            fprintf(stderr, "source scene interpolation did not retain its geometry endpoint\n");
+            scene_frame_destroy(&presentation);
+            scene_frame_destroy(&current);
+            scene_frame_destroy(&previous);
+            return 1;
+        }
+        scene_frame_destroy(&presentation);
+        scene_frame_destroy(&current);
+        scene_frame_destroy(&previous);
     }
     alien_runtime_init(&alien_runtime);
     if (alien_runtime.no_enemies != 0u) {
@@ -10554,6 +10659,15 @@ int main(int argc, char **argv)
         render_view_add_mouse_motion(&view, -100, UINT8_MAX);
         if (view.pitch_degrees > -14.99f || view.pitch_degrees < -15.01f) {
             fprintf(stderr, "native real mouse-look inversion is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        render_view_set_source_yaw(&view, 8180u);
+        render_view_add_mouse_yaw(&view, 5);
+        /* Source consumed 5 mouse counts plus an authored 24-byte key turn. */
+        render_view_reconcile_source_yaw(&view, 0u, 44u, 5);
+        if (render_view_yaw(&view) != 32u) {
+            fprintf(stderr, "native full-rate mouse yaw reconciliation is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }

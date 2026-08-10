@@ -277,6 +277,14 @@ typedef struct {
     SceneCommand *commands;
     size_t count;
     size_t capacity;
+    /*
+     * Snapshot/presentation frames own copies of mutable geometry vertices.
+     * Ordinary source-submitted frames continue borrowing level-owned vertex
+     * arrays for the duration of one source frame.
+     */
+    SceneVertex *owned_vertices;
+    size_t owned_vertex_count;
+    size_t owned_vertex_capacity;
 } SceneFrame;
 
 int scene_frame_init(SceneFrame *frame, size_t command_capacity);
@@ -284,5 +292,22 @@ void scene_frame_destroy(SceneFrame *frame);
 void scene_frame_begin(SceneFrame *frame);
 int scene_frame_reserve(SceneFrame *frame, size_t command_capacity);
 int scene_frame_submit(SceneFrame *frame, const SceneCommand *command);
+
+/*
+ * Copy a source frame into an independently retained presentation snapshot.
+ * Asset/table pointers remain source-owned; mutable geometry vertices are
+ * copied so a later source VBlank cannot alter the retained endpoint.
+ */
+int scene_frame_clone(SceneFrame *destination, const SceneFrame *source);
+
+/*
+ * Blend two completed source-frame snapshots for one host presentation frame.
+ * The `current` frame supplies all non-continuous source state. Camera,
+ * matching geometry, and matching source object records interpolate only
+ * values that represent a continuous source state. A spawned, removed, or
+ * structurally changed command is deliberately left at its current endpoint.
+ */
+int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
+                            const SceneFrame *current, float alpha);
 
 #endif

@@ -29,9 +29,11 @@ authority for all game behavior and data formats.
   culling. Those are optional native renderer optimisations, not parity
   requirements.
 - Native real mouse-look is explicitly requested presentation behavior: source
-  mouse X still owns source yaw and input state, while `RenderView` owns only
-  a clamped pitch from mouse Y. It must not rewrite source player aiming or
-  replace the retained small-screen look state.
+  mouse X still owns source yaw and input state. `RenderView` mirrors its raw
+  X delta immediately for host-rate display yaw, reconciles the completed
+  source tick without double-applying that delta, and owns a clamped pitch from
+  mouse Y. It must not rewrite source player aiming or replace the retained
+  small-screen look state.
 
 ## Current OpenGL/WebGL presentation milestone
 
@@ -138,6 +140,15 @@ authority for all game behavior and data formats.
   maintained `modules/player.s:plr_MouseControl` input, preserving source
   simulation while adding a clamped real 3D pitch. Its focused regression
   covers normal, inverted, and clamp behavior.
+- [x] The host presentation cadence now follows the first port's 50 Hz update
+  scheme: `hires.s:VBlankInterrupt`-paced simulation retains its existing
+  input, player, collision, weapon, and object ordering; the scene boundary
+  deep-snapshots the source frame before every completed tick and blends its
+  camera, mutable geometry, object sprites, and source light levels by the
+  current VBlank remainder. Spawned/removed source records remain discrete.
+  Raw mouse-X display yaw is applied at host cadence and reconciled after the
+  source `c/system.c:Sys_ReadMouse`/`modules/player.s:plr_MouseControl` tick,
+  so mouse look is not limited to 50 Hz or applied twice.
 - [x] Native CMake links OpenGL and preserves the first port's SDL setup.
   Emscripten skips FetchContent, builds an `ab3d2.html` WebGL target with the
   browser-safe main loop, and preloads the lower-case `stage_media.py` asset

@@ -40,11 +40,16 @@ detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live
 integration.
 
-Mouse X remains the source controller's yaw input. Mouse Y also drives the
+Mouse X remains the source controller's yaw input, while `RenderView` mirrors
+its raw delta immediately for high-frame-rate presentation and reconciles the
+next completed source tick without double-applying it. Mouse Y drives the
 native `RenderView` pitch for real 3D mouse-look (clamped to +/-85 degrees and
-respecting the source invert-mouse preference); it is deliberately isolated
-from the source simulation camera and does not replace the original aim/look
-state.
+respecting the source invert-mouse preference); both presentation adjustments
+are isolated from source player state and do not replace the original aim/look
+state. The renderer blends completed source-frame scene snapshots using the
+50 Hz VBlank remainder, so simulation cadence remains source-authentic while
+camera, mutable world geometry, sprites, and source light samples present
+smoothly at the host frame rate.
 
 The headless regression starts a clean source-process runtime, selects each
 authored Level A--P session, and runs six source VBlank-equivalent direct-play

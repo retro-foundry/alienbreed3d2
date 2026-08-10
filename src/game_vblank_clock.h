@@ -22,4 +22,7 @@ void game_vblank_clock_reset(GameVBlankClock *clock, uint64_t host_milliseconds)
  */
 uint32_t game_vblank_clock_advance(GameVBlankClock *clock, uint64_t host_milliseconds);
 
+/* Fraction of the current 20 ms source VBlank elapsed at the last host sample. */
+float game_vblank_clock_interpolation_alpha(const GameVBlankClock *clock);
+
 #endif

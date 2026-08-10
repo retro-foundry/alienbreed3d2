@@ -39,3 +39,12 @@ uint32_t game_vblank_clock_advance(GameVBlankClock *clock, uint64_t host_millise
         (uint32_t)(accumulated_milliseconds % GAME_VBLANK_CLOCK_MILLISECONDS);
     return (uint32_t)(accumulated_milliseconds / GAME_VBLANK_CLOCK_MILLISECONDS);
 }
+
+float game_vblank_clock_interpolation_alpha(const GameVBlankClock *clock)
+{
+    if (!clock || clock->initialized == 0u) {
+        return 0.0f;
+    }
+    return (float)clock->remainder_milliseconds /
+        (float)GAME_VBLANK_CLOCK_MILLISECONDS;
+}
