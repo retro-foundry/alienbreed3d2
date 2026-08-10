@@ -45,19 +45,17 @@ typedef struct {
      */
     const uint8_t *source_palette_bytes;
     size_t source_palette_byte_count;
+    /* data/draw_data.s:draw_Palette_vw (256 big-endian RGB triplets). */
+    const uint8_t *source_display_palette_bytes;
+    size_t source_display_palette_byte_count;
 } SceneMaterial;
 
 typedef struct {
     SceneWorldPoint position;
-    /* Ignore these fields when SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED is set. */
+    /* Exact source texel coordinates, consumed with SceneTextureWindow. */
     int32_t texture_u;
     int32_t texture_v;
 } SceneVertex;
-
-enum {
-    /* Position/material provenance is known, but source UV mapping is pending. */
-    SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED = 1u << 0
-};
 
 typedef enum {
     SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST,
@@ -72,6 +70,17 @@ typedef enum {
     SCENE_GEOMETRY_PRIMITIVE_WATER
 } SceneGeometryPrimitive;
 
+/*
+ * The source texture region required by a primitive. Walls use the original
+ * packed-strip window; flats use their fixed 64x64 logical tile and leave the
+ * fields zero. The coordinates in SceneVertex remain source texel coordinates.
+ */
+typedef struct {
+    uint16_t u_offset;
+    uint16_t u_period;
+    uint16_t v_period;
+} SceneTextureWindow;
+
 /* Vertices are owned by the scene producer until the frame ends. */
 typedef struct {
     const SceneVertex *vertices;
@@ -80,6 +89,7 @@ typedef struct {
     SceneGeometryPrimitive primitive;
     uint32_t material_id;
     uint32_t source_record_id;
+    SceneTextureWindow texture_window;
     uint32_t flags;
 } SceneGeometry;
 
@@ -135,6 +145,8 @@ typedef struct {
     size_t source_aux_byte_count;
     const uint8_t *source_palette_bytes;
     size_t source_palette_byte_count;
+    const uint8_t *source_display_palette_bytes;
+    size_t source_display_palette_byte_count;
 } SceneSprite;
 
 typedef struct {

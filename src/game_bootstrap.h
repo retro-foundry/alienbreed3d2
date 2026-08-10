@@ -128,7 +128,7 @@ int game_bootstrap_load_level_definition(GameBootstrap *game, const char *data_r
                                          char *error, size_t error_size);
 void game_bootstrap_destroy(GameBootstrap *game);
 
-/* Emits diagnostic-only HUD status; it is not original game UI. */
-int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame *frame);
+/* Emits the complete source-authored gameplay scene and source HUD commands. */
+int game_bootstrap_submit_scene_frame(const GameBootstrap *game, SceneFrame *frame);
 
 #endif

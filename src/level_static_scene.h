@@ -12,6 +12,7 @@ typedef struct {
     SceneVertex vertices[6];
     uint32_t material_id;
     uint32_t source_record_offset;
+    SceneTextureWindow texture_window;
 } LevelStaticWallScene;
 
 /*
@@ -26,7 +27,7 @@ typedef struct {
     uint32_t source_record_offset;
     uint32_t source_record_byte_count;
     SceneGeometryPrimitive primitive;
-    uint16_t texture_scale;
+    int16_t texture_scale;
     int16_t brightness_offset;
 } LevelStaticFlatScene;
 

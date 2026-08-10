@@ -29,6 +29,10 @@ typedef struct {
 typedef struct {
     uint16_t left_point_index;
     uint16_t right_point_index;
+    /* hireswall.s:Draw_Wall record words at +8, +10, and +12. */
+    uint16_t texture_u_end;
+    uint16_t texture_u_tile;
+    uint16_t texture_y_offset;
     uint16_t texture_id;
     int32_t top;
     int32_t bottom;
@@ -50,7 +54,7 @@ typedef struct {
     /* hires.s:pastsides skips this source word before its render parameters. */
     uint16_t skipped_word;
     /* Source words consumed by hires.s:pastsides after the polygon point list. */
-    uint16_t texture_scale;
+    int16_t texture_scale;
     uint16_t texture_offset;
     int16_t brightness_offset;
 } LevelDrawFlat;

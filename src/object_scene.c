@@ -87,7 +87,7 @@ static int object_scene_select_bitmap_assets(const GameSharedResources *resource
 {
     if (asset_index >= resources->object_count ||
         !resources->object_wads[asset_index].bytes ||
-        !resources->object_ptrs[asset_index].bytes) {
+        !resources->object_ptrs[asset_index].bytes || !resources->main_palette.bytes) {
         object_scene_set_error(error, error_size,
                                "ObjT bitmap graphics index has no loaded source asset");
         return 0;
@@ -96,6 +96,8 @@ static int object_scene_select_bitmap_assets(const GameSharedResources *resource
     sprite->source_byte_count = resources->object_wads[asset_index].size;
     sprite->source_aux_bytes = resources->object_ptrs[asset_index].bytes;
     sprite->source_aux_byte_count = resources->object_ptrs[asset_index].size;
+    sprite->source_display_palette_bytes = resources->main_palette.bytes;
+    sprite->source_display_palette_byte_count = resources->main_palette.size;
     return 1;
 }
 

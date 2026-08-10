@@ -12,6 +12,8 @@
  * through an explicit conversion layer rather than owning their file bytes.
  */
 typedef struct {
+    /* data/draw_data.s:draw_Palette_vw, used by every indexed source image. */
+    AssetBlob main_palette;
     AssetBlob floor_texture;
     AssetBlob texture_maps;
     AssetBlob texture_palette;

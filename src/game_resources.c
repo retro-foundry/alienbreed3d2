@@ -210,6 +210,7 @@ void game_shared_resources_destroy(GameSharedResources *resources)
         return;
     }
     asset_blob_release(&resources->floor_texture);
+    asset_blob_release(&resources->main_palette);
     asset_blob_release(&resources->texture_maps);
     asset_blob_release(&resources->texture_palette);
     asset_blob_release(&resources->backdrop_image);
@@ -237,7 +238,8 @@ int game_shared_resources_load(GameSharedResources *resources, const GameLink *g
         return 0;
     }
     game_shared_resources_destroy(resources);
-    if (!game_resources_load_sound_effects(resources, game_link, data_root, error, error_size) ||
+    if (!asset_io_load(data_root, "includes/256pal", &resources->main_palette, error, error_size) ||
+        !game_resources_load_sound_effects(resources, game_link, data_root, error, error_size) ||
         !game_resources_load_wall_textures(resources, game_link, data_root, error, error_size) ||
         !game_resources_load_floor_and_textures(resources, game_link, data_root, error, error_size) ||
         !game_resources_load_objects(resources, game_link, data_root, error, error_size) ||
@@ -245,6 +247,11 @@ int game_shared_resources_load(GameSharedResources *resources, const GameLink *g
         /* data/draw_data.s:draw_BackdropImageName_vb, queued in Game_Start. */
         !game_resources_load_volume_asset(data_root, "ab3:includes/rawbackpacked",
                                           &resources->backdrop_image, error, error_size)) {
+        game_shared_resources_destroy(resources);
+        return 0;
+    }
+    if (resources->main_palette.size != 256u * 3u * sizeof(uint16_t)) {
+        game_resources_set_error(error, error_size, "source 256pal has an invalid byte count");
         game_shared_resources_destroy(resources);
         return 0;
     }

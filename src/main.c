@@ -362,7 +362,7 @@ static void game_app_tick(GameApp *app)
         return;
     }
     scene_frame_begin(&app->frame);
-    if (!game_bootstrap_submit_diagnostic_frame(&app->game, &app->frame)) {
+    if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame)) {
         fprintf(stderr, "[SCENE] source scene command submission failed\n");
         app->exit_code = 1;
         renderer_request_quit(app->renderer);

@@ -232,6 +232,9 @@ int level_draw_graph_read_wall(const LevelRuntime *runtime,
     wall.right_point_index = level_draw_graph_read_be16(source + 4u);
     wall.left_point_brightness = source[6u];
     wall.right_point_brightness = source[7u];
+    wall.texture_u_end = level_draw_graph_read_be16(source + 8u);
+    wall.texture_u_tile = level_draw_graph_read_be16(source + 10u);
+    wall.texture_y_offset = level_draw_graph_read_be16(source + 12u);
     wall.texture_id = level_draw_graph_read_be16(source + 14u);
     wall.texture_height_mask = source[16u];
     wall.texture_height_shift = source[17u];
@@ -279,7 +282,7 @@ int level_draw_graph_read_flat(const LevelRuntime *runtime,
     /* hires.s:pastsides advances one word, then reads scale, tile, and light. */
     flat.skipped_word = level_draw_graph_read_be16(
         source + 6u + (size_t)flat.point_count * sizeof(uint16_t));
-    flat.texture_scale = level_draw_graph_read_be16(
+    flat.texture_scale = level_draw_graph_read_be16s(
         source + 8u + (size_t)flat.point_count * sizeof(uint16_t));
     flat.texture_offset = level_draw_graph_read_be16(
         source + 10u + (size_t)flat.point_count * sizeof(uint16_t));

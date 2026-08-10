@@ -25,14 +25,16 @@ source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
 active presentation path is an OpenGL 2.1 / GLES 2 renderer behind the
 API-neutral `renderer.h` boundary, so the same scene producers can later feed
 a DirectX backend. It draws the complete loaded level without software
-rasterization, PVS, portals, or zone ordering. The source UV and WAD/PTR
-bitmap conversions are still unresolved, so this first visible path uses
-explicit material/primitive diagnostic colours and source-object position
-markers rather than pretending those are original textured visuals. HUD and
-text commands are deliberately ignored. Menus remain deferred and multiplayer
-is not included. The detailed inventory below records the source-backed
-foundations; older references to an unbound AI dispatcher are superseded by
-this live integration.
+rasterization, PVS, portals, or zone ordering. It decodes the maintained
+5-bit packed wall WAD strips, `floortile` logical tiles, `256pal`, and normal
+object WAD/PTR frame data into GPU textures, then renders source-textured
+world geometry and camera-facing bitmap objects. The source palette/shade
+and texture-window data stays explicit in the scene interface so a future
+renderer can reuse it. Vector objects, glare-specific bitmap blending, and
+HUD text remain deferred; menus and multiplayer are not included. The
+detailed inventory below records the source-backed foundations; older
+references to an unbound AI dispatcher are superseded by this live
+integration.
 
 Mouse X remains the source controller's yaw input. Mouse Y also drives the
 native `RenderView` pitch for real 3D mouse-look (clamped to +/-85 degrees and
@@ -74,8 +76,11 @@ gameplay-first scope.
   `modules/res.s:Res_LoadLevelData` does, carrying the selected source bytes
   and source palette bytes for later backend-owned conversion/upload. Wall
   palettes use the exact 2,048-byte `Draw_Wall` prefix; floor/ceiling/water
-  commands retain the shared source texture palette. Texture-coordinate
-  conversion is deliberately still unresolved;
+  commands retain the shared source texture palette and the common
+  `draw_Palette_vw` RGB palette. Wall commands carry their authored packed
+  WAD window and source texel coordinates; floor, ceiling, and water commands
+  carry the demonstrated signed `pastsides` scale mapping for the source's
+  64x64 logical tile;
 - exposes the 30 source `ODefT` object definitions, both 20-frame six-byte
   object animation tables, and the 32 eight-byte bitmap metrics per object as
   endian-safe read views. Object commands expose the source-selected mode and

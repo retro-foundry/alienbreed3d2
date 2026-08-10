@@ -97,6 +97,14 @@ static int32_t source_asr32_count(int32_t value, unsigned int count)
     return -(((-(int64_t)value) + ((INT64_C(1) << count) - 1)) >> count);
 }
 
+static int32_t source_shift_flat_texture_coordinate(int16_t coordinate, int32_t scale)
+{
+    if (scale >= 0) {
+        return (int32_t)((uint32_t)(int32_t)coordinate << (uint32_t)scale);
+    }
+    return source_asr32_count(coordinate, (unsigned int)-scale);
+}
+
 static int32_t source_asr32_6(int32_t value)
 {
     if (value >= 0) {
@@ -183,6 +191,8 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->source_byte_count != game->shared_resources.vector_models[asset_index].size ||
                 sprite->source_aux_bytes != NULL || sprite->source_aux_byte_count != 0u ||
                 sprite->source_palette_bytes != NULL || sprite->source_palette_byte_count != 0u ||
+                sprite->source_display_palette_bytes != NULL ||
+                sprite->source_display_palette_byte_count != 0u ||
                 sprite->source_width != 0u || sprite->source_height != 0u ||
                 sprite->source_effect != 0u || sprite->flags != expected_flags ||
                 sprite->frame_metrics.pointer_table_index != 0u ||
@@ -210,6 +220,8 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->source_byte_count != game->shared_resources.object_wads[asset_index].size ||
                 sprite->source_aux_bytes != game->shared_resources.object_ptrs[asset_index].bytes ||
                 sprite->source_aux_byte_count != game->shared_resources.object_ptrs[asset_index].size ||
+                sprite->source_display_palette_bytes != game->shared_resources.main_palette.bytes ||
+                sprite->source_display_palette_byte_count != game->shared_resources.main_palette.size ||
                 sprite->source_width != slot[6u] || sprite->source_height != slot[7u] ||
                 sprite->frame_metrics.pointer_table_index != source_frame.pointer_table_index ||
                 sprite->frame_metrics.down_strip != source_frame.down_strip ||
@@ -1253,7 +1265,8 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
-    if (game.shared_resources.floor_texture.size != 65536u ||
+    if (game.shared_resources.main_palette.size != 1536u ||
+        game.shared_resources.floor_texture.size != 65536u ||
         game.shared_resources.texture_maps.size != 131072u ||
         game.shared_resources.texture_palette.size != 16384u ||
         game.shared_resources.object_count != 14u ||
@@ -1266,7 +1279,8 @@ int main(int argc, char **argv)
         game.shared_resources.backdrop_image.size == 0) {
         fprintf(stderr,
                 "source-defined shared resources are inconsistent "
-                "(floor=%zu maps=%zu palette=%zu objects=%u vectors=%u walls=%u sfx=%u backdrop=%zu)\n",
+                "(mainpal=%zu floor=%zu maps=%zu palette=%zu objects=%u vectors=%u walls=%u sfx=%u backdrop=%zu)\n",
+                game.shared_resources.main_palette.size,
                 game.shared_resources.floor_texture.size,
                 game.shared_resources.texture_maps.size,
                 game.shared_resources.texture_palette.size,
@@ -1726,7 +1740,7 @@ int main(int argc, char **argv)
         if (!scene_frame_init(&frame, 1u) ||
             !object_scene_count_active(&game.object_runtime, &active_sprite_count,
                                        error, sizeof(error)) ||
-            !game_bootstrap_submit_diagnostic_frame(&game, &frame) ||
+            !game_bootstrap_submit_scene_frame(&game, &frame) ||
             frame.count != 2u +
                 ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u +
                 active_sprite_count ||
@@ -2672,6 +2686,9 @@ int main(int argc, char **argv)
                             draw_wall.right_point_index >= game.level_runtime.world_point_count ||
                             draw_wall.left_point_index != read_be16(source + 2u) ||
                             draw_wall.right_point_index != read_be16(source + 4u) ||
+                            draw_wall.texture_u_end != read_be16(source + 8u) ||
+                            draw_wall.texture_u_tile != read_be16(source + 10u) ||
+                            draw_wall.texture_y_offset != read_be16(source + 12u) ||
                             draw_wall.texture_id != read_be16(source + 14u) ||
                             draw_wall.top != (int32_t)read_be32(source + 20u) ||
                             draw_wall.bottom != (int32_t)read_be32(source + 24u)) {
@@ -2696,8 +2713,8 @@ int main(int argc, char **argv)
                         draw_flat.points_offset != draw_graph_record.source_offset + 6u ||
                         draw_flat.skipped_word != read_be16(source + 6u +
                                                              (size_t)draw_flat.point_count * 2u) ||
-                        draw_flat.texture_scale != read_be16(source + 8u +
-                                                              (size_t)draw_flat.point_count * 2u) ||
+                        draw_flat.texture_scale != (int16_t)read_be16(
+                            source + 8u + (size_t)draw_flat.point_count * 2u) ||
                         draw_flat.texture_offset != read_be16(source + 10u +
                                                                (size_t)draw_flat.point_count * 2u) ||
                         draw_flat.brightness_offset != (int16_t)read_be16(
@@ -2790,8 +2807,19 @@ int main(int argc, char **argv)
                 scene_wall->vertices[5].position.x != left_point.x ||
                 scene_wall->vertices[5].position.y != bottom ||
                 scene_wall->vertices[5].position.z != left_point.z ||
+                scene_wall->texture_window.u_offset != (uint16_t)(read_be16(source + 10u) << 4u) ||
+                scene_wall->texture_window.u_period != (uint16_t)source[18u] + 1u ||
+                scene_wall->texture_window.v_period != (uint16_t)source[16u] + 1u ||
                 scene_wall->vertices[0].texture_u != 0 ||
-                scene_wall->vertices[0].texture_v != 0) {
+                scene_wall->vertices[0].texture_v != read_be16(source + 12u) ||
+                scene_wall->vertices[1].texture_u != read_be16(source + 8u) ||
+                scene_wall->vertices[1].texture_v != read_be16(source + 12u) ||
+                scene_wall->vertices[2].texture_u != read_be16(source + 8u) ||
+                scene_wall->vertices[2].texture_v !=
+                    (int32_t)read_be16(source + 12u) + source[16u] + 1 ||
+                scene_wall->vertices[5].texture_u != 0 ||
+                scene_wall->vertices[5].texture_v !=
+                    (int32_t)read_be16(source + 12u) + source[16u] + 1) {
                 fprintf(stderr, "campaign level %u static wall %u geometry is inconsistent\n",
                         level_index, static_wall_index);
                 game_bootstrap_destroy(&game);
@@ -2840,6 +2868,9 @@ int main(int argc, char **argv)
             }
             for (flat_point_index = 0u; flat_point_index < draw_flat.point_count;
                  ++flat_point_index) {
+                int32_t source_scale = (int32_t)draw_flat.texture_scale +
+                    (flat_record.type == LEVEL_DRAW_GRAPH_TYPE_WATER ? 2 : 1);
+
                 if (!level_draw_graph_get_flat_point(&game.dynamic_level.runtime, &draw_flat,
                                                     flat_point_index, &flat_raw_point_word,
                                                     &flat_world_point_index,
@@ -2850,8 +2881,11 @@ int main(int argc, char **argv)
                     scene_flat->vertices[flat_point_index].position.y !=
                         (int32_t)draw_flat.height * 64 ||
                     scene_flat->vertices[flat_point_index].position.z != world_point.z ||
-                    scene_flat->vertices[flat_point_index].texture_u != 0 ||
-                    scene_flat->vertices[flat_point_index].texture_v != 0) {
+                    source_scale < -31 || source_scale >= 32 ||
+                    scene_flat->vertices[flat_point_index].texture_u !=
+                        source_shift_flat_texture_coordinate(world_point.x, source_scale) ||
+                    scene_flat->vertices[flat_point_index].texture_v !=
+                        source_shift_flat_texture_coordinate(world_point.z, source_scale)) {
                     fprintf(stderr,
                             "campaign level %u static flat %u point %u is invalid: %s\n",
                             level_index, static_flat_index, flat_point_index, error);
@@ -2918,7 +2952,7 @@ int main(int argc, char **argv)
         game.player.snap_z != game.player.z || game.player.snap_target_y != game.player.y ||
         game.player.height != 12 * 1024 ||
         game.player.default_enemy_flags != 0x23u || !scene_frame_init(&frame, 2) ||
-        !game_bootstrap_submit_diagnostic_frame(&game, &frame) ||
+        !game_bootstrap_submit_scene_frame(&game, &frame) ||
         frame.count != 2u +
             ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u +
             active_sprite_count ||
@@ -2935,6 +2969,10 @@ int main(int argc, char **argv)
         frame.commands[1].data.material.source_palette_bytes !=
             game.shared_resources.wall_textures[game.static_scene.walls[0].material_id].bytes ||
         frame.commands[1].data.material.source_palette_byte_count != 64u * 32u ||
+        frame.commands[1].data.material.source_display_palette_bytes !=
+            game.shared_resources.main_palette.bytes ||
+        frame.commands[1].data.material.source_display_palette_byte_count !=
+            game.shared_resources.main_palette.size ||
         frame.commands[2].type != SCENE_COMMAND_GEOMETRY ||
         frame.commands[2].data.geometry.vertices != game.static_scene.walls[0].vertices ||
         frame.commands[2].data.geometry.vertex_count != 6u ||
@@ -2943,7 +2981,10 @@ int main(int argc, char **argv)
         frame.commands[2].data.geometry.material_id != game.static_scene.walls[0].material_id ||
         frame.commands[2].data.geometry.source_record_id !=
             game.static_scene.walls[0].source_record_offset ||
-        frame.commands[2].data.geometry.flags != SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED ||
+        memcmp(&frame.commands[2].data.geometry.texture_window,
+               &game.static_scene.walls[0].texture_window,
+               sizeof(game.static_scene.walls[0].texture_window)) != 0 ||
+        frame.commands[2].data.geometry.flags != 0u ||
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].type !=
             SCENE_COMMAND_MATERIAL ||
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source !=
@@ -2958,6 +2999,10 @@ int main(int argc, char **argv)
             game.shared_resources.texture_palette.bytes ||
         frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_byte_count !=
             game.shared_resources.texture_palette.size ||
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_display_palette_bytes !=
+            game.shared_resources.main_palette.bytes ||
+        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_display_palette_byte_count !=
+            game.shared_resources.main_palette.size ||
         frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].type !=
             SCENE_COMMAND_GEOMETRY ||
         frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.vertices !=
@@ -2972,8 +3017,10 @@ int main(int argc, char **argv)
             game.static_scene.flats[0].material_id ||
         frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.source_record_id !=
             game.static_scene.flats[0].source_record_offset ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.flags !=
-            SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.u_offset != 0u ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.u_period != 0u ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.v_period != 0u ||
+        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.flags != 0u ||
         !scene_sprite_commands_match_source(
             &frame, 1u + ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u,
             &game, active_sprite_count, error, sizeof(error)) ||
@@ -2991,7 +3038,7 @@ int main(int argc, char **argv)
     game.level_wall_overrides[game.static_scene.walls[0].material_id].bytes = override_marker;
     game.level_wall_overrides[game.static_scene.walls[0].material_id].size = sizeof(override_marker);
     scene_frame_begin(&frame);
-    override_sources_ok = game_bootstrap_submit_diagnostic_frame(&game, &frame) &&
+    override_sources_ok = game_bootstrap_submit_scene_frame(&game, &frame) &&
         frame.commands[1].data.material.source ==
             SCENE_MATERIAL_SOURCE_LEVEL_WALL_TEXTURE_OVERRIDE &&
         frame.commands[1].data.material.source_bytes == override_marker &&

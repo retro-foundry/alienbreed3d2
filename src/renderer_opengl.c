@@ -17,7 +17,8 @@
 /* The shader subset is shared by desktop OpenGL 2.1 and WebGL 1 / GLES 2. */
 enum {
     RENDERER_OPENGL_POSITION_ATTRIBUTE = 0,
-    RENDERER_OPENGL_COLOR_ATTRIBUTE = 1,
+    RENDERER_OPENGL_TEXTURE_COORDINATE_ATTRIBUTE = 1,
+    RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY = 64,
     RENDERER_OPENGL_WINDOW_MINIMUM_SIZE = 1
 };
 
@@ -44,6 +45,8 @@ typedef struct {
     PFNGLGETUNIFORMLOCATIONPROC get_uniform_location;
     PFNGLUNIFORMMATRIX4FVPROC uniform_matrix_4fv;
     PFNGLUNIFORM1FPROC uniform_1f;
+    PFNGLUNIFORM1IPROC uniform_1i;
+    PFNGLACTIVETEXTUREPROC active_texture;
     PFNGLGENBUFFERSPROC gen_buffers;
     PFNGLDELETEBUFFERSPROC delete_buffers;
     PFNGLBINDBUFFERPROC bind_buffer;
@@ -57,16 +60,29 @@ typedef struct {
     float x;
     float y;
     float z;
-    float r;
-    float g;
-    float b;
+    float u;
+    float v;
 } RendererOpenGLVertex;
 
 typedef struct {
-    float r;
-    float g;
-    float b;
-} RendererOpenGLColor;
+    GLuint texture;
+    const uint8_t *source_bytes;
+    size_t source_byte_count;
+    const uint8_t *source_palette_bytes;
+    size_t source_palette_byte_count;
+    const uint8_t *source_display_palette_bytes;
+    size_t source_display_palette_byte_count;
+    uint32_t source_asset_id;
+    SceneTextureWindow texture_window;
+    SceneSpriteFrameMetrics frame_metrics;
+    uint8_t kind;
+} RendererOpenGLTexture;
+
+typedef enum {
+    RENDERER_OPENGL_TEXTURE_WALL,
+    RENDERER_OPENGL_TEXTURE_FLAT,
+    RENDERER_OPENGL_TEXTURE_SPRITE
+} RendererOpenGLTextureKind;
 
 struct RendererOpenGL {
     SDL_Window *window;
@@ -76,6 +92,10 @@ struct RendererOpenGL {
     GLuint vertex_buffer;
     GLint view_projection_uniform;
     GLint point_size_uniform;
+    GLint texture_uniform;
+    RendererOpenGLTexture *textures;
+    size_t texture_count;
+    size_t texture_capacity;
 };
 
 static void renderer_opengl_set_error(char *error, size_t error_size, const char *message)
@@ -105,85 +125,14 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
     *out_z = (float)point->z * renderer_opengl_source_unit;
 }
 
-static RendererOpenGLColor renderer_opengl_geometry_color(const SceneGeometry *geometry)
-{
-    RendererOpenGLColor color;
-    float material_variation = (float)(geometry->material_id % 7u) * 0.025f;
-
-    /*
-     * TODO(port): `hireswall.s:Draw_Wall` and `hires.s:Draw_Flats` must first
-     * establish source-to-GPU texture coordinates. The user requested basic
-     * visible output now, so these source primitive/material-ID diagnostic
-     * colours intentionally do not pretend to be source textures.
-     */
-    switch (geometry->primitive) {
-    case SCENE_GEOMETRY_PRIMITIVE_WALL:
-        color.r = 0.38f + material_variation;
-        color.g = 0.50f + material_variation;
-        color.b = 0.62f + material_variation;
-        break;
-    case SCENE_GEOMETRY_PRIMITIVE_FLOOR:
-        color.r = 0.20f + material_variation;
-        color.g = 0.32f + material_variation;
-        color.b = 0.22f + material_variation;
-        break;
-    case SCENE_GEOMETRY_PRIMITIVE_CEILING:
-        color.r = 0.24f + material_variation;
-        color.g = 0.25f + material_variation;
-        color.b = 0.30f + material_variation;
-        break;
-    case SCENE_GEOMETRY_PRIMITIVE_WATER:
-        color.r = 0.08f + material_variation;
-        color.g = 0.38f + material_variation;
-        color.b = 0.62f + material_variation;
-        break;
-    default:
-        color.r = 1.0f;
-        color.g = 0.0f;
-        color.b = 1.0f;
-        break;
-    }
-    return color;
-}
-
-static RendererOpenGLColor renderer_opengl_sprite_color(const SceneSprite *sprite)
-{
-    RendererOpenGLColor color;
-
-    switch (sprite->source) {
-    case SCENE_SPRITE_SOURCE_OBJECT_BITMAP:
-        color.r = 0.96f;
-        color.g = 0.80f;
-        color.b = 0.20f;
-        break;
-    case SCENE_SPRITE_SOURCE_VECTOR_MODEL:
-        color.r = 0.94f;
-        color.g = 0.30f;
-        color.b = 0.24f;
-        break;
-    case SCENE_SPRITE_SOURCE_GLARE_BITMAP:
-        color.r = 0.35f;
-        color.g = 0.90f;
-        color.b = 1.0f;
-        break;
-    default:
-        color.r = 1.0f;
-        color.g = 0.0f;
-        color.b = 1.0f;
-        break;
-    }
-    return color;
-}
-
 static void renderer_opengl_make_vertex(RendererOpenGLVertex *out_vertex,
                                         const SceneVertex *source_vertex,
-                                        RendererOpenGLColor color)
+                                        float texture_u, float texture_v)
 {
     renderer_opengl_world_point(&source_vertex->position, &out_vertex->x, &out_vertex->y,
                                 &out_vertex->z);
-    out_vertex->r = color.r;
-    out_vertex->g = color.g;
-    out_vertex->b = color.b;
+    out_vertex->u = texture_u;
+    out_vertex->v = texture_v;
 }
 
 static double renderer_opengl_cross_xz(const SceneVertex *first, const SceneVertex *second,
@@ -211,7 +160,9 @@ static int renderer_opengl_point_in_triangle_xz(const SceneVertex *point,
 }
 
 static int renderer_opengl_triangulate_polygon(const SceneGeometry *geometry,
-                                               RendererOpenGLColor color,
+                                               float texture_u_scale,
+                                               float texture_v_scale,
+                                               float texture_v_offset,
                                                RendererOpenGLVertex **out_vertices,
                                                uint32_t *out_vertex_count,
                                                char *error, size_t error_size)
@@ -296,9 +247,18 @@ static int renderer_opengl_triangulate_polygon(const SceneGeometry *geometry,
             if (contains_point) {
                 continue;
             }
-            renderer_opengl_make_vertex(&vertices[output_index++], first, color);
-            renderer_opengl_make_vertex(&vertices[output_index++], second, color);
-            renderer_opengl_make_vertex(&vertices[output_index++], third, color);
+            renderer_opengl_make_vertex(&vertices[output_index++], first,
+                                        (float)first->texture_u * texture_u_scale,
+                                        ((float)first->texture_v + texture_v_offset) *
+                                            texture_v_scale);
+            renderer_opengl_make_vertex(&vertices[output_index++], second,
+                                        (float)second->texture_u * texture_u_scale,
+                                        ((float)second->texture_v + texture_v_offset) *
+                                            texture_v_scale);
+            renderer_opengl_make_vertex(&vertices[output_index++], third,
+                                        (float)third->texture_u * texture_u_scale,
+                                        ((float)third->texture_v + texture_v_offset) *
+                                            texture_v_scale);
             memmove(&indices[ear_index], &indices[ear_index + 1u],
                     (size_t)(active_count - ear_index - 1u) * sizeof(*indices));
             --active_count;
@@ -314,14 +274,459 @@ static int renderer_opengl_triangulate_polygon(const SceneGeometry *geometry,
         }
     }
     renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[0u]],
-                                color);
+                                (float)geometry->vertices[indices[0u]].texture_u * texture_u_scale,
+                                ((float)geometry->vertices[indices[0u]].texture_v +
+                                 texture_v_offset) * texture_v_scale);
     renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[1u]],
-                                color);
+                                (float)geometry->vertices[indices[1u]].texture_u * texture_u_scale,
+                                ((float)geometry->vertices[indices[1u]].texture_v +
+                                 texture_v_offset) * texture_v_scale);
     renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[2u]],
-                                color);
+                                (float)geometry->vertices[indices[2u]].texture_u * texture_u_scale,
+                                ((float)geometry->vertices[indices[2u]].texture_v +
+                                 texture_v_offset) * texture_v_scale);
     free(indices);
     *out_vertices = vertices;
     *out_vertex_count = output_index;
+    return 1;
+}
+
+static uint16_t renderer_opengl_read_be16(const uint8_t *source)
+{
+    return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
+}
+
+static uint32_t renderer_opengl_read_be32(const uint8_t *source)
+{
+    return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
+           ((uint32_t)source[2] << 8) | source[3];
+}
+
+static int renderer_opengl_display_color(const uint8_t *palette, size_t palette_size,
+                                         uint8_t color_index, uint8_t out_color[4])
+{
+    size_t offset = (size_t)color_index * 6u;
+
+    if (!palette || offset > palette_size || 6u > palette_size - offset) {
+        return 0;
+    }
+    /* draw_Palette_vw stores 16-bit big-endian RGB components; the low bytes are RGB8. */
+    out_color[0] = palette[offset + 1u];
+    out_color[1] = palette[offset + 3u];
+    out_color[2] = palette[offset + 5u];
+    out_color[3] = UINT8_MAX;
+    return 1;
+}
+
+static int renderer_opengl_write_palette_texel(uint8_t *pixels, size_t pixel_offset,
+                                               const uint8_t *display_palette,
+                                               size_t display_palette_size,
+                                               uint8_t color_index, int transparent)
+{
+    if (!renderer_opengl_display_color(display_palette, display_palette_size, color_index,
+                                       pixels + pixel_offset)) {
+        return 0;
+    }
+    if (transparent) {
+        pixels[pixel_offset + 3u] = 0u;
+    }
+    return 1;
+}
+
+static int renderer_opengl_decode_wall_texture(const SceneMaterial *material,
+                                                const SceneTextureWindow *window,
+                                                uint8_t **out_pixels, uint16_t *out_width,
+                                                uint16_t *out_height, char *error,
+                                                size_t error_size)
+{
+    uint8_t *pixels;
+    uint16_t x;
+    uint16_t y;
+    size_t pixel_count;
+
+    if (!material || !window || !out_pixels || !out_width || !out_height ||
+        !material->source_bytes || material->source_byte_count < 2048u ||
+        !material->source_palette_bytes || material->source_palette_byte_count < 2048u ||
+        !material->source_display_palette_bytes || window->u_period == 0u ||
+        window->v_period == 0u ||
+        (size_t)window->u_period > SIZE_MAX / (size_t)window->v_period ||
+        (size_t)window->u_period * (size_t)window->v_period > SIZE_MAX / 4u) {
+        renderer_opengl_set_error(error, error_size, "source wall texture descriptor is invalid");
+        return 0;
+    }
+    pixel_count = (size_t)window->u_period * (size_t)window->v_period;
+    pixels = calloc(pixel_count, 4u);
+    if (!pixels) {
+        renderer_opengl_set_error(error, error_size, "source wall texture conversion allocation failed");
+        return 0;
+    }
+    for (y = 0u; y < window->v_period; ++y) {
+        for (x = 0u; x < window->u_period; ++x) {
+            uint16_t source_u = (uint16_t)(window->u_offset + x);
+            size_t strip_offset = 2048u + (size_t)(source_u / 3u) *
+                (size_t)window->v_period * 2u + (size_t)y * 2u;
+            uint8_t packed_texel;
+            uint8_t color_index;
+
+            if (strip_offset > material->source_byte_count ||
+                2u > material->source_byte_count - strip_offset) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source wall texture strip is outside its WAD asset");
+                return 0;
+            }
+            switch (source_u % 3u) {
+            case 0u:
+                packed_texel = (uint8_t)(material->source_bytes[strip_offset + 1u] & 31u);
+                break;
+            case 1u:
+                packed_texel = (uint8_t)((renderer_opengl_read_be16(
+                    material->source_bytes + strip_offset) >> 5u) & 31u);
+                break;
+            default:
+                packed_texel = (uint8_t)((material->source_bytes[strip_offset] >> 2u) & 31u);
+                break;
+            }
+            color_index = material->source_palette_bytes[(size_t)packed_texel * 2u];
+            if (!renderer_opengl_write_palette_texel(
+                    pixels, ((size_t)y * window->u_period + x) * 4u,
+                    material->source_display_palette_bytes,
+                    material->source_display_palette_byte_count, color_index,
+                    packed_texel == 0u)) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source wall palette references invalid display colour");
+                return 0;
+            }
+        }
+    }
+    *out_pixels = pixels;
+    *out_width = window->u_period;
+    *out_height = window->v_period;
+    return 1;
+}
+
+static int renderer_opengl_decode_flat_texture(const SceneMaterial *material,
+                                                uint8_t **out_pixels, uint16_t *out_width,
+                                                uint16_t *out_height, char *error,
+                                                size_t error_size)
+{
+    enum { LOGICAL_TILE_SIZE = 64u, TILE_ROW_STRIDE = 1024u, BASE_SHADE_ROW = 32u };
+    uint8_t *pixels;
+    uint16_t x;
+    uint16_t y;
+    size_t tile_offset;
+
+    if (!material || !out_pixels || !out_width || !out_height || !material->source_bytes ||
+        !material->source_palette_bytes || !material->source_display_palette_bytes ||
+        material->source_byte_count < LOGICAL_TILE_SIZE * TILE_ROW_STRIDE ||
+        material->source_palette_byte_count < (BASE_SHADE_ROW + 1u) * 256u) {
+        renderer_opengl_set_error(error, error_size, "source flat texture descriptor is invalid");
+        return 0;
+    }
+    pixels = malloc(LOGICAL_TILE_SIZE * LOGICAL_TILE_SIZE * 4u);
+    if (!pixels) {
+        renderer_opengl_set_error(error, error_size, "source flat texture conversion allocation failed");
+        return 0;
+    }
+    /*
+     * draw_FloorLine indexes the 64 KiB floortile lookup with its packed
+     * coordinate mask. A graph tile origin can cross the end of that source
+     * lookup, so preserve the source logical-address wrap instead of reading
+     * into an adjacent host allocation.
+     */
+    tile_offset = (size_t)material->source_asset_id % material->source_byte_count;
+    for (y = 0u; y < LOGICAL_TILE_SIZE; ++y) {
+        for (x = 0u; x < LOGICAL_TILE_SIZE; ++x) {
+            size_t source_offset = (tile_offset + (size_t)y * TILE_ROW_STRIDE +
+                                    (size_t)x * 4u) % material->source_byte_count;
+            uint8_t packed_texel = material->source_bytes[source_offset];
+            uint8_t color_index = material->source_palette_bytes[
+                BASE_SHADE_ROW * 256u + packed_texel];
+
+            if (!renderer_opengl_write_palette_texel(
+                    pixels, ((size_t)y * LOGICAL_TILE_SIZE + x) * 4u,
+                    material->source_display_palette_bytes,
+                    material->source_display_palette_byte_count, color_index, 0)) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source flat palette references invalid display colour");
+                return 0;
+            }
+        }
+    }
+    *out_pixels = pixels;
+    *out_width = LOGICAL_TILE_SIZE;
+    *out_height = LOGICAL_TILE_SIZE;
+    return 1;
+}
+
+static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
+                                                  uint8_t **out_pixels, uint16_t *out_width,
+                                                  uint16_t *out_height, char *error,
+                                                  size_t error_size)
+{
+    uint8_t *pixels;
+    uint16_t x;
+    uint16_t y;
+    uint16_t width;
+    uint16_t height;
+    size_t table_offset;
+
+    if (!sprite || !out_pixels || !out_width || !out_height || !sprite->source_bytes ||
+        !sprite->source_aux_bytes || !sprite->source_palette_bytes ||
+        !sprite->source_display_palette_bytes ||
+        sprite->source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP ||
+        sprite->frame_metrics.strip_count == 0u || sprite->frame_metrics.line_count == 0u ||
+        (size_t)sprite->frame_metrics.strip_count >
+            SIZE_MAX / (size_t)sprite->frame_metrics.line_count ||
+        (size_t)sprite->frame_metrics.strip_count * (size_t)sprite->frame_metrics.line_count >
+            SIZE_MAX / 4u) {
+        renderer_opengl_set_error(error, error_size, "source bitmap sprite descriptor is invalid");
+        return 0;
+    }
+    width = sprite->frame_metrics.strip_count;
+    height = sprite->frame_metrics.line_count;
+    table_offset = (size_t)sprite->frame_metrics.pointer_table_index * 4u;
+    if (table_offset > sprite->source_aux_byte_count ||
+        (size_t)width > (sprite->source_aux_byte_count - table_offset) / 4u) {
+        renderer_opengl_set_error(error, error_size, "source bitmap sprite PTR table is invalid");
+        return 0;
+    }
+    pixels = calloc((size_t)width * height, 4u);
+    if (!pixels) {
+        renderer_opengl_set_error(error, error_size, "source bitmap sprite conversion allocation failed");
+        return 0;
+    }
+    for (x = 0u; x < width; ++x) {
+        uint32_t source_pointer = renderer_opengl_read_be32(sprite->source_aux_bytes +
+                                                             table_offset + (size_t)x * 4u);
+        uint8_t pack = (uint8_t)(source_pointer >> 24u);
+        size_t column_offset = source_pointer & UINT32_C(0x00ffffff);
+
+        if (source_pointer == 0u) {
+            continue;
+        }
+        if (pack > 2u || column_offset > sprite->source_byte_count ||
+            sprite->frame_metrics.down_strip > UINT16_MAX - height ||
+            (size_t)sprite->frame_metrics.down_strip + height >
+                (sprite->source_byte_count - column_offset) / 2u) {
+            free(pixels);
+            renderer_opengl_set_error(error, error_size,
+                                      "source bitmap sprite WAD column is invalid");
+            return 0;
+        }
+        for (y = 0u; y < height; ++y) {
+            size_t word_offset = column_offset +
+                ((size_t)sprite->frame_metrics.down_strip + y) * 2u;
+            uint16_t packed_word = renderer_opengl_read_be16(sprite->source_bytes + word_offset);
+            uint8_t packed_texel;
+            uint8_t color_index;
+
+            switch (pack) {
+            case 0u:
+                packed_texel = (uint8_t)(packed_word & 31u);
+                break;
+            case 1u:
+                packed_texel = (uint8_t)((packed_word >> 5u) & 31u);
+                break;
+            default:
+                packed_texel = (uint8_t)((packed_word >> 2u) & 31u);
+                break;
+            }
+            if ((size_t)packed_texel * 2u + 2u > sprite->source_palette_byte_count) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source bitmap sprite palette is invalid");
+                return 0;
+            }
+            color_index = sprite->source_palette_bytes[(size_t)packed_texel * 2u];
+            if (!renderer_opengl_write_palette_texel(
+                    pixels, ((size_t)y * width + x) * 4u,
+                    sprite->source_display_palette_bytes,
+                    sprite->source_display_palette_byte_count, color_index,
+                    packed_texel == 0u)) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source bitmap palette references invalid display colour");
+                return 0;
+            }
+        }
+    }
+    *out_pixels = pixels;
+    *out_width = width;
+    *out_height = height;
+    return 1;
+}
+
+static int renderer_opengl_create_texture(const uint8_t *pixels, uint16_t width, uint16_t height,
+                                          int repeat, GLuint *out_texture, char *error,
+                                          size_t error_size)
+{
+    GLuint texture = 0u;
+
+    if (!pixels || !out_texture || width == 0u || height == 0u) {
+        renderer_opengl_set_error(error, error_size, "OpenGL texture conversion has invalid pixels");
+        return 0;
+    }
+    glGenTextures(1, &texture);
+    if (texture == 0u) {
+        renderer_opengl_set_error(error, error_size, "OpenGL texture allocation failed");
+        return 0;
+    }
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, repeat ? GL_REPEAT : GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    if (glGetError() != GL_NO_ERROR) {
+        glDeleteTextures(1, &texture);
+        renderer_opengl_set_error(error, error_size, "OpenGL texture upload failed");
+        return 0;
+    }
+    *out_texture = texture;
+    return 1;
+}
+
+static int renderer_opengl_texture_cache_reserve(RendererOpenGL *renderer, size_t capacity,
+                                                 char *error, size_t error_size)
+{
+    RendererOpenGLTexture *textures;
+
+    if (capacity <= renderer->texture_capacity) {
+        return 1;
+    }
+    if (capacity > SIZE_MAX / sizeof(*textures)) {
+        renderer_opengl_set_error(error, error_size, "OpenGL texture cache is too large");
+        return 0;
+    }
+    textures = realloc(renderer->textures, capacity * sizeof(*textures));
+    if (!textures) {
+        renderer_opengl_set_error(error, error_size, "OpenGL texture cache allocation failed");
+        return 0;
+    }
+    renderer->textures = textures;
+    renderer->texture_capacity = capacity;
+    return 1;
+}
+
+static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
+                                                 RendererOpenGLTextureKind kind,
+                                                 const SceneMaterial *material,
+                                                 const SceneTextureWindow *window,
+                                                 GLuint *out_texture, char *error,
+                                                 size_t error_size)
+{
+    uint8_t *pixels = NULL;
+    uint16_t width = 0u;
+    uint16_t height = 0u;
+    GLuint texture = 0u;
+    SceneTextureWindow key_window = {0};
+
+    if (!renderer || !material || !out_texture) {
+        renderer_opengl_set_error(error, error_size, "scene material texture request is invalid");
+        return 0;
+    }
+    if (window) {
+        key_window = *window;
+    }
+    for (size_t index = 0u; index < renderer->texture_count; ++index) {
+        const RendererOpenGLTexture *cached = &renderer->textures[index];
+
+        if (cached->kind == (uint8_t)kind && cached->source_bytes == material->source_bytes &&
+            cached->source_byte_count == material->source_byte_count &&
+            cached->source_palette_bytes == material->source_palette_bytes &&
+            cached->source_palette_byte_count == material->source_palette_byte_count &&
+            cached->source_display_palette_bytes == material->source_display_palette_bytes &&
+            cached->source_display_palette_byte_count ==
+                material->source_display_palette_byte_count &&
+            cached->source_asset_id == material->source_asset_id &&
+            memcmp(&cached->texture_window, &key_window, sizeof(key_window)) == 0) {
+            *out_texture = cached->texture;
+            return 1;
+        }
+    }
+    if ((kind == RENDERER_OPENGL_TEXTURE_WALL &&
+         !renderer_opengl_decode_wall_texture(material, window, &pixels, &width, &height,
+                                              error, error_size)) ||
+        (kind == RENDERER_OPENGL_TEXTURE_FLAT &&
+         !renderer_opengl_decode_flat_texture(material, &pixels, &width, &height, error,
+                                              error_size)) ||
+        !renderer_opengl_create_texture(pixels, width, height, 1, &texture, error, error_size)) {
+        free(pixels);
+        return 0;
+    }
+    free(pixels);
+    if (renderer->texture_count == renderer->texture_capacity &&
+        !renderer_opengl_texture_cache_reserve(
+            renderer, renderer->texture_capacity == 0u ?
+                RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY : renderer->texture_capacity * 2u,
+            error, error_size)) {
+        glDeleteTextures(1, &texture);
+        return 0;
+    }
+    renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
+        texture, material->source_bytes, material->source_byte_count, material->source_palette_bytes,
+        material->source_palette_byte_count, material->source_display_palette_bytes,
+        material->source_display_palette_byte_count, material->source_asset_id, key_window, {0},
+        (uint8_t)kind
+    };
+    *out_texture = texture;
+    return 1;
+}
+
+static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const SceneSprite *sprite,
+                                               GLuint *out_texture, char *error,
+                                               size_t error_size)
+{
+    uint8_t *pixels = NULL;
+    uint16_t width = 0u;
+    uint16_t height = 0u;
+    GLuint texture = 0u;
+
+    if (!renderer || !sprite || !out_texture) {
+        renderer_opengl_set_error(error, error_size, "scene bitmap sprite texture request is invalid");
+        return 0;
+    }
+    for (size_t index = 0u; index < renderer->texture_count; ++index) {
+        const RendererOpenGLTexture *cached = &renderer->textures[index];
+
+        if (cached->kind == RENDERER_OPENGL_TEXTURE_SPRITE &&
+            cached->source_bytes == sprite->source_bytes &&
+            cached->source_byte_count == sprite->source_byte_count &&
+            cached->source_palette_bytes == sprite->source_palette_bytes &&
+            cached->source_palette_byte_count == sprite->source_palette_byte_count &&
+            cached->source_display_palette_bytes == sprite->source_display_palette_bytes &&
+            cached->source_display_palette_byte_count == sprite->source_display_palette_byte_count &&
+            cached->source_asset_id == sprite->source_asset_id &&
+            memcmp(&cached->frame_metrics, &sprite->frame_metrics,
+                   sizeof(sprite->frame_metrics)) == 0) {
+            *out_texture = cached->texture;
+            return 1;
+        }
+    }
+    if (!renderer_opengl_decode_sprite_texture(sprite, &pixels, &width, &height, error, error_size) ||
+        !renderer_opengl_create_texture(pixels, width, height, 0, &texture, error, error_size)) {
+        free(pixels);
+        return 0;
+    }
+    free(pixels);
+    if (renderer->texture_count == renderer->texture_capacity &&
+        !renderer_opengl_texture_cache_reserve(
+            renderer, renderer->texture_capacity == 0u ?
+                RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY : renderer->texture_capacity * 2u,
+            error, error_size)) {
+        glDeleteTextures(1, &texture);
+        return 0;
+    }
+    renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
+        texture, sprite->source_bytes, sprite->source_byte_count, sprite->source_palette_bytes,
+        sprite->source_palette_byte_count, sprite->source_display_palette_bytes,
+        sprite->source_display_palette_byte_count, sprite->source_asset_id, {0},
+        sprite->frame_metrics, RENDERER_OPENGL_TEXTURE_SPRITE
+    };
+    *out_texture = texture;
     return 1;
 }
 
@@ -423,6 +828,8 @@ static int renderer_opengl_load_functions(RendererOpenGL *renderer, char *error,
     renderer->gl.get_uniform_location = glGetUniformLocation;
     renderer->gl.uniform_matrix_4fv = glUniformMatrix4fv;
     renderer->gl.uniform_1f = glUniform1f;
+    renderer->gl.uniform_1i = glUniform1i;
+    renderer->gl.active_texture = glActiveTexture;
     renderer->gl.gen_buffers = glGenBuffers;
     renderer->gl.delete_buffers = glDeleteBuffers;
     renderer->gl.bind_buffer = glBindBuffer;
@@ -457,6 +864,8 @@ static int renderer_opengl_load_functions(RendererOpenGL *renderer, char *error,
     RENDERER_OPENGL_LOAD(get_uniform_location, "glGetUniformLocation");
     RENDERER_OPENGL_LOAD(uniform_matrix_4fv, "glUniformMatrix4fv");
     RENDERER_OPENGL_LOAD(uniform_1f, "glUniform1f");
+    RENDERER_OPENGL_LOAD(uniform_1i, "glUniform1i");
+    RENDERER_OPENGL_LOAD(active_texture, "glActiveTexture");
     RENDERER_OPENGL_LOAD(gen_buffers, "glGenBuffers");
     RENDERER_OPENGL_LOAD(delete_buffers, "glDeleteBuffers");
     RENDERER_OPENGL_LOAD(bind_buffer, "glBindBuffer");
@@ -505,24 +914,34 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
 {
     static const char vertex_source[] =
         "attribute vec3 a_position;\n"
-        "attribute vec3 a_color;\n"
+        "attribute vec2 a_texture_coordinate;\n"
         "uniform mat4 u_view_projection;\n"
         "uniform float u_point_size;\n"
-        "varying vec3 v_color;\n"
+        "varying vec2 v_texture_coordinate;\n"
         "void main() {\n"
         "  gl_Position = u_view_projection * vec4(a_position, 1.0);\n"
         "  gl_PointSize = u_point_size;\n"
-        "  v_color = a_color;\n"
+        "  v_texture_coordinate = a_texture_coordinate;\n"
         "}\n";
 #if defined(__EMSCRIPTEN__)
     static const char fragment_source[] =
         "precision mediump float;\n"
-        "varying vec3 v_color;\n"
-        "void main() { gl_FragColor = vec4(v_color, 1.0); }\n";
+        "varying vec2 v_texture_coordinate;\n"
+        "uniform sampler2D u_texture;\n"
+        "void main() {\n"
+        "  vec4 color = texture2D(u_texture, v_texture_coordinate);\n"
+        "  if (color.a < 0.5) discard;\n"
+        "  gl_FragColor = color;\n"
+        "}\n";
 #else
     static const char fragment_source[] =
-        "varying vec3 v_color;\n"
-        "void main() { gl_FragColor = vec4(v_color, 1.0); }\n";
+        "varying vec2 v_texture_coordinate;\n"
+        "uniform sampler2D u_texture;\n"
+        "void main() {\n"
+        "  vec4 color = texture2D(u_texture, v_texture_coordinate);\n"
+        "  if (color.a < 0.5) discard;\n"
+        "  gl_FragColor = color;\n"
+        "}\n";
 #endif
     GLuint vertex_shader = 0u;
     GLuint fragment_shader = 0u;
@@ -553,8 +972,9 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
     renderer->gl.attach_shader(renderer->program, fragment_shader);
     renderer->gl.bind_attrib_location(renderer->program, RENDERER_OPENGL_POSITION_ATTRIBUTE,
                                       "a_position");
-    renderer->gl.bind_attrib_location(renderer->program, RENDERER_OPENGL_COLOR_ATTRIBUTE,
-                                      "a_color");
+    renderer->gl.bind_attrib_location(renderer->program,
+                                      RENDERER_OPENGL_TEXTURE_COORDINATE_ATTRIBUTE,
+                                      "a_texture_coordinate");
     renderer->gl.link_program(renderer->program);
     renderer->gl.delete_shader(fragment_shader);
     renderer->gl.delete_shader(vertex_shader);
@@ -575,7 +995,9 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         renderer->gl.get_uniform_location(renderer->program, "u_view_projection");
     renderer->point_size_uniform = renderer->gl.get_uniform_location(renderer->program,
                                                                        "u_point_size");
-    if (renderer->view_projection_uniform < 0 || renderer->point_size_uniform < 0) {
+    renderer->texture_uniform = renderer->gl.get_uniform_location(renderer->program, "u_texture");
+    if (renderer->view_projection_uniform < 0 || renderer->point_size_uniform < 0 ||
+        renderer->texture_uniform < 0) {
         renderer->gl.delete_program(renderer->program);
         renderer->program = 0u;
         renderer_opengl_set_error(error, error_size, "OpenGL shader uniforms are unavailable");
@@ -608,9 +1030,10 @@ static int renderer_opengl_draw_vertices(RendererOpenGL *renderer,
     renderer->gl.buffer_data(GL_ARRAY_BUFFER, (ptrdiff_t)byte_count, vertices, GL_STREAM_DRAW);
     renderer->gl.vertex_attrib_pointer(RENDERER_OPENGL_POSITION_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE,
                                        (GLsizei)sizeof(*vertices), (const void *)0);
-    renderer->gl.vertex_attrib_pointer(RENDERER_OPENGL_COLOR_ATTRIBUTE, 3, GL_FLOAT, GL_FALSE,
+    renderer->gl.vertex_attrib_pointer(RENDERER_OPENGL_TEXTURE_COORDINATE_ATTRIBUTE, 2, GL_FLOAT,
+                                       GL_FALSE,
                                        (GLsizei)sizeof(*vertices),
-                                       (const void *)offsetof(RendererOpenGLVertex, r));
+                                       (const void *)offsetof(RendererOpenGLVertex, u));
     glDrawArrays(mode, 0, (GLsizei)vertex_count);
     if (glGetError() != GL_NO_ERROR) {
         renderer_opengl_set_error(error, error_size, "OpenGL draw command failed");
@@ -619,20 +1042,59 @@ static int renderer_opengl_draw_vertices(RendererOpenGL *renderer,
     return 1;
 }
 
+static int32_t renderer_opengl_asr32_8(int32_t value)
+{
+    if (value >= 0) {
+        return value >> 8u;
+    }
+    return -((-(int64_t)value + 255) >> 8u);
+}
+
 static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
+                                         const SceneMaterial *material,
                                          const SceneGeometry *geometry,
+                                         const SceneCamera *camera,
                                          char *error, size_t error_size)
 {
-    RendererOpenGLColor color;
     RendererOpenGLVertex *vertices = NULL;
     uint32_t vertex_count;
+    RendererOpenGLTextureKind texture_kind;
+    GLuint texture;
+    float texture_u_scale;
+    float texture_v_scale;
+    float texture_v_offset = 0.0f;
     int result;
 
-    if (!geometry->vertices) {
-        renderer_opengl_set_error(error, error_size, "scene geometry has no vertices");
+    if (!material || !geometry || !camera || !geometry->vertices) {
+        renderer_opengl_set_error(error, error_size, "scene geometry has no material, camera, or vertices");
         return 0;
     }
-    color = renderer_opengl_geometry_color(geometry);
+    if (geometry->primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
+        uint16_t wall_height_mask;
+
+        if (geometry->texture_window.u_period == 0u || geometry->texture_window.v_period == 0u) {
+            renderer_opengl_set_error(error, error_size, "scene wall geometry has no source texture window");
+            return 0;
+        }
+        texture_kind = RENDERER_OPENGL_TEXTURE_WALL;
+        texture_u_scale = 1.0f / (float)geometry->texture_window.u_period;
+        texture_v_scale = 1.0f / (float)geometry->texture_window.v_period;
+        wall_height_mask = (uint16_t)(geometry->texture_window.v_period - 1u);
+        texture_v_offset = (float)((renderer_opengl_asr32_8(camera->position.y) + 224) &
+                                   wall_height_mask);
+    } else {
+        texture_kind = RENDERER_OPENGL_TEXTURE_FLAT;
+        texture_u_scale = 1.0f / 64.0f;
+        texture_v_scale = 1.0f / 64.0f;
+    }
+    if (!renderer_opengl_find_material_texture(renderer, texture_kind, material,
+                                               texture_kind == RENDERER_OPENGL_TEXTURE_WALL ?
+                                                   &geometry->texture_window : NULL,
+                                               &texture, error, error_size)) {
+        return 0;
+    }
+    renderer->gl.active_texture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
     if (geometry->topology == SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST) {
         if (geometry->vertex_count == 0u || geometry->vertex_count % 3u != 0u ||
             (size_t)geometry->vertex_count > SIZE_MAX / sizeof(*vertices)) {
@@ -645,11 +1107,16 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
             return 0;
         }
         for (uint32_t index = 0u; index < geometry->vertex_count; ++index) {
-            renderer_opengl_make_vertex(&vertices[index], &geometry->vertices[index], color);
+            renderer_opengl_make_vertex(&vertices[index], &geometry->vertices[index],
+                                        (float)geometry->vertices[index].texture_u *
+                                            texture_u_scale,
+                                        ((float)geometry->vertices[index].texture_v +
+                                         texture_v_offset) * texture_v_scale);
         }
         vertex_count = geometry->vertex_count;
     } else if (geometry->topology == SCENE_GEOMETRY_TOPOLOGY_POLYGON_BOUNDARY) {
-        if (!renderer_opengl_triangulate_polygon(geometry, color, &vertices, &vertex_count,
+        if (!renderer_opengl_triangulate_polygon(geometry, texture_u_scale, texture_v_scale,
+                                                 texture_v_offset, &vertices, &vertex_count,
                                                  error, error_size)) {
             return 0;
         }
@@ -663,18 +1130,69 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
     return result;
 }
 
-static int renderer_opengl_draw_sprite_marker(RendererOpenGL *renderer,
-                                              const SceneSprite *sprite,
-                                              char *error, size_t error_size)
+static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSprite *sprite,
+                                       const SceneCamera *camera, char *error,
+                                       size_t error_size)
 {
-    RendererOpenGLVertex vertex;
-    RendererOpenGLColor color = renderer_opengl_sprite_color(sprite);
+    RendererOpenGLVertex vertices[6];
+    GLuint texture;
+    float center_x;
+    float center_y;
+    float center_z;
+    float yaw;
+    float right_x;
+    float right_z;
+    float half_width;
+    float half_height;
+    float left_u;
+    float right_u;
+    int result;
 
-    renderer_opengl_world_point(&sprite->position, &vertex.x, &vertex.y, &vertex.z);
-    vertex.r = color.r;
-    vertex.g = color.g;
-    vertex.b = color.b;
-    return renderer_opengl_draw_vertices(renderer, &vertex, 1u, GL_POINTS, error, error_size);
+    if (!sprite || !camera) {
+        renderer_opengl_set_error(error, error_size, "scene sprite has no camera or descriptor");
+        return 0;
+    }
+    /* Vector and glare draw paths need their own source routines; do not substitute markers. */
+    if (sprite->source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP || sprite->source_width == 0u ||
+        sprite->source_height == 0u) {
+        return 1;
+    }
+    if (!renderer_opengl_find_sprite_texture(renderer, sprite, &texture, error, error_size)) {
+        return 0;
+    }
+    renderer_opengl_world_point(&sprite->position, &center_x, &center_y, &center_z);
+    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 16384.0f);
+    right_x = cosf(yaw);
+    right_z = -sinf(yaw);
+    /* objdrawhires.s applies its auxiliary bitmap offsets in 128 source units. */
+    center_x += right_x * (float)sprite->source_aux_offset_x * 0.5f;
+    center_z += right_z * (float)sprite->source_aux_offset_x * 0.5f;
+    center_y -= (float)sprite->source_aux_offset_y * 0.5f;
+    half_width = (float)sprite->source_width * 0.5f;
+    half_height = (float)sprite->source_height * 0.5f;
+    left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ? 1.0f : 0.0f;
+    right_u = 1.0f - left_u;
+    vertices[0] = (RendererOpenGLVertex){center_x - right_x * half_width, center_y + half_height,
+                                          center_z - right_z * half_width, left_u, 0.0f};
+    vertices[1] = (RendererOpenGLVertex){center_x + right_x * half_width, center_y + half_height,
+                                          center_z + right_z * half_width, right_u, 0.0f};
+    vertices[2] = (RendererOpenGLVertex){center_x + right_x * half_width, center_y - half_height,
+                                          center_z + right_z * half_width, right_u, 1.0f};
+    vertices[3] = vertices[0];
+    vertices[4] = vertices[2];
+    vertices[5] = (RendererOpenGLVertex){center_x - right_x * half_width, center_y - half_height,
+                                          center_z - right_z * half_width, left_u, 1.0f};
+    renderer->gl.active_texture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    if ((sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u) {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_ONE, GL_ONE);
+    }
+    result = renderer_opengl_draw_vertices(renderer, vertices, 6u, GL_TRIANGLES, error, error_size);
+    if ((sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u) {
+        glDisable(GL_BLEND);
+    }
+    return result;
 }
 
 RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
@@ -740,7 +1258,8 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     }
     renderer->gl.use_program(renderer->program);
     renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_POSITION_ATTRIBUTE);
-    renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_COLOR_ATTRIBUTE);
+    renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_TEXTURE_COORDINATE_ATTRIBUTE);
+    renderer->gl.uniform_1i(renderer->texture_uniform, 0);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_CULL_FACE);
@@ -757,6 +1276,11 @@ void renderer_opengl_destroy(RendererOpenGL *renderer)
         return;
     }
     if (renderer->context) {
+        for (size_t index = 0u; index < renderer->texture_count; ++index) {
+            if (renderer->textures[index].texture != 0u) {
+                glDeleteTextures(1, &renderer->textures[index].texture);
+            }
+        }
         if (renderer->vertex_buffer != 0u && renderer->gl.delete_buffers) {
             renderer->gl.delete_buffers(1, &renderer->vertex_buffer);
         }
@@ -765,6 +1289,7 @@ void renderer_opengl_destroy(RendererOpenGL *renderer)
         }
         SDL_GL_DeleteContext(renderer->context);
     }
+    free(renderer->textures);
     SDL_DestroyWindow(renderer->window);
     free(renderer);
 }
@@ -773,6 +1298,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                             const RenderView *view, char *error, size_t error_size)
 {
     const SceneCamera *camera = NULL;
+    const SceneMaterial *active_material = NULL;
     float view_projection[16];
     int drawable_width;
     int drawable_height;
@@ -803,20 +1329,26 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
     renderer->gl.uniform_matrix_4fv(renderer->view_projection_uniform, 1, GL_FALSE,
                                     view_projection);
     renderer->gl.uniform_1f(renderer->point_size_uniform, 10.0f);
+    renderer->gl.uniform_1i(renderer->texture_uniform, 0);
+    renderer->gl.active_texture(GL_TEXTURE0);
     for (size_t index = 0u; index < frame->count; ++index) {
         const SceneCommand *command = &frame->commands[index];
 
-        if (command->type == SCENE_COMMAND_GEOMETRY &&
-            !renderer_opengl_draw_geometry(renderer, &command->data.geometry, error, error_size)) {
-            return 0;
+        if (command->type == SCENE_COMMAND_MATERIAL) {
+            active_material = &command->data.material;
+        } else if (command->type == SCENE_COMMAND_GEOMETRY) {
+            if (!renderer_opengl_draw_geometry(renderer, active_material, &command->data.geometry,
+                                               camera, error, error_size)) {
+                return 0;
+            }
         }
     }
     for (size_t index = 0u; index < frame->count; ++index) {
         const SceneCommand *command = &frame->commands[index];
 
         if (command->type == SCENE_COMMAND_SPRITE &&
-            !renderer_opengl_draw_sprite_marker(renderer, &command->data.sprite, error,
-                                                error_size)) {
+            !renderer_opengl_draw_sprite(renderer, &command->data.sprite, camera, error,
+                                         error_size)) {
             return 0;
         }
     }

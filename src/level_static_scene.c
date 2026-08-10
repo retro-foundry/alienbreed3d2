@@ -76,14 +76,72 @@ static int level_static_scene_count_primitives(const LevelRuntime *runtime,
     return 1;
 }
 
-static void level_static_scene_set_vertex(SceneVertex *vertex, int16_t x, int32_t y, int16_t z)
+static void level_static_scene_set_vertex(SceneVertex *vertex, int16_t x, int32_t y, int16_t z,
+                                          int32_t texture_u, int32_t texture_v)
 {
     vertex->position.x = x;
     vertex->position.y = y;
     vertex->position.z = z;
-    /* UVs remain explicitly unresolved in the submitted geometry flags. */
-    vertex->texture_u = 0;
-    vertex->texture_v = 0;
+    vertex->texture_u = texture_u;
+    vertex->texture_v = texture_v;
+}
+
+/*
+ * hires.s:pastsides increments the authored scale by SMALLIT: one for solid
+ * floors/ceilings and two for water. The source applies the resulting shift
+ * to X and Z before its 64x64 logical-tile lookup.
+ */
+static int level_static_scene_flat_source_scale(SceneGeometryPrimitive primitive,
+                                                int16_t texture_scale,
+                                                int8_t *out_scale)
+{
+    int32_t source_scale = (int32_t)texture_scale +
+        (primitive == SCENE_GEOMETRY_PRIMITIVE_WATER ? 2 : 1);
+
+    if (!out_scale || source_scale < -31 || source_scale >= 32) {
+        return 0;
+    }
+    *out_scale = (int8_t)source_scale;
+    return 1;
+}
+
+static int32_t level_static_scene_flat_texture_coordinate(int16_t coordinate, int8_t scale)
+{
+    if (scale >= 0) {
+        return (int32_t)((uint32_t)(int32_t)coordinate << (uint8_t)scale);
+    }
+    if (coordinate >= 0) {
+        return coordinate >> (uint8_t)-scale;
+    }
+    return -((-(int32_t)coordinate +
+              (int32_t)((UINT32_C(1) << (uint8_t)-scale) - 1u)) >>
+             (uint8_t)-scale);
+}
+
+static void level_static_scene_set_wall_vertices(LevelStaticWallScene *scene_wall,
+                                                 const LevelDrawWall *wall,
+                                                 const LevelWorldPoint *left_point,
+                                                 const LevelWorldPoint *right_point)
+{
+    int32_t texture_u_end = wall->texture_u_end;
+    int32_t texture_v_top = wall->texture_y_offset;
+    int32_t texture_v_bottom = texture_v_top + (int32_t)wall->texture_height_mask + 1;
+
+    scene_wall->texture_window.u_offset = (uint16_t)(wall->texture_u_tile << 4u);
+    scene_wall->texture_window.u_period = (uint16_t)wall->texture_width_mask + 1u;
+    scene_wall->texture_window.v_period = (uint16_t)wall->texture_height_mask + 1u;
+    level_static_scene_set_vertex(&scene_wall->vertices[0], left_point->x, wall->top,
+                                  left_point->z, 0, texture_v_top);
+    level_static_scene_set_vertex(&scene_wall->vertices[1], right_point->x, wall->top,
+                                  right_point->z, texture_u_end, texture_v_top);
+    level_static_scene_set_vertex(&scene_wall->vertices[2], right_point->x, wall->bottom,
+                                  right_point->z, texture_u_end, texture_v_bottom);
+    level_static_scene_set_vertex(&scene_wall->vertices[3], left_point->x, wall->top,
+                                  left_point->z, 0, texture_v_top);
+    level_static_scene_set_vertex(&scene_wall->vertices[4], right_point->x, wall->bottom,
+                                  right_point->z, texture_u_end, texture_v_bottom);
+    level_static_scene_set_vertex(&scene_wall->vertices[5], left_point->x, wall->bottom,
+                                  left_point->z, 0, texture_v_bottom);
 }
 
 static int level_static_scene_flat_primitive(uint8_t draw_graph_type,
@@ -222,18 +280,8 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                     scene_wall = &scene.walls[wall_index++];
                     scene_wall->material_id = wall.texture_id;
                     scene_wall->source_record_offset = record.source_offset;
-                    level_static_scene_set_vertex(&scene_wall->vertices[0], left_point.x, wall.top,
-                                                  left_point.z);
-                    level_static_scene_set_vertex(&scene_wall->vertices[1], right_point.x, wall.top,
-                                                  right_point.z);
-                    level_static_scene_set_vertex(&scene_wall->vertices[2], right_point.x, wall.bottom,
-                                                  right_point.z);
-                    level_static_scene_set_vertex(&scene_wall->vertices[3], left_point.x, wall.top,
-                                                  left_point.z);
-                    level_static_scene_set_vertex(&scene_wall->vertices[4], right_point.x, wall.bottom,
-                                                  right_point.z);
-                    level_static_scene_set_vertex(&scene_wall->vertices[5], left_point.x, wall.bottom,
-                                                  left_point.z);
+                    level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point,
+                                                         &right_point);
                     continue;
                 }
                 if (record.type == LEVEL_DRAW_GRAPH_TYPE_FLOOR ||
@@ -241,6 +289,7 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                     record.type == LEVEL_DRAW_GRAPH_TYPE_WATER) {
                     LevelStaticFlatScene *scene_flat;
                     uint16_t point_index;
+                    int8_t source_scale;
 
                     if (!level_draw_graph_read_flat(runtime, &record, &flat, error, error_size)) {
                         goto fail;
@@ -260,10 +309,9 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                         goto fail;
                     }
                     scene_flat = &scene.flats[flat_index++];
-                    if (flat.point_count > SIZE_MAX / sizeof(*scene_flat->vertices) ||
-                        !level_static_scene_flat_primitive(record.type, &scene_flat->primitive)) {
+                    if (!level_static_scene_flat_primitive(record.type, &scene_flat->primitive)) {
                         level_static_scene_set_error(error, error_size,
-                                                     "flat geometry allocation is too large or has an invalid type");
+                                                     "flat geometry has an invalid source primitive type");
                         goto fail;
                     }
                     scene_flat->vertices = calloc(flat.point_count, sizeof(*scene_flat->vertices));
@@ -278,6 +326,13 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                     scene_flat->source_record_byte_count = record.byte_count;
                     scene_flat->texture_scale = flat.texture_scale;
                     scene_flat->brightness_offset = flat.brightness_offset;
+                    if (!level_static_scene_flat_source_scale(scene_flat->primitive,
+                                                               flat.texture_scale,
+                                                               &source_scale)) {
+                        level_static_scene_set_error(error, error_size,
+                                                     "flat texture scale is outside source shift range");
+                        goto fail;
+                    }
                     for (point_index = 0u; point_index < flat.point_count; ++point_index) {
                         uint16_t raw_point_word;
                         uint16_t world_point_index;
@@ -292,7 +347,11 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                         }
                         level_static_scene_set_vertex(&scene_flat->vertices[point_index],
                                                       world_point.x, (int32_t)flat.height * 64,
-                                                      world_point.z);
+                                                      world_point.z,
+                                                      level_static_scene_flat_texture_coordinate(
+                                                          world_point.x, source_scale),
+                                                      level_static_scene_flat_texture_coordinate(
+                                                          world_point.z, source_scale));
                     }
                 }
             }
@@ -352,24 +411,14 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
             return 0;
         }
         scene_wall->material_id = wall.texture_id;
-        level_static_scene_set_vertex(&scene_wall->vertices[0], left_point.x, wall.top,
-                                      left_point.z);
-        level_static_scene_set_vertex(&scene_wall->vertices[1], right_point.x, wall.top,
-                                      right_point.z);
-        level_static_scene_set_vertex(&scene_wall->vertices[2], right_point.x, wall.bottom,
-                                      right_point.z);
-        level_static_scene_set_vertex(&scene_wall->vertices[3], left_point.x, wall.top,
-                                      left_point.z);
-        level_static_scene_set_vertex(&scene_wall->vertices[4], right_point.x, wall.bottom,
-                                      right_point.z);
-        level_static_scene_set_vertex(&scene_wall->vertices[5], left_point.x, wall.bottom,
-                                      left_point.z);
+        level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point, &right_point);
     }
     for (flat_index = 0u; flat_index < scene->flat_count; ++flat_index) {
         LevelStaticFlatScene *scene_flat = &scene->flats[flat_index];
         LevelDrawGraphRecord record;
         LevelDrawFlat flat;
         uint8_t draw_graph_type;
+        int8_t source_scale;
         int flat_read;
 
         if (!level_static_scene_draw_graph_type_for_primitive(scene_flat->primitive,
@@ -398,6 +447,12 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
         scene_flat->material_id = flat.texture_offset;
         scene_flat->texture_scale = flat.texture_scale;
         scene_flat->brightness_offset = flat.brightness_offset;
+        if (!level_static_scene_flat_source_scale(scene_flat->primitive, flat.texture_scale,
+                                                   &source_scale)) {
+            level_static_scene_set_error(error, error_size,
+                                         "dynamic flat texture scale is outside source shift range");
+            return 0;
+        }
         for (uint16_t point_index = 0u; point_index < flat.point_count; ++point_index) {
             uint16_t raw_point_word;
             uint16_t world_point_index;
@@ -410,7 +465,11 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
                 return 0;
             }
             level_static_scene_set_vertex(&scene_flat->vertices[point_index], world_point.x,
-                                          (int32_t)flat.height * 64, world_point.z);
+                                          (int32_t)flat.height * 64, world_point.z,
+                                          level_static_scene_flat_texture_coordinate(
+                                              world_point.x, source_scale),
+                                          level_static_scene_flat_texture_coordinate(
+                                              world_point.z, source_scale));
         }
     }
     return 1;

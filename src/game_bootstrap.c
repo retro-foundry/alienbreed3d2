@@ -547,7 +547,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     game->active_level_index = 0;
 }
 
-int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame *frame)
+int game_bootstrap_submit_scene_frame(const GameBootstrap *game, SceneFrame *frame)
 {
     static const char menu_status[] = "AB3D2 PC: single-player menu state ready";
     static const char level_status[] = "AB3D2 PC: source level loaded";
@@ -592,7 +592,8 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
                 game_bootstrap_wall_material_asset(game, wall->material_id);
 
             if (!material_asset || !material_asset->bytes ||
-                material_asset->size < AB3D2_WALL_PALETTE_BYTE_COUNT) {
+                material_asset->size < AB3D2_WALL_PALETTE_BYTE_COUNT ||
+                !game->shared_resources.main_palette.bytes) {
                 return 0;
             }
 
@@ -604,6 +605,10 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             command.data.material.source_byte_count = material_asset->size;
             command.data.material.source_palette_bytes = material_asset->bytes;
             command.data.material.source_palette_byte_count = AB3D2_WALL_PALETTE_BYTE_COUNT;
+            command.data.material.source_display_palette_bytes =
+                game->shared_resources.main_palette.bytes;
+            command.data.material.source_display_palette_byte_count =
+                game->shared_resources.main_palette.size;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
@@ -614,7 +619,8 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             command.data.geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_WALL;
             command.data.geometry.material_id = wall->material_id;
             command.data.geometry.source_record_id = wall->source_record_offset;
-            command.data.geometry.flags = SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED;
+            command.data.geometry.texture_window = wall->texture_window;
+            command.data.geometry.flags = 0u;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
@@ -625,7 +631,8 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             const AssetBlob *material_asset = game_bootstrap_floor_material_asset(game);
 
             if (!material_asset || !material_asset->bytes ||
-                !game->shared_resources.texture_palette.bytes) {
+                !game->shared_resources.texture_palette.bytes ||
+                !game->shared_resources.main_palette.bytes) {
                 return 0;
             }
 
@@ -638,6 +645,10 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             command.data.material.source_palette_bytes = game->shared_resources.texture_palette.bytes;
             command.data.material.source_palette_byte_count =
                 game->shared_resources.texture_palette.size;
+            command.data.material.source_display_palette_bytes =
+                game->shared_resources.main_palette.bytes;
+            command.data.material.source_display_palette_byte_count =
+                game->shared_resources.main_palette.size;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
@@ -648,7 +659,9 @@ int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame
             command.data.geometry.primitive = flat->primitive;
             command.data.geometry.material_id = flat->material_id;
             command.data.geometry.source_record_id = flat->source_record_offset;
-            command.data.geometry.flags = SCENE_GEOMETRY_TEXTURE_COORDS_UNRESOLVED;
+            memset(&command.data.geometry.texture_window, 0,
+                   sizeof(command.data.geometry.texture_window));
+            command.data.geometry.flags = 0u;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }

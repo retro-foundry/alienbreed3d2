@@ -42,9 +42,18 @@ authority for all game behavior and data formats.
   uses a GLES 2 shader subset under Emscripten/WebGL. It consumes source camera
   yaw and complete `SceneFrame` geometry, triangulates source polygon
   boundaries with ear clipping instead of a fan shortcut, depth-renders every
-  wall/floor/ceiling/water command, and renders live source object origins as
-  depth-tested markers. It deliberately ignores HUD commands because UI
+  wall/floor/ceiling/water command, and renders normal live bitmap objects as
+  camera-facing source frames. It deliberately ignores HUD commands because UI
   is outside this scope.
+- [x] `SceneMaterial` and `SceneSprite` include the exact shared `256pal`
+  display palette. The backend converts the source wall palette prefix and
+  packed 5-bit wall strips, `floortile` plus row-32 `newtexturemaps.pal`, and
+  normal object WAD/PTR frame columns to repeat/clamped RGBA GPU textures.
+- [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
+  source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
+  carries that texture window, including the source player-height V phase.
+  `hires.s:pastsides`' signed scale plus `SMALLIT` now produces the flat
+  source texel coordinates for floor, ceiling, and water geometry.
 - [x] Native `src/render_view.*` receives mouse-Y motion in parallel with the
   maintained `modules/player.s:plr_MouseControl` input, preserving source
   simulation while adding a clamped real 3D pitch. Its focused regression
@@ -54,11 +63,11 @@ authority for all game behavior and data formats.
   browser-safe main loop, and preloads the lower-case `stage_media.py` asset
   tree as `/data`.
 
-Source texture-coordinate mapping and WAD/PTR/vector decoding remain
-unresolved in `SceneFrame`; the visible backend therefore uses deliberately
-labelled diagnostic primitive/material colours and source-object markers,
-not invented textured art. A later renderer phase can replace those visual
-diagnostics after source format evidence is established.
+The current texture pass deliberately does not emulate the source's dynamic
+brightness/shade-row selection, vector-model path, glare-specific bitmap
+blend path, or HUD glyph renderer. Those source-owned paths remain deferred;
+the visible world and normal bitmap objects no longer use diagnostic colours
+or markers.
 
 ## Earlier direct-gameplay scope audit (superseded by GPU presentation work)
 
@@ -415,9 +424,11 @@ multiplayer work is planned.
   override source; each command carries the exact selected source bytes plus
   the palette bytes selected by the source renderer: the 2,048-byte wall
   prefix from `hireswall.s:Draw_Wall` or the shared floor texture palette from
-  `Res_LoadFloorsAndTextures`. Conversion/upload remains backend-owned. Every
-  surface intentionally flags UVs as unresolved rather than fabricating a
-  software-renderer approximation. The complete-level allocation is retained
+  `Res_LoadFloorsAndTextures`, plus `draw_Palette_vw`'s common RGB palette.
+  `hireswall.s:Draw_Wall`'s packed-WAD window and `pastsides`' signed scale
+  are carried as demonstrated source texture coordinates, so backend upload
+  remains source-format-owned rather than software-renderer emulation. The
+  complete-level allocation is retained
   while `level_static_scene_apply_runtime` refreshes its geometry and material
   IDs from the mutable source draw graph after door, lift, and water updates;
   it rejects a source topology change rather than silently substituting native
@@ -497,18 +508,13 @@ multiplayer work is planned.
   minimal status presenter formerly exposed live level, zone, and camera
   coordinates; the current OpenGL/WebGL presenter supersedes that path while
   menus remain deferred.
-- [ ] Before resolving textured world geometry, establish the source-to-GPU
-  texture-coordinate mapping for each primitive. `src/level_draw_graph.*` has
-  now proven every active cursor boundary in the shipped streams: type 3 and
-  other ignored tags advance by their tag word exactly as maintained
-  `draw_zone_graph.s` does. `hireswall.s` establishes wall endpoints, vertical
-  bounds, and material ID, but its screen-space perspective texture-coordinate
-  calculation must not be replaced by invented UVs. Decode that mapping before
-  clearing the unresolved-UV flag
-  on wall commands; `Draw_Flats`' scale and floor-texture byte offset must
-  likewise become an evidence-backed GPU mapping. The active-object sprite
-  descriptor boundary is now evidenced and emitted; a backend still needs to
-  decode WAD/PTR/vector contents without a software-renderer fallback.
+- [x] The source-to-GPU world texture mapping is established without porting
+  the software rasterizer: `Draw_Wall`'s texture extent/tile/origin words,
+  packed three-texel strips, and player-height vertical phase generate the
+  wall texture window; `Draw_Flats`' signed scale and `SMALLIT` generate the
+  repeating 64x64 floor, ceiling, and water coordinates. Normal object bitmap
+  WAD/PTR frames also decode to billboards. Vector and glare paths remain
+  explicitly deferred until their owning source draw routines are traced.
 
 - CMake builds `ab3d2` with SDL2 on the three desktop platforms.
 - `tools/stage_media.py` copies the authoritative `amiga/media` bytes into an
@@ -694,7 +700,7 @@ multiplayer work is planned.
      A renderer is allowed to draw all loaded level geometry every frame.
    - Select and implement the modern GPU API separately, consuming only the
      public scene-frame contract. It owns resource upload, shaders, projection,
-     culling implementation, presentation, and diagnostics.
+     culling implementation and presentation.
 
 ## Validation rules
 
@@ -1084,14 +1090,14 @@ PVS traversal, and portal-order rendering remain out of scope by design.
    - [x] `renderer.h` keeps backend choice and lifecycle out of gameplay code;
      `renderer_opengl.c` implements OpenGL 2.1 desktop and GLES 2/WebGL.
    - [x] It depth-renders every submitted loaded-level primitive in a complete
-     level pass, safely triangulates flat boundaries, and draws source object
-     positions. It requires neither visibility culling, PVS, nor portals.
+     level pass, safely triangulates flat boundaries, and decodes the source
+     wall/flat palettes and normal object bitmap frames into GPU textures. It
+     requires neither visibility culling, PVS, nor portals.
    - [x] `render_view.*` adds user-requested real mouse-look pitch while
      source yaw/input simulation remains unchanged.
-   - Before textured/art-complete presentation, convert material palettes,
-     demonstrated source UV mapping, WAD/PTR bitmap frames, vectors, and
-     glyphs from their owning source routines. Do not present diagnostic
-     colours/markers as source-fidelity art, and keep HUD/UI out until asked.
+   - Before art-complete presentation, trace dynamic source brightness,
+     vector models, glare bitmap blending, and glyphs from their owning source
+     routines. Keep HUD/UI out until asked.
 
 2. **Keep deferred source event outputs out of the current path**
    - Do not spend implementation time on original sound-effect/music event
