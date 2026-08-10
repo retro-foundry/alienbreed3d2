@@ -142,11 +142,12 @@ authority for all game behavior and data formats.
   in that owned `ObjT` array, including all 20 slots in each projectile pool.
   Alien AI and audio remain unported; the
   bounded object paths listed below retain their own source-owned updates.
-  `src/object_observation.*` independently translates the source
-  `CalcPLR1InLine` workspace over that mutable ObjT/object-point state using
-  the original sine table and fixed source capacities. It is refreshed after
-  the source-order object/mechanism update for the next shot decision and
-  uses neither PVS nor portals. `src/player_shoot.*` now translates
+  `src/object_observation.*` independently translates the source default
+  small-screen `RotateObjectPts` first-word output and `CalcPLR1InLine`
+  workspace over that mutable ObjT/object-point state using the original sine
+  table and fixed source capacities. It is refreshed after the source-order
+  object/mechanism update for the next shot decision and uses neither PVS nor
+  portals. `src/player_shoot.*` now translates
   `newplayershoot.s:Plr1_Shot`'s closest eligible target selection and
   fixed-point vertical auto-aim calculation from that workspace, including
   AUX handling, target flags, sight gate, and tie selection. Its bounded
@@ -463,8 +464,9 @@ authority for all game behavior and data formats.
      trigonometric approximation. The current interaction scope includes the
      tested collectable, activatable, destructible, and decoration paths,
      `DoorRoutine`, `LiftRoutine`, and the source edge-gated next-weapon
-     selection. `CalcPLR1InLine` now publishes its source-shaped object
-     observation workspace without a renderer dependency, while
+     selection. The default small-screen `RotateObjectPts` output and
+     `CalcPLR1InLine` now publish their source-shaped object observation
+     workspace without a renderer dependency, while
      `objectmove.s:CanItBeSeen` supplies the separate PVST/clip/joined-zone
      gameplay visibility query an alien update will consume.
      `object_movement.*` now preserves `MoveObject`'s source primary and

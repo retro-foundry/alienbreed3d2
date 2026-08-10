@@ -263,6 +263,8 @@ static int object_observation_matches_source(const ObjectObservation *observatio
         const uint8_t *point;
         int16_t offset_x;
         int16_t offset_z;
+        int16_t expected_rotated_x = 0;
+        int16_t expected_rotated_z = 0;
         uint8_t expected_in_line;
         uint16_t expected_distance;
 
@@ -291,6 +293,10 @@ static int object_observation_matches_source(const ObjectObservation *observatio
             int16_t horizontal_word;
             int16_t depth_word;
 
+            expected_rotated_x =
+                (int16_t)(uint16_t)(((uint32_t)horizontal << 1u) >> 16u);
+            expected_rotated_z =
+                (int16_t)(uint16_t)(((uint32_t)depth << 1u) >> 16u);
             horizontal = (int32_t)((uint32_t)horizontal << 1);
             if (horizontal <= 0) {
                 horizontal = (int32_t)(0u - (uint32_t)horizontal);
@@ -302,7 +308,9 @@ static int object_observation_matches_source(const ObjectObservation *observatio
                 expected_in_line = UINT8_MAX;
             }
         }
-        if (observation->in_line[output_index] != expected_in_line ||
+        if (observation->rotated_x[output_index] != expected_rotated_x ||
+            observation->rotated_z[output_index] != expected_rotated_z ||
+            observation->in_line[output_index] != expected_in_line ||
             observation->distances[output_index] != expected_distance) {
             return 0;
         }

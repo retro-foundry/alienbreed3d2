@@ -97,8 +97,9 @@ int object_observation_update_single_player(ObjectObservation *observation,
     }
 
     /*
-     * CalcPLR1InLine uses Lvl_NumObjectPoints as its DBRA final index. AUX
-     * slots consume only ObjT state, precisely matching its .itaux branch.
+     * RotateObjectPts and CalcPLR1InLine use Lvl_NumObjectPoints as their
+     * DBRA final index. AUX slots consume only ObjT state, precisely matching
+     * both routines' .itaux branches.
      */
     while (point_index < objects->point_count) {
         const uint8_t *slot;
@@ -127,19 +128,27 @@ int object_observation_update_single_player(ObjectObservation *observation,
         offset_z = (int16_t)((int32_t)(int16_t)object_observation_read_be16(point + 4u) -
                              (int16_t)(uint16_t)player->z);
         if ((int16_t)object_observation_read_be16(slot + OBJECT_OBSERVATION_SLOT_ZONE_ID) < 0) {
+            observation->rotated_x[output_index] = 0;
+            observation->rotated_z[output_index] = 0;
             observation->in_line[output_index] = 0u;
             observation->distances[output_index] = 0u;
         } else {
-            /* modules/transform.s:CalcPLR1InLine from .objpointrotlop. */
+            /* modules/transform.s:RotateObjectPts/.objpointrotlop. */
             horizontal = object_observation_sub32((int32_t)offset_x * cosine,
                                                    (int32_t)offset_z * sine);
+            observation->rotated_x[output_index] = object_observation_swapped_low_word(
+                object_observation_asl32_1(horizontal));
+            depth = object_observation_add32((int32_t)offset_x * sine,
+                                              (int32_t)offset_z * cosine);
+            observation->rotated_z[output_index] = object_observation_swapped_low_word(
+                object_observation_asl32_1(depth));
+
+            /* modules/transform.s:CalcPLR1InLine from .objpointrotlop. */
             horizontal = object_observation_asl32_1(horizontal);
             if (horizontal <= 0) {
                 horizontal = object_observation_neg32(horizontal);
             }
             horizontal_word = object_observation_swapped_low_word(horizontal);
-            depth = object_observation_add32((int32_t)offset_x * sine,
-                                              (int32_t)offset_z * cosine);
             depth_word = object_observation_swapped_low_word(
                 object_observation_asl32_2(depth));
             observation->in_line[output_index] =
