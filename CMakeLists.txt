@@ -25,6 +25,7 @@ FetchContent_MakeAvailable(SDL2)
 
 set(AB3D2_CORE_SOURCES
   src/alien_animation.c
+  src/alien_damage.c
   src/alien_runtime.c
   src/alien_decision.c
   src/alien_death.c

@@ -75,8 +75,9 @@ first game's software renderer:
   weapon cooldown/ammunition/hitscan/projectile-launch/flight path; the
   source directional point-brightness helper, alien torch caller, and
   `Anim_ExplodeIntoBits` fragment allocation are present for later behavior
-  modes, projectile, and blast callers; enemy behavior, dynamic blast, and
-  audio remain in progress;
+  modes, projectile, and blast callers; source alien-damage reactions are
+  also prepared through their fatal-branch handoff. Enemy behavior, dynamic
+  blast, and audio remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

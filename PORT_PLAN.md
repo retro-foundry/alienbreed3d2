@@ -624,6 +624,13 @@ Its `ai_DoDefault`, `ai_DoResponse`, and `ai_DoFollowup` mode-word selectors
 are also mapped to their named prowl, charge, attack, pause, and approach
 destinations from the decoded `AlienT` setup. The native path keeps those
 destinations uncalled until their complete movement/attack routines are ready.
+`modules/ai.s:ai_TakeDamage` is now available through its direct
+`ai_JustDied` branch handoff. It uses the source per-slot `AI_Damaged_vw`
+word, signed divide-by-four threshold, byte damage reset, timers, one
+`GetRand` reaction decision, animation workspace byte, and `HeadTowardsAng`
+response. The fatal `ai_JustDied` body remains uncalled: its narrative,
+kill-progression, and spawned-alien effects must be ported as one complete
+source routine before this helper can enter live alien dispatch.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

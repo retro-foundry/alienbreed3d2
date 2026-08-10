@@ -3,6 +3,7 @@
 
 #include "alien_runtime.h"
 #include "alien_animation.h"
+#include "alien_damage.h"
 #include "alien_decision.h"
 #include "alien_death.h"
 #include "alien_dark.h"
@@ -5097,6 +5098,138 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+        }
+    }
+    {
+        /* modules/ai.s:ai_TakeDamage's two nonfatal reactions and death route. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime damage_objects = {0};
+        AlienRuntime damage_runtime;
+        ObjectAnimationRuntime damage_animation_runtime;
+        PlayerRuntime damage_player = {0};
+        GameRandom damage_random;
+        GameRandom expected_random;
+        ObjectHeading expected_heading = {0};
+        AlienDamageState damage_state;
+        uint16_t nonzero_random_state = 0u;
+        uint16_t zero_random_state = 0u;
+        int found_nonzero_random_state = 0;
+        int found_zero_random_state = 0;
+
+        for (uint32_t candidate = 0u; candidate <= UINT16_MAX; ++candidate) {
+            GameRandom nonzero_candidate = {(uint16_t)candidate};
+            GameRandom zero_candidate = {(uint16_t)candidate};
+
+            if ((game_random_next(&nonzero_candidate) & 3u) != 0u &&
+                !found_nonzero_random_state) {
+                nonzero_random_state = (uint16_t)candidate;
+                found_nonzero_random_state = 1;
+            }
+            if ((game_random_next(&zero_candidate) & 3u) == 0u && !found_zero_random_state) {
+                zero_random_state = (uint16_t)candidate;
+                found_zero_random_state = 1;
+            }
+            if (found_nonzero_random_state && found_zero_random_state) {
+                break;
+            }
+        }
+        if (!found_nonzero_random_state || !found_zero_random_state) {
+            fprintf(stderr, "ai_TakeDamage source random fixtures are unavailable\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        damage_objects.slot_bytes = slot_bytes;
+        damage_objects.slot_count = 1u;
+        damage_objects.active_slot_count = 1u;
+        damage_objects.point_bytes = point_bytes;
+        damage_objects.point_count = 1u;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be32(point_bytes + 0u, 0u);
+        write_be32(point_bytes + 4u, 0u);
+        damage_player.x = 100;
+        damage_player.z = 0;
+        expected_heading.old_x = 0;
+        expected_heading.old_z = 0;
+        expected_heading.new_x = 100;
+        expected_heading.new_z = 0;
+        expected_heading.range = -20;
+        expected_heading.speed = 100;
+        if (!object_heading_towards_angle(&game.math, &expected_heading, error, sizeof(error))) {
+            fprintf(stderr, "ai_TakeDamage source heading fixture is invalid: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        alien_runtime_init(&damage_runtime);
+        object_animation_runtime_init(&damage_animation_runtime);
+        slot_bytes[18u] = 10u;
+        slot_bytes[19u] = 5u;
+        slot_bytes[20u] = 7u;
+        slot_bytes[55u] = 6u;
+        write_be16(slot_bytes + 30u, 0x1234u);
+        write_be16(slot_bytes + 34u, 33u);
+        write_be16(slot_bytes + 40u, 44u);
+        damage_random.state = nonzero_random_state;
+        expected_random = damage_random;
+        (void)game_random_next(&expected_random);
+        if (!alien_damage_take(
+                &damage_objects, 0u, &damage_runtime, &damage_animation_runtime,
+                &game.math, &damage_random, &damage_player, &damage_state,
+                error, sizeof(error)) ||
+            damage_state.route != ALIEN_DAMAGE_ROUTE_NONFATAL ||
+            damage_state.got_out != UINT8_MAX || damage_runtime.damage[0u] != 5 ||
+            slot_bytes[19u] != 0u || slot_bytes[20u] != 1u || slot_bytes[55u] != 1u ||
+            read_be16(slot_bytes + 30u) != expected_heading.angle ||
+            read_be16(slot_bytes + 34u) != 0u || read_be16(slot_bytes + 40u) != 0u ||
+            damage_animation_runtime.workspace[0u][1u] != UINT8_MAX ||
+            damage_random.state != expected_random.state) {
+            fprintf(stderr, "ai_TakeDamage pursuit reaction is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        alien_runtime_init(&damage_runtime);
+        object_animation_runtime_init(&damage_animation_runtime);
+        slot_bytes[18u] = 10u;
+        slot_bytes[19u] = 4u;
+        slot_bytes[20u] = 7u;
+        slot_bytes[55u] = 6u;
+        write_be16(slot_bytes + 30u, 0x1234u);
+        write_be16(slot_bytes + 34u, 33u);
+        write_be16(slot_bytes + 40u, 44u);
+        damage_random.state = zero_random_state;
+        if (!alien_damage_take(
+                &damage_objects, 0u, &damage_runtime, &damage_animation_runtime,
+                &game.math, &damage_random, &damage_player, &damage_state,
+                error, sizeof(error)) ||
+            damage_state.route != ALIEN_DAMAGE_ROUTE_NONFATAL ||
+            damage_state.got_out != UINT8_MAX || damage_runtime.damage[0u] != 4 ||
+            slot_bytes[19u] != 0u || slot_bytes[20u] != 4u || slot_bytes[55u] != 2u ||
+            read_be16(slot_bytes + 30u) != 0x1234u || read_be16(slot_bytes + 34u) != 0u ||
+            read_be16(slot_bytes + 40u) != 0u ||
+            damage_animation_runtime.workspace[0u][1u] != UINT8_MAX) {
+            fprintf(stderr, "ai_TakeDamage hit-animation reaction is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        alien_runtime_init(&damage_runtime);
+        object_animation_runtime_init(&damage_animation_runtime);
+        slot_bytes[18u] = 1u;
+        slot_bytes[19u] = 4u;
+        slot_bytes[20u] = 7u;
+        slot_bytes[55u] = 6u;
+        write_be16(slot_bytes + 34u, 33u);
+        write_be16(slot_bytes + 40u, 44u);
+        if (!alien_damage_take(
+                &damage_objects, 0u, &damage_runtime, &damage_animation_runtime,
+                &game.math, &damage_random, &damage_player, &damage_state,
+                error, sizeof(error)) ||
+            damage_state.route != ALIEN_DAMAGE_ROUTE_JUST_DIED || damage_state.got_out != 0u ||
+            damage_runtime.damage[0u] != 4 || slot_bytes[19u] != 0u ||
+            slot_bytes[18u] != 1u || slot_bytes[20u] != 7u || slot_bytes[55u] != 6u ||
+            read_be16(slot_bytes + 34u) != 33u || read_be16(slot_bytes + 40u) != 44u) {
+            fprintf(stderr, "ai_TakeDamage ai_JustDied handoff is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
         }
     }
     {
