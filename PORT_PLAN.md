@@ -646,6 +646,13 @@ it preserves the negative `ALIENBRIGHT` gate and its `newx`/`newz`, slot Y,
 angle, and zone handoff. The remaining alien modes, projectile, and blast
 callers remain with their owning source routines, so no dynamic-light
 substitute has been introduced.
+`newanims.s:Anim_ExplodeIntoBits` is now an uncalled source helper for the
+alien-death and projectile callers. It owns `anim_ExpRadius_w`, scans the
+alien-shot pool in source order, preserves the high-word-only point and
+velocity writes plus the three `GetRand` calls per fragment, and retains the
+source's surprising `d2 = 7` clamp followed by eight fragment spawns. It does
+not activate a death, blast, or projectile path before their owning routines
+are translated.
 `newanims.s:Flash` is now available as an uncalled source helper for those
 later projectile/blast owners. It preserves its `-20` lower clamp, signed
 `ZoneT_Points_w` walk, lower current-point pair writes, explicit source-zone

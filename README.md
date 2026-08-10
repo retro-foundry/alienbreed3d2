@@ -73,9 +73,10 @@ first game's software renderer:
   the source AI's isolated player-memory, sight, facing, grounded-route,
   room-state, vertical-flight, and per-alien setup helpers; the source single-player
   weapon cooldown/ammunition/hitscan/projectile-launch/flight path; the
-  source directional point-brightness helper and alien torch caller are
-  present for later behavior modes, projectile, and blast callers; enemy
-  behavior, dynamic blast, and audio remain in progress;
+  source directional point-brightness helper, alien torch caller, and
+  `Anim_ExplodeIntoBits` fragment allocation are present for later behavior
+  modes, projectile, and blast callers; enemy behavior, dynamic blast, and
+  audio remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

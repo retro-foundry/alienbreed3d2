@@ -26,6 +26,7 @@
 #include "lighting_runtime.h"
 #include "object_collectables.h"
 #include "object_collision.h"
+#include "object_explosion.h"
 #include "object_animation.h"
 #include "object_handler.h"
 #include "object_heading.h"
@@ -5604,6 +5605,103 @@ int main(int argc, char **argv)
             (int16_t)read_be16(slot_bytes + 12u) != -1 ||
             (int16_t)read_be16(slot_bytes + 26u) != -1) {
             fprintf(stderr, "ItsABullet source impact release is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* newanims.s:Anim_ExplodeIntoBits' bounded alien-shot allocation. */
+        uint8_t slot_bytes[21u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[24u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime explosion_objects = {0};
+        ObjectExplosionRuntime explosion_runtime;
+        GameRandom explosion_random;
+        GameRandom expected_random;
+        uint32_t spawned_count = 0u;
+
+        explosion_objects.slot_bytes = slot_bytes;
+        explosion_objects.slot_count = 21u;
+        explosion_objects.active_slot_count = 21u;
+        explosion_objects.alien_shot_first_slot = 1u;
+        explosion_objects.point_bytes = point_bytes;
+        explosion_objects.point_count = 24u;
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 4u, 10u);
+        write_be16(slot_bytes + 12u, 3u);
+        write_be16(slot_bytes + 42u, 100u);
+        write_be16(slot_bytes + 44u, 200u);
+        slot_bytes[63u] = UINT8_MAX;
+        for (uint32_t fragment_index = 0u;
+             fragment_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT; ++fragment_index) {
+            uint8_t *fragment_slot = slot_bytes +
+                (size_t)(fragment_index + 1u) * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+            uint8_t *fragment_point = point_bytes +
+                (size_t)(fragment_index + 1u) * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+
+            write_be16(fragment_slot + 0u, (uint16_t)(fragment_index + 1u));
+            write_be16(fragment_slot + 12u, UINT16_MAX);
+            fragment_slot[16u] = 2u;
+            fragment_slot[29u] = 0xa5u;
+            write_be32(fragment_point + 0u, UINT32_C(0xaaaa1111));
+            write_be32(fragment_point + 4u, UINT32_C(0xbbbb2222));
+        }
+        object_explosion_runtime_init(&explosion_runtime);
+        game_random_init(&explosion_random);
+        expected_random = explosion_random;
+        if (!object_explosion_into_bits(
+                &explosion_runtime, &explosion_objects, 0u, &game.math, &explosion_random,
+                300, -400, 5u, 10, 37, &spawned_count, error, sizeof(error)) ||
+            spawned_count != 8u || explosion_runtime.radius != 37) {
+            fprintf(stderr, "Anim_ExplodeIntoBits source allocation setup is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint32_t fragment_index = 0u; fragment_index < 8u; ++fragment_index) {
+            uint8_t *fragment_slot = slot_bytes +
+                (size_t)(fragment_index + 1u) * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+            uint8_t *fragment_point = point_bytes +
+                (size_t)(fragment_index + 1u) * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+            uint16_t angle_address = game_math_wrap_angle_address(game_random_next(&expected_random));
+            int16_t sine;
+            int16_t cosine;
+            uint16_t shift_count = (uint16_t)((game_random_next(&expected_random) & 3u) + 1u);
+            int16_t expected_velocity_y = (int16_t)(UINT16_C(0) -
+                (uint16_t)((game_random_next(&expected_random) & 1023u) + 256u));
+            int16_t expected_velocity_x;
+            int16_t expected_velocity_z;
+
+            if (!game_math_sine(&game.math, angle_address, &sine, error, sizeof(error)) ||
+                !game_math_cosine(&game.math, angle_address, &cosine, error, sizeof(error))) {
+                fprintf(stderr, "Anim_ExplodeIntoBits source sine fixture is unavailable: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            expected_velocity_x = source_add16(
+                (int16_t)(uint16_t)((uint32_t)(int32_t)sine << shift_count >> 16u), 50);
+            expected_velocity_z = source_add16(
+                (int16_t)(uint16_t)((uint32_t)(int32_t)cosine << shift_count >> 16u), 100);
+            if (fragment_slot[16u] != 2u || fragment_slot[28u] != 0u ||
+                fragment_slot[29u] != 0xa5u || read_be16(fragment_slot + 12u) != 3u ||
+                read_be16(fragment_slot + 18u) != (uint16_t)expected_velocity_x ||
+                read_be16(fragment_slot + 22u) != (uint16_t)expected_velocity_z ||
+                read_be16(fragment_slot + 42u) != (uint16_t)expected_velocity_y ||
+                read_be32(fragment_slot + 36u) != 0u || read_be16(fragment_slot + 4u) != 10u ||
+                read_be32(fragment_slot + 44u) != 2048u || fragment_slot[31u] != 5u ||
+                read_be16(fragment_slot + 58u) != 0u || read_be16(fragment_slot + 60u) != 0u ||
+                fragment_slot[30u] != 0u || fragment_slot[62u] != UINT8_MAX ||
+                fragment_slot[63u] != UINT8_MAX || read_be32(fragment_point + 0u) !=
+                    UINT32_C(0x012c1111) || read_be32(fragment_point + 4u) !=
+                    UINT32_C(0xfe702222)) {
+                fprintf(stderr, "Anim_ExplodeIntoBits fragment state is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        if (explosion_random.state != expected_random.state || point_bytes[9u * 8u] != 2u ||
+            point_bytes[10u * 8u] != 2u ||
+            (int16_t)read_be16(slot_bytes + 9u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) != -1) {
+            fprintf(stderr, "Anim_ExplodeIntoBits source pool/count state is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }

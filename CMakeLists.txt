@@ -63,6 +63,7 @@ set(AB3D2_CORE_SOURCES
   src/object_animation.c
   src/object_collectables.c
   src/object_collision.c
+  src/object_explosion.c
   src/object_handler.c
   src/object_heading.c
   src/object_movement.c
