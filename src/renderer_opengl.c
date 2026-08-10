@@ -887,7 +887,189 @@ static int renderer_opengl_resolve_material_texture(uint8_t *pixels, uint16_t wi
     return 1;
 }
 
+/*
+ * Exact state construction for objdrawhires.s:draw_bitmap_lighted. The WAD
+ * holds an 8-bit index into this transient 256-entry table; it is not a
+ * display-palette index itself. `guff` has sixteen 7-by-16 directional
+ * planes, selected by the source lower/upper light-ring balance.
+ */
+static int renderer_opengl_build_lighted_sprite_palette(const SceneSprite *sprite,
+                                                        const SceneCamera *camera,
+                                                        uint8_t out_palette[256],
+                                                        char *error, size_t error_size)
+{
+    static const int16_t source_xz_angles[16][2] = {
+        {0, 23}, {10, 20}, {16, 16}, {20, 10}, {23, 0}, {20, -10}, {16, -16}, {10, -20},
+        {0, -23}, {-10, -20}, {-16, -16}, {-20, -10}, {-23, 0}, {-20, 10}, {-16, 16}, {-10, 20}
+    };
+    static const uint8_t source_brights[29] = {
+        3u, 8u, 9u, 10u, 11u, 12u, 15u, 16u, 17u, 18u, 19u, 21u, 22u, 23u, 24u,
+        25u, 26u, 27u, 29u, 30u, 31u, 32u, 33u, 36u, 37u, 38u, 39u, 40u, 45u
+    };
+    static const uint8_t source_brights_flipped[29] = {
+        3u, 12u, 11u, 10u, 9u, 8u, 19u, 18u, 17u, 16u, 15u, 27u, 26u, 25u, 24u,
+        23u, 22u, 21u, 33u, 32u, 31u, 30u, 29u, 40u, 39u, 38u, 37u, 36u, 45u
+    };
+    static const int16_t source_willy_bright[49] = {
+        30, 30, 30, 30, 30, 30, 30,
+        30, 20, 20, 20, 20, 20, 30,
+        30, 20, 6, 3, 6, 20, 30,
+        30, 20, 6, 0, 6, 20, 30,
+        30, 20, 6, 6, 6, 20, 30,
+        30, 20, 20, 20, 20, 20, 30,
+        30, 30, 30, 30, 30, 30, 30
+    };
+    static const uint8_t source_rough_angle_map[16] = {
+        3u, 2u, 0u, 1u, 4u, 5u, 7u, 6u, 12u, 13u, 15u, 14u, 11u, 10u, 8u, 9u
+    };
+    const uint8_t *source_bright_table;
+    uint8_t light_palette;
+    int32_t top_x = 0;
+    int32_t top_z = 0;
+    int32_t bottom_x = 0;
+    int32_t bottom_z = 0;
+    int top_brightest = 0;
+    int bottom_brightest = 0;
+    int rough_bits = 0;
+    int32_t rough_x;
+    int32_t rough_z;
+    int balance;
+    int strongest;
+    int16_t bright_to_add;
+    int willy[49];
+    float sprite_x;
+    float sprite_y;
+    float sprite_z;
+    float camera_x;
+    float camera_y;
+    float camera_z;
+    float yaw;
+
+    if (!sprite || !camera || !out_palette || !sprite->source_light_palette_bytes ||
+        sprite->source_light_palette_byte_count < 16u * 7u * 16u ||
+        !sprite->source_palette_bytes) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source lighted bitmap has incomplete live palette state");
+        return 0;
+    }
+    light_palette = (uint8_t)(sprite->source_effect & 0x7fu);
+    if (light_palette < 2u || light_palette >= 6u ||
+        (size_t)(light_palette - 2u) * 256u > sprite->source_palette_byte_count ||
+        256u > sprite->source_palette_byte_count - (size_t)(light_palette - 2u) * 256u) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source lighted bitmap palette selector is invalid");
+        return 0;
+    }
+    for (uint32_t direction = 0u; direction < 16u; ++direction) {
+        uint8_t upper = (uint8_t)sprite->source_bitmap_angle_brightness[16u + direction];
+        uint8_t lower = (uint8_t)sprite->source_bitmap_angle_brightness[direction];
+
+        if (upper != UINT8_C(0x80)) {
+            int brightness = 48 - (int)upper;
+
+            if (brightness > top_brightest) {
+                top_brightest = brightness;
+            }
+            top_x += (int32_t)source_xz_angles[direction][0] * brightness;
+            top_z += (int32_t)source_xz_angles[direction][1] * brightness;
+        }
+        if (lower != UINT8_C(0x80)) {
+            int brightness = 48 - (int)lower;
+
+            if (brightness > bottom_brightest) {
+                bottom_brightest = brightness;
+            }
+            bottom_x += (int32_t)source_xz_angles[direction][0] * brightness;
+            bottom_z += (int32_t)source_xz_angles[direction][1] * brightness;
+        }
+    }
+    rough_x = top_x + bottom_x;
+    rough_z = top_z + bottom_z;
+    if (rough_x < 0) {
+        rough_x = -rough_x;
+        rough_bits += 8;
+    }
+    if (rough_z < 0) {
+        rough_z = -rough_z;
+        rough_bits += 4;
+    }
+    if (rough_x < rough_z) {
+        int32_t swap = rough_x;
+
+        rough_x = rough_z;
+        rough_z = swap;
+        rough_bits += 2;
+    }
+    if (rough_z > rough_x / 2) {
+        ++rough_bits;
+    }
+    if (top_brightest == bottom_brightest) {
+        balance = 7;
+        strongest = top_brightest;
+    } else {
+        int total = top_brightest + bottom_brightest;
+
+        if (total <= 0) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source lighted bitmap has no directional brightness samples");
+            return 0;
+        }
+        balance = ((top_brightest << 4) - 1) / total;
+        strongest = top_brightest > bottom_brightest ? top_brightest : bottom_brightest;
+    }
+    if (balance < 0 || balance >= 16) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source lighted bitmap directional balance is invalid");
+        return 0;
+    }
+    renderer_opengl_world_point(&sprite->position, &sprite_x, &sprite_y, &sprite_z);
+    renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
+    (void)sprite_y;
+    (void)camera_y;
+    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
+    bright_to_add = (int16_t)((uint16_t)sprite->source_brightness +
+        (uint16_t)((int16_t)(((sprite_x - camera_x) * sinf(yaw) +
+                              (sprite_z - camera_z) * cosf(yaw)) / 64.0f)));
+    for (uint32_t row = 0u; row < 7u; ++row) {
+        uint8_t source_direction = (uint8_t)(((UINT16_C(8192) - camera->yaw) &
+                                               UINT16_C(8190)) >> 9u);
+        uint8_t direction = (uint8_t)((source_direction - 3u +
+                                       source_rough_angle_map[rough_bits]) & 0x0fu);
+
+        for (uint32_t column = 0u; column < 7u; ++column) {
+            int source_value = (int)(int8_t)sprite->source_light_palette_bytes[
+                (size_t)balance * 7u * 16u + row * 16u + direction];
+            int additional = (int)bright_to_add + source_willy_bright[row * 7u + column];
+
+            if (additional < 0) {
+                additional = 0;
+            }
+            willy[row * 7u + column] = source_value + 48 - strongest + additional;
+            direction = (uint8_t)((direction + 1u) & 0x0fu);
+        }
+    }
+    memset(out_palette, 0, 256u);
+    source_bright_table = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ?
+        source_brights_flipped : source_brights;
+    for (uint32_t group = 0u; group < 29u; ++group) {
+        int shade = willy[source_bright_table[group]];
+        size_t source_offset;
+
+        if (shade < 0) {
+            shade = 0;
+        } else if (shade > 31) {
+            shade = 31;
+        }
+        source_offset = (size_t)(light_palette - 2u) * 256u + (size_t)shade * 8u;
+        memcpy(out_palette + group * 8u, sprite->source_palette_bytes + source_offset, 8u);
+        /* draw_bitmap_lighted writes palette entry zero at the fourth slot. */
+        out_palette[group * 8u + 3u] = 0u;
+    }
+    return 1;
+}
+
 static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
+                                                  const SceneCamera *camera,
                                                   uint8_t **out_pixels, uint16_t *out_width,
                                                   uint16_t *out_height, char *error,
                                                   size_t error_size)
@@ -900,8 +1082,9 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
     size_t table_offset;
     size_t palette_offset = 0u;
     int lighted;
+    uint8_t lighted_palette[256];
 
-    if (!sprite || !out_pixels || !out_width || !out_height || !sprite->source_bytes ||
+    if (!sprite || !camera || !out_pixels || !out_width || !out_height || !sprite->source_bytes ||
         !sprite->source_aux_bytes || !sprite->source_palette_bytes ||
         !sprite->source_display_palette_bytes ||
         (sprite->source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP &&
@@ -923,6 +1106,10 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
         if (light_palette < 2u || light_palette >= 6u) {
             renderer_opengl_set_error(error, error_size,
                                       "source bitmap light-palette selector is invalid");
+            return 0;
+        }
+        if (!renderer_opengl_build_lighted_sprite_palette(sprite, camera, lighted_palette,
+                                                          error, error_size)) {
             return 0;
         }
         palette_offset = (size_t)(light_palette - 2u) * 256u;
@@ -1007,17 +1194,17 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
                     break;
                 }
             }
-            if (palette_offset > sprite->source_palette_byte_count ||
-                (lighted != 0 ? (size_t)source_texel + 1u :
-                 (size_t)source_texel * 2u + 2u) >
-                    sprite->source_palette_byte_count - palette_offset) {
+            if (lighted == 0 &&
+                (palette_offset > sprite->source_palette_byte_count ||
+                 (size_t)source_texel * 2u + 2u >
+                    sprite->source_palette_byte_count - palette_offset)) {
                 free(pixels);
                 renderer_opengl_set_error(error, error_size,
                                           "source bitmap sprite palette is invalid");
                 return 0;
             }
-            color_index = sprite->source_palette_bytes[palette_offset +
-                (lighted != 0 ? (size_t)source_texel : (size_t)source_texel * 2u)];
+            color_index = lighted != 0 ? lighted_palette[source_texel] :
+                sprite->source_palette_bytes[palette_offset + (size_t)source_texel * 2u];
             if (!renderer_opengl_write_palette_texel(
                     pixels, ((size_t)y * width + x) * 4u,
                     sprite->source_display_palette_bytes,
@@ -1261,7 +1448,8 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
 }
 
 static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const SceneSprite *sprite,
-                                               GLuint *out_texture, char *error,
+                                               const SceneCamera *camera, GLuint *out_texture,
+                                               int *out_transient, char *error,
                                                size_t error_size)
 {
     uint8_t *pixels = NULL;
@@ -1269,34 +1457,46 @@ static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const S
     uint16_t height = 0u;
     GLuint texture = 0u;
 
-    if (!renderer || !sprite || !out_texture) {
+    int lighted;
+
+    if (!renderer || !sprite || !camera || !out_texture || !out_transient) {
         renderer_opengl_set_error(error, error_size, "scene bitmap sprite texture request is invalid");
         return 0;
     }
-    for (size_t index = 0u; index < renderer->texture_count; ++index) {
-        const RendererOpenGLTexture *cached = &renderer->textures[index];
+    lighted = (sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u;
+    *out_transient = 0;
+    if (lighted == 0) {
+        for (size_t index = 0u; index < renderer->texture_count; ++index) {
+            const RendererOpenGLTexture *cached = &renderer->textures[index];
 
-        if (cached->kind == RENDERER_OPENGL_TEXTURE_SPRITE &&
-            cached->source_bytes == sprite->source_bytes &&
-            cached->source_byte_count == sprite->source_byte_count &&
-            cached->source_palette_bytes == sprite->source_palette_bytes &&
-            cached->source_palette_byte_count == sprite->source_palette_byte_count &&
-            cached->source_display_palette_bytes == sprite->source_display_palette_bytes &&
-            cached->source_display_palette_byte_count == sprite->source_display_palette_byte_count &&
-            cached->source_asset_id == sprite->source_asset_id &&
-            cached->source_effect == sprite->source_effect &&
-            memcmp(&cached->frame_metrics, &sprite->frame_metrics,
-                   sizeof(sprite->frame_metrics)) == 0) {
-            *out_texture = cached->texture;
-            return 1;
+            if (cached->kind == RENDERER_OPENGL_TEXTURE_SPRITE &&
+                cached->source_bytes == sprite->source_bytes &&
+                cached->source_byte_count == sprite->source_byte_count &&
+                cached->source_palette_bytes == sprite->source_palette_bytes &&
+                cached->source_palette_byte_count == sprite->source_palette_byte_count &&
+                cached->source_display_palette_bytes == sprite->source_display_palette_bytes &&
+                cached->source_display_palette_byte_count == sprite->source_display_palette_byte_count &&
+                cached->source_asset_id == sprite->source_asset_id &&
+                cached->source_effect == sprite->source_effect &&
+                memcmp(&cached->frame_metrics, &sprite->frame_metrics,
+                       sizeof(sprite->frame_metrics)) == 0) {
+                *out_texture = cached->texture;
+                return 1;
+            }
         }
     }
-    if (!renderer_opengl_decode_sprite_texture(sprite, &pixels, &width, &height, error, error_size) ||
+    if (!renderer_opengl_decode_sprite_texture(sprite, camera, &pixels, &width, &height,
+                                               error, error_size) ||
         !renderer_opengl_create_texture(pixels, width, height, 0, 0, 0, &texture, error, error_size)) {
         free(pixels);
         return 0;
     }
     free(pixels);
+    if (lighted != 0) {
+        *out_texture = texture;
+        *out_transient = 1;
+        return 1;
+    }
     if (renderer->texture_count == renderer->texture_capacity &&
         !renderer_opengl_texture_cache_reserve(
             renderer, renderer->texture_capacity == 0u ?
@@ -2003,6 +2203,7 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     float right_u;
     float source_light;
     int additive;
+    int transient_texture;
     int result;
 
     if (!sprite || !camera) {
@@ -2022,7 +2223,8 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     if (sprite->source_width == 0u || sprite->source_height == 0u) {
         return 1;
     }
-    if (!renderer_opengl_find_sprite_texture(renderer, sprite, &texture, error, error_size)) {
+    if (!renderer_opengl_find_sprite_texture(renderer, sprite, camera, &texture, &transient_texture,
+                                             error, error_size)) {
         return 0;
     }
     renderer_opengl_use_default_light_response(renderer);
@@ -2076,6 +2278,9 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
         glDisable(GL_BLEND);
     }
     renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
+    if (transient_texture != 0) {
+        glDeleteTextures(1, &texture);
+    }
     return result;
 }
 

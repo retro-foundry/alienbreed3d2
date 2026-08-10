@@ -99,6 +99,10 @@ authority for all game behavior and data formats.
 - [x] `objdrawhires.s:draw_bitmap_lighted` now follows its own direct 8-bit
   WAD/PTR column format and 256-entry selected object-light palette, instead
   of incorrectly extracting an ordinary bitmap's packed 5-bit third.
+- [x] Lighted bitmap scene commands retain `draw_ResetAngleBrights`'s live
+  lower/upper angle rings and `data/draw_data.s:guff`. The GPU path rebuilds
+  the source `draw_Pals_vl` lookup for each current view/light state before
+  uploading that dynamic bitmap frame; static sprite assets remain cached.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.

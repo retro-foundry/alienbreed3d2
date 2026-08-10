@@ -167,10 +167,11 @@ typedef struct {
  * culling, draw order, asset conversion, and upload. `source_aux_bytes` is
  * the matching bitmap PTR data. Ordinary/glare bitmap frames use its packed
  * 5-bit WAD-column modes; `draw_bitmap_lighted` instead uses a direct 8-bit
- * WAD column with a selected 256-byte light palette. Vector sprites carry
- * `Draw_TextureMapsPtr` bytes, `Draw_TexturePalettePtr`'s light rows, and the
- * display palette for their original face-map colours; glare sprites carry
- * the shared texture palette.
+ * WAD column, its two live angle-brightness rings, and data/draw_data.s's
+ * `guff` curve to construct a selected 256-byte light palette. Vector sprites
+ * carry `Draw_TextureMapsPtr` bytes, `Draw_TexturePalettePtr`'s light rows,
+ * and the display palette for their original face-map colours; glare sprites
+ * carry the shared texture palette.
  */
 typedef struct {
     SceneWorldPoint position;
@@ -182,6 +183,9 @@ typedef struct {
     uint16_t yaw;
     uint16_t source_brightness;
     int16_t source_light_level;
+    /* draw_ResetAngleBrights' lower/upper 16-direction source rings for a
+     * draw_bitmap_lighted object. Unused sprite modes leave these as zero. */
+    int8_t source_bitmap_angle_brightness[16u * 2u];
     /*
      * objdrawhires.s:draw_CalcBrightRings builds this 16-by-16 directional
      * point/polygon light field for every vector model.  The values retain

@@ -17,6 +17,8 @@ typedef struct {
     AssetBlob floor_texture;
     AssetBlob texture_maps;
     AssetBlob texture_palette;
+    /* data/draw_data.s:guff, consumed by objdrawhires.s:draw_bitmap_lighted. */
+    AssetBlob bitmap_light_curve;
     AssetBlob backdrop_image;
     /* data/draw_data.s:draw_WaterFrames_vb's 64 KiB source distortion table. */
     AssetBlob water_frames;

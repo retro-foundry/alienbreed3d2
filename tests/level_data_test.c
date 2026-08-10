@@ -313,8 +313,6 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->source_byte_count != game->shared_resources.object_wads[asset_index].size ||
                 sprite->source_aux_bytes != game->shared_resources.object_ptrs[asset_index].bytes ||
                 sprite->source_aux_byte_count != game->shared_resources.object_ptrs[asset_index].size ||
-                sprite->source_light_palette_bytes != NULL ||
-                sprite->source_light_palette_byte_count != 0u ||
                 sprite->source_display_palette_bytes != game->shared_resources.main_palette.bytes ||
                 sprite->source_display_palette_byte_count != game->shared_resources.main_palette.size ||
                 sprite->presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
@@ -334,6 +332,8 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             if (glare != 0) {
                 if (sprite->source_palette_bytes != game->shared_resources.texture_palette.bytes ||
                     sprite->source_palette_byte_count != game->shared_resources.texture_palette.size ||
+                    sprite->source_light_palette_bytes != NULL ||
+                    sprite->source_light_palette_byte_count != 0u ||
                     sprite->source_effect != 0u || sprite->flags != expected_flags) {
                     return 0;
                 }
@@ -352,6 +352,12 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                         game->shared_resources.object_palettes[asset_index].bytes ||
                     sprite->source_palette_byte_count !=
                         game->shared_resources.object_palettes[asset_index].size ||
+                    sprite->source_light_palette_bytes !=
+                        ((expected_flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u ?
+                            game->shared_resources.bitmap_light_curve.bytes : NULL) ||
+                    sprite->source_light_palette_byte_count !=
+                        ((expected_flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u ?
+                            game->shared_resources.bitmap_light_curve.size : 0u) ||
                     sprite->source_effect != effect || sprite->flags != expected_flags) {
                     return 0;
                 }
@@ -1397,6 +1403,7 @@ int main(int argc, char **argv)
         game.shared_resources.floor_texture.size != 65536u ||
         game.shared_resources.texture_maps.size != 131072u ||
         game.shared_resources.texture_palette.size != 16384u ||
+        game.shared_resources.bitmap_light_curve.size != 16u * 7u * 16u ||
         game.shared_resources.object_count != 14u ||
         game.shared_resources.vector_count != 22u ||
         game.shared_resources.wall_texture_count != 13u ||

@@ -659,6 +659,34 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
                     OBJECT_SCENE_BITMAP_LIGHT_FIRST + OBJECT_SCENE_BITMAP_LIGHT_COUNT ?
                 SCENE_SPRITE_FLAG_LIGHT_PALETTE : SCENE_SPRITE_FLAG_ADDITIVE;
         }
+        if ((sprite.flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u) {
+            /*
+             * draw_bitmap_lighted begins with draw_ResetAngleBrights, which
+             * retains two 16-direction local-zone rings before its guff
+             * lookup creates the 256-entry live palette. Publish that raw
+             * state instead of freezing a single palette row in simulation.
+             */
+            if (!resources->bitmap_light_curve.bytes ||
+                resources->bitmap_light_curve.size != 16u * 7u * 16u) {
+                object_scene_set_error(error, error_size,
+                                       "lighted ObjT bitmap has no source guff curve");
+                return 0;
+            }
+            memset(sprite.source_bitmap_angle_brightness, OBJECT_SCENE_LIGHT_UNSET,
+                   sizeof(sprite.source_bitmap_angle_brightness));
+            if (!object_scene_calculate_brights_in_zone(
+                    level, lighting, math, sprite.source_zone_index,
+                    (sprite.flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u,
+                    (int16_t)(uint16_t)sprite.position.x,
+                    (int16_t)(uint16_t)sprite.position.z,
+                    sprite.source_bitmap_angle_brightness,
+                    sprite.source_bitmap_angle_brightness + OBJECT_SCENE_LIGHT_DIRECTION_COUNT,
+                    error, error_size)) {
+                return 0;
+            }
+            sprite.source_light_palette_bytes = resources->bitmap_light_curve.bytes;
+            sprite.source_light_palette_byte_count = resources->bitmap_light_curve.size;
+        }
     }
     *out_sprite = sprite;
     return 1;

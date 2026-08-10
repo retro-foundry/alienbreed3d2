@@ -213,6 +213,7 @@ void game_shared_resources_destroy(GameSharedResources *resources)
     asset_blob_release(&resources->main_palette);
     asset_blob_release(&resources->texture_maps);
     asset_blob_release(&resources->texture_palette);
+    asset_blob_release(&resources->bitmap_light_curve);
     asset_blob_release(&resources->backdrop_image);
     asset_blob_release(&resources->water_frames);
     for (index = 0; index < GAME_LINK_OBJECT_COUNT; ++index) {
@@ -243,6 +244,8 @@ int game_shared_resources_load(GameSharedResources *resources, const GameLink *g
         !game_resources_load_sound_effects(resources, game_link, data_root, error, error_size) ||
         !game_resources_load_wall_textures(resources, game_link, data_root, error, error_size) ||
         !game_resources_load_floor_and_textures(resources, game_link, data_root, error, error_size) ||
+        !asset_io_load(data_root, "includes/guff", &resources->bitmap_light_curve,
+                       error, error_size) ||
         !game_resources_load_objects(resources, game_link, data_root, error, error_size) ||
         !game_resources_load_vectors(resources, game_link, data_root, error, error_size) ||
         /* data/draw_data.s:draw_BackdropImageName_vb, queued in Game_Start. */
@@ -259,10 +262,11 @@ int game_shared_resources_load(GameSharedResources *resources, const GameLink *g
         game_shared_resources_destroy(resources);
         return 0;
     }
-    if (resources->backdrop_image.size != 648u * 240u ||
+    if (resources->bitmap_light_curve.size != 16u * 7u * 16u ||
+        resources->backdrop_image.size != 648u * 240u ||
         resources->water_frames.size != 256u * 256u) {
         game_resources_set_error(error, error_size,
-                                 "source backdrop or water frame asset has an invalid byte count");
+                                 "source bitmap-light, backdrop, or water asset has an invalid byte count");
         game_shared_resources_destroy(resources);
         return 0;
     }
