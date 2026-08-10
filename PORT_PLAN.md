@@ -157,6 +157,12 @@ authority for all game behavior and data formats.
   OpenGL window, then renders to the complete drawable rather than a fixed
   1280x720 request. The hidden GPU smoke path intentionally stays 1280x720 so
   its all-level validation remains bounded and independent of monitor layout.
+- [x] Native presentation now relies on `renderer_opengl.c`'s requested
+  `SDL_GL_SetSwapInterval(1)`/`SDL_GL_SwapWindow` boundary rather than a fixed
+  16 ms `SDL_Delay`. This matches the first port's display-paced game loop:
+  source `hires.s:VBlankInterrupt` simulation remains 50 Hz while the
+  completed-frame interpolation can present at a supported 120 Hz or higher
+  desktop refresh rate.
 
 The renderer uses continuous GPU light interpolation from the live source
 brightness tables instead of reproducing Amiga palette dithering. HUD glyphs,

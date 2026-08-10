@@ -922,9 +922,15 @@ int main(int argc, char **argv)
     emscripten_set_main_loop_arg(game_app_web_tick, app, 0, 1);
     return 0;
 #else
+    /*
+     * renderer_opengl_present() swaps the OpenGL back buffer.  Its requested
+     * swap interval is the presentation boundary on native builds, just as
+     * display_draw_display() is in the first port's game loop.  Do not add a
+     * fixed host delay here: it would cap source-frame interpolation at about
+     * 60 Hz even on a 120 Hz or higher-refresh display.
+     */
     while (renderer_is_running(app->renderer)) {
         game_app_tick(app);
-        SDL_Delay(16u);
     }
     int exit_code = app->exit_code;
     game_app_shutdown(app);
