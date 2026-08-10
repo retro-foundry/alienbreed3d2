@@ -2234,15 +2234,16 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     right_x = cosf(yaw);
     right_z = -sinf(yaw);
     /*
-     * draw_Bitmap shifts these authored offsets and half-extents left by
-     * seven before projection. X/Z use the native source world word, while
-     * Y arrives through renderer_opengl_world_point's 8.8 conversion; the
-     * vertical result is consequently 128 / 256 = 0.5 native units.
+     * transform.s:RotateLevelPts has already supplied draw_Bitmap's
+     * horizontal <<7 projection factor in ObjRotated. SceneWorldPoint is the
+     * pre-rotated PC world form, so applying that factor again here stretches
+     * a billboard by 256 relative to its vertical source extent. Retain the
+     * same 8.8-to-native half-unit conversion on every presented axis.
      */
-    center_x += right_x * (float)sprite->source_aux_offset_x * 128.0f;
-    center_z += right_z * (float)sprite->source_aux_offset_x * 128.0f;
+    center_x += right_x * (float)sprite->source_aux_offset_x * 0.5f;
+    center_z += right_z * (float)sprite->source_aux_offset_x * 0.5f;
     center_y -= (float)sprite->source_aux_offset_y * 0.5f;
-    half_width = (float)sprite->source_width * 128.0f;
+    half_width = (float)sprite->source_width * 0.5f;
     half_height = (float)sprite->source_height * 0.5f;
     left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ? 1.0f : 0.0f;
     right_u = 1.0f - left_u;
