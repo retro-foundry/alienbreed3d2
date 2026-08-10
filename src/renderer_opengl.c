@@ -31,6 +31,9 @@ static const float renderer_opengl_near_plane = 0.05f;
 static const float renderer_opengl_far_plane = 8192.0f;
 static const float renderer_opengl_source_angle_full_turn = 8192.0f;
 static const float renderer_opengl_source_angle_quarter_turn = 2048.0f;
+/* The authored shade tables are fitted before upload.  Eight comfortably
+ * covers every source response while retaining useful 8-bit parameter precision. */
+static const float renderer_opengl_light_response_exponent_maximum = 8.0f;
 
 typedef struct {
     PFNGLCREATESHADERPROC create_shader;
@@ -89,6 +92,8 @@ typedef struct {
     uint16_t height;
     uint8_t kind;
     uint8_t source_effect;
+    GLuint light_response_exponent_texture;
+    GLuint light_response_floor_texture;
     float light_response_exponent[3];
     float light_response_floor[3];
 } RendererOpenGLTexture;
@@ -114,8 +119,11 @@ struct RendererOpenGL {
     GLint texture_uniform;
     GLint opacity_uniform;
     GLint material_light_response_enabled_uniform;
+    GLint material_light_response_texture_enabled_uniform;
     GLint material_light_response_exponent_uniform;
     GLint material_light_response_floor_uniform;
+    GLint material_light_response_exponent_texture_uniform;
+    GLint material_light_response_floor_texture_uniform;
     RendererOpenGLTexture *textures;
     size_t texture_count;
     size_t texture_capacity;
@@ -470,6 +478,134 @@ static uint8_t renderer_opengl_linear_to_srgb_byte(float component)
         return UINT8_MAX;
     }
     return (uint8_t)(encoded * 255.0f + 0.5f);
+}
+
+static uint8_t renderer_opengl_unit_float_to_byte(float value)
+{
+    if (value <= 0.0f) {
+        return 0u;
+    }
+    if (value >= 1.0f) {
+        return UINT8_MAX;
+    }
+    return (uint8_t)(value * (float)UINT8_MAX + 0.5f);
+}
+
+/*
+ * Fit the source palette response for one source texel colour.  The output is
+ * ordinary linear-light material data (an exponent and retained black point),
+ * not an indexed palette lookup.  It can consequently be sampled and filtered
+ * alongside a converted RGBA albedo texture by the modern renderer.
+ */
+static int renderer_opengl_palette_index_light_response(
+    const uint8_t *source_palette, size_t source_palette_size,
+    const uint8_t *display_palette, size_t display_palette_size,
+    size_t palette_width, size_t palette_row_stride, size_t palette_entry_stride,
+    size_t first_shade_row, size_t shade_row_count, uint8_t source_index,
+    float out_exponent[3], float out_floor[3], char *error, size_t error_size)
+{
+    if (!source_palette || !display_palette || !out_exponent || !out_floor ||
+        source_index >= palette_width || shade_row_count < 2u ||
+        first_shade_row > SIZE_MAX - shade_row_count ||
+        palette_row_stride > SIZE_MAX / (first_shade_row + shade_row_count) ||
+        source_palette_size < (first_shade_row + shade_row_count) * palette_row_stride) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source palette light-response descriptor is invalid");
+        return 0;
+    }
+    for (uint32_t component = 0u; component < 3u; ++component) {
+        uint8_t base_color[4];
+        uint8_t floor_color[4];
+        float base_linear;
+        float floor_linear;
+        double floor;
+        double numerator = 0.0;
+        double denominator = 0.0;
+
+        if (!renderer_opengl_display_color(
+                display_palette, display_palette_size,
+                source_palette[first_shade_row * palette_row_stride +
+                               (size_t)source_index * palette_entry_stride],
+                base_color) ||
+            !renderer_opengl_display_color(
+                display_palette, display_palette_size,
+                source_palette[(first_shade_row + shade_row_count - 1u) * palette_row_stride +
+                               (size_t)source_index * palette_entry_stride],
+                floor_color)) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source palette light response has an invalid display colour");
+            return 0;
+        }
+        base_linear = renderer_opengl_srgb_to_linear(
+            (float)base_color[component] / (float)UINT8_MAX);
+        if (base_linear == 0.0f) {
+            out_exponent[component] = 1.0f;
+            out_floor[component] = 0.0f;
+            continue;
+        }
+        floor_linear = renderer_opengl_srgb_to_linear(
+            (float)floor_color[component] / (float)UINT8_MAX);
+        floor = (double)floor_linear / (double)base_linear;
+        if (floor < 0.0) {
+            floor = 0.0;
+        } else if (floor > 1.0) {
+            floor = 1.0;
+        }
+        out_floor[component] = (float)floor;
+        if (floor == 1.0) {
+            out_exponent[component] = 1.0f;
+            continue;
+        }
+        for (size_t shade_row = 1u; shade_row + 1u < shade_row_count; ++shade_row) {
+            uint8_t shaded_color[4];
+            float shaded_linear;
+            double source_light = 1.0 - (double)shade_row /
+                (double)(shade_row_count - 1u);
+            double ratio;
+            double normalized_ratio;
+            double log_light = log(source_light);
+
+            if (!renderer_opengl_display_color(
+                    display_palette, display_palette_size,
+                    source_palette[(first_shade_row + shade_row) * palette_row_stride +
+                                   (size_t)source_index * palette_entry_stride],
+                    shaded_color)) {
+                renderer_opengl_set_error(error, error_size,
+                                          "source palette shade observation has an invalid display colour");
+                return 0;
+            }
+            shaded_linear = renderer_opengl_srgb_to_linear(
+                (float)shaded_color[component] / (float)UINT8_MAX);
+            ratio = (double)shaded_linear / (double)base_linear;
+            if (ratio < 0.0) {
+                ratio = 0.0;
+            } else if (ratio > 1.0) {
+                ratio = 1.0;
+            }
+            normalized_ratio = (ratio - floor) / (1.0 - floor);
+            if (normalized_ratio <= 0.0) {
+                continue;
+            }
+            if (normalized_ratio > 1.0) {
+                normalized_ratio = 1.0;
+            }
+            numerator += log_light * log(normalized_ratio);
+            denominator += log_light * log_light;
+        }
+        if (denominator == 0.0) {
+            out_exponent[component] = 1.0f;
+        } else if (!isfinite(numerator / denominator) || numerator / denominator <= 0.0) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source palette has an invalid linear light response");
+            return 0;
+        } else {
+            float exponent = (float)(numerator / denominator);
+
+            out_exponent[component] = exponent > renderer_opengl_light_response_exponent_maximum ?
+                renderer_opengl_light_response_exponent_maximum : exponent;
+        }
+    }
+    return 1;
 }
 
 /*
@@ -994,7 +1130,8 @@ static int renderer_opengl_is_power_of_two(uint16_t value)
 }
 
 static int renderer_opengl_create_texture(const uint8_t *pixels, uint16_t width, uint16_t height,
-                                          int repeat, int filtered, GLuint *out_texture, char *error,
+                                          int repeat, int filtered, int linear_data,
+                                          GLuint *out_texture, char *error,
                                           size_t error_size)
 {
     GLuint texture = 0u;
@@ -1058,7 +1195,7 @@ static int renderer_opengl_create_texture(const uint8_t *pixels, uint16_t width,
                                     uint8_t sample = level_pixels[(actual_y * level_width + actual_x) *
                                                                   4u + component];
 
-                                    if (component < 3u) {
+                                    if (component < 3u && linear_data == 0) {
                                         linear_total += renderer_opengl_srgb_to_linear(
                                             (float)sample / 255.0f);
                                     } else {
@@ -1068,7 +1205,7 @@ static int renderer_opengl_create_texture(const uint8_t *pixels, uint16_t width,
                                 }
                             }
                         }
-                        next_pixels[destination + component] = component < 3u ?
+                        next_pixels[destination + component] = component < 3u && linear_data == 0 ?
                             renderer_opengl_linear_to_srgb_byte(linear_total / (float)samples) :
                             (uint8_t)(total / samples);
                     }
@@ -1167,7 +1304,7 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
                                                  error, error_size) ||
         !renderer_opengl_resolve_material_texture(pixels, width, height, material, kind, error,
                                                   error_size) ||
-        !renderer_opengl_create_texture(pixels, width, height, 1, 1, &texture, error, error_size)) {
+        !renderer_opengl_create_texture(pixels, width, height, 1, 1, 0, &texture, error, error_size)) {
         free(pixels);
         if (texture != 0u) {
             glDeleteTextures(1, &texture);
@@ -1187,7 +1324,7 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
         texture, material->source_bytes, material->source_byte_count, material->source_palette_bytes,
         material->source_palette_byte_count, material->source_display_palette_bytes,
         material->source_display_palette_byte_count, material->source_asset_id, key_window, {0},
-        width, height, (uint8_t)kind, 0u,
+        width, height, (uint8_t)kind, 0u, 0u, 0u,
         {light_response_exponent[0], light_response_exponent[1], light_response_exponent[2]},
         {light_response_floor[0], light_response_floor[1], light_response_floor[2]}
     };
@@ -1227,7 +1364,7 @@ static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const S
         }
     }
     if (!renderer_opengl_decode_sprite_texture(sprite, &pixels, &width, &height, error, error_size) ||
-        !renderer_opengl_create_texture(pixels, width, height, 0, 0, &texture, error, error_size)) {
+        !renderer_opengl_create_texture(pixels, width, height, 0, 0, 0, &texture, error, error_size)) {
         free(pixels);
         return 0;
     }
@@ -1299,7 +1436,7 @@ static int renderer_opengl_find_backdrop_texture(RendererOpenGL *renderer,
             }
         }
     }
-    if (!renderer_opengl_create_texture(pixels, BACKDROP_WIDTH, BACKDROP_HEIGHT, 1, 1,
+    if (!renderer_opengl_create_texture(pixels, BACKDROP_WIDTH, BACKDROP_HEIGHT, 1, 1, 0,
                                         &texture, error, error_size)) {
         free(pixels);
         return 0;
@@ -1539,8 +1676,11 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "uniform sampler2D u_texture;\n"
         "uniform float u_opacity;\n"
         "uniform float u_material_light_response_enabled;\n"
+        "uniform float u_material_light_response_texture_enabled;\n"
         "uniform vec3 u_material_light_response_exponent;\n"
         "uniform vec3 u_material_light_response_floor;\n"
+        "uniform sampler2D u_material_light_response_exponent_texture;\n"
+        "uniform sampler2D u_material_light_response_floor_texture;\n"
         "vec3 srgb_to_linear(vec3 color) {\n"
         "  vec3 low = color / 12.92;\n"
         "  vec3 high = pow((color + 0.055) / 1.055, vec3(2.4));\n"
@@ -1554,12 +1694,20 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "void main() {\n"
         "  vec4 color = texture2D(u_texture, v_texture_coordinate);\n"
         "  vec3 source_light;\n"
+        "  vec3 response_exponent;\n"
+        "  vec3 response_floor;\n"
         "  if (color.a < 0.5) discard;\n"
         "  source_light = max(vec3(v_source_light) * v_source_color, vec3(0.0));\n"
+        "  response_exponent = mix(u_material_light_response_exponent,\n"
+        "      texture2D(u_material_light_response_exponent_texture, v_texture_coordinate).rgb * 8.0,\n"
+        "      u_material_light_response_texture_enabled);\n"
+        "  response_floor = mix(u_material_light_response_floor,\n"
+        "      texture2D(u_material_light_response_floor_texture, v_texture_coordinate).rgb,\n"
+        "      u_material_light_response_texture_enabled);\n"
         "  source_light = mix(srgb_to_linear(source_light),\n"
-        "                     u_material_light_response_floor +\n"
-        "                     (vec3(1.0) - u_material_light_response_floor) *\n"
-        "                     pow(source_light, u_material_light_response_exponent),\n"
+        "                     response_floor +\n"
+        "                     (vec3(1.0) - response_floor) *\n"
+        "                     pow(source_light, response_exponent),\n"
         "                     u_material_light_response_enabled);\n"
         "  gl_FragColor = vec4(linear_to_srgb(srgb_to_linear(color.rgb) * source_light),\n"
         "                      color.a * u_opacity);\n"
@@ -1572,8 +1720,11 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "uniform sampler2D u_texture;\n"
         "uniform float u_opacity;\n"
         "uniform float u_material_light_response_enabled;\n"
+        "uniform float u_material_light_response_texture_enabled;\n"
         "uniform vec3 u_material_light_response_exponent;\n"
         "uniform vec3 u_material_light_response_floor;\n"
+        "uniform sampler2D u_material_light_response_exponent_texture;\n"
+        "uniform sampler2D u_material_light_response_floor_texture;\n"
         "vec3 srgb_to_linear(vec3 color) {\n"
         "  vec3 low = color / 12.92;\n"
         "  vec3 high = pow((color + 0.055) / 1.055, vec3(2.4));\n"
@@ -1587,12 +1738,20 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "void main() {\n"
         "  vec4 color = texture2D(u_texture, v_texture_coordinate);\n"
         "  vec3 source_light;\n"
+        "  vec3 response_exponent;\n"
+        "  vec3 response_floor;\n"
         "  if (color.a < 0.5) discard;\n"
         "  source_light = max(vec3(v_source_light) * v_source_color, vec3(0.0));\n"
+        "  response_exponent = mix(u_material_light_response_exponent,\n"
+        "      texture2D(u_material_light_response_exponent_texture, v_texture_coordinate).rgb * 8.0,\n"
+        "      u_material_light_response_texture_enabled);\n"
+        "  response_floor = mix(u_material_light_response_floor,\n"
+        "      texture2D(u_material_light_response_floor_texture, v_texture_coordinate).rgb,\n"
+        "      u_material_light_response_texture_enabled);\n"
         "  source_light = mix(srgb_to_linear(source_light),\n"
-        "                     u_material_light_response_floor +\n"
-        "                     (vec3(1.0) - u_material_light_response_floor) *\n"
-        "                     pow(source_light, u_material_light_response_exponent),\n"
+        "                     response_floor +\n"
+        "                     (vec3(1.0) - response_floor) *\n"
+        "                     pow(source_light, response_exponent),\n"
         "                     u_material_light_response_enabled);\n"
         "  gl_FragColor = vec4(linear_to_srgb(srgb_to_linear(color.rgb) * source_light),\n"
         "                      color.a * u_opacity);\n"
@@ -1658,15 +1817,24 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
     renderer->opacity_uniform = renderer->gl.get_uniform_location(renderer->program, "u_opacity");
     renderer->material_light_response_enabled_uniform = renderer->gl.get_uniform_location(
         renderer->program, "u_material_light_response_enabled");
+    renderer->material_light_response_texture_enabled_uniform = renderer->gl.get_uniform_location(
+        renderer->program, "u_material_light_response_texture_enabled");
     renderer->material_light_response_exponent_uniform = renderer->gl.get_uniform_location(
         renderer->program, "u_material_light_response_exponent");
     renderer->material_light_response_floor_uniform = renderer->gl.get_uniform_location(
         renderer->program, "u_material_light_response_floor");
+    renderer->material_light_response_exponent_texture_uniform = renderer->gl.get_uniform_location(
+        renderer->program, "u_material_light_response_exponent_texture");
+    renderer->material_light_response_floor_texture_uniform = renderer->gl.get_uniform_location(
+        renderer->program, "u_material_light_response_floor_texture");
     if (renderer->view_projection_uniform < 0 || renderer->point_size_uniform < 0 ||
         renderer->texture_uniform < 0 || renderer->opacity_uniform < 0 ||
         renderer->material_light_response_enabled_uniform < 0 ||
+        renderer->material_light_response_texture_enabled_uniform < 0 ||
         renderer->material_light_response_exponent_uniform < 0 ||
-        renderer->material_light_response_floor_uniform < 0) {
+        renderer->material_light_response_floor_uniform < 0 ||
+        renderer->material_light_response_exponent_texture_uniform < 0 ||
+        renderer->material_light_response_floor_texture_uniform < 0) {
         renderer->gl.delete_program(renderer->program);
         renderer->program = 0u;
         renderer_opengl_set_error(error, error_size, "OpenGL shader uniforms are unavailable");
@@ -1678,6 +1846,7 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
 static void renderer_opengl_use_default_light_response(RendererOpenGL *renderer)
 {
     renderer->gl.uniform_1f(renderer->material_light_response_enabled_uniform, 0.0f);
+    renderer->gl.uniform_1f(renderer->material_light_response_texture_enabled_uniform, 0.0f);
     renderer->gl.uniform_3f(renderer->material_light_response_exponent_uniform, 1.0f, 1.0f,
                              1.0f);
     renderer->gl.uniform_3f(renderer->material_light_response_floor_uniform, 0.0f, 0.0f, 0.0f);
@@ -1687,6 +1856,7 @@ static void renderer_opengl_use_material_light_response(
     RendererOpenGL *renderer, const RendererOpenGLTexture *texture)
 {
     renderer->gl.uniform_1f(renderer->material_light_response_enabled_uniform, 1.0f);
+    renderer->gl.uniform_1f(renderer->material_light_response_texture_enabled_uniform, 0.0f);
     renderer->gl.uniform_3f(renderer->material_light_response_exponent_uniform,
                              texture->light_response_exponent[0u],
                              texture->light_response_exponent[1u],
@@ -1695,6 +1865,18 @@ static void renderer_opengl_use_material_light_response(
                              texture->light_response_floor[0u],
                              texture->light_response_floor[1u],
                              texture->light_response_floor[2u]);
+}
+
+static void renderer_opengl_use_texture_light_response(
+    RendererOpenGL *renderer, const RendererOpenGLTexture *texture)
+{
+    renderer->gl.uniform_1f(renderer->material_light_response_enabled_uniform, 1.0f);
+    renderer->gl.uniform_1f(renderer->material_light_response_texture_enabled_uniform, 1.0f);
+    renderer->gl.active_texture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, texture->light_response_exponent_texture);
+    renderer->gl.active_texture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, texture->light_response_floor_texture);
+    renderer->gl.active_texture(GL_TEXTURE0);
 }
 
 static int renderer_opengl_draw_vertices(RendererOpenGL *renderer,
@@ -2235,6 +2417,8 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                                                        size_t source_map_offset,
                                                        uint8_t maximum_u, uint8_t maximum_v,
                                                        uint8_t **out_pixels,
+                                                       uint8_t **out_exponent_pixels,
+                                                       uint8_t **out_floor_pixels,
                                                        uint16_t *out_width, uint16_t *out_height,
                                                        char *error, size_t error_size)
 {
@@ -2247,18 +2431,26 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
     uint16_t width = (uint16_t)maximum_u + 1u;
     uint16_t height = (uint16_t)maximum_v + 1u;
     uint8_t *pixels;
+    uint8_t *exponent_pixels;
+    uint8_t *floor_pixels;
 
-    if (!sprite || !out_pixels || !out_width || !out_height || !sprite->source_palette_bytes ||
+    if (!sprite || !out_pixels || !out_exponent_pixels || !out_floor_pixels || !out_width ||
+        !out_height || !sprite->source_palette_bytes ||
         !sprite->source_light_palette_bytes || !sprite->source_display_palette_bytes ||
         source_map_offset >= sprite->source_palette_byte_count ||
         (size_t)width > SIZE_MAX / (size_t)height / 4u ||
         sprite->source_light_palette_byte_count <
-            (size_t)(VECTOR_LIGHT_PALETTE_BASE_ROW + 1u) * VECTOR_LIGHT_PALETTE_ROW_WIDTH) {
+            (size_t)(VECTOR_LIGHT_PALETTE_BASE_ROW + 32u) * VECTOR_LIGHT_PALETTE_ROW_WIDTH) {
         renderer_opengl_set_error(error, error_size, "source vector texture descriptor is invalid");
         return 0;
     }
     pixels = malloc((size_t)width * height * 4u);
-    if (!pixels) {
+    exponent_pixels = malloc((size_t)width * height * 4u);
+    floor_pixels = malloc((size_t)width * height * 4u);
+    if (!pixels || !exponent_pixels || !floor_pixels) {
+        free(pixels);
+        free(exponent_pixels);
+        free(floor_pixels);
         renderer_opengl_set_error(error, error_size, "source vector texture conversion allocation failed");
         return 0;
     }
@@ -2269,9 +2461,14 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
             size_t source_light_palette_offset;
             uint8_t source_texel;
             uint8_t source_colour;
+            float exponent[3];
+            float floor[3];
+            size_t pixel_offset = ((size_t)y * width + x) * 4u;
 
             if (source_coordinate > (SIZE_MAX - source_map_offset) / VECTOR_SOURCE_TEXEL_STRIDE) {
                 free(pixels);
+                free(exponent_pixels);
+                free(floor_pixels);
                 renderer_opengl_set_error(error, error_size,
                                           "source vector texture coordinate is too large");
                 return 0;
@@ -2282,6 +2479,8 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                 VECTOR_SOURCE_TEXEL_STRIDE >
                     sprite->source_palette_byte_count - source_texel_offset) {
                 free(pixels);
+                free(exponent_pixels);
+                free(floor_pixels);
                 renderer_opengl_set_error(error, error_size,
                                           "source vector texture map is outside its asset");
                 return 0;
@@ -2292,17 +2491,42 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                     VECTOR_LIGHT_PALETTE_ROW_WIDTH + source_texel;
             source_colour = sprite->source_light_palette_bytes[source_light_palette_offset];
             if (!renderer_opengl_write_palette_texel(
-                    pixels, ((size_t)y * width + x) * 4u,
+                    pixels, pixel_offset,
                     sprite->source_display_palette_bytes,
                     sprite->source_display_palette_byte_count, source_colour, 0)) {
                 free(pixels);
+                free(exponent_pixels);
+                free(floor_pixels);
                 renderer_opengl_set_error(error, error_size,
                                           "source vector light palette references an invalid display colour");
                 return 0;
             }
+            if (!renderer_opengl_palette_index_light_response(
+                    sprite->source_light_palette_bytes,
+                    sprite->source_light_palette_byte_count,
+                    sprite->source_display_palette_bytes,
+                    sprite->source_display_palette_byte_count,
+                    VECTOR_LIGHT_PALETTE_ROW_WIDTH, VECTOR_LIGHT_PALETTE_ROW_WIDTH, 1u,
+                    VECTOR_LIGHT_PALETTE_BASE_ROW, 32u, source_texel, exponent, floor,
+                    error, error_size)) {
+                free(pixels);
+                free(exponent_pixels);
+                free(floor_pixels);
+                return 0;
+            }
+            for (uint32_t component = 0u; component < 3u; ++component) {
+                exponent_pixels[pixel_offset + component] = renderer_opengl_unit_float_to_byte(
+                    exponent[component] / renderer_opengl_light_response_exponent_maximum);
+                floor_pixels[pixel_offset + component] =
+                    renderer_opengl_unit_float_to_byte(floor[component]);
+            }
+            exponent_pixels[pixel_offset + 3u] = UINT8_MAX;
+            floor_pixels[pixel_offset + 3u] = UINT8_MAX;
         }
     }
     *out_pixels = pixels;
+    *out_exponent_pixels = exponent_pixels;
+    *out_floor_pixels = floor_pixels;
     *out_width = width;
     *out_height = height;
     return 1;
@@ -2312,14 +2536,18 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
                                                      const SceneSprite *sprite,
                                                      size_t source_map_offset,
                                                      uint8_t maximum_u, uint8_t maximum_v,
-                                                     GLuint *out_texture,
+                                                     const RendererOpenGLTexture **out_texture,
                                                      char *error, size_t error_size)
 {
     SceneTextureWindow key_window = {0};
     uint8_t *pixels = NULL;
+    uint8_t *exponent_pixels = NULL;
+    uint8_t *floor_pixels = NULL;
     uint16_t width = 0u;
     uint16_t height = 0u;
     GLuint texture = 0u;
+    GLuint exponent_texture = 0u;
+    GLuint floor_texture = 0u;
 
     if (!renderer || !sprite || !out_texture || source_map_offset > UINT32_MAX) {
         renderer_opengl_set_error(error, error_size, "source vector texture request is invalid");
@@ -2339,27 +2567,43 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
             cached->source_display_palette_byte_count == sprite->source_display_palette_byte_count &&
             cached->source_asset_id == (uint32_t)source_map_offset &&
             memcmp(&cached->texture_window, &key_window, sizeof(key_window)) == 0) {
-            *out_texture = cached->texture;
+            *out_texture = cached;
             return 1;
         }
     }
     if (!renderer_opengl_decode_vector_face_texture(
             sprite, source_map_offset, maximum_u, maximum_v,
-            &pixels, &width, &height, error, error_size) ||
-        !renderer_opengl_create_texture(pixels, width, height, 0, 0, &texture, error, error_size)) {
+            &pixels, &exponent_pixels, &floor_pixels, &width, &height, error, error_size) ||
+        !renderer_opengl_create_texture(pixels, width, height, 0, 0, 0, &texture, error, error_size) ||
+        !renderer_opengl_create_texture(exponent_pixels, width, height, 0, 0, 1,
+                                        &exponent_texture, error, error_size) ||
+        !renderer_opengl_create_texture(floor_pixels, width, height, 0, 0, 1,
+                                        &floor_texture, error, error_size)) {
         free(pixels);
+        free(exponent_pixels);
+        free(floor_pixels);
         if (texture != 0u) {
             glDeleteTextures(1, &texture);
+        }
+        if (exponent_texture != 0u) {
+            glDeleteTextures(1, &exponent_texture);
+        }
+        if (floor_texture != 0u) {
+            glDeleteTextures(1, &floor_texture);
         }
         return 0;
     }
     free(pixels);
+    free(exponent_pixels);
+    free(floor_pixels);
     if (renderer->texture_count == renderer->texture_capacity &&
         !renderer_opengl_texture_cache_reserve(
             renderer, renderer->texture_capacity == 0u ?
                 RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY : renderer->texture_capacity * 2u,
             error, error_size)) {
         glDeleteTextures(1, &texture);
+        glDeleteTextures(1, &exponent_texture);
+        glDeleteTextures(1, &floor_texture);
         return 0;
     }
     renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
@@ -2367,9 +2611,9 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
         sprite->source_light_palette_bytes, sprite->source_light_palette_byte_count,
         sprite->source_display_palette_bytes, sprite->source_display_palette_byte_count,
         (uint32_t)source_map_offset, key_window, {0}, width, height,
-        RENDERER_OPENGL_TEXTURE_VECTOR, 0u
+        RENDERER_OPENGL_TEXTURE_VECTOR, 0u, exponent_texture, floor_texture
     };
-    *out_texture = texture;
+    *out_texture = &renderer->textures[renderer->texture_count - 1u];
     return 1;
 }
 
@@ -2476,7 +2720,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 int source_gouraud = face_bytes[9u] != 0u;
                 uint8_t maximum_u = 0u;
                 uint8_t maximum_v = 0u;
-                GLuint texture;
+                const RendererOpenGLTexture *texture;
 
                 /* Each four-byte source polygon entry is point index, U, V. */
                 for (uint32_t corner = 0u; corner < polygon_point_count; ++corner) {
@@ -2544,7 +2788,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     }
                 }
                 renderer->gl.active_texture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, texture);
+                glBindTexture(GL_TEXTURE_2D, texture->texture);
+                renderer_opengl_use_texture_light_response(renderer, texture);
                 renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
                 if (!renderer_opengl_draw_vertices(renderer, vertices, vertex_count,
                                                    GL_TRIANGLES, error, error_size)) {
@@ -2638,7 +2883,7 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     {
         static const uint8_t white_pixel[4] = {255u, 255u, 255u, 255u};
 
-        if (!renderer_opengl_create_texture(white_pixel, 1u, 1u, 0, 0,
+        if (!renderer_opengl_create_texture(white_pixel, 1u, 1u, 0, 0, 0,
                                             &renderer->white_texture, error, error_size)) {
             renderer_opengl_destroy(renderer);
             return NULL;
@@ -2650,6 +2895,13 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_SOURCE_LIGHT_ATTRIBUTE);
     renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_SOURCE_COLOR_ATTRIBUTE);
     renderer->gl.uniform_1i(renderer->texture_uniform, 0);
+    renderer->gl.uniform_1i(renderer->material_light_response_exponent_texture_uniform, 1);
+    renderer->gl.uniform_1i(renderer->material_light_response_floor_texture_uniform, 2);
+    renderer->gl.active_texture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, renderer->white_texture);
+    renderer->gl.active_texture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, renderer->white_texture);
+    renderer->gl.active_texture(GL_TEXTURE0);
     renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
     renderer_opengl_use_default_light_response(renderer);
     glEnable(GL_DEPTH_TEST);
@@ -2671,6 +2923,12 @@ void renderer_opengl_destroy(RendererOpenGL *renderer)
         for (size_t index = 0u; index < renderer->texture_count; ++index) {
             if (renderer->textures[index].texture != 0u) {
                 glDeleteTextures(1, &renderer->textures[index].texture);
+            }
+            if (renderer->textures[index].light_response_exponent_texture != 0u) {
+                glDeleteTextures(1, &renderer->textures[index].light_response_exponent_texture);
+            }
+            if (renderer->textures[index].light_response_floor_texture != 0u) {
+                glDeleteTextures(1, &renderer->textures[index].light_response_floor_texture);
             }
         }
         if (renderer->white_texture != 0u) {
