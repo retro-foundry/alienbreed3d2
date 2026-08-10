@@ -20,18 +20,19 @@ weapon, object/mechanism (including source-held door/lift locks), worry, and
 complete AI route enters through `newanims.s:ObjectHandler` only when its
 source worry byte is set. Source death, successful collectable, and
 destructible narratives enter the GPU-neutral small-screen message ring and
-appear as byte-ranged HUD commands; failed inventory pickups retain their
+remain simulation-only; no HUD commands are submitted. Failed inventory pickups retain their
 source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
 active presentation path is an OpenGL 2.1 / GLES 2 renderer behind the
 API-neutral `renderer.h` boundary, so the same scene producers can later feed
 a DirectX backend. It draws the complete loaded level without software
 rasterization, PVS, portals, or zone ordering. It decodes the maintained
-5-bit packed wall WAD strips, `floortile` logical tiles, `256pal`, and normal
-object WAD/PTR frame data into GPU textures, then renders source-textured
-world geometry and camera-facing bitmap objects. The source palette/shade
-and texture-window data stays explicit in the scene interface so a future
-renderer can reuse it. Vector objects, glare-specific bitmap blending, and
-HUD text remain deferred; menus and multiplayer are not included. The
+5-bit packed wall WAD strips, `floortile` logical tiles, `256pal`, object
+WAD/PTR frame data, vector models, `rawbackpacked`, and `waterfile` into GPU
+resources. It forward-renders source-textured geometry, smooth source-driven
+light gradients, sky, animated water, bitmap/glare effects, vector objects,
+and Player 1's live companion weapon. This is original source art with a
+continuous lighting presentation—not a PBR conversion. HUD text, menus, and
+multiplayer are not included. The
 detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live
 integration.
@@ -67,11 +68,14 @@ gameplay-first scope.
   GPU-neutral geometry, without PVS or portal traversal. The retained scene
   refreshes its commands from the mutable graph after source door, lift, and
   water updates;
-- defines a GPU-neutral frame command interface for cameras, materials,
-  geometry, sprites, and HUD text. Every live source object now emits an
+- defines a GPU-neutral frame command interface for cameras, lighting,
+  environment, materials, geometry, and sprites. Every live source object now emits an
   unprojected bitmap/vector/glare descriptor in source slot order, with its
-  selected raw WAD/PTR/vector asset bytes, palette, frame data, and source draw
-  controls. Material commands retain the source asset
+  selected raw WAD/PTR/vector asset bytes, palette, frame data, source draw
+  controls, role (world or Player 1's `ENT_NEXT_2` weapon), and live light.
+  Lighting commands retain the source current-point and zone tables;
+  environment commands retain backdrop, water frame, scroll, and palette data.
+  Material commands retain the source asset
   class and select shared versus per-level floor/wall overrides exactly as
   `modules/res.s:Res_LoadLevelData` does, carrying the selected source bytes
   and source palette bytes for later backend-owned conversion/upload. Wall
@@ -182,7 +186,8 @@ gameplay-first scope.
   branch with explicit source torch inputs. Enemy behavior and dynamic blast
   are live; audio is deliberately deferred;
 - opens an SDL OpenGL window that draws the direct-play world with depth
-  testing: complete authored level geometry plus live source-object markers.
+  testing: source sky, complete authored geometry, smooth source light,
+  animated water, source bitmap/glare/vector objects, and the live view weapon.
   It intentionally draws no text or UI.
 
 Single-player is the only intended PC mode. The original serial master/slave
@@ -197,6 +202,8 @@ time CMake fetches SDL2.
 cmake -S . -B build/pc
 cmake --build build/pc --config Debug
 ctest --test-dir build/pc --output-on-failure
+# Opt-in real OpenGL context validation (hidden window, Levels A-P)
+cmake --build build/pc --config Debug --target ab3d2_gpu_smoke
 ```
 
 The same renderer compiles to a preloaded WebGL build through Emscripten:

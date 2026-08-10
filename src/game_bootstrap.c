@@ -1,6 +1,7 @@
 #include "game_bootstrap.h"
 
 #include <stdio.h>
+#include <limits.h>
 #include <string.h>
 
 #include "object_handler.h"
@@ -329,6 +330,8 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
         player_zone.id == (uint16_t)game->dynamic_level.runtime.exit_zone_id) {
         game_session_finish_single_player(&game->session, 1);
     }
+    /* hires.s:VBlankInterrupt advances water pointer/scroll once per source frame. */
+    game->presentation_frame += 1u;
     return 1;
 }
 
@@ -547,10 +550,112 @@ void game_bootstrap_destroy(GameBootstrap *game)
     game->active_level_index = 0;
 }
 
-int game_bootstrap_submit_scene_frame(const GameBootstrap *game, SceneFrame *frame)
+static int16_t game_bootstrap_scene_clamp_light(int32_t value)
 {
-    static const char menu_status[] = "AB3D2 PC: single-player menu state ready";
-    static const char level_status[] = "AB3D2 PC: source level loaded";
+    if (value > INT16_MAX) {
+        return INT16_MAX;
+    }
+    if (value < INT16_MIN) {
+        return INT16_MIN;
+    }
+    return (int16_t)value;
+}
+
+static int game_bootstrap_scene_wall_light(const GameBootstrap *game,
+                                           const LevelStaticWallScene *wall,
+                                           uint8_t point_selector, uint8_t use_top_selector,
+                                           int16_t *out_light)
+{
+    uint8_t selector = use_top_selector != 0u ?
+        (uint8_t)(wall->point_brightness_selector >> 4u) :
+        (uint8_t)(wall->point_brightness_selector & 0x0fu);
+    uint16_t zone_index = wall->source_zone_index;
+    uint32_t source_index;
+    int32_t source_light;
+
+    /* hireswall.s:Draw_Wall selects current/other ZoneT via selector bit 3. */
+    if ((selector & 0x08u) != 0u) {
+        zone_index = (uint16_t)wall->other_zone;
+    }
+    source_index = (uint32_t)(selector & 0x07u) + (uint32_t)point_selector * 4u +
+        (wall->source_upper_zone != 0u ? 2u : 0u);
+    if (!out_light || zone_index >= game->dynamic_level.runtime.zone_count ||
+        zone_index >= LIGHTING_RUNTIME_POINT_ZONE_CAPACITY ||
+        source_index >= LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT) {
+        return 0;
+    }
+    source_light = game->lighting_runtime.current_point_brightness[zone_index][source_index];
+    if (source_light < 0) {
+        source_light = -source_light;
+    }
+    *out_light = game_bootstrap_scene_clamp_light(source_light + wall->brightness_offset);
+    return 1;
+}
+
+static int game_bootstrap_refresh_scene_lighting(GameBootstrap *game)
+{
+    for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count; ++wall_index) {
+        LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
+        int16_t left_top;
+        int16_t right_top;
+        int16_t left_bottom;
+        int16_t right_bottom;
+
+        if (!game_bootstrap_scene_wall_light(game, wall, wall->left_point_brightness, 1u,
+                                             &left_top) ||
+            !game_bootstrap_scene_wall_light(game, wall, wall->right_point_brightness, 1u,
+                                             &right_top) ||
+            !game_bootstrap_scene_wall_light(game, wall, wall->left_point_brightness, 0u,
+                                             &left_bottom) ||
+            !game_bootstrap_scene_wall_light(game, wall, wall->right_point_brightness, 0u,
+                                             &right_bottom)) {
+            return 0;
+        }
+        wall->vertices[0].source_light_level = left_top;
+        wall->vertices[1].source_light_level = right_top;
+        wall->vertices[2].source_light_level = right_bottom;
+        wall->vertices[3].source_light_level = left_top;
+        wall->vertices[4].source_light_level = right_bottom;
+        wall->vertices[5].source_light_level = left_bottom;
+    }
+    for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count; ++flat_index) {
+        LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
+        int32_t source_light;
+
+        if (flat->source_zone_index >= game->dynamic_level.runtime.zone_count ||
+            flat->source_zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
+            return 0;
+        }
+        /* hires.s:pastsides adds the FlatT offset after Zone_BrightTable lookup. */
+        source_light = game->lighting_runtime.zone_brightness[flat->source_zone_index]
+            [flat->source_upper_zone != 0u ? 1u : 0u];
+        source_light += flat->brightness_offset;
+        for (uint32_t vertex_index = 0u; vertex_index < flat->vertex_count; ++vertex_index) {
+            flat->vertices[vertex_index].source_light_level =
+                game_bootstrap_scene_clamp_light(source_light);
+        }
+    }
+    return 1;
+}
+
+static int game_bootstrap_scene_sky_enabled(const GameBootstrap *game)
+{
+    LevelZone zone;
+    size_t disable_byte;
+
+    if (!level_runtime_get_zone(&game->dynamic_level.runtime, game->player.zone_index, &zone,
+                                NULL, 0u) || zone.draw_backdrop == 0u) {
+        return 0;
+    }
+    /* modules/level.s copies optional properties.dat to Zone_BackdropDisable_vb. */
+    disable_byte = (size_t)game->player.zone_index >> 3u;
+    return disable_byte >= game->level_property_overrides.size ||
+           (game->level_property_overrides.bytes[disable_byte] &
+            (uint8_t)(1u << (game->player.zone_index & 7u))) == 0u;
+}
+
+int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
+{
     SceneCommand command;
     size_t primitive_count;
     uint32_t sprite_count;
@@ -564,24 +669,50 @@ int game_bootstrap_submit_scene_frame(const GameBootstrap *game, SceneFrame *fra
     }
     primitive_count = (size_t)game->static_scene.wall_count + game->static_scene.flat_count;
     if (!object_scene_count_active(&game->object_runtime, &sprite_count, NULL, 0u) ||
-        primitive_count > (SIZE_MAX - 2u) / 2u ||
-        sprite_count > SIZE_MAX - (2u + primitive_count * 2u) ||
-        message_runtime_visible_line_count(&game->message_runtime) >
-            SIZE_MAX - (2u + primitive_count * 2u + sprite_count)) {
+        primitive_count > (SIZE_MAX - 3u) / 2u ||
+        sprite_count > SIZE_MAX - (3u + primitive_count * 2u)) {
         return 0;
     }
-    required_commands = 2u + primitive_count * 2u + sprite_count +
-        message_runtime_visible_line_count(&game->message_runtime);
+    required_commands = 3u + primitive_count * 2u + sprite_count;
     if (!scene_frame_reserve(frame, required_commands)) {
         return 0;
     }
     if (game->level_data.size != 0) {
+        if (!game_bootstrap_refresh_scene_lighting(game)) {
+            return 0;
+        }
         command.type = SCENE_COMMAND_CAMERA;
         command.data.camera.position.x = game->player.x;
         command.data.camera.position.y = game->player.y;
         command.data.camera.position.z = game->player.z;
         command.data.camera.yaw = game->player.yaw;
         command.data.camera.look_offset = game->player.look_offset;
+        if (!scene_frame_submit(frame, &command)) {
+            return 0;
+        }
+        command.type = SCENE_COMMAND_LIGHTING;
+        command.data.lighting.current_point_brightness =
+            &game->lighting_runtime.current_point_brightness[0][0];
+        command.data.lighting.point_zone_capacity = LIGHTING_RUNTIME_POINT_ZONE_CAPACITY;
+        command.data.lighting.point_brightness_count = LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT;
+        command.data.lighting.zone_brightness = game->lighting_runtime.zone_brightness;
+        command.data.lighting.zone_count = game->dynamic_level.runtime.zone_count;
+        if (!scene_frame_submit(frame, &command)) {
+            return 0;
+        }
+        command.type = SCENE_COMMAND_ENVIRONMENT;
+        command.data.environment.sky_enabled = (uint8_t)game_bootstrap_scene_sky_enabled(game);
+        command.data.environment.water_frame = (uint8_t)(game->presentation_frame & 7u);
+        command.data.environment.reserved = 0u;
+        command.data.environment.water_scroll = game->presentation_frame & UINT32_C(0x3fff3fff);
+        command.data.environment.backdrop_bytes = game->shared_resources.backdrop_image.bytes;
+        command.data.environment.backdrop_byte_count = game->shared_resources.backdrop_image.size;
+        command.data.environment.water_bytes = game->shared_resources.water_frames.bytes;
+        command.data.environment.water_byte_count = game->shared_resources.water_frames.size;
+        command.data.environment.source_display_palette_bytes =
+            game->shared_resources.main_palette.bytes;
+        command.data.environment.source_display_palette_byte_count =
+            game->shared_resources.main_palette.size;
         if (!scene_frame_submit(frame, &command)) {
             return 0;
         }
@@ -620,6 +751,9 @@ int game_bootstrap_submit_scene_frame(const GameBootstrap *game, SceneFrame *fra
             command.data.geometry.material_id = wall->material_id;
             command.data.geometry.source_record_id = wall->source_record_offset;
             command.data.geometry.texture_window = wall->texture_window;
+            command.data.geometry.source_zone_index = wall->source_zone_index;
+            command.data.geometry.source_upper_zone = wall->source_upper_zone;
+            command.data.geometry.reserved = 0u;
             command.data.geometry.flags = 0u;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
@@ -661,24 +795,20 @@ int game_bootstrap_submit_scene_frame(const GameBootstrap *game, SceneFrame *fra
             command.data.geometry.source_record_id = flat->source_record_offset;
             memset(&command.data.geometry.texture_window, 0,
                    sizeof(command.data.geometry.texture_window));
+            command.data.geometry.source_zone_index = flat->source_zone_index;
+            command.data.geometry.source_upper_zone = flat->source_upper_zone;
+            command.data.geometry.reserved = 0u;
             command.data.geometry.flags = 0u;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
         }
         if (!object_scene_submit_active(&game->object_runtime, &game->game_link_catalog,
-                                        &game->shared_resources, frame, NULL, 0u)) {
+                                        &game->shared_resources, &game->dynamic_level.runtime,
+                                        &game->lighting_runtime, &game->preferences,
+                                        frame, NULL, 0u)) {
             return 0;
         }
     }
-    if (!message_runtime_submit_hud(&game->message_runtime, frame)) {
-        return 0;
-    }
-    command.type = SCENE_COMMAND_HUD_TEXT;
-    command.data.hud_text.text = game->level_data.size != 0 ? level_status : menu_status;
-    command.data.hud_text.text_byte_count = (uint16_t)strlen(command.data.hud_text.text);
-    command.data.hud_text.x = 0;
-    command.data.hud_text.y = 0;
-    command.data.hud_text.style_id = 0;
-    return scene_frame_submit(frame, &command);
+    return 1;
 }

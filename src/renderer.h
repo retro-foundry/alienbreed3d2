@@ -21,6 +21,8 @@ typedef struct {
     int window_width;
     int window_height;
     const char *window_title;
+    /* Opt-in validation path: an SDL hidden window still exercises real GL. */
+    int hidden_window;
 } RendererConfig;
 
 typedef struct Renderer Renderer;

@@ -17,7 +17,8 @@ authority for all game behavior and data formats.
   packed-asset reference only. Do not import its gameplay, level assumptions,
   procedural test data, or software renderer.
 - Keep rendering behind `src/scene_frame.h`. Producers submit cameras,
-  materials, geometry, sprites, and HUD text; no producer may depend on Amiga
+  lighting, environment, materials, geometry, and sprites; gameplay messages
+  stay simulated but are not submitted as HUD. No producer may depend on Amiga
   framebuffers, copper lists, C2P, or a specific modern graphics API.
 - `src/renderer.h` is the presentation interface. `renderer_opengl.c` is one
   backend; neither the entry point nor scene producers include OpenGL, so a
@@ -41,14 +42,15 @@ authority for all game behavior and data formats.
 - [x] `src/renderer_opengl.c` creates the SDL OpenGL 2.1 desktop context and
   uses a GLES 2 shader subset under Emscripten/WebGL. It consumes source camera
   yaw and complete `SceneFrame` geometry, triangulates source polygon
-  boundaries with ear clipping instead of a fan shortcut, depth-renders every
-  wall/floor/ceiling/water command, and renders normal live bitmap objects as
-  camera-facing source frames. It deliberately ignores HUD commands because UI
-  is outside this scope.
-- [x] `SceneMaterial` and `SceneSprite` include the exact shared `256pal`
-  display palette. The backend converts the source wall palette prefix and
+  boundaries with ear clipping instead of a fan shortcut, and forward-renders
+  source sky, opaque world/vector geometry, animated water, cutout bitmaps,
+  additive glare/effects, and Player 1's live vector companion weapon. It
+  emits no HUD commands because UI is outside this scope.
+- [x] `SceneMaterial`, `SceneSprite`, `SceneLighting`, and `SceneEnvironment`
+  retain the exact shared `256pal`, source brightness tables, backdrop, and
+  water-frame state. The backend converts the source wall palette prefix and
   packed 5-bit wall strips, `floortile` plus row-32 `newtexturemaps.pal`, and
-  normal object WAD/PTR frame columns to repeat/clamped RGBA GPU textures.
+  object WAD/PTR frame columns to filtered/crisp RGBA GPU textures.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.
@@ -63,11 +65,11 @@ authority for all game behavior and data formats.
   browser-safe main loop, and preloads the lower-case `stage_media.py` asset
   tree as `/data`.
 
-The current texture pass deliberately does not emulate the source's dynamic
-brightness/shade-row selection, vector-model path, glare-specific bitmap
-blend path, or HUD glyph renderer. Those source-owned paths remain deferred;
-the visible world and normal bitmap objects no longer use diagnostic colours
-or markers.
+The renderer uses continuous GPU light interpolation from the live source
+brightness tables instead of reproducing Amiga palette dithering. HUD glyphs,
+menus, audio, and multiplayer remain deliberately excluded. The opt-in
+`ab3d2_gpu_smoke` target creates a hidden real OpenGL context and draws one
+frame from every authored level, reporting shader or source-decoding errors.
 
 ## Earlier direct-gameplay scope audit (superseded by GPU presentation work)
 

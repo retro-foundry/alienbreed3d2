@@ -5,7 +5,10 @@
 #include <stdint.h>
 
 #include "game_link.h"
+#include "game_preferences.h"
 #include "game_resources.h"
+#include "lighting_runtime.h"
+#include "level_runtime.h"
 #include "object_runtime.h"
 #include "scene_frame.h"
 
@@ -17,7 +20,10 @@
 int object_scene_count_active(const ObjectRuntime *objects, uint32_t *out_count,
                               char *error, size_t error_size);
 int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *game_link,
-                               const GameSharedResources *resources, SceneFrame *frame,
+                               const GameSharedResources *resources,
+                               const LevelRuntime *level,
+                               const LightingRuntime *lighting,
+                               const GamePreferences *preferences, SceneFrame *frame,
                                char *error, size_t error_size);
 
 #endif

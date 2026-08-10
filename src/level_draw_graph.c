@@ -243,7 +243,7 @@ int level_draw_graph_read_wall(const LevelRuntime *runtime,
     wall.top = level_draw_graph_read_be32s(source + 20u);
     wall.bottom = level_draw_graph_read_be32s(source + 24u);
     wall.brightness_offset = (int8_t)source[28u];
-    wall.other_zone = (int8_t)source[29u];
+    wall.other_zone = source[29u];
     *out_wall = wall;
     return 1;
 }

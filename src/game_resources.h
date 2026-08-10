@@ -18,6 +18,8 @@ typedef struct {
     AssetBlob texture_maps;
     AssetBlob texture_palette;
     AssetBlob backdrop_image;
+    /* data/draw_data.s:draw_WaterFrames_vb's 64 KiB source distortion table. */
+    AssetBlob water_frames;
 
     AssetBlob object_wads[GAME_LINK_OBJECT_COUNT];
     AssetBlob object_ptrs[GAME_LINK_OBJECT_COUNT];

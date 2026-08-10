@@ -190,9 +190,13 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->source_bytes != game->shared_resources.vector_models[asset_index].bytes ||
                 sprite->source_byte_count != game->shared_resources.vector_models[asset_index].size ||
                 sprite->source_aux_bytes != NULL || sprite->source_aux_byte_count != 0u ||
-                sprite->source_palette_bytes != NULL || sprite->source_palette_byte_count != 0u ||
-                sprite->source_display_palette_bytes != NULL ||
-                sprite->source_display_palette_byte_count != 0u ||
+                sprite->source_palette_bytes != game->shared_resources.texture_maps.bytes ||
+                sprite->source_palette_byte_count != game->shared_resources.texture_maps.size ||
+                sprite->source_display_palette_bytes != game->shared_resources.main_palette.bytes ||
+                sprite->source_display_palette_byte_count != game->shared_resources.main_palette.size ||
+                sprite->presentation != (slot_index == game->object_runtime.player1_slot + 2u ?
+                    SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON :
+                    SCENE_SPRITE_PRESENTATION_WORLD_OBJECT) ||
                 sprite->source_width != 0u || sprite->source_height != 0u ||
                 sprite->source_effect != 0u || sprite->flags != expected_flags ||
                 sprite->frame_metrics.pointer_table_index != 0u ||
@@ -222,6 +226,7 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->source_aux_byte_count != game->shared_resources.object_ptrs[asset_index].size ||
                 sprite->source_display_palette_bytes != game->shared_resources.main_palette.bytes ||
                 sprite->source_display_palette_byte_count != game->shared_resources.main_palette.size ||
+                sprite->presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
                 sprite->source_width != slot[6u] || sprite->source_height != slot[7u] ||
                 sprite->frame_metrics.pointer_table_index != source_frame.pointer_table_index ||
                 sprite->frame_metrics.down_strip != source_frame.down_strip ||
@@ -1278,17 +1283,19 @@ int main(int argc, char **argv)
         game.shared_resources.sound_effect_count != 46u ||
         game.shared_resources.sound_effects[0u].size < 4u ||
         memcmp(game.shared_resources.sound_effects[0u].bytes, "CSFX", 4u) == 0 ||
-        game.shared_resources.backdrop_image.size == 0) {
+        game.shared_resources.backdrop_image.size != 648u * 240u ||
+        game.shared_resources.water_frames.size != 256u * 256u) {
         fprintf(stderr,
                 "source-defined shared resources are inconsistent "
-                "(mainpal=%zu floor=%zu maps=%zu palette=%zu objects=%u vectors=%u walls=%u sfx=%u backdrop=%zu)\n",
+                "(mainpal=%zu floor=%zu maps=%zu palette=%zu objects=%u vectors=%u walls=%u sfx=%u backdrop=%zu water=%zu)\n",
                 game.shared_resources.main_palette.size,
                 game.shared_resources.floor_texture.size,
                 game.shared_resources.texture_maps.size,
                 game.shared_resources.texture_palette.size,
                 game.shared_resources.object_count, game.shared_resources.vector_count,
                 game.shared_resources.wall_texture_count, game.shared_resources.sound_effect_count,
-                game.shared_resources.backdrop_image.size);
+                game.shared_resources.backdrop_image.size,
+                game.shared_resources.water_frames.size);
         game_bootstrap_destroy(&game);
         return 1;
     }
@@ -1743,14 +1750,16 @@ int main(int argc, char **argv)
             !object_scene_count_active(&game.object_runtime, &active_sprite_count,
                                        error, sizeof(error)) ||
             !game_bootstrap_submit_scene_frame(&game, &frame) ||
-            frame.count != 2u +
+            frame.count != 3u +
                 ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u +
                 active_sprite_count ||
             !scene_sprite_commands_match_source(
-                &frame, 1u +
+                &frame, 3u +
                     ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u,
                 &game, active_sprite_count, error, sizeof(error)) ||
-            frame.commands[frame.count - 1u].type != SCENE_COMMAND_HUD_TEXT) {
+            frame.commands[0u].type != SCENE_COMMAND_CAMERA ||
+            frame.commands[1u].type != SCENE_COMMAND_LIGHTING ||
+            frame.commands[2u].type != SCENE_COMMAND_ENVIRONMENT) {
             fprintf(stderr, "campaign level %u source-object scene handoff is invalid: %s\n",
                     level_index, error);
             scene_frame_destroy(&frame);
@@ -2955,78 +2964,96 @@ int main(int argc, char **argv)
         game.player.height != 12 * 1024 ||
         game.player.default_enemy_flags != 0x23u || !scene_frame_init(&frame, 2) ||
         !game_bootstrap_submit_scene_frame(&game, &frame) ||
-        frame.count != 2u +
+        frame.count != 3u +
             ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u +
             active_sprite_count ||
         frame.commands[0].type != SCENE_COMMAND_CAMERA ||
         frame.commands[0].data.camera.position.x != game.player.x ||
         game.static_scene.wall_count == 0u || game.static_scene.flat_count == 0u ||
-        frame.commands[1].type != SCENE_COMMAND_MATERIAL ||
-        frame.commands[1].data.material.source != SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE ||
-        frame.commands[1].data.material.source_asset_id != game.static_scene.walls[0].material_id ||
-        frame.commands[1].data.material.source_bytes !=
+        frame.commands[1].type != SCENE_COMMAND_LIGHTING ||
+        frame.commands[1].data.lighting.current_point_brightness !=
+            &game.lighting_runtime.current_point_brightness[0][0] ||
+        frame.commands[1].data.lighting.zone_brightness != game.lighting_runtime.zone_brightness ||
+        frame.commands[1].data.lighting.zone_count != game.dynamic_level.runtime.zone_count ||
+        frame.commands[2].type != SCENE_COMMAND_ENVIRONMENT ||
+        frame.commands[2].data.environment.backdrop_bytes != game.shared_resources.backdrop_image.bytes ||
+        frame.commands[2].data.environment.backdrop_byte_count != 648u * 240u ||
+        frame.commands[2].data.environment.water_bytes != game.shared_resources.water_frames.bytes ||
+        frame.commands[2].data.environment.water_byte_count != 256u * 256u ||
+        frame.commands[3].type != SCENE_COMMAND_MATERIAL ||
+        frame.commands[3].data.material.source != SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE ||
+        frame.commands[3].data.material.source_asset_id != game.static_scene.walls[0].material_id ||
+        frame.commands[3].data.material.source_bytes !=
             game.shared_resources.wall_textures[game.static_scene.walls[0].material_id].bytes ||
-        frame.commands[1].data.material.source_byte_count !=
+        frame.commands[3].data.material.source_byte_count !=
             game.shared_resources.wall_textures[game.static_scene.walls[0].material_id].size ||
-        frame.commands[1].data.material.source_palette_bytes !=
+        frame.commands[3].data.material.source_palette_bytes !=
             game.shared_resources.wall_textures[game.static_scene.walls[0].material_id].bytes ||
-        frame.commands[1].data.material.source_palette_byte_count != 64u * 32u ||
-        frame.commands[1].data.material.source_display_palette_bytes !=
+        frame.commands[3].data.material.source_palette_byte_count != 64u * 32u ||
+        frame.commands[3].data.material.source_display_palette_bytes !=
             game.shared_resources.main_palette.bytes ||
-        frame.commands[1].data.material.source_display_palette_byte_count !=
+        frame.commands[3].data.material.source_display_palette_byte_count !=
             game.shared_resources.main_palette.size ||
-        frame.commands[2].type != SCENE_COMMAND_GEOMETRY ||
-        frame.commands[2].data.geometry.vertices != game.static_scene.walls[0].vertices ||
-        frame.commands[2].data.geometry.vertex_count != 6u ||
-        frame.commands[2].data.geometry.topology != SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST ||
-        frame.commands[2].data.geometry.primitive != SCENE_GEOMETRY_PRIMITIVE_WALL ||
-        frame.commands[2].data.geometry.material_id != game.static_scene.walls[0].material_id ||
-        frame.commands[2].data.geometry.source_record_id !=
+        frame.commands[4].type != SCENE_COMMAND_GEOMETRY ||
+        frame.commands[4].data.geometry.vertices != game.static_scene.walls[0].vertices ||
+        frame.commands[4].data.geometry.vertex_count != 6u ||
+        frame.commands[4].data.geometry.topology != SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST ||
+        frame.commands[4].data.geometry.primitive != SCENE_GEOMETRY_PRIMITIVE_WALL ||
+        frame.commands[4].data.geometry.material_id != game.static_scene.walls[0].material_id ||
+        frame.commands[4].data.geometry.source_record_id !=
             game.static_scene.walls[0].source_record_offset ||
-        memcmp(&frame.commands[2].data.geometry.texture_window,
+        frame.commands[4].data.geometry.source_zone_index !=
+            game.static_scene.walls[0].source_zone_index ||
+        frame.commands[4].data.geometry.source_upper_zone !=
+            game.static_scene.walls[0].source_upper_zone ||
+        memcmp(&frame.commands[4].data.geometry.texture_window,
                &game.static_scene.walls[0].texture_window,
                sizeof(game.static_scene.walls[0].texture_window)) != 0 ||
-        frame.commands[2].data.geometry.flags != 0u ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].type !=
+        frame.commands[4].data.geometry.flags != 0u ||
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].type !=
             SCENE_COMMAND_MATERIAL ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source !=
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source !=
             SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_asset_id !=
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_asset_id !=
             game.static_scene.flats[0].material_id ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_bytes !=
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_bytes !=
             game.shared_resources.floor_texture.bytes ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_byte_count !=
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_byte_count !=
             game.shared_resources.floor_texture.size ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_bytes !=
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_bytes !=
             game.shared_resources.texture_palette.bytes ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_byte_count !=
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_byte_count !=
             game.shared_resources.texture_palette.size ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_display_palette_bytes !=
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_display_palette_bytes !=
             game.shared_resources.main_palette.bytes ||
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_display_palette_byte_count !=
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_display_palette_byte_count !=
             game.shared_resources.main_palette.size ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].type !=
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].type !=
             SCENE_COMMAND_GEOMETRY ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.vertices !=
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.vertices !=
             game.static_scene.flats[0].vertices ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.vertex_count !=
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.vertex_count !=
             game.static_scene.flats[0].vertex_count ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.topology !=
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.topology !=
             SCENE_GEOMETRY_TOPOLOGY_POLYGON_BOUNDARY ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.primitive !=
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.primitive !=
             game.static_scene.flats[0].primitive ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.material_id !=
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.material_id !=
             game.static_scene.flats[0].material_id ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.source_record_id !=
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.source_record_id !=
             game.static_scene.flats[0].source_record_offset ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.u_offset != 0u ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.u_period != 0u ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.v_period != 0u ||
-        frame.commands[2u + (size_t)game.static_scene.wall_count * 2u].data.geometry.flags != 0u ||
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.source_zone_index !=
+            game.static_scene.flats[0].source_zone_index ||
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.source_upper_zone !=
+            game.static_scene.flats[0].source_upper_zone ||
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.u_offset != 0u ||
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.u_period != 0u ||
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.texture_window.v_period != 0u ||
+        frame.commands[4u + (size_t)game.static_scene.wall_count * 2u].data.geometry.flags != 0u ||
         !scene_sprite_commands_match_source(
-            &frame, 1u + ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u,
+            &frame, 3u + ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u,
             &game, active_sprite_count, error, sizeof(error)) ||
-        frame.commands[frame.count - 1u].type != SCENE_COMMAND_HUD_TEXT) {
+        frame.commands[frame.count - 1u].type != SCENE_COMMAND_SPRITE) {
         fprintf(stderr, "Plr_Initialise camera state is inconsistent: %s\n", error);
         scene_frame_destroy(&frame);
         game_bootstrap_destroy(&game);
@@ -3041,21 +3068,21 @@ int main(int argc, char **argv)
     game.level_wall_overrides[game.static_scene.walls[0].material_id].size = sizeof(override_marker);
     scene_frame_begin(&frame);
     override_sources_ok = game_bootstrap_submit_scene_frame(&game, &frame) &&
-        frame.commands[1].data.material.source ==
+        frame.commands[3].data.material.source ==
             SCENE_MATERIAL_SOURCE_LEVEL_WALL_TEXTURE_OVERRIDE &&
-        frame.commands[1].data.material.source_bytes == override_marker &&
-        frame.commands[1].data.material.source_byte_count == sizeof(override_marker) &&
-        frame.commands[1].data.material.source_palette_bytes == override_marker &&
-        frame.commands[1].data.material.source_palette_byte_count == sizeof(override_marker) &&
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source ==
+        frame.commands[3].data.material.source_bytes == override_marker &&
+        frame.commands[3].data.material.source_byte_count == sizeof(override_marker) &&
+        frame.commands[3].data.material.source_palette_bytes == override_marker &&
+        frame.commands[3].data.material.source_palette_byte_count == sizeof(override_marker) &&
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source ==
             SCENE_MATERIAL_SOURCE_LEVEL_FLOOR_TEXTURE_OVERRIDE &&
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_bytes ==
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_bytes ==
             override_marker &&
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_byte_count ==
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_byte_count ==
             sizeof(override_marker) &&
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_bytes ==
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_bytes ==
             game.shared_resources.texture_palette.bytes &&
-        frame.commands[1u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_byte_count ==
+        frame.commands[3u + (size_t)game.static_scene.wall_count * 2u].data.material.source_palette_byte_count ==
             game.shared_resources.texture_palette.size;
     game.level_floor_override = saved_floor_override;
     game.level_wall_overrides[game.static_scene.walls[0].material_id] = saved_wall_override;

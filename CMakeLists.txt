@@ -144,6 +144,11 @@ else()
             --destination "$<TARGET_FILE_DIR:ab3d2>/data"
     COMMENT "Stage authoritative AB3D2 media as case-stable executable-local data/"
   )
+  add_custom_target(ab3d2_gpu_smoke
+    COMMAND $<TARGET_FILE:ab3d2> --gpu-smoke all
+    DEPENDS ab3d2
+    COMMENT "Run the opt-in hidden-window OpenGL scene/shader smoke test"
+  )
 endif()
 
 if(WIN32 AND NOT EMSCRIPTEN)

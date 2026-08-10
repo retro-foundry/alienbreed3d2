@@ -118,8 +118,33 @@ static int object_scene_apply_frame_metrics(const GameLink *game_link, uint16_t 
     return 1;
 }
 
+static int object_scene_find_zone_index(const LevelRuntime *level, int16_t source_zone_id,
+                                        uint16_t *out_zone_index, char *error,
+                                        size_t error_size)
+{
+    if (!level || !out_zone_index || source_zone_id < 0) {
+        object_scene_set_error(error, error_size, "ObjT sprite has an invalid source zone id");
+        return 0;
+    }
+    for (uint16_t zone_index = 0u; zone_index < level->zone_count; ++zone_index) {
+        LevelZone zone;
+
+        if (!level_runtime_get_zone(level, zone_index, &zone, error, error_size)) {
+            return 0;
+        }
+        if (zone.id == (uint16_t)source_zone_id) {
+            *out_zone_index = zone_index;
+            return 1;
+        }
+    }
+    object_scene_set_error(error, error_size, "ObjT sprite source zone id is not in the level");
+    return 0;
+}
+
 static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLink *game_link,
                                      const GameSharedResources *resources,
+                                     const LevelRuntime *level,
+                                     const LightingRuntime *lighting,
                                      uint32_t slot_index, SceneSprite *out_sprite,
                                      char *error, size_t error_size)
 {
@@ -127,11 +152,14 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
         (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
     const uint8_t *point;
     uint16_t point_index = object_scene_read_be16(slot + OBJECT_SCENE_POINT_INDEX);
+    int16_t source_zone_id = object_scene_read_be16s(slot + OBJECT_SCENE_ZONE_ID);
     int16_t graphics_type = object_scene_read_be16s(slot + OBJECT_SCENE_GRAPHICS_TYPE);
     uint16_t asset_index;
     SceneSprite sprite = {0};
 
-    if (point_index >= objects->point_count) {
+    if (point_index >= objects->point_count || !level || !lighting ||
+        !object_scene_find_zone_index(level, source_zone_id, &sprite.source_zone_index,
+                                      error, error_size)) {
         object_scene_set_error(error, error_size,
                                "live ObjT record has an invalid source point");
         return 0;
@@ -150,6 +178,14 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     if (slot[OBJECT_SCENE_IN_UPPER_ZONE] != 0u) {
         sprite.flags |= SCENE_SPRITE_FLAG_UPPER_ZONE;
     }
+    if (sprite.source_zone_index >= level->zone_count ||
+        sprite.source_zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
+        object_scene_set_error(error, error_size, "ObjT sprite lighting zone is outside source tables");
+        return 0;
+    }
+    sprite.source_light_level = (int16_t)((uint16_t)sprite.source_brightness +
+        (uint16_t)lighting->zone_brightness[sprite.source_zone_index]
+            [(sprite.flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ? 1u : 0u]);
 
     /* draw_Object branches on the first byte of this source display word. */
     if (slot[OBJECT_SCENE_WIDTH_HEIGHT] == UINT8_MAX) {
@@ -165,6 +201,14 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
         sprite.frame_index = object_scene_read_be16(slot + OBJECT_SCENE_EFFECT);
         sprite.source_bytes = resources->vector_models[asset_index].bytes;
         sprite.source_byte_count = resources->vector_models[asset_index].size;
+        /* objdrawhires.s:doapoly indexes Draw_TextureMapsPtr per vector face. */
+        sprite.source_palette_bytes = resources->texture_maps.bytes;
+        sprite.source_palette_byte_count = resources->texture_maps.size;
+        sprite.source_display_palette_bytes = resources->main_palette.bytes;
+        sprite.source_display_palette_byte_count = resources->main_palette.size;
+        if (slot_index == objects->player1_slot + 2u) {
+            sprite.presentation = SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON;
+        }
     } else if (graphics_type < 0) {
         asset_index = (uint16_t)(0u - (uint16_t)graphics_type);
         if (!object_scene_select_bitmap_assets(resources, asset_index, &sprite,
@@ -226,10 +270,13 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
 }
 
 int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *game_link,
-                               const GameSharedResources *resources, SceneFrame *frame,
+                               const GameSharedResources *resources,
+                               const LevelRuntime *level,
+                               const LightingRuntime *lighting,
+                               const GamePreferences *preferences, SceneFrame *frame,
                                char *error, size_t error_size)
 {
-    if (!game_link || !resources || !frame ||
+    if (!game_link || !resources || !level || !lighting || !preferences || !frame ||
         !object_scene_validate_state(objects, error, error_size)) {
         object_scene_set_error(error, error_size,
                                "Draw_Objects scene handoff received invalid state");
@@ -243,11 +290,13 @@ int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *gam
         if (object_scene_read_be16s(slot + OBJECT_SCENE_POINT_INDEX) < 0) {
             break;
         }
-        if (object_scene_read_be16s(slot + OBJECT_SCENE_ZONE_ID) < 0) {
+        if (object_scene_read_be16s(slot + OBJECT_SCENE_ZONE_ID) < 0 ||
+            (preferences->show_weapon != 0u &&
+             slot_index == objects->player1_slot + 2u)) {
             continue;
         }
         command.type = SCENE_COMMAND_SPRITE;
-        if (!object_scene_build_sprite(objects, game_link, resources, slot_index,
+        if (!object_scene_build_sprite(objects, game_link, resources, level, lighting, slot_index,
                                        &command.data.sprite, error, error_size) ||
             !scene_frame_submit(frame, &command)) {
             return 0;

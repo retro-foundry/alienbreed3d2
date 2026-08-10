@@ -214,6 +214,7 @@ void game_shared_resources_destroy(GameSharedResources *resources)
     asset_blob_release(&resources->texture_maps);
     asset_blob_release(&resources->texture_palette);
     asset_blob_release(&resources->backdrop_image);
+    asset_blob_release(&resources->water_frames);
     for (index = 0; index < GAME_LINK_OBJECT_COUNT; ++index) {
         asset_blob_release(&resources->object_wads[index]);
         asset_blob_release(&resources->object_ptrs[index]);
@@ -246,12 +247,22 @@ int game_shared_resources_load(GameSharedResources *resources, const GameLink *g
         !game_resources_load_vectors(resources, game_link, data_root, error, error_size) ||
         /* data/draw_data.s:draw_BackdropImageName_vb, queued in Game_Start. */
         !game_resources_load_volume_asset(data_root, "ab3:includes/rawbackpacked",
-                                          &resources->backdrop_image, error, error_size)) {
+                                          &resources->backdrop_image, error, error_size) ||
+        /* data/draw_data.s:draw_WaterFrames_vb. */
+        !asset_io_load(data_root, "includes/waterfile", &resources->water_frames,
+                       error, error_size)) {
         game_shared_resources_destroy(resources);
         return 0;
     }
     if (resources->main_palette.size != 256u * 3u * sizeof(uint16_t)) {
         game_resources_set_error(error, error_size, "source 256pal has an invalid byte count");
+        game_shared_resources_destroy(resources);
+        return 0;
+    }
+    if (resources->backdrop_image.size != 648u * 240u ||
+        resources->water_frames.size != 256u * 256u) {
+        game_resources_set_error(error, error_size,
+                                 "source backdrop or water frame asset has an invalid byte count");
         game_shared_resources_destroy(resources);
         return 0;
     }

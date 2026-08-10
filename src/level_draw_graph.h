@@ -43,7 +43,8 @@ typedef struct {
     uint8_t texture_width_mask;
     uint8_t point_brightness_selector;
     int8_t brightness_offset;
-    int8_t other_zone;
+    /* hireswall.s writes this byte into the low byte of a cleared word. */
+    uint8_t other_zone;
 } LevelDrawWall;
 
 /* Draw_Flats record with its source point words kept intact. */

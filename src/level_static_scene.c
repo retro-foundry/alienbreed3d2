@@ -84,6 +84,7 @@ static void level_static_scene_set_vertex(SceneVertex *vertex, int16_t x, int32_
     vertex->position.z = z;
     vertex->texture_u = texture_u;
     vertex->texture_v = texture_v;
+    vertex->source_light_level = 0;
 }
 
 /*
@@ -280,6 +281,13 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                     scene_wall = &scene.walls[wall_index++];
                     scene_wall->material_id = wall.texture_id;
                     scene_wall->source_record_offset = record.source_offset;
+                    scene_wall->source_zone_index = zone_index;
+                    scene_wall->source_upper_zone = upper_stream;
+                    scene_wall->point_brightness_selector = wall.point_brightness_selector;
+                    scene_wall->left_point_brightness = wall.left_point_brightness;
+                    scene_wall->right_point_brightness = wall.right_point_brightness;
+                    scene_wall->brightness_offset = wall.brightness_offset;
+                    scene_wall->other_zone = wall.other_zone;
                     level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point,
                                                          &right_point);
                     continue;
@@ -326,6 +334,8 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                     scene_flat->source_record_byte_count = record.byte_count;
                     scene_flat->texture_scale = flat.texture_scale;
                     scene_flat->brightness_offset = flat.brightness_offset;
+                    scene_flat->source_zone_index = zone_index;
+                    scene_flat->source_upper_zone = upper_stream;
                     if (!level_static_scene_flat_source_scale(scene_flat->primitive,
                                                                flat.texture_scale,
                                                                &source_scale)) {
@@ -411,6 +421,11 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
             return 0;
         }
         scene_wall->material_id = wall.texture_id;
+        scene_wall->point_brightness_selector = wall.point_brightness_selector;
+        scene_wall->left_point_brightness = wall.left_point_brightness;
+        scene_wall->right_point_brightness = wall.right_point_brightness;
+        scene_wall->brightness_offset = wall.brightness_offset;
+        scene_wall->other_zone = wall.other_zone;
         level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point, &right_point);
     }
     for (flat_index = 0u; flat_index < scene->flat_count; ++flat_index) {

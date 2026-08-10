@@ -10,6 +10,7 @@ typedef struct RendererOpenGL RendererOpenGL;
 
 RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
                                        const char *window_title,
+                                       int hidden_window,
                                        char *error, size_t error_size);
 void renderer_opengl_destroy(RendererOpenGL *renderer);
 int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,

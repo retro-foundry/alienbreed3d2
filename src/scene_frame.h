@@ -55,6 +55,12 @@ typedef struct {
     /* Exact source texel coordinates, consumed with SceneTextureWindow. */
     int32_t texture_u;
     int32_t texture_v;
+    /*
+     * Smooth presentation value derived from the active source brightness
+     * tables.  It is deliberately not an Amiga palette-row index: the GPU
+     * converts this continuous source value to lighting in its forward pass.
+     */
+    int16_t source_light_level;
 } SceneVertex;
 
 typedef enum {
@@ -90,8 +96,40 @@ typedef struct {
     uint32_t material_id;
     uint32_t source_record_id;
     SceneTextureWindow texture_window;
+    /* draw-zone stream identity retained for source-light diagnostics. */
+    uint16_t source_zone_index;
+    uint8_t source_upper_zone;
+    uint8_t reserved;
     uint32_t flags;
 } SceneGeometry;
+
+/*
+ * `hires.s:donetalking` owns these tables.  Geometry receives its sampled
+ * values per vertex, while retaining the raw tables here lets a future GPU
+ * backend reproduce more of the source interpolation without touching game
+ * simulation state.
+ */
+typedef struct {
+    const int16_t *current_point_brightness;
+    uint16_t point_zone_capacity;
+    uint16_t point_brightness_count;
+    const int16_t (*zone_brightness)[2];
+    uint16_t zone_count;
+} SceneLighting;
+
+/* `newanims.s:Draw_SkyBackdrop` and `DoWaterAnims` source presentation state. */
+typedef struct {
+    uint8_t sky_enabled;
+    uint8_t water_frame;
+    uint16_t reserved;
+    uint32_t water_scroll;
+    const uint8_t *backdrop_bytes;
+    size_t backdrop_byte_count;
+    const uint8_t *water_bytes;
+    size_t water_byte_count;
+    const uint8_t *source_display_palette_bytes;
+    size_t source_display_palette_byte_count;
+} SceneEnvironment;
 
 /* objdrawhires.s takes one of these three source paths for an ObjT slot. */
 typedef enum {
@@ -99,6 +137,12 @@ typedef enum {
     SCENE_SPRITE_SOURCE_VECTOR_MODEL,
     SCENE_SPRITE_SOURCE_GLARE_BITMAP
 } SceneSpriteSource;
+
+typedef enum {
+    SCENE_SPRITE_PRESENTATION_WORLD_OBJECT,
+    /* hires.s:Plr1_Use's live ENT_NEXT_2 companion object. */
+    SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON
+} SceneSpritePresentation;
 
 enum {
     /* objdrawhires.s:draw_Bitmap's byte-10 render controls. */
@@ -120,18 +164,22 @@ typedef struct {
 /*
  * Raw source assets and draw descriptor for one active ObjT record.  This is
  * intentionally unprojected and unsorted: a GPU backend owns projection,
- * culling, draw order, asset conversion, and upload.  `source_aux_bytes` is
- * the matching bitmap PTR data; vector and glare paths leave unsupported
- * fields zero/null rather than emulating the Amiga rasterizer.
+ * culling, draw order, asset conversion, and upload. `source_aux_bytes` is
+ * the matching bitmap PTR data. Vector sprites carry `Draw_TextureMapsPtr`
+ * bytes plus the display palette for their original face-map colours; glare
+ * sprites carry the shared texture palette.
  */
 typedef struct {
     SceneWorldPoint position;
     SceneSpriteSource source;
+    SceneSpritePresentation presentation;
     uint32_t source_asset_id;
     uint32_t source_record_id;
     uint16_t frame_index;
     uint16_t yaw;
     uint16_t source_brightness;
+    int16_t source_light_level;
+    uint16_t source_zone_index;
     int16_t source_aux_offset_x;
     int16_t source_aux_offset_y;
     uint8_t source_width;
@@ -160,6 +208,8 @@ typedef struct {
 
 typedef enum {
     SCENE_COMMAND_CAMERA,
+    SCENE_COMMAND_LIGHTING,
+    SCENE_COMMAND_ENVIRONMENT,
     SCENE_COMMAND_MATERIAL,
     SCENE_COMMAND_GEOMETRY,
     SCENE_COMMAND_SPRITE,
@@ -170,6 +220,8 @@ typedef struct {
     SceneCommandType type;
     union {
         SceneCamera camera;
+        SceneLighting lighting;
+        SceneEnvironment environment;
         SceneMaterial material;
         SceneGeometry geometry;
         SceneSprite sprite;

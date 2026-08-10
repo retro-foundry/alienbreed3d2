@@ -36,7 +36,8 @@ Renderer *renderer_create(const RendererConfig *config, char *error, size_t erro
     switch (renderer->backend) {
     case RENDERER_BACKEND_OPENGL:
         renderer->opengl = renderer_opengl_create(config->window_width, config->window_height,
-                                                  config->window_title, error, error_size);
+                                                  config->window_title, config->hidden_window,
+                                                  error, error_size);
         break;
     default:
         renderer_set_error(error, error_size, "requested renderer backend is not available");

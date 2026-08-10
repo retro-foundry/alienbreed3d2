@@ -87,6 +87,8 @@ typedef struct {
     MessageRuntime message_runtime;
     /* c/message.c Sys_FrameTimeECV_q[0], supplied by the native platform boundary. */
     uint64_t message_time_milliseconds;
+    /* hires.s water-frame/scroll VBlank presentation state. */
+    uint32_t presentation_frame;
     LevelStaticScene static_scene;
     PlayerRuntime player;
 } GameBootstrap;
@@ -128,7 +130,7 @@ int game_bootstrap_load_level_definition(GameBootstrap *game, const char *data_r
                                          char *error, size_t error_size);
 void game_bootstrap_destroy(GameBootstrap *game);
 
-/* Emits the complete source-authored gameplay scene and source HUD commands. */
-int game_bootstrap_submit_scene_frame(const GameBootstrap *game, SceneFrame *frame);
+/* Emits the complete source-authored gameplay scene; HUD/messages stay in simulation. */
+int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame);
 
 #endif

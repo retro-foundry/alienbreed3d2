@@ -13,6 +13,13 @@ typedef struct {
     uint32_t material_id;
     uint32_t source_record_offset;
     SceneTextureWindow texture_window;
+    uint16_t source_zone_index;
+    uint8_t source_upper_zone;
+    uint8_t point_brightness_selector;
+    uint8_t left_point_brightness;
+    uint8_t right_point_brightness;
+    int8_t brightness_offset;
+    uint8_t other_zone;
 } LevelStaticWallScene;
 
 /*
@@ -29,6 +36,8 @@ typedef struct {
     SceneGeometryPrimitive primitive;
     int16_t texture_scale;
     int16_t brightness_offset;
+    uint16_t source_zone_index;
+    uint8_t source_upper_zone;
 } LevelStaticFlatScene;
 
 typedef struct {

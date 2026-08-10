@@ -188,6 +188,8 @@ typedef struct {
     int sdl_initialized;
     int game_initialized;
     int frame_initialized;
+    int gpu_smoke;
+    int gpu_smoke_all_levels;
     int exit_code;
 } GameApp;
 
@@ -233,6 +235,15 @@ static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
                                            &app->selected_level_index)) {
                 return 0;
             }
+        } else if (strcmp(argv[argument_index], "--gpu-smoke") == 0 && !app->gpu_smoke) {
+            if (strcmp(argv[argument_index + 1], "all") == 0) {
+                app->selected_level_index = 0u;
+                app->gpu_smoke_all_levels = 1;
+            } else if (!level_index_from_argument(argv[argument_index + 1],
+                                                  &app->selected_level_index)) {
+                return 0;
+            }
+            app->gpu_smoke = 1;
         } else {
             return 0;
         }
@@ -246,7 +257,9 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     RendererConfig renderer_config;
 
     if (!app || !game_app_parse_arguments(app, argc, argv)) {
-        fprintf(stderr, "usage: %s [--data-root <directory>] [--level <A-P>]\n", argv[0]);
+        fprintf(stderr,
+                "usage: %s [--data-root <directory>] [--level <A-P>] [--gpu-smoke <A-P|all>]\n",
+                argv[0]);
         return 0;
     }
     SDL_SetMainReady();
@@ -273,6 +286,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     renderer_config.window_width = 1280;
     renderer_config.window_height = 720;
     renderer_config.window_title = "Alien Breed 3D II: The Killing Grounds";
+    renderer_config.hidden_window = app->gpu_smoke;
     app->renderer = renderer_create(&renderer_config, error, sizeof(error));
     if (!app->renderer) {
         fprintf(stderr, "[RENDER] %s\n", error);
@@ -287,7 +301,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     render_view_init(&app->view);
-    if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
+    if (!app->gpu_smoke && SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
     }
     fprintf(stdout,
@@ -375,6 +389,34 @@ static void game_app_tick(GameApp *app)
     }
 }
 
+static int game_app_run_gpu_smoke(GameApp *app)
+{
+    char error[256];
+    uint16_t first_level = app->selected_level_index;
+    uint16_t last_level = app->gpu_smoke_all_levels != 0 ? 15u : first_level;
+
+    for (uint16_t level_index = first_level; level_index <= last_level; ++level_index) {
+        if (level_index != first_level &&
+            (!game_session_select_level(&app->game.session, level_index, error, sizeof(error)) ||
+             !game_bootstrap_start_selected_single_player(&app->game, app->data_root,
+                                                          error, sizeof(error)))) {
+            fprintf(stderr, "[GAME] GPU smoke could not load Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        scene_frame_begin(&app->frame);
+        if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+            !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
+            fprintf(stderr, "[RENDER] GPU smoke failed for Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+    }
+    return 1;
+}
+
 #if defined(__EMSCRIPTEN__)
 static GameApp game_app_web;
 
@@ -402,6 +444,15 @@ int main(int argc, char **argv)
     if (!game_app_init(app, argc, argv)) {
         game_app_shutdown(app);
         return 1;
+    }
+    if (app->gpu_smoke) {
+        if (game_app_run_gpu_smoke(app) && app->exit_code == 0) {
+            fprintf(stdout, "[RENDER] hidden GPU smoke passed for %s\n",
+                    app->gpu_smoke_all_levels != 0 ? "Levels A-P" : "the selected level");
+        }
+        int exit_code = app->exit_code;
+        game_app_shutdown(app);
+        return exit_code;
     }
 #if defined(__EMSCRIPTEN__)
     emscripten_set_main_loop_arg(game_app_web_tick, app, 0, 1);
