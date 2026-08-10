@@ -236,7 +236,6 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         int16_t expected_light;
         uint16_t asset_index;
         uint8_t expected_flags = slot[63u] != 0u ? SCENE_SPRITE_FLAG_UPPER_ZONE : 0u;
-        SceneSpriteSurfaceAnchor expected_surface_anchor = SCENE_SPRITE_SURFACE_ANCHOR_FREE;
 
         if (point_index < 0) {
             break;
@@ -253,16 +252,6 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         point = game->object_runtime.point_bytes +
             (size_t)(uint16_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
         sprite = &frame->commands[first_command + command_count].data.sprite;
-        if (slot[16u] == 1u && slot_index != game->object_runtime.player1_slot + 2u) {
-            GameObjectDefinition definition;
-
-            if (!game_link_get_object_definition(&game->game_link_catalog, slot[54u],
-                                                 &definition, error, error_size)) {
-                return 0;
-            }
-            expected_surface_anchor = definition.floor_ceiling == 0u ?
-                SCENE_SPRITE_SURFACE_ANCHOR_FLOOR : SCENE_SPRITE_SURFACE_ANCHOR_CEILING;
-        }
         if (!level_runtime_get_zone(&game->dynamic_level.runtime, sprite->source_zone_index,
                                     &source_zone, error, error_size) ||
             sprite->source_record_id != slot_index ||
@@ -273,7 +262,6 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             sprite->yaw != read_be16(slot + 30u) ||
             sprite->source_aux_offset_x != (int16_t)read_be16(slot + 44u) ||
             sprite->source_aux_offset_y != (int16_t)read_be16(slot + 46u) ||
-            sprite->surface_anchor != expected_surface_anchor ||
             sprite->source_clip_top_y != ((expected_flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ?
                                            source_zone.upper_roof : source_zone.roof) ||
             sprite->source_clip_bottom_y != ((expected_flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ?

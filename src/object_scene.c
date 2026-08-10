@@ -16,11 +16,9 @@ enum {
     OBJECT_SCENE_EFFECT = 10u,
     OBJECT_SCENE_FRAME = 11u,
     OBJECT_SCENE_ZONE_ID = 12u,
-    OBJECT_SCENE_TYPE_ID = 16u,
     OBJECT_SCENE_CURRENT_ANGLE = 30u,
     OBJECT_SCENE_AUX_OFFSET_X = 44u,
     OBJECT_SCENE_AUX_OFFSET_Y = 46u,
-    OBJECT_SCENE_ENTITY_TYPE = 54u,
     OBJECT_SCENE_IN_UPPER_ZONE = 63u,
     OBJECT_SCENE_BITMAP_LIGHT_FIRST = 2u,
     OBJECT_SCENE_BITMAP_LIGHT_COUNT = 4u,
@@ -31,10 +29,6 @@ enum {
         OBJECT_SCENE_LIGHT_DIRECTION_COUNT * OBJECT_SCENE_LIGHT_RING_COUNT,
     OBJECT_SCENE_POINT_AND_POLYGON_LIGHT_COUNT = 16u * 16u,
     OBJECT_SCENE_LIGHT_UNSET = INT8_MIN
-};
-
-enum {
-    OBJECT_SCENE_TYPE_OBJECT = 1u
 };
 
 static void object_scene_set_error(char *error, size_t error_size, const char *message)
@@ -590,26 +584,6 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
             (sprite.flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u,
             &sprite.source_light_level, error, error_size)) {
         return 0;
-    }
-    /*
-     * newaliencontrol.s resets ordinary object slots to their authored
-     * floor/roof before DEFANIMOBJ or ACTANIMOBJ updates their frame.  Keep
-     * that origin in the neutral scene contract so a real 3D backend does
-     * not reinterpret the original screen-column room clip as a solid plane
-     * cutting through the bitmap.
-     */
-    if (slot[OBJECT_SCENE_TYPE_ID] == OBJECT_SCENE_TYPE_OBJECT &&
-        slot_index != objects->player1_slot + 2u) {
-        GameObjectDefinition definition;
-
-        if (!game_link_get_object_definition(game_link, slot[OBJECT_SCENE_ENTITY_TYPE],
-                                             &definition, error, error_size)) {
-            object_scene_set_error(error, error_size,
-                                   "world object has an invalid source definition");
-            return 0;
-        }
-        sprite.surface_anchor = definition.floor_ceiling == 0u ?
-            SCENE_SPRITE_SURFACE_ANCHOR_FLOOR : SCENE_SPRITE_SURFACE_ANCHOR_CEILING;
     }
 
     /* draw_Object branches on the first byte of this source display word. */

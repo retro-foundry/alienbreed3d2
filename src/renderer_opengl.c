@@ -2252,48 +2252,27 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     center_y -= (float)sprite->source_aux_offset_y;
     half_width = (float)sprite->source_width;
     half_height = (float)sprite->source_height;
+    /*
+     * Passive source objects commonly keep their vertical origin directly on
+     * ZoneT_Floor_l. draw_Bitmap keeps that origin and clips the packed image
+     * against draw_TopY_3D_l/draw_BottomY_3D_l. Crop both the quad and its V
+     * coordinates to the selected lower/upper sector span.
+     */
+    top_y = center_y + half_height;
+    bottom_y = center_y - half_height;
     clip_top_y = -(float)sprite->source_clip_top_y * renderer_opengl_source_y_unit;
     clip_bottom_y = -(float)sprite->source_clip_bottom_y * renderer_opengl_source_y_unit;
-    if (sprite->surface_anchor == SCENE_SPRITE_SURFACE_ANCHOR_FLOOR) {
-        /*
-         * Collectable/Activatable/Decoration reset ObjT_YPos to their floor
-         * before DEFANIMOBJ/ACTANIMOBJ.  In the column renderer the lower
-         * half is merely screen-clipped at that floor; a true 3D billboard
-         * instead has its complete source frame standing on the surface.
-         */
-        bottom_y = center_y;
-        top_y = center_y + half_height * 2.0f;
-        top_v = 0.0f;
-        bottom_v = 1.0f;
-        if (top_y > clip_top_y) {
-            top_v = (top_y - clip_top_y) / (half_height * 2.0f);
-            top_y = clip_top_y;
-        }
-    } else if (sprite->surface_anchor == SCENE_SPRITE_SURFACE_ANCHOR_CEILING) {
-        top_y = center_y;
-        bottom_y = center_y - half_height * 2.0f;
-        top_v = 0.0f;
-        bottom_v = 1.0f;
-        if (bottom_y < clip_bottom_y) {
-            bottom_v = (top_y - clip_bottom_y) / (half_height * 2.0f);
-            bottom_y = clip_bottom_y;
-        }
-    } else {
-        /* Moving, flying, and projectile bitmaps retain draw_Bitmap's live sector clip. */
-        top_y = center_y + half_height;
-        bottom_y = center_y - half_height;
-        if (top_y > clip_top_y) {
-            top_y = clip_top_y;
-        }
-        if (bottom_y < clip_bottom_y) {
-            bottom_y = clip_bottom_y;
-        }
-        top_v = (center_y + half_height - top_y) / (half_height * 2.0f);
-        bottom_v = (center_y + half_height - bottom_y) / (half_height * 2.0f);
+    if (top_y > clip_top_y) {
+        top_y = clip_top_y;
+    }
+    if (bottom_y < clip_bottom_y) {
+        bottom_y = clip_bottom_y;
     }
     if (top_y <= bottom_y) {
         return 1;
     }
+    top_v = (center_y + half_height - top_y) / (half_height * 2.0f);
+    bottom_v = (center_y + half_height - bottom_y) / (half_height * 2.0f);
     left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ? 1.0f : 0.0f;
     right_u = 1.0f - left_u;
     source_light = renderer_opengl_sprite_light(sprite->source_light_level);
