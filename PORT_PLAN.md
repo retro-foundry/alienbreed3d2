@@ -997,6 +997,14 @@ scope by design.
    - Trace the remaining source-owned blast/brightness/event branches before
      enabling each one. Keep any branch absent until its original caller and
      state ownership are established.
+   - `newanims.s:ComputeBlast` has four `ItsABullet` callers (roof, floor,
+     wall, and direct-target impact). Its direct-target caller deliberately
+     leaves `objectmove.s:ViewerTop` unchanged while the other three set it,
+     so the blast must wait for shared `Viewer*` source-state ownership across
+     every live `CanItBeSeen` caller. Establish that workspace and capture a
+     targeted oracle fixture before enabling blast damage, knockback, or flame
+     allocation; do not replace the retained top-layer state with the
+     exploding projectile's current layer.
 
 3. **Direct-play validation**
    - Extend focused source fixtures for the remaining worried live-alien
