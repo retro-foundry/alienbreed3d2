@@ -14,8 +14,9 @@
 
 /*
  * objdrawhires.s:Draw_Objects source-object handoff without its zone sorting,
- * clipping, PVS, or software rasterization.  The count covers every live
- * ObjT record, not only entities visible to the current camera.
+ * clipping, PVS, or software rasterization.  It excludes Player 1's own
+ * world entity, which draw_Bitmap rejects at the source near plane because
+ * Plr1_Use places it at the active first-person camera.
  */
 int object_scene_count_active(const ObjectRuntime *objects, uint32_t *out_count,
                               char *error, size_t error_size);

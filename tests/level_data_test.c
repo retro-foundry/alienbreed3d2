@@ -240,7 +240,7 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         if (point_index < 0) {
             break;
         }
-        if (zone_id < 0) {
+        if (zone_id < 0 || slot_index == game->object_runtime.player1_slot) {
             continue;
         }
         if ((uint16_t)point_index >= game->object_runtime.point_count ||
@@ -330,6 +330,7 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->frame_metrics.strip_count != source_frame.strip_count ||
                 sprite->frame_metrics.line_count != source_frame.line_count ||
                 source_frame.strip_count > UINT16_MAX / 2u ||
+                source_frame.line_count > UINT16_MAX / 2u ||
                 (size_t)source_frame.pointer_table_index * 4u >
                     game->shared_resources.object_ptrs[asset_index].size ||
                 (size_t)source_frame.strip_count * 2u >
@@ -739,6 +740,19 @@ int main(int argc, char **argv)
     char error[256];
 
     /* objdrawhires.s's three packed WAD-column extraction paths. */
+    {
+        uint16_t full_span = 0u;
+
+        if (!bitmap_source_expand_half_span(32u, &full_span) || full_span != 64u ||
+            !bitmap_source_expand_half_span(UINT16_MAX / 2u, &full_span) ||
+            full_span != UINT16_MAX - 1u ||
+            bitmap_source_expand_half_span(0u, &full_span) ||
+            bitmap_source_expand_half_span(UINT16_MAX / 2u + 1u, &full_span) ||
+            bitmap_source_expand_half_span(1u, NULL)) {
+            fprintf(stderr, "source bitmap half-span expansion is inconsistent\n");
+            return 1;
+        }
+    }
     if (bitmap_source_decode_packed_texel(UINT16_C(0x53c7), 0u) != 7u ||
         bitmap_source_decode_packed_texel(UINT16_C(0x53c7), 1u) != 30u ||
         bitmap_source_decode_packed_texel(UINT16_C(0x53c7), 2u) != 20u) {

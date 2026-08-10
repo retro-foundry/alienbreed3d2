@@ -4,6 +4,21 @@
 #include <stdint.h>
 
 /*
+ * objdrawhires.s:draw_Bitmap doubles both GLFT_FrameData_l words +4 and +6
+ * before walking the PTR columns and WAD rows.  They are half-spans, just as
+ * the live ObjT width/height bytes are half-extents in projected space.
+ */
+static inline int bitmap_source_expand_half_span(uint16_t half_span,
+                                                  uint16_t *out_full_span)
+{
+    if (!out_full_span || half_span == 0u || half_span > UINT16_MAX / 2u) {
+        return 0;
+    }
+    *out_full_span = (uint16_t)(half_span * 2u);
+    return 1;
+}
+
+/*
  * objdrawhires.s:draw_Bitmap stores three independent five-bit source texels
  * in every big-endian WAD word. The PTR long's high byte selects the one its
  * column uses. Keep this format rule independent of either OpenGL or the

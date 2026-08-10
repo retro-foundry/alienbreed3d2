@@ -94,13 +94,18 @@ authority for all game behavior and data formats.
   a later face in the same model (including Player 1's companion weapon) from
   redrawing all earlier geometry through its unrelated texture map.
 - [x] Bitmap WAD/PTR conversion now honours `draw_Bitmap`'s doubled
-  `GLFT_FrameData_l` strip span and its authored source-unit auxiliary offsets
-  and half-extents. The renderer maps source 8.8 Y through the matching
-  x<<7 projection basis (`y / 128`), so floors, camera, sector clips, and
-  world billboards share the source's physical vertical scale. Every source
-  column in a frame is therefore decoded and world billboard size/placement
-  follows `transform.s:RotateLevelPts` and `draw_Bitmap` without applying the
-  source horizontal projection scale twice.
+  `GLFT_FrameData_l` strip and line half-spans and its authored source-unit
+  auxiliary offsets and half-extents. The renderer maps source 8.8 Y through
+  the matching x<<7 projection basis (`y / 128`), so floors, camera, sector
+  clips, and world billboards share the source's physical vertical scale.
+  Every source column and row in a frame is therefore decoded and world
+  billboard size/placement follows `transform.s:RotateLevelPts` and
+  `draw_Bitmap` without applying the source horizontal projection scale twice.
+- [x] First-person scene submission omits Player 1's own world bitmap. Source
+  `hires.s:Plr1_Use` places that entity at the active camera X/Z, where
+  `objdrawhires.s:draw_Bitmap` rejects it at `DRAW_BITMAP_NEAR_PLANE`; the
+  complete-level GPU handoff preserves that exclusion explicitly while still
+  submitting Player 1's `ENT_NEXT_2` camera-space weapon.
 - [x] `objdrawhires.s:draw_bitmap_lighted` now follows its own direct 8-bit
   WAD/PTR column format and 256-entry selected object-light palette, instead
   of incorrectly extracting an ordinary bitmap's packed 5-bit third.

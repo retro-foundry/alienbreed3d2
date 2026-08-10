@@ -112,7 +112,8 @@ int object_scene_count_active(const ObjectRuntime *objects, uint32_t *out_count,
         if (point_index < 0) {
             break;
         }
-        if (object_scene_read_be16s(slot + OBJECT_SCENE_ZONE_ID) < 0) {
+        if (object_scene_read_be16s(slot + OBJECT_SCENE_ZONE_ID) < 0 ||
+            slot_index == objects->player1_slot) {
             continue;
         }
         if ((uint16_t)point_index >= objects->point_count || count == UINT32_MAX) {
@@ -726,7 +727,15 @@ int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *gam
         if (object_scene_read_be16s(slot + OBJECT_SCENE_POINT_INDEX) < 0) {
             break;
         }
+        /*
+         * hires.s:Plr1_Use publishes Player 1 at the active camera X/Z.
+         * objdrawhires.s:draw_Bitmap rejects that local entity at its
+         * DRAW_BITMAP_NEAR_PLANE test.  Whole-level scene submission has no
+         * source depth-sort/near-plane stage, so omit the same first-person
+         * entity explicitly while retaining the ENT_NEXT_2 view weapon.
+         */
         if (object_scene_read_be16s(slot + OBJECT_SCENE_ZONE_ID) < 0 ||
+            slot_index == objects->player1_slot ||
             (preferences->show_weapon != 0u &&
              slot_index == objects->player1_slot + 2u)) {
             continue;

@@ -1099,13 +1099,15 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
         !sprite->source_display_palette_bytes ||
         (sprite->source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP &&
          sprite->source != SCENE_SPRITE_SOURCE_GLARE_BITMAP) ||
-        sprite->frame_metrics.strip_count == 0u || sprite->frame_metrics.line_count == 0u ||
-        sprite->frame_metrics.strip_count > UINT16_MAX / 2u ||
-        (size_t)sprite->frame_metrics.strip_count * 2u >
-            SIZE_MAX / (size_t)sprite->frame_metrics.line_count ||
-        (size_t)sprite->frame_metrics.strip_count * 2u *
-            (size_t)sprite->frame_metrics.line_count > SIZE_MAX / 4u) {
+        sprite->frame_metrics.strip_count == 0u || sprite->frame_metrics.line_count == 0u) {
         renderer_opengl_set_error(error, error_size, "source bitmap sprite descriptor is invalid");
+        return 0;
+    }
+    if (!bitmap_source_expand_half_span(sprite->frame_metrics.strip_count, &width) ||
+        !bitmap_source_expand_half_span(sprite->frame_metrics.line_count, &height) ||
+        (size_t)width > SIZE_MAX / (size_t)height ||
+        (size_t)width * (size_t)height > SIZE_MAX / 4u) {
+        renderer_opengl_set_error(error, error_size, "source bitmap sprite dimensions are invalid");
         return 0;
     }
     lighted = (sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u;
@@ -1131,14 +1133,12 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
         }
     }
     /*
-     * objdrawhires.s:draw_Bitmap doubles GLFT_FrameData_l's strip count
-     * before deriving both its PTR column span and its horizontal sampler.
-     * The source entry is a half-span used by the screen scaler, not the
-     * number of WAD/PTR source columns.  Decoding only that half made every
-     * bitmap sprite appear clipped or corrupt.
+     * objdrawhires.s:draw_Bitmap doubles GLFT_FrameData_l's strip and line
+     * counts before deriving its horizontal and vertical samplers.  Both
+     * source entries are half-spans, not the number of WAD/PTR source texels.
+     * Decoding only either half clips that axis and stretches the remainder
+     * over the complete world quad.
      */
-    width = (uint16_t)(sprite->frame_metrics.strip_count * 2u);
-    height = sprite->frame_metrics.line_count;
     table_offset = (size_t)sprite->frame_metrics.pointer_table_index * 4u;
     if (table_offset > sprite->source_aux_byte_count ||
         (size_t)width > (sprite->source_aux_byte_count - table_offset) / 4u) {
