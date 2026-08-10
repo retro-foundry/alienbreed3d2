@@ -47,9 +47,10 @@ native `RenderView` pitch for real 3D mouse-look (clamped to +/-85 degrees and
 respecting the source invert-mouse preference); both presentation adjustments
 are isolated from source player state and do not replace the original aim/look
 state. The renderer blends completed source-frame scene snapshots using the
-50 Hz VBlank remainder, so simulation cadence remains source-authentic while
-camera, mutable world geometry, sprites, and source light samples present
-smoothly at the host frame rate. Native direct play requests the active
+50 Hz VBlank remainder. This uses SDL's high-resolution performance counter,
+so the source companion weapon/action sequence advances only at its fixed PAL
+cadence while camera, mutable world geometry, sprites, and source light
+samples present smoothly at the host frame rate. Native direct play requests the active
 desktop resolution and renders directly to the full SDL drawable. Its main
 loop relies on the requested OpenGL swap interval rather than a fixed 16 ms
 sleep, so a supported 120 Hz-or-higher display can present the interpolated

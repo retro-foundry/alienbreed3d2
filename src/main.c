@@ -365,7 +365,12 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         fprintf(stderr, "[SCENE] unable to capture the initial source frame\n");
         return 0;
     }
-    game_vblank_clock_reset(&app->vblank_clock, SDL_GetTicks64());
+    game_vblank_clock_reset(&app->vblank_clock, SDL_GetPerformanceCounter(),
+                            SDL_GetPerformanceFrequency());
+    if (app->vblank_clock.initialized == 0u) {
+        fprintf(stderr, "[GAME] SDL performance counter has no usable frequency\n");
+        return 0;
+    }
     if (!app->gpu_smoke && SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
     }
@@ -464,7 +469,7 @@ static void game_app_tick(GameApp *app)
      * advance Plr1_Control once per host present: its source X/Z velocity is
      * expressed per VBlank, so doing that makes movement display-rate dependent.
      */
-    source_vblanks = game_vblank_clock_advance(&app->vblank_clock, SDL_GetTicks64());
+    source_vblanks = game_vblank_clock_advance(&app->vblank_clock, SDL_GetPerformanceCounter());
     for (uint32_t vblank_index = 0u; vblank_index < source_vblanks; ++vblank_index) {
         uint16_t previous_source_yaw = app->game.player.yaw;
         int16_t consumed_mouse_x = app->game.player.mouse_active != 0u ?

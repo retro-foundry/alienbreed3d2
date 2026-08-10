@@ -798,27 +798,30 @@ int main(int argc, char **argv)
         GameVBlankClock vblank_clock = {0};
         uint32_t source_vblanks = 0u;
 
+        const uint64_t host_counter_frequency = UINT64_C(1000000);
+
         /* A 144 Hz presenter must not advance hires.s logic at 144 Hz. */
-        game_vblank_clock_reset(&vblank_clock, 1000u);
-        for (uint64_t host_milliseconds = 1007u; host_milliseconds < 2000u;
-             host_milliseconds += 7u) {
-            source_vblanks += game_vblank_clock_advance(&vblank_clock, host_milliseconds);
+        game_vblank_clock_reset(&vblank_clock, 0u, host_counter_frequency);
+        for (uint64_t present_index = 1u; present_index <= 144u; ++present_index) {
+            uint64_t host_counter =
+                present_index * host_counter_frequency / UINT64_C(144);
+
+            source_vblanks += game_vblank_clock_advance(&vblank_clock, host_counter);
         }
-        source_vblanks += game_vblank_clock_advance(&vblank_clock, 2000u);
-        if (source_vblanks != 50u || vblank_clock.remainder_milliseconds != 0u ||
-            game_vblank_clock_advance(&vblank_clock, 1999u) != 0u ||
-            vblank_clock.remainder_milliseconds != 0u) {
+        if (source_vblanks != 50u || vblank_clock.remainder_counter_units != 0u ||
+            game_vblank_clock_advance(&vblank_clock, host_counter_frequency - 1u) != 0u ||
+            vblank_clock.remainder_counter_units != 0u) {
             fprintf(stderr, "hires.s VBlank desktop timing boundary is inconsistent\n");
             return 1;
         }
-        game_vblank_clock_reset(&vblank_clock, 0u);
-        if (game_vblank_clock_advance(&vblank_clock, 1000u) != 10u ||
-            vblank_clock.remainder_milliseconds != 0u) {
+        game_vblank_clock_reset(&vblank_clock, 0u, host_counter_frequency);
+        if (game_vblank_clock_advance(&vblank_clock, host_counter_frequency) != 10u ||
+            vblank_clock.remainder_counter_units != 0u) {
             fprintf(stderr, "desktop VBlank catch-up cap is inconsistent\n");
             return 1;
         }
-        game_vblank_clock_reset(&vblank_clock, 1000u);
-        if (game_vblank_clock_advance(&vblank_clock, 1007u) != 0u ||
+        game_vblank_clock_reset(&vblank_clock, 0u, host_counter_frequency);
+        if (game_vblank_clock_advance(&vblank_clock, 7000u) != 0u ||
             game_vblank_clock_interpolation_alpha(&vblank_clock) < 0.349f ||
             game_vblank_clock_interpolation_alpha(&vblank_clock) > 0.351f) {
             fprintf(stderr, "desktop VBlank presentation interpolation alpha is inconsistent\n");
