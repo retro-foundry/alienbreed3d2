@@ -148,7 +148,13 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
  */
 static float renderer_opengl_source_light(int16_t source_light)
 {
-    float result = 0.80f + ((float)source_light - 300.0f) / 150.0f;
+    /*
+     * The source's 300 neutral value is only its point-light table centre,
+     * not an instruction to present the unshaded palette at full intensity.
+     * Keep ambient light below full white, then expand the authored +/-20
+     * flash/torch deltas enough to survive the desktop display's gamma.
+     */
+    float result = 0.45f + ((float)source_light - 300.0f) / 96.0f;
 
     if (result < 0.05f) {
         return 0.05f;
