@@ -18,6 +18,8 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                             const RenderView *view, char *error, size_t error_size);
 /* Hidden-window smoke coverage for Plr1_Use's camera-space companion pass. */
 size_t renderer_opengl_last_view_weapon_coverage(const RendererOpenGL *renderer);
+/* Hidden-window smoke checksum of the camera-space companion's changed RGB pixels. */
+uint64_t renderer_opengl_last_view_weapon_rgb_checksum(const RendererOpenGL *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
 uint64_t renderer_opengl_last_frame_rgb_checksum(const RendererOpenGL *renderer);
 

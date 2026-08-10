@@ -412,6 +412,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
 
     for (uint16_t level_index = first_level; level_index <= last_level; ++level_index) {
         uint64_t source_lighting_checksum;
+        uint64_t source_weapon_lighting_checksum;
         if (level_index != first_level &&
             (!game_session_select_level(&app->game.session, level_index, error, sizeof(error)) ||
              !game_bootstrap_start_selected_single_player(&app->game, app->data_root,
@@ -442,6 +443,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
          * pass (and reports any decode, shader, or draw failure), so framebuffer
          * coverage is not a valid all-level smoke assertion. */
         source_lighting_checksum = renderer_last_frame_rgb_checksum(app->renderer);
+        source_weapon_lighting_checksum = renderer_last_view_weapon_rgb_checksum(app->renderer);
         /*
          * A complete-scene frame must react to the live `CurrentPointBrights`
          * words, including geometry outside the source PVS. Use a bright
@@ -477,6 +479,14 @@ static int game_app_run_gpu_smoke(GameApp *app)
         if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
             fprintf(stderr,
                     "[RENDER] GPU smoke view weapon has no visible vector coverage "
+                    "for Level %c\n", (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
+        if (renderer_last_view_weapon_rgb_checksum(app->renderer) ==
+            source_weapon_lighting_checksum) {
+            fprintf(stderr,
+                    "[RENDER] GPU smoke source Gouraud lighting did not change companion output "
                     "for Level %c\n", (char)('A' + level_index));
             app->exit_code = 1;
             return 0;

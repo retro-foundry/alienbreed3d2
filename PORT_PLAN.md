@@ -81,8 +81,10 @@ authority for all game behavior and data formats.
   `doapoly`'s source-screen front-face test is retained per vector face before
   GPU submission, rather than applying a global winding rule to the distinct
   wall and object source formats. The all-level hidden GPU smoke forces a
-  bright source state and requires visible companion-vector coverage, catching
-  an inverted face test or a weapon pass that drops every textured polygon.
+  bright source state, requires visible companion-vector coverage, and confirms
+  that source brightness changes its rendered RGB output, catching an inverted
+  face test, a weapon pass that drops every textured polygon, or a lost
+  companion-lighting handoff.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.

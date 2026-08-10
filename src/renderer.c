@@ -107,6 +107,19 @@ size_t renderer_last_view_weapon_coverage(const Renderer *renderer)
     }
 }
 
+uint64_t renderer_last_view_weapon_rgb_checksum(const Renderer *renderer)
+{
+    if (!renderer) {
+        return UINT64_C(0);
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_OPENGL:
+        return renderer_opengl_last_view_weapon_rgb_checksum(renderer->opengl);
+    default:
+        return UINT64_C(0);
+    }
+}
+
 uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer)
 {
     if (!renderer) {

@@ -36,6 +36,8 @@ int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderVi
                      char *error, size_t error_size);
 /* Nonzero only for the hidden GPU-smoke frame's rendered Player 1 weapon. */
 size_t renderer_last_view_weapon_coverage(const Renderer *renderer);
+/* Hidden GPU-smoke checksum of the camera-space weapon's changed RGB pixels. */
+uint64_t renderer_last_view_weapon_rgb_checksum(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
 uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer);
 

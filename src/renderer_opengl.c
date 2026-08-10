@@ -123,6 +123,7 @@ struct RendererOpenGL {
     size_t texture_count;
     size_t texture_capacity;
     size_t last_view_weapon_coverage;
+    uint64_t last_view_weapon_rgb_checksum;
     uint64_t last_frame_rgb_checksum;
     uint8_t measure_view_weapon_coverage;
 };
@@ -2884,6 +2885,11 @@ size_t renderer_opengl_last_view_weapon_coverage(const RendererOpenGL *renderer)
     return renderer ? renderer->last_view_weapon_coverage : 0u;
 }
 
+uint64_t renderer_opengl_last_view_weapon_rgb_checksum(const RendererOpenGL *renderer)
+{
+    return renderer ? renderer->last_view_weapon_rgb_checksum : UINT64_C(0);
+}
+
 uint64_t renderer_opengl_last_frame_rgb_checksum(const RendererOpenGL *renderer)
 {
     return renderer ? renderer->last_frame_rgb_checksum : UINT64_C(0);
@@ -2927,6 +2933,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         return 0;
     }
     renderer->last_view_weapon_coverage = 0u;
+    renderer->last_view_weapon_rgb_checksum = UINT64_C(0);
     renderer->last_frame_rgb_checksum = UINT64_C(0);
     for (size_t index = 0u; index < frame->count; ++index) {
         if (frame->commands[index].type == SCENE_COMMAND_CAMERA) {
@@ -3095,6 +3102,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                     if (memcmp(before_pixels + pixel_offset, after_pixels + pixel_offset,
                                4u) != 0) {
                         ++renderer->last_view_weapon_coverage;
+                        renderer->last_view_weapon_rgb_checksum +=
+                            (uint64_t)after_pixels[pixel_offset] * UINT64_C(3) +
+                            (uint64_t)after_pixels[pixel_offset + 1u] * UINT64_C(5) +
+                            (uint64_t)after_pixels[pixel_offset + 2u] * UINT64_C(7);
                     }
                 }
                 free(after_pixels);
