@@ -1,5 +1,7 @@
 #include "player_runtime.h"
 
+#include "object_movement.h"
+
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -1061,10 +1063,37 @@ int player_runtime_update_spatial_with_motion(
      * owned by the dynamic object-runtime slice.
      */
 
-    if (!player_runtime_move_static(runtime, &player->zone_index, &player->stood_in_top,
-                                    old_x, old_z, visual_y, visual_y, thing_height, step_up,
-                                    &new_x, &new_z, dynamic_state, error, error_size) ||
-        !level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
+    if (dynamic_state != NULL) {
+        ObjectMovementTrace movement = {0};
+
+        /* hires.s:Plr1_Control's .nothitanything -> objectmove.s:MoveObject. */
+        movement.zone_index = player->zone_index;
+        movement.old_x = old_x;
+        movement.old_z = old_z;
+        movement.new_x = new_x;
+        movement.new_z = new_z;
+        movement.old_y = visual_y;
+        movement.new_y = visual_y;
+        movement.thing_height = thing_height;
+        movement.step_up = step_up;
+        movement.step_down = PLAYER_STEP_DOWN;
+        movement.extension_length = PLAYER_EDGE_EXTENSION;
+        movement.wall_flags = 0x0100u;
+        movement.away_from_wall = 0;
+        if (!object_movement_trace(dynamic_state, &movement, error, error_size)) {
+            return 0;
+        }
+        player->zone_index = movement.zone_index;
+        player->stood_in_top = movement.stood_in_top;
+        new_x = movement.new_x;
+        new_z = movement.new_z;
+    } else if (!player_runtime_move_static(
+                   runtime, &player->zone_index, &player->stood_in_top, old_x, old_z,
+                   visual_y, visual_y, thing_height, step_up, &new_x, &new_z, NULL,
+                   error, error_size)) {
+        return 0;
+    }
+    if (!level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
         return 0;
     }
     player->x = player_runtime_replace_position_word(player->snap_x, new_x);

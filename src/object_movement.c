@@ -124,36 +124,45 @@ static int object_movement_point_is_on_source_edge(int16_t point_x, int16_t poin
         object_movement_sub16(point_x, edge->x), shift_x);
     int16_t local_z = object_movement_sub16(
         object_movement_sub16(point_z, edge->z), shift_z);
+    int16_t comparison_x = delta_x;
+    int16_t comparison_z = delta_z;
 
     /*
-     * objectmove.s:othercheck uses the Z-side sign to orient both edge
-     * components, then selects an X or Z range check. Preserve that exact
-     * sequence rather than replacing it with a geometric distance test.
+     * objectmove.s:othercheck uses the point's own X/Z signs to orient the
+     * corresponding edge components before it chooses an axis. The final
+     * range test then uses the original signed component. Do not turn this
+     * into an absolute-distance test: player MoveObject traces rely on these
+     * asymmetric four-unit contact bounds.
      */
-    if (local_z < 0) {
-        delta_x = (int16_t)(0u - (uint16_t)delta_x);
-        delta_z = (int16_t)(0u - (uint16_t)delta_z);
+    if (local_x < 0) {
+        comparison_x = (int16_t)(UINT16_C(0) - (uint16_t)comparison_x);
     }
-    if (delta_z > delta_x) {
-        if (local_z <= 0) {
-            if (delta_z > OBJECT_MOVEMENT_CONTACT_MARGIN ||
-                local_z < object_movement_sub16(delta_z, OBJECT_MOVEMENT_CONTACT_MARGIN)) {
+    if (local_z < 0) {
+        comparison_z = (int16_t)(UINT16_C(0) - (uint16_t)comparison_z);
+    }
+    if (comparison_z > comparison_x) {
+        if (local_z > 0) {
+            if (delta_z < -OBJECT_MOVEMENT_CONTACT_MARGIN ||
+                local_z > object_movement_add16(delta_z,
+                                                 OBJECT_MOVEMENT_CONTACT_MARGIN)) {
                 return 0;
             }
-        } else if (delta_z < -OBJECT_MOVEMENT_CONTACT_MARGIN ||
-                   local_z > object_movement_add16(delta_z,
+        } else if (delta_z > OBJECT_MOVEMENT_CONTACT_MARGIN ||
+                   local_z < object_movement_sub16(delta_z,
                                                     OBJECT_MOVEMENT_CONTACT_MARGIN)) {
             return 0;
         }
         return 1;
     }
-    if (local_x <= 0) {
-        if (delta_x > OBJECT_MOVEMENT_CONTACT_MARGIN ||
-            local_x < object_movement_sub16(delta_x, OBJECT_MOVEMENT_CONTACT_MARGIN)) {
+    if (local_x > 0) {
+        if (delta_x < -OBJECT_MOVEMENT_CONTACT_MARGIN ||
+            local_x > object_movement_add16(delta_x,
+                                             OBJECT_MOVEMENT_CONTACT_MARGIN)) {
             return 0;
         }
-    } else if (delta_x < -OBJECT_MOVEMENT_CONTACT_MARGIN ||
-               local_x > object_movement_add16(delta_x, OBJECT_MOVEMENT_CONTACT_MARGIN)) {
+    } else if (delta_x > OBJECT_MOVEMENT_CONTACT_MARGIN ||
+               local_x < object_movement_sub16(delta_x,
+                                                OBJECT_MOVEMENT_CONTACT_MARGIN)) {
         return 0;
     }
     return 1;

@@ -466,13 +466,16 @@ multiplayer work is planned.
   `modules/player.s:plr_KeyboardControl` and `plr1control.s:Plr1_Fall`.
   `hires.s:Plr1_Control` commits that state through source fixed-point
   arithmetic, teleports, floor/roof transitions, and the primary plus extended
-  static `EdgeT` sequences from `objectmove.s:MoveObject`; there is no PVS or
-  portal-rendering dependency. Its `TmpX/Y/Z/Height/Clicked/Fire/Gun/Used`
+  static `EdgeT` sequences through the shared direct
+  `objectmove.s:MoveObject` translation (`Obj_ExtLen_w=40`,
+  `wallflags=$0100`, `Obj_AwayFromWall_b=0`, and `exitfirst=0`); there is no
+  PVS or portal-rendering dependency. Its `TmpX/Y/Z/Height/Clicked/Fire/Gun/Used`
   snapshot now retains the source game-loop values consumed by the first object
   interaction and weapon paths, then clears the one-tick use and click pulses.
   Static collision also records the source
-  `0x0100` player-contact bit in each mutable `EdgeT_Flags_w`, so mechanism
-  routines can consume that signal rather than a native proximity shortcut.
+  `0x0100` player-contact bit in each mutable `EdgeT_Flags_w`, including the
+  source `othercheck` signed four-unit contact bounds, so mechanism routines
+  can consume that signal rather than a native proximity shortcut.
   `src/player_entity.*` now publishes the `hires.s:Plr1_Use` fields required by
   the live shared `ObjT` state: the player-one type, point position, zone,
   centre height, current angle, targetability, and upper-zone flag. Its

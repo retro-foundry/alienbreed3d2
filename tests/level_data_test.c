@@ -9415,6 +9415,8 @@ int main(int argc, char **argv)
         LevelRuntime movement_level = {0};
         LevelDynamicState movement_state = {0};
         ObjectMovementTrace movement_trace = {0};
+        GameInput player_collision_input;
+        PlayerRuntime player_collision_player = {0};
         uint16_t edge_flags = 0u;
 
         movement_level.level_bytes = level_bytes;
@@ -9437,6 +9439,7 @@ int main(int argc, char **argv)
         write_be16(level_bytes + 132u, 64u);
         write_be16(level_bytes + 64u, 0u);
         write_be16(level_bytes + 66u, UINT16_MAX);
+        write_be16(level_bytes + 68u, UINT16_C(0xfffe));
         write_be16(level_bytes + 164u, UINT16_MAX);
         write_be16(level_bytes + 200u, 10u);
         write_be16(level_bytes + 202u, 20u);
@@ -9470,6 +9473,48 @@ int main(int argc, char **argv)
             !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
             edge_flags != 0x0400u) {
             fprintf(stderr, "MoveObject zero-extension wall trace is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* hires.s:Plr1_Control uses this non-zero-extension MoveObject path. */
+        game_input_init(&player_collision_input);
+        player_collision_player.x = player_runtime_world_to_position(8);
+        player_collision_player.z = player_runtime_world_to_position(10);
+        player_collision_player.snap_x = player_runtime_world_to_position(12);
+        player_collision_player.snap_z = player_runtime_world_to_position(10);
+        player_collision_player.height = 12 * 1024;
+        player_collision_player.snap_height = player_collision_player.height;
+        player_collision_player.snap_target_height = player_collision_player.height;
+        player_collision_player.snap_squished_height = player_collision_player.height;
+        player_collision_player.snap_y = 1000;
+        player_collision_player.snap_target_y = player_collision_player.snap_y;
+        player_collision_player.zone_index = 0u;
+        if (!level_dynamic_state_set_edge_flags(&movement_state, 0u, 0u)) {
+            fprintf(stderr, "could not reset Plr1_Control MoveObject edge flags\n");
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (!player_runtime_update_spatial(
+                &player_collision_player, &player_collision_input, &control_defaults,
+                &game.preferences, &game.math, &movement_state.runtime, &movement_state,
+                error, sizeof(error))) {
+            fprintf(stderr, "Plr1_Control MoveObject wall update failed: %s\n", error);
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (player_runtime_position_to_world(player_collision_player.x) != 12 ||
+            player_runtime_position_to_world(player_collision_player.z) != 10 ||
+            !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
+            edge_flags != 0x0100u) {
+            fprintf(stderr,
+                    "Plr1_Control MoveObject wall collision is inconsistent: x=%d z=%d "
+                    "flags=%04x: %s\n",
+                    player_runtime_position_to_world(player_collision_player.x),
+                    player_runtime_position_to_world(player_collision_player.z), edge_flags,
+                    error);
             level_dynamic_state_destroy(&movement_state);
             game_bootstrap_destroy(&game);
             return 1;
