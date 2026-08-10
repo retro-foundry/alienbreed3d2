@@ -50,6 +50,7 @@ typedef struct {
     PFNGLGETUNIFORMLOCATIONPROC get_uniform_location;
     PFNGLUNIFORMMATRIX4FVPROC uniform_matrix_4fv;
     PFNGLUNIFORM1FPROC uniform_1f;
+    PFNGLUNIFORM3FPROC uniform_3f;
     PFNGLUNIFORM1IPROC uniform_1i;
     PFNGLACTIVETEXTUREPROC active_texture;
     PFNGLGENBUFFERSPROC gen_buffers;
@@ -88,6 +89,8 @@ typedef struct {
     uint16_t height;
     uint8_t kind;
     uint8_t source_effect;
+    float light_response_exponent[3];
+    float light_response_floor[3];
 } RendererOpenGLTexture;
 
 typedef enum {
@@ -110,6 +113,9 @@ struct RendererOpenGL {
     GLint point_size_uniform;
     GLint texture_uniform;
     GLint opacity_uniform;
+    GLint material_light_response_enabled_uniform;
+    GLint material_light_response_exponent_uniform;
+    GLint material_light_response_floor_uniform;
     RendererOpenGLTexture *textures;
     size_t texture_count;
     size_t texture_capacity;
@@ -464,6 +470,232 @@ static uint8_t renderer_opengl_linear_to_srgb_byte(float component)
         return UINT8_MAX;
     }
     return (uint8_t)(encoded * 255.0f + 0.5f);
+}
+
+/*
+ * Convert the source's discrete shade tables into a continuous linear-light
+ * response once while building a true-colour material. Wall rows 0..31 and
+ * flat rows 32..62 are the colour observations produced respectively by
+ * hiresgourwall.s:drawwallPACK*G and hires.s:draw_GoraudFloor. Fit a
+ * per-channel power curve through those observations; the GPU later
+ * interpolates its source brightness normally and never selects a palette
+ * row per texel.
+ */
+static int renderer_opengl_material_light_response(const uint8_t *pixels, uint16_t width,
+                                                   uint16_t height,
+                                                   const SceneMaterial *material,
+                                                   RendererOpenGLTextureKind kind,
+                                                   float out_exponent[3], float out_floor[3], char *error,
+                                                   size_t error_size)
+{
+    enum {
+        WALL_PALETTE_WIDTH = 32u,
+        WALL_PALETTE_ROW_STRIDE = 64u,
+        WALL_PALETTE_ROW_COUNT = 32u,
+        FLAT_PALETTE_WIDTH = 256u,
+        FLAT_FIRST_SHADE_ROW = 32u,
+        FLAT_PALETTE_ROW_COUNT = 31u
+    };
+    size_t histogram[FLAT_PALETTE_WIDTH] = {0u};
+    size_t palette_width;
+    size_t palette_row_stride;
+    size_t palette_entry_stride;
+    size_t first_shade_row;
+    size_t shade_row_count;
+    size_t palette_required_size;
+
+    if (!pixels || width == 0u || height == 0u || !material || !out_exponent || !out_floor ||
+        !material->source_palette_bytes || !material->source_display_palette_bytes) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source material light-response descriptor is invalid");
+        return 0;
+    }
+    if (kind == RENDERER_OPENGL_TEXTURE_WALL) {
+        palette_width = WALL_PALETTE_WIDTH;
+        palette_row_stride = WALL_PALETTE_ROW_STRIDE;
+        palette_entry_stride = 2u;
+        first_shade_row = 0u;
+        shade_row_count = WALL_PALETTE_ROW_COUNT;
+    } else if (kind == RENDERER_OPENGL_TEXTURE_FLAT) {
+        palette_width = FLAT_PALETTE_WIDTH;
+        palette_row_stride = FLAT_PALETTE_WIDTH;
+        palette_entry_stride = 1u;
+        first_shade_row = FLAT_FIRST_SHADE_ROW;
+        shade_row_count = FLAT_PALETTE_ROW_COUNT;
+    } else {
+        renderer_opengl_set_error(error, error_size, "source material light-response kind is invalid");
+        return 0;
+    }
+    if (first_shade_row > SIZE_MAX - shade_row_count ||
+        palette_row_stride > SIZE_MAX / (first_shade_row + shade_row_count) ||
+        material->source_palette_byte_count <
+            (first_shade_row + shade_row_count) * palette_row_stride) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source material palette lacks complete shade observations");
+        return 0;
+    }
+    palette_required_size = (first_shade_row + shade_row_count) * palette_row_stride;
+    if (material->source_palette_byte_count < palette_required_size) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source material palette is shorter than its shade observations");
+        return 0;
+    }
+    for (size_t pixel_index = 0u; pixel_index < (size_t)width * height; ++pixel_index) {
+        uint8_t source_index = pixels[pixel_index * 4u];
+
+        if (source_index >= palette_width) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source material texel is outside its palette domain");
+            return 0;
+        }
+        ++histogram[source_index];
+    }
+    for (uint32_t component = 0u; component < 3u; ++component) {
+        double base_weight_total = 0.0;
+        double floor_total = 0.0;
+        double numerator = 0.0;
+        double denominator = 0.0;
+        double floor;
+
+        /* The fully-dark source row is an authored residual/emissive term,
+         * not an sRGB rounding artefact. Retain it as a linear material floor. */
+        for (size_t source_index = 0u; source_index < palette_width; ++source_index) {
+            uint8_t base_color[4];
+            uint8_t floor_color[4];
+            float base_linear;
+            float floor_linear;
+            double weight;
+            double ratio;
+
+            if (histogram[source_index] == 0u) {
+                continue;
+            }
+            if (!renderer_opengl_display_color(
+                    material->source_display_palette_bytes,
+                    material->source_display_palette_byte_count,
+                    material->source_palette_bytes[first_shade_row * palette_row_stride +
+                                                   source_index * palette_entry_stride],
+                    base_color) ||
+                !renderer_opengl_display_color(
+                    material->source_display_palette_bytes,
+                    material->source_display_palette_byte_count,
+                    material->source_palette_bytes[(first_shade_row + shade_row_count - 1u) *
+                                                   palette_row_stride +
+                                                   source_index * palette_entry_stride],
+                    floor_color)) {
+                renderer_opengl_set_error(error, error_size,
+                                          "source material shade references invalid display colour");
+                return 0;
+            }
+            base_linear = renderer_opengl_srgb_to_linear(
+                (float)base_color[component] / (float)UINT8_MAX);
+            if (base_linear == 0.0f) {
+                continue;
+            }
+            floor_linear = renderer_opengl_srgb_to_linear(
+                (float)floor_color[component] / (float)UINT8_MAX);
+            ratio = (double)floor_linear / (double)base_linear;
+            if (ratio > 1.0) {
+                ratio = 1.0;
+            }
+            weight = (double)histogram[source_index] * (double)base_linear;
+            base_weight_total += weight;
+            floor_total += weight * ratio;
+        }
+        if (base_weight_total == 0.0) {
+            /* This colour channel is black in the source material, so its
+             * response cannot affect the rendered result. */
+            out_exponent[component] = 1.0f;
+            out_floor[component] = 0.0f;
+            continue;
+        }
+        floor = floor_total / base_weight_total;
+        if (floor > 1.0) {
+            floor = 1.0;
+        }
+        out_floor[component] = (float)floor;
+        if (floor == 1.0) {
+            out_exponent[component] = 1.0f;
+            continue;
+        }
+        for (size_t source_index = 0u; source_index < palette_width; ++source_index) {
+            uint8_t base_color[4];
+            float base_linear;
+
+            if (histogram[source_index] == 0u ||
+                !renderer_opengl_display_color(
+                    material->source_display_palette_bytes,
+                    material->source_display_palette_byte_count,
+                    material->source_palette_bytes[first_shade_row * palette_row_stride +
+                                                   source_index * palette_entry_stride],
+                    base_color)) {
+                if (histogram[source_index] != 0u) {
+                    renderer_opengl_set_error(error, error_size,
+                                              "source material base shade references invalid display colour");
+                    return 0;
+                }
+                continue;
+            }
+            base_linear = renderer_opengl_srgb_to_linear(
+                (float)base_color[component] / (float)UINT8_MAX);
+            if (base_linear == 0.0f) {
+                continue;
+            }
+            for (size_t shade_row = 1u; shade_row + 1u < shade_row_count; ++shade_row) {
+                uint8_t shaded_color[4];
+                float shaded_linear;
+                double source_light = 1.0 - (double)shade_row /
+                    (double)(shade_row_count - 1u);
+                double ratio;
+                double normalized_ratio;
+                double log_light = log(source_light);
+                double weight = (double)histogram[source_index] * (double)base_linear;
+
+                if (!renderer_opengl_display_color(
+                        material->source_display_palette_bytes,
+                        material->source_display_palette_byte_count,
+                        material->source_palette_bytes[(first_shade_row + shade_row) *
+                                                       palette_row_stride +
+                                                       source_index * palette_entry_stride],
+                        shaded_color)) {
+                    renderer_opengl_set_error(error, error_size,
+                                              "source material shade observation references invalid display colour");
+                    return 0;
+                }
+                shaded_linear = renderer_opengl_srgb_to_linear(
+                    (float)shaded_color[component] / (float)UINT8_MAX);
+                ratio = (double)shaded_linear / (double)base_linear;
+                if (ratio > 1.0) {
+                    ratio = 1.0;
+                }
+                normalized_ratio = (ratio - floor) / (1.0 - floor);
+                if (normalized_ratio <= 0.0) {
+                    continue;
+                }
+                if (normalized_ratio > 1.0) {
+                    normalized_ratio = 1.0;
+                }
+                numerator += weight * log_light * log(normalized_ratio);
+                denominator += weight * log_light * log_light;
+            }
+        }
+        if (denominator == 0.0) {
+            /* The channel is represented wholly by the source's retained
+             * dark-row floor, so the remaining power has no observation. */
+            out_exponent[component] = 1.0f;
+        } else if (!isfinite(numerator / denominator) || numerator / denominator <= 0.0) {
+            if (error && error_size > 0u) {
+                (void)snprintf(error, error_size,
+                               "source material %u kind %u channel %u has an invalid "
+                               "linear light response",
+                               material->source_asset_id, (unsigned int)kind, component);
+            }
+            return 0;
+        } else {
+            out_exponent[component] = (float)(numerator / denominator);
+        }
+    }
+    return 1;
 }
 
 static int renderer_opengl_decode_wall_texture(const SceneMaterial *material,
@@ -898,6 +1130,8 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
     uint16_t height = 0u;
     GLuint texture = 0u;
     SceneTextureWindow key_window = {0};
+    float light_response_exponent[3];
+    float light_response_floor[3];
 
     if (!renderer || !material || !out_texture) {
         renderer_opengl_set_error(error, error_size, "scene material texture request is invalid");
@@ -928,6 +1162,9 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
         (kind == RENDERER_OPENGL_TEXTURE_FLAT &&
          !renderer_opengl_decode_flat_texture(material, &pixels, &width, &height, error,
                                               error_size)) ||
+        !renderer_opengl_material_light_response(pixels, width, height, material, kind,
+                                                 light_response_exponent, light_response_floor,
+                                                 error, error_size) ||
         !renderer_opengl_resolve_material_texture(pixels, width, height, material, kind, error,
                                                   error_size) ||
         !renderer_opengl_create_texture(pixels, width, height, 1, 1, &texture, error, error_size)) {
@@ -950,7 +1187,9 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
         texture, material->source_bytes, material->source_byte_count, material->source_palette_bytes,
         material->source_palette_byte_count, material->source_display_palette_bytes,
         material->source_display_palette_byte_count, material->source_asset_id, key_window, {0},
-        width, height, (uint8_t)kind, 0u
+        width, height, (uint8_t)kind, 0u,
+        {light_response_exponent[0], light_response_exponent[1], light_response_exponent[2]},
+        {light_response_floor[0], light_response_floor[1], light_response_floor[2]}
     };
     *out_texture = &renderer->textures[renderer->texture_count - 1u];
     return 1;
@@ -1188,6 +1427,7 @@ static int renderer_opengl_load_functions(RendererOpenGL *renderer, char *error,
     renderer->gl.get_uniform_location = glGetUniformLocation;
     renderer->gl.uniform_matrix_4fv = glUniformMatrix4fv;
     renderer->gl.uniform_1f = glUniform1f;
+    renderer->gl.uniform_3f = glUniform3f;
     renderer->gl.uniform_1i = glUniform1i;
     renderer->gl.active_texture = glActiveTexture;
     renderer->gl.gen_buffers = glGenBuffers;
@@ -1224,6 +1464,7 @@ static int renderer_opengl_load_functions(RendererOpenGL *renderer, char *error,
     RENDERER_OPENGL_LOAD(get_uniform_location, "glGetUniformLocation");
     RENDERER_OPENGL_LOAD(uniform_matrix_4fv, "glUniformMatrix4fv");
     RENDERER_OPENGL_LOAD(uniform_1f, "glUniform1f");
+    RENDERER_OPENGL_LOAD(uniform_3f, "glUniform3f");
     RENDERER_OPENGL_LOAD(uniform_1i, "glUniform1i");
     RENDERER_OPENGL_LOAD(active_texture, "glActiveTexture");
     RENDERER_OPENGL_LOAD(gen_buffers, "glGenBuffers");
@@ -1297,6 +1538,9 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "varying vec3 v_source_color;\n"
         "uniform sampler2D u_texture;\n"
         "uniform float u_opacity;\n"
+        "uniform float u_material_light_response_enabled;\n"
+        "uniform vec3 u_material_light_response_exponent;\n"
+        "uniform vec3 u_material_light_response_floor;\n"
         "vec3 srgb_to_linear(vec3 color) {\n"
         "  vec3 low = color / 12.92;\n"
         "  vec3 high = pow((color + 0.055) / 1.055, vec3(2.4));\n"
@@ -1312,8 +1556,12 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "  vec3 source_light;\n"
         "  if (color.a < 0.5) discard;\n"
         "  source_light = max(vec3(v_source_light) * v_source_color, vec3(0.0));\n"
-        "  gl_FragColor = vec4(linear_to_srgb(srgb_to_linear(color.rgb) *\n"
-        "                                    srgb_to_linear(source_light)),\n"
+        "  source_light = mix(srgb_to_linear(source_light),\n"
+        "                     u_material_light_response_floor +\n"
+        "                     (vec3(1.0) - u_material_light_response_floor) *\n"
+        "                     pow(source_light, u_material_light_response_exponent),\n"
+        "                     u_material_light_response_enabled);\n"
+        "  gl_FragColor = vec4(linear_to_srgb(srgb_to_linear(color.rgb) * source_light),\n"
         "                      color.a * u_opacity);\n"
         "}\n";
 #else
@@ -1323,6 +1571,9 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "varying vec3 v_source_color;\n"
         "uniform sampler2D u_texture;\n"
         "uniform float u_opacity;\n"
+        "uniform float u_material_light_response_enabled;\n"
+        "uniform vec3 u_material_light_response_exponent;\n"
+        "uniform vec3 u_material_light_response_floor;\n"
         "vec3 srgb_to_linear(vec3 color) {\n"
         "  vec3 low = color / 12.92;\n"
         "  vec3 high = pow((color + 0.055) / 1.055, vec3(2.4));\n"
@@ -1338,8 +1589,12 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "  vec3 source_light;\n"
         "  if (color.a < 0.5) discard;\n"
         "  source_light = max(vec3(v_source_light) * v_source_color, vec3(0.0));\n"
-        "  gl_FragColor = vec4(linear_to_srgb(srgb_to_linear(color.rgb) *\n"
-        "                                    srgb_to_linear(source_light)),\n"
+        "  source_light = mix(srgb_to_linear(source_light),\n"
+        "                     u_material_light_response_floor +\n"
+        "                     (vec3(1.0) - u_material_light_response_floor) *\n"
+        "                     pow(source_light, u_material_light_response_exponent),\n"
+        "                     u_material_light_response_enabled);\n"
+        "  gl_FragColor = vec4(linear_to_srgb(srgb_to_linear(color.rgb) * source_light),\n"
         "                      color.a * u_opacity);\n"
         "}\n";
 #endif
@@ -1401,14 +1656,45 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
                                                                        "u_point_size");
     renderer->texture_uniform = renderer->gl.get_uniform_location(renderer->program, "u_texture");
     renderer->opacity_uniform = renderer->gl.get_uniform_location(renderer->program, "u_opacity");
+    renderer->material_light_response_enabled_uniform = renderer->gl.get_uniform_location(
+        renderer->program, "u_material_light_response_enabled");
+    renderer->material_light_response_exponent_uniform = renderer->gl.get_uniform_location(
+        renderer->program, "u_material_light_response_exponent");
+    renderer->material_light_response_floor_uniform = renderer->gl.get_uniform_location(
+        renderer->program, "u_material_light_response_floor");
     if (renderer->view_projection_uniform < 0 || renderer->point_size_uniform < 0 ||
-        renderer->texture_uniform < 0 || renderer->opacity_uniform < 0) {
+        renderer->texture_uniform < 0 || renderer->opacity_uniform < 0 ||
+        renderer->material_light_response_enabled_uniform < 0 ||
+        renderer->material_light_response_exponent_uniform < 0 ||
+        renderer->material_light_response_floor_uniform < 0) {
         renderer->gl.delete_program(renderer->program);
         renderer->program = 0u;
         renderer_opengl_set_error(error, error_size, "OpenGL shader uniforms are unavailable");
         return 0;
     }
     return 1;
+}
+
+static void renderer_opengl_use_default_light_response(RendererOpenGL *renderer)
+{
+    renderer->gl.uniform_1f(renderer->material_light_response_enabled_uniform, 0.0f);
+    renderer->gl.uniform_3f(renderer->material_light_response_exponent_uniform, 1.0f, 1.0f,
+                             1.0f);
+    renderer->gl.uniform_3f(renderer->material_light_response_floor_uniform, 0.0f, 0.0f, 0.0f);
+}
+
+static void renderer_opengl_use_material_light_response(
+    RendererOpenGL *renderer, const RendererOpenGLTexture *texture)
+{
+    renderer->gl.uniform_1f(renderer->material_light_response_enabled_uniform, 1.0f);
+    renderer->gl.uniform_3f(renderer->material_light_response_exponent_uniform,
+                             texture->light_response_exponent[0u],
+                             texture->light_response_exponent[1u],
+                             texture->light_response_exponent[2u]);
+    renderer->gl.uniform_3f(renderer->material_light_response_floor_uniform,
+                             texture->light_response_floor[0u],
+                             texture->light_response_floor[1u],
+                             texture->light_response_floor[2u]);
 }
 
 static int renderer_opengl_draw_vertices(RendererOpenGL *renderer,
@@ -1471,6 +1757,7 @@ static int renderer_opengl_draw_sky(RendererOpenGL *renderer,
                                                           error, error_size)) {
         return 0;
     }
+    renderer_opengl_use_default_light_response(renderer);
     /* newanims.s:Draw_SkyBackdrop selects yaw*648/4096 source columns. */
     scroll = (float)(camera->yaw & 4095u) / 4096.0f;
     vertices[0] = (RendererOpenGLVertex){-1.0f, -1.0f, 0.0f, scroll, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f};
@@ -1555,6 +1842,7 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
     }
     renderer->gl.active_texture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture->texture);
+    renderer_opengl_use_material_light_response(renderer, texture);
     renderer->gl.uniform_1f(renderer->opacity_uniform, water_blend != 0 ? 0.68f : 1.0f);
     if (water_blend != 0) {
         glEnable(GL_BLEND);
@@ -1654,6 +1942,7 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     if (!renderer_opengl_find_sprite_texture(renderer, sprite, &texture, error, error_size)) {
         return 0;
     }
+    renderer_opengl_use_default_light_response(renderer);
     renderer_opengl_world_point(&sprite->position, &center_x, &center_y, &center_z);
     /* Same Vis_AngPos_w byte-addressed angle convention as the world camera. */
     yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
@@ -2072,6 +2361,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
         renderer_opengl_set_error(error, error_size, "source vector sprite descriptor is invalid");
         return 0;
     }
+    renderer_opengl_use_default_light_response(renderer);
     bytes = sprite->source_bytes;
     size = sprite->source_byte_count;
     point_count = renderer_opengl_read_be16(bytes + 2u);
@@ -2310,6 +2600,7 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_SOURCE_COLOR_ATTRIBUTE);
     renderer->gl.uniform_1i(renderer->texture_uniform, 0);
     renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
+    renderer_opengl_use_default_light_response(renderer);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
     glDisable(GL_CULL_FACE);
