@@ -26,6 +26,32 @@ authority for all game behavior and data formats.
   portal traversal, or zone-order rendering merely for visibility culling.
   Those are optional native renderer optimisations, not parity requirements.
 
+## Current direct-gameplay scope: complete (audited 2026-08-10)
+
+The gameplay-first scope agreed for this pass is complete. The retained
+renderer seam is intentionally the endpoint of this scope, not unfinished
+software-renderer work.
+
+- [x] The CMake/SDL2 desktop boundary follows the Alien Breed 3D I port for
+  Windows, Linux, and macOS; this audit rebuilt the Windows Debug target.
+- [x] The executable enters a source default single-player session directly in
+  Level A, with `--level A` through `--level P` for direct authored-level
+  selection. Its normal entry path does not enter the menu subsystem.
+- [x] `scene_frame.h` remains the GPU-neutral producer interface for cameras,
+  material/geometry, sprites, and HUD commands. `renderer_stub.c` is solely a
+  diagnostic status presenter and does not rasterize a scene.
+- [x] Whole-level scene production has no PVS, portal, or zone-order renderer
+  dependency. Multiplayer is not activated or offered by the direct path.
+- [x] `ctest --test-dir build/pc -C Debug --output-on-failure` passes the
+  clean-process A--P direct-play regression, including its six source
+  VBlank-equivalent ticks per selected level.
+
+The following are deliberately deferred to a future, separately scoped
+renderer phase: GPU API selection, source-evidenced texture-coordinate and
+asset conversion, pixel presentation, and renderer-output validation. Menus
+and audio event/playback work remain deferred as requested; no multiplayer
+work is planned.
+
 ## Current completed foundation
 
 ### Latest milestone: live `ItsAnAlien` dispatch and GPU-neutral message handoff
