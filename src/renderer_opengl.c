@@ -1317,18 +1317,9 @@ static int renderer_opengl_draw_sky(RendererOpenGL *renderer,
     return result;
 }
 
-static int32_t renderer_opengl_asr32_8(int32_t value)
-{
-    if (value >= 0) {
-        return value >> 8u;
-    }
-    return -((-(int64_t)value + 255) >> 8u);
-}
-
 static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
                                          const SceneMaterial *material,
                                          const SceneGeometry *geometry,
-                                         const SceneCamera *camera,
                                          const SceneEnvironment *environment,
                                          char *error, size_t error_size)
 {
@@ -1342,13 +1333,11 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
     int water_blend = 0;
     int result;
 
-    if (!material || !geometry || !camera || !geometry->vertices) {
-        renderer_opengl_set_error(error, error_size, "scene geometry has no material, camera, or vertices");
+    if (!material || !geometry || !geometry->vertices) {
+        renderer_opengl_set_error(error, error_size, "scene geometry has no material or vertices");
         return 0;
     }
     if (geometry->primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
-        uint16_t wall_height_mask;
-
         if (geometry->texture_window.u_period == 0u || geometry->texture_window.v_period == 0u) {
             renderer_opengl_set_error(error, error_size, "scene wall geometry has no source texture window");
             return 0;
@@ -1356,9 +1345,12 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
         texture_kind = RENDERER_OPENGL_TEXTURE_WALL;
         texture_u_scale = 1.0f / (float)geometry->texture_window.u_period;
         texture_v_scale = 1.0f / (float)geometry->texture_window.v_period;
-        wall_height_mask = (uint16_t)(geometry->texture_window.v_period - 1u);
-        texture_v_offset = (float)((renderer_opengl_asr32_8(camera->position.y) + 224) &
-                                   wall_height_mask);
+        /*
+         * hires.s:DrawDisplay:draw_WallYOffset_w offsets source wall samples
+         * for its screen-column projection.  Scene vertices already retain
+         * their authored world-space V coordinates, so applying the viewer Y
+         * again would make a fixed wall texture slide during camera bob.
+         */
     } else {
         texture_kind = RENDERER_OPENGL_TEXTURE_FLAT;
         texture_u_scale = 1.0f / 64.0f;
@@ -2007,7 +1999,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             active_material = &command->data.material;
         } else if (command->type == SCENE_COMMAND_GEOMETRY) {
             if (!renderer_opengl_draw_geometry(renderer, active_material, &command->data.geometry,
-                                               camera, environment, error, error_size)) {
+                                               environment, error, error_size)) {
                 return 0;
             }
         }
