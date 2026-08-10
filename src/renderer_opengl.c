@@ -2488,10 +2488,49 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
     return 1;
 }
 
+/*
+ * objdrawhires.s:doapoly rejects a polygon unless its first three projected
+ * points have positive source-screen area.  Source screen Y grows down while
+ * OpenGL NDC Y grows up, so the equivalent NDC winding is clockwise.  Keep
+ * this as a CPU test rather than relying on global GL cull state: complete
+ * level walls and source vector models have independent winding conventions.
+ */
+static int renderer_opengl_vector_face_is_front_facing(
+    const RendererOpenGLVertex vertices[3], const float view_projection[16])
+{
+    float x[3];
+    float y[3];
+
+    if (!vertices || !view_projection) {
+        return 0;
+    }
+    for (uint32_t index = 0u; index < 3u; ++index) {
+        float clip_x = view_projection[0u] * vertices[index].x +
+            view_projection[4u] * vertices[index].y +
+            view_projection[8u] * vertices[index].z + view_projection[12u];
+        float clip_y = view_projection[1u] * vertices[index].x +
+            view_projection[5u] * vertices[index].y +
+            view_projection[9u] * vertices[index].z + view_projection[13u];
+        float clip_w = view_projection[3u] * vertices[index].x +
+            view_projection[7u] * vertices[index].y +
+            view_projection[11u] * vertices[index].z + view_projection[15u];
+
+        /* The source rejects faces with a point behind its projection plane. */
+        if (clip_w <= 0.0f) {
+            return 0;
+        }
+        x[index] = clip_x / clip_w;
+        y[index] = clip_y / clip_w;
+    }
+    return (x[2u] - x[1u]) * (y[0u] - y[1u]) -
+        (x[0u] - x[1u]) * (y[2u] - y[1u]) < 0.0f;
+}
+
 static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                               const SceneSprite *sprite,
                                               const SceneCamera *camera,
                                               const RenderView *view,
+                                              const float view_projection[16],
                                               char *error, size_t error_size)
 {
     const uint8_t *bytes;
@@ -2512,7 +2551,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     uint32_t vertex_capacity = 0u;
     int result = 0;
 
-    if (!renderer || !sprite || !camera || !view ||
+    if (!renderer || !sprite || !camera || !view || !view_projection ||
         sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
         !sprite->source_bytes || sprite->source_byte_count < 6u) {
         renderer_opengl_set_error(error, error_size, "source vector sprite descriptor is invalid");
@@ -2627,6 +2666,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
 
                 for (uint32_t triangle = 1u; triangle + 1u < polygon_point_count; ++triangle) {
                     const uint32_t corners[3] = {0u, triangle, triangle + 1u};
+                    RendererOpenGLVertex triangle_vertices[3];
 
                     for (uint32_t corner = 0u; corner < 3u; ++corner) {
                         const uint8_t *source_corner =
@@ -2657,9 +2697,16 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                             /* The source flat palette row is continuous GPU lighting. */
                             vertex.source_light = source_light;
                         }
+                        triangle_vertices[corner] = vertex;
+                    }
+                    if (!renderer_opengl_vector_face_is_front_facing(
+                            triangle_vertices, view_projection)) {
+                        continue;
+                    }
+                    for (uint32_t corner = 0u; corner < 3u; ++corner) {
                         if (!renderer_opengl_vector_append(
-                                &vertices, &vertex_count, &vertex_capacity, &vertex,
-                                error, error_size)) {
+                                &vertices, &vertex_count, &vertex_capacity,
+                                &triangle_vertices[corner], error, error_size)) {
                             goto done;
                         }
                     }
@@ -2947,8 +2994,8 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                     (sprite_x - camera_x) * sinf(yaw) + (sprite_z - camera_z) * cosf(yaw);
                 ++additive_count;
             } else if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-                        !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view, error,
-                                                           error_size)) ||
+                        !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
+                                                           view_projection, error, error_size)) ||
                        (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_sprite(renderer, sprite, camera, error,
                                                     error_size))) {
@@ -2963,7 +3010,8 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         const SceneSprite *sprite = additive_sprites[index].sprite;
 
         if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-             !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view, error, error_size)) ||
+             !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
+                                                view_projection, error, error_size)) ||
             (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_sprite(renderer, sprite, camera, error, error_size))) {
             free(additive_sprites);
@@ -3012,7 +3060,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             glClear(GL_DEPTH_BUFFER_BIT);
             if (command->data.sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
                 !renderer_opengl_draw_vector_sprite(renderer, &command->data.sprite, camera, view,
-                                                   error, error_size)) {
+                                                   view_projection, error, error_size)) {
                 free(before_pixels);
                 return 0;
             }

@@ -471,6 +471,16 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
+        /* The forced bright state makes the live companion's vector faces
+         * observable.  This catches a reversed doapoly winding test or a
+         * weapon pass that accidentally drops every textured polygon. */
+        if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] GPU smoke view weapon has no visible vector coverage "
+                    "for Level %c\n", (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
     }
     return 1;
 }
