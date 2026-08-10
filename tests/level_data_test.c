@@ -9,6 +9,7 @@
 #include "alien_damage.h"
 #include "alien_decision.h"
 #include "alien_death.h"
+#include "alien_dispatch.h"
 #include "alien_dark.h"
 #include "alien_flight.h"
 #include "alien_math.h"
@@ -7279,6 +7280,9 @@ int main(int argc, char **argv)
         AlienSetup charge_setup;
         AlienChargeWorkspace charge_workspace = {0};
         AlienChargeState charge_state;
+        AlienDispatchWorkspace charge_dispatch_workspace = {0};
+        AlienDispatchState charge_dispatch_state;
+        ObjectObservation charge_dispatch_observation;
         GameAlienDefinition charge_definition;
         GameAlienAnimationFrame charge_frame;
         GameObjectDefinition charge_auxiliary_definition;
@@ -7607,6 +7611,39 @@ int main(int argc, char **argv)
                 (uint16_t)expected_charge_flying_y) {
             fprintf(stderr, "ai_ApproachFlying source movement state is inconsistent: %s\n",
                     error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
+        /* AI_MainRoutine selects the complete source charge owner from response mode. */
+        memcpy(slot_bytes, charge_initial_slot_bytes, sizeof(slot_bytes));
+        memcpy(point_bytes, charge_initial_point_bytes, sizeof(point_bytes));
+        object_animation_runtime_init(&charge_animation);
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][0u] = 1u;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][1u] = (uint8_t)charge_frame_index;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][2u] = (uint8_t)charge_option;
+        alien_runtime_init(&charge_runtime);
+        alien_runtime_begin_level(&charge_runtime);
+        lighting_runtime_init(&charge_lighting);
+        object_explosion_runtime_init(&charge_explosion);
+        game_progression_init(&charge_progression);
+        game_random_init(&charge_random);
+        object_observation_init(&charge_dispatch_observation);
+        memset(&charge_dispatch_workspace, 0, sizeof(charge_dispatch_workspace));
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 20u] = 1u;
+        charge_setup.response_mode = 0;
+        if (!alien_dispatch_update(
+                &charge_objects, CHARGE_ALIEN_SLOT, &charge_runtime, &charge_animation,
+                &charge_lighting, &charge_dynamic, &game.level_navigation, &game.level_clips,
+                &game.game_link_catalog, &charge_progression, &charge_explosion, &game.math,
+                &charge_random, &charge_player, &charge_setup, &charge_dispatch_observation,
+                1u, &charge_dispatch_workspace, &charge_dispatch_state, error, sizeof(error)) ||
+            charge_dispatch_state.route != ALIEN_MAIN_ROUTE_RESPONSE ||
+            charge_dispatch_state.behavior != ALIEN_MAIN_BEHAVIOR_CHARGE ||
+            charge_dispatch_state.charge.damaged_player != UINT8_MAX ||
+            slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 7u) {
+            fprintf(stderr, "AI_MainRoutine response dispatch is inconsistent: %s\n", error);
             level_dynamic_state_destroy(&charge_dynamic);
             game_bootstrap_destroy(&game);
             return 1;

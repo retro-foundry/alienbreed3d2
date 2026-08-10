@@ -119,7 +119,12 @@ first game's software renderer:
   action-gated follow-up speed, source collision/movement path, ground
   reachability-before-sight order, mode-two timer/darkness gate, and the
   airborne fly-before-room-stat vertical restore. They likewise remain
-  uncalled pending the complete dispatcher.
+  uncalled pending the complete dispatcher. `modules/ai.s:AI_MainRoutine`
+  and its default/response/follow-up selectors now have an unbound composition
+  layer that calls each complete source mode with explicit animation, lighting,
+  map, observation, progression, random, and shared-workspace inputs. It
+  remains outside `ObjectHandler` until that live boundary can own the complete
+  source tick context and death-message handoff.
   `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`

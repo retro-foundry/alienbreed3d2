@@ -518,8 +518,12 @@ authority for all game behavior and data formats.
      `ai_ApproachToSideFlying` now preserve action-gated follow-up speed,
      movement/collision, their source-order AUX copy, ground reachability
      before sight, mode-two timer/darkness decision, and flying height update
-     before room-stat restoration. Next: finish the remaining dispatcher
-     paths and the audio portions of `newplayershoot.s`. The complete source
+     before room-stat restoration. `AI_MainRoutine` now also has an unbound
+     source-order dispatcher that composes every complete selected route with
+     explicit shared movement/torch workspace and prior-frame observation.
+     Next: give `ObjectHandler` the complete tick context and a death-message
+     owner, then wire that dispatcher in source slot order; audio portions of
+     `newplayershoot.s` remain after that. The complete source
      `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
@@ -872,8 +876,7 @@ animation's raw a2 table, teleport floor adjustment, optional `RunAround`,
 response-speed heading, the two source collision calls, movement, pre-room-
 stats AUX ownership, action-gated Player 1 byte damage/`DIVS` impact, memory,
 spatial state, torch, sight, and final source mode branches. It remains
-outside `ObjectHandler`; all approach routes still need their complete source
-bodies before dispatcher integration.
+outside `ObjectHandler`; its sibling approach routes are likewise unbound.
 
 The same module now directly translates `modules/ai.s:ai_ChargeFlying` and
 `ai_ChargeToSideFlying`. Its shared source-order body keeps the flight-specific
@@ -892,6 +895,15 @@ timer/darkness transition, and the airborne `ai_FlyToPlayerHeight` before
 room-stat vertical restore. No source route is yet connected to
 `ObjectHandler`; the dispatcher must own every remaining mode and its
 narrative effects in source order.
+
+`src/alien_dispatch.*` now directly composes `modules/ai.s:AI_MainRoutine`
+with `ai_DoDefault`, `ai_DoResponse`, and `ai_DoFollowup` after the existing
+`ItsAnAlien` setup boundary. It dispatches prowl, charge, attack, pause,
+approach, death, damage, and the source retreat no-op with their explicit
+animation, lighting, world, observation, progression, and shared workspace
+inputs. The layer is deliberately unbound: `ObjectHandler` does not yet own
+the full source tick context or the returned death narrative request, so live
+alien activation would still be incomplete.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their
