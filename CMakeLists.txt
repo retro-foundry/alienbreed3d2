@@ -62,6 +62,7 @@ set(AB3D2_CORE_SOURCES
   src/game_resources.c
   src/game_save.c
   src/game_session.c
+  src/game_vblank_clock.c
   src/level_bootstrap.c
   src/level_dynamic_state.c
   src/level_draw_graph.c

@@ -14,7 +14,11 @@
 
 /* Single-player subset of modules/player.s:Plr_Initialise. */
 typedef struct {
-    /* hires.s:Plr1_Control committed position. */
+    /*
+     * hires.s:Plr1_Control committed position. X/Z are 16.16 source
+     * coordinates: 68000 move.w reads/writes the first (integer) word of the
+     * big-endian longword. Y retains its source 8.8 domain.
+     */
     int32_t x;
     int32_t y;
     int32_t z;
@@ -79,6 +83,21 @@ typedef struct {
     uint8_t previous_next_weapon_key_state;
     uint8_t decelerate;
 } PlayerRuntime;
+
+/*
+ * Source X/Z boundary helpers. `move.w Plr1_XOff_l,Dn` reads the high word
+ * of the big-endian source longword, while the low word carries sub-unit
+ * movement accumulated by modules/player.s:plr_KeyboardControl.
+ */
+static inline int16_t player_runtime_position_to_world(int32_t source_position)
+{
+    return (int16_t)((uint32_t)source_position >> 16u);
+}
+
+static inline int32_t player_runtime_world_to_position(int16_t world_coordinate)
+{
+    return (int32_t)((uint32_t)(uint16_t)world_coordinate << 16u);
+}
 
 int player_runtime_init_single_player(const LevelBootstrap *level,
                                       const LevelRuntime *runtime,

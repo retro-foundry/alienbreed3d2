@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "game_bootstrap.h"
+#include "game_vblank_clock.h"
 #include "render_view.h"
 #include "renderer.h"
 
@@ -185,6 +186,8 @@ typedef struct {
     SceneFrame frame;
     Renderer *renderer;
     RenderView view;
+    /* Host display frames are not source VBlanks; keep source logic at 50 Hz. */
+    GameVBlankClock vblank_clock;
     int sdl_initialized;
     int game_initialized;
     int frame_initialized;
@@ -301,6 +304,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     render_view_init(&app->view);
+    game_vblank_clock_reset(&app->vblank_clock, SDL_GetTicks64());
     if (!app->gpu_smoke && SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
     }
@@ -315,6 +319,7 @@ static void game_app_tick(GameApp *app)
 {
     char error[256];
     SDL_Event event;
+    uint32_t source_vblanks;
 
     if (!app || !renderer_is_running(app->renderer)) {
         return;
@@ -361,12 +366,22 @@ static void game_app_tick(GameApp *app)
     if (!renderer_is_running(app->renderer)) {
         return;
     }
-    if (!game_bootstrap_update_single_player_at_time(&app->game, SDL_GetTicks64(), error,
-                                                     sizeof(error))) {
-        fprintf(stderr, "[GAME] %s\n", error);
-        app->exit_code = 1;
-        renderer_request_quit(app->renderer);
-        return;
+    /*
+     * hires.s:VBlankInterrupt produces one source frame at PAL 50 Hz.  Do not
+     * advance Plr1_Control once per host present: its source X/Z velocity is
+     * expressed per VBlank, so doing that makes movement display-rate dependent.
+     */
+    source_vblanks = game_vblank_clock_advance(&app->vblank_clock, SDL_GetTicks64());
+    for (uint32_t vblank_index = 0u; vblank_index < source_vblanks; ++vblank_index) {
+        if (!game_bootstrap_update_single_player(&app->game, error, sizeof(error))) {
+            fprintf(stderr, "[GAME] %s\n", error);
+            app->exit_code = 1;
+            renderer_request_quit(app->renderer);
+            return;
+        }
+        if (app->game.session.level_finished != 0u) {
+            break;
+        }
     }
     if (app->game.session.level_finished != 0u) {
         fprintf(stdout, "[GAME] Level %c complete; direct session is ending\n",

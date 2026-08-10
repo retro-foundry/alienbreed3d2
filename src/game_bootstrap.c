@@ -686,9 +686,9 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
             return 0;
         }
         command.type = SCENE_COMMAND_CAMERA;
-        command.data.camera.position.x = game->player.x;
+        command.data.camera.position.x = player_runtime_position_to_world(game->player.x);
         command.data.camera.position.y = game->player.y;
-        command.data.camera.position.z = game->player.z;
+        command.data.camera.position.z = player_runtime_position_to_world(game->player.z);
         command.data.camera.yaw = game->player.yaw;
         command.data.camera.look_offset = game->player.look_offset;
         if (!scene_frame_submit(frame, &command)) {

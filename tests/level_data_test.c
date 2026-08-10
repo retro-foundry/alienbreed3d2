@@ -25,6 +25,7 @@
 #include "alien_torch.h"
 #include "asset_io.h"
 #include "game_bootstrap.h"
+#include "game_vblank_clock.h"
 #include "game_link.h"
 #include "game_inventory.h"
 #include "game_menu.h"
@@ -348,9 +349,9 @@ static int object_observation_matches_source(const ObjectObservation *observatio
         }
         point = objects->point_bytes + (size_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
         offset_x = (int16_t)((int32_t)(int16_t)read_be16(point + 0u) -
-                             (int16_t)(uint16_t)player->x);
+                             player_runtime_position_to_world(player->x));
         offset_z = (int16_t)((int32_t)(int16_t)read_be16(point + 4u) -
-                             (int16_t)(uint16_t)player->z);
+                             player_runtime_position_to_world(player->z));
         expected_in_line = 0u;
         expected_distance = 0u;
         if ((int16_t)read_be16(slot + 12u) >= 0) {
@@ -685,6 +686,30 @@ int main(int argc, char **argv)
     if (game_random_next(&random) != 0x2342u || random.state != 0x2342u) {
         fprintf(stderr, "objectmove.s GetRand word wrapping is inconsistent\n");
         return 1;
+    }
+    {
+        GameVBlankClock vblank_clock = {0};
+        uint32_t source_vblanks = 0u;
+
+        /* A 144 Hz presenter must not advance hires.s logic at 144 Hz. */
+        game_vblank_clock_reset(&vblank_clock, 1000u);
+        for (uint64_t host_milliseconds = 1007u; host_milliseconds < 2000u;
+             host_milliseconds += 7u) {
+            source_vblanks += game_vblank_clock_advance(&vblank_clock, host_milliseconds);
+        }
+        source_vblanks += game_vblank_clock_advance(&vblank_clock, 2000u);
+        if (source_vblanks != 50u || vblank_clock.remainder_milliseconds != 0u ||
+            game_vblank_clock_advance(&vblank_clock, 1999u) != 0u ||
+            vblank_clock.remainder_milliseconds != 0u) {
+            fprintf(stderr, "hires.s VBlank desktop timing boundary is inconsistent\n");
+            return 1;
+        }
+        game_vblank_clock_reset(&vblank_clock, 0u);
+        if (game_vblank_clock_advance(&vblank_clock, 1000u) != 10u ||
+            vblank_clock.remainder_milliseconds != 0u) {
+            fprintf(stderr, "desktop VBlank catch-up cap is inconsistent\n");
+            return 1;
+        }
     }
     alien_runtime_init(&alien_runtime);
     if (alien_runtime.no_enemies != 0u) {
@@ -2249,8 +2274,10 @@ int main(int argc, char **argv)
                 activatable_slot[55u] = 0u;
                 activatable_slot[62u] = 0x80u;
                 activatable_slot[63u] = activatable_player.stood_in_top;
-                activatable_player.tmp_x = (int16_t)read_be16(activatable_point + 0u);
-                activatable_player.tmp_z = (int16_t)read_be16(activatable_point + 4u);
+                activatable_player.tmp_x = player_runtime_world_to_position(
+                    (int16_t)read_be16(activatable_point + 0u));
+                activatable_player.tmp_z = player_runtime_world_to_position(
+                    (int16_t)read_be16(activatable_point + 4u));
                 {
                     int32_t object_vertical = activatable_zone.floor >= 0 ?
                         activatable_zone.floor / 128 :
@@ -3123,8 +3150,8 @@ int main(int argc, char **argv)
                                    error, sizeof(error)) ||
         !level_runtime_get_zone(&game.level_runtime, game.level.player1_start_zone,
                                 &zone, error, sizeof(error)) ||
-        game.player.x != game.level.player1_start_x ||
-        game.player.z != game.level.player1_start_z ||
+        game.player.x != player_runtime_world_to_position(game.level.player1_start_x) ||
+        game.player.z != player_runtime_world_to_position(game.level.player1_start_z) ||
         game.player.y != zone.floor - 12 * 1024 ||
         game.player.snap_x != game.player.x || game.player.snap_y != game.player.y ||
         game.player.snap_z != game.player.z || game.player.snap_target_y != game.player.y ||
@@ -3135,7 +3162,8 @@ int main(int argc, char **argv)
             ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u +
             active_sprite_count ||
         frame.commands[0].type != SCENE_COMMAND_CAMERA ||
-        frame.commands[0].data.camera.position.x != game.player.x ||
+        frame.commands[0].data.camera.position.x !=
+            player_runtime_position_to_world(game.player.x) ||
         game.static_scene.wall_count == 0u || game.static_scene.flat_count == 0u ||
         frame.commands[1].type != SCENE_COMMAND_LIGHTING ||
         frame.commands[1].data.lighting.current_point_brightness !=
@@ -3389,8 +3417,8 @@ int main(int argc, char **argv)
             use_snapshot_player.tmp_clicked != UINT8_MAX || use_snapshot_player.clicked != 0u ||
             use_snapshot_player.tmp_fire != UINT8_MAX || use_snapshot_player.fire != UINT8_MAX ||
             use_snapshot_player.tmp_gun_selected != 7u ||
-            use_snapshot_motion.new_x != (int16_t)use_snapshot_player.x ||
-            use_snapshot_motion.new_z != (int16_t)use_snapshot_player.z) {
+            use_snapshot_motion.new_x != player_runtime_position_to_world(use_snapshot_player.x) ||
+            use_snapshot_motion.new_z != player_runtime_position_to_world(use_snapshot_player.z)) {
             fprintf(stderr, "source transient player snapshot is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
@@ -3427,7 +3455,16 @@ int main(int argc, char **argv)
                                        NULL, error, sizeof(error)) ||
         controlled_player.decelerate == 0u ||
         controlled_player.snap_yaw_speed == 0 ||
-        controlled_player.snap_z_speed == 0) {
+        controlled_player.snap_z_speed == 0 ||
+        ((uint32_t)controlled_player.x & UINT32_C(0x0000ffff)) == 0u ||
+        ((int32_t)player_runtime_position_to_world(controlled_player.x) -
+             player_runtime_position_to_world(game.player.x)) > 8 ||
+        ((int32_t)player_runtime_position_to_world(controlled_player.x) -
+             player_runtime_position_to_world(game.player.x)) < -8 ||
+        ((int32_t)player_runtime_position_to_world(controlled_player.z) -
+             player_runtime_position_to_world(game.player.z)) > 8 ||
+        ((int32_t)player_runtime_position_to_world(controlled_player.z) -
+             player_runtime_position_to_world(game.player.z)) < -8) {
         fprintf(stderr, "source player spatial update is inconsistent: %s\n", error);
         game_bootstrap_destroy(&game);
         return 1;
@@ -3581,8 +3618,10 @@ int main(int argc, char **argv)
         }
         game.player.zone_index = 146u;
         game.player.stood_in_top = 0u;
-        game.player.tmp_x = (int16_t)read_be16(collectable_point + 0u);
-        game.player.tmp_z = (int16_t)read_be16(collectable_point + 4u);
+        game.player.tmp_x = player_runtime_world_to_position(
+            (int16_t)read_be16(collectable_point + 0u));
+        game.player.tmp_z = player_runtime_world_to_position(
+            (int16_t)read_be16(collectable_point + 4u));
         game.player.tmp_height = 12 * 1024;
         game.player.tmp_y = collectable_zone.floor - game.player.tmp_height;
         memcpy(collectable_slot_original, collectable_slot, sizeof(collectable_slot_original));
@@ -4295,9 +4334,9 @@ int main(int argc, char **argv)
             write_be32(point + 0u, UINT32_C(0x11112222));
             write_be32(point + 4u, UINT32_C(0x33334444));
         }
-        projectile_player.x = 300;
+        projectile_player.x = player_runtime_world_to_position(300);
         projectile_player.y = 400;
-        projectile_player.z = -500;
+        projectile_player.z = player_runtime_world_to_position(-500);
         projectile_player.yaw = 0u;
         projectile_player.zone_index = 4u;
         projectile_player.stood_in_top = UINT8_MAX;
@@ -5066,10 +5105,10 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
-        decision_player.tmp_x = 1;
-        decision_player.tmp_z = 0;
-        decision_player.x = -500;
-        decision_player.z = 500;
+        decision_player.tmp_x = player_runtime_world_to_position(1);
+        decision_player.tmp_z = player_runtime_world_to_position(0);
+        decision_player.x = player_runtime_world_to_position(-500);
+        decision_player.z = player_runtime_world_to_position(500);
         write_be16(slot_bytes + 30u, positive_sine_angle);
         if (!alien_decision_check_in_front(&decision_objects, 0u, &decision_player,
                                            &game.math, &in_front,
@@ -5406,8 +5445,8 @@ int main(int argc, char **argv)
                    UINT32_C(0x5555beef));
         write_be32(point_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
                    UINT32_C(0x6666face));
-        fire_player.x = 500;
-        fire_player.z = -100;
+        fire_player.x = player_runtime_world_to_position(500);
+        fire_player.z = player_runtime_world_to_position(-100);
         fire_alien_setup.shot_y_offset = 1234;
         fire_alien_setup.shot_offset_multiplier = 128;
         fire_attack_setup.shot_type = 3u;
@@ -5416,8 +5455,8 @@ int main(int argc, char **argv)
         fire_attack_setup.shot_shift = 4u;
         expected_approach.old_x = 100;
         expected_approach.old_z = 200;
-        expected_approach.new_x = (int16_t)fire_player.x;
-        expected_approach.new_z = (int16_t)fire_player.z;
+        expected_approach.new_x = player_runtime_position_to_world(fire_player.x);
+        expected_approach.new_z = player_runtime_position_to_world(fire_player.z);
         if (!object_heading_calculate_distance(&expected_approach, error, sizeof(error))) {
             fprintf(stderr, "FireAtPlayer1 distance fixture is invalid: %s\n", error);
             game_bootstrap_destroy(&game);
@@ -5616,8 +5655,8 @@ int main(int argc, char **argv)
         }
         write_be16(slot_bytes + PROJECTILE_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
                    80u);
-        attack_player.x = 500;
-        attack_player.z = -100;
+        attack_player.x = player_runtime_world_to_position(500);
+        attack_player.z = player_runtime_world_to_position(-100);
         attack_player.tmp_x = attack_player.x;
         attack_player.tmp_z = attack_player.z;
         if (!alien_setup_from_slot(&attack_objects, PROJECTILE_ATTACK_ALIEN_SLOT,
@@ -5658,9 +5697,9 @@ int main(int argc, char **argv)
             read_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
                           40u) != 0u ||
             attack_runtime.entity_workspace[PROJECTILE_ATTACK_ALIEN_SLOT][0u] !=
-                (int16_t)attack_player.x ||
+                player_runtime_position_to_world(attack_player.x) ||
             attack_runtime.entity_workspace[PROJECTILE_ATTACK_ALIEN_SLOT][1u] !=
-                (int16_t)attack_player.z ||
+                player_runtime_position_to_world(attack_player.z) ||
             slot_bytes[PROJECTILE_ATTACK_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] !=
                 2u) {
             fprintf(stderr, "ai_AttackWithProjectile finished-action state is inconsistent: %s\n",
@@ -5742,8 +5781,8 @@ int main(int argc, char **argv)
             (uint8_t)attack_alien;
         write_be32(point_bytes + 0u, UINT32_C(0x00640000));
         write_be32(point_bytes + 4u, UINT32_C(0x00c80000));
-        attack_player.x = 100;
-        attack_player.z = 600;
+        attack_player.x = player_runtime_world_to_position(100);
+        attack_player.z = player_runtime_world_to_position(600);
         attack_player.tmp_x = attack_player.x;
         attack_player.tmp_y = attack_player.y;
         attack_player.tmp_z = attack_player.z;
@@ -5836,8 +5875,10 @@ int main(int argc, char **argv)
                           34u) != (uint16_t)attack_alien_setup.followup_timer ||
             read_be16(slot_bytes + HITSCAN_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
                           40u) != 0u ||
-            attack_runtime.entity_workspace[0u][0u] != (int16_t)attack_player.x ||
-            attack_runtime.entity_workspace[0u][1u] != (int16_t)attack_player.z) {
+            attack_runtime.entity_workspace[0u][0u] !=
+                player_runtime_position_to_world(attack_player.x) ||
+            attack_runtime.entity_workspace[0u][1u] !=
+                player_runtime_position_to_world(attack_player.z)) {
             fprintf(stderr, "ai_AttackWithHitScan direct-hit state is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
@@ -5959,8 +6000,8 @@ int main(int argc, char **argv)
         write_be16(slot_bytes + 0u, 17u);
         slot_bytes[21u] = 2u;
         write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
-        memory_player.x = 0x1234;
-        memory_player.z = -2;
+        memory_player.x = player_runtime_world_to_position(0x1234);
+        memory_player.z = player_runtime_world_to_position(-2);
         memory_player.stood_in_top = 0u;
         alien_runtime_init(&memory_alien_runtime);
         alien_runtime_begin_level(&memory_alien_runtime);
@@ -6010,8 +6051,8 @@ int main(int argc, char **argv)
         perception_objects.slot_bytes = slot_bytes;
         perception_objects.slot_count = 1u;
         perception_objects.active_slot_count = 1u;
-        perception_player.x = 100;
-        perception_player.z = 200;
+        perception_player.x = player_runtime_world_to_position(100);
+        perception_player.z = player_runtime_world_to_position(200);
         perception_player.y = 3 * 128;
         perception_player.stood_in_top = 0u;
         slot_bytes[17u] = UINT8_MAX;
@@ -6641,8 +6682,8 @@ int main(int argc, char **argv)
         write_be16(slot_bytes + 0u, 0u);
         write_be32(point_bytes + 0u, 0u);
         write_be32(point_bytes + 4u, 0u);
-        damage_player.x = 100;
-        damage_player.z = 0;
+        damage_player.x = player_runtime_world_to_position(100);
+        damage_player.z = player_runtime_world_to_position(0);
         expected_heading.old_x = 0;
         expected_heading.old_z = 0;
         expected_heading.new_x = 100;
@@ -8043,10 +8084,10 @@ int main(int argc, char **argv)
         pause_objects.active_slot_count = 2u;
         pause_objects.point_bytes = point_bytes;
         pause_objects.point_count = 1u;
-        pause_player.x = 100;
-        pause_player.z = 200;
-        pause_player.tmp_x = 100;
-        pause_player.tmp_z = 200;
+        pause_player.x = player_runtime_world_to_position(100);
+        pause_player.z = player_runtime_world_to_position(200);
+        pause_player.tmp_x = player_runtime_world_to_position(100);
+        pause_player.tmp_z = player_runtime_world_to_position(200);
         pause_player.y = 3 * 128;
         pause_player.stood_in_top = 0u;
 
@@ -8062,8 +8103,10 @@ int main(int argc, char **argv)
         slot_bytes[64u + 54u] = (uint8_t)pause_alien;
         slot_bytes[64u + 55u] = 7u;
         slot_bytes[64u + 63u] = pause_player.stood_in_top;
-        write_be16(point_bytes + 0u, (uint16_t)pause_player.x);
-        write_be16(point_bytes + 4u, (uint16_t)pause_player.z);
+        write_be16(point_bytes + 0u,
+                   (uint16_t)player_runtime_position_to_world(pause_player.x));
+        write_be16(point_bytes + 4u,
+                   (uint16_t)player_runtime_position_to_world(pause_player.z));
         if (!alien_setup_from_slot(&pause_objects, 1u, &game.dynamic_level.runtime,
                                    &game.game_link_catalog, &pause_setup,
                                    error, sizeof(error))) {
@@ -8114,8 +8157,10 @@ int main(int argc, char **argv)
         slot_bytes[64u + 54u] = (uint8_t)pause_alien;
         slot_bytes[64u + 55u] = 7u;
         slot_bytes[64u + 63u] = pause_player.stood_in_top;
-        write_be16(point_bytes + 0u, (uint16_t)pause_player.x);
-        write_be16(point_bytes + 4u, (uint16_t)pause_player.z);
+        write_be16(point_bytes + 0u,
+                   (uint16_t)player_runtime_position_to_world(pause_player.x));
+        write_be16(point_bytes + 4u,
+                   (uint16_t)player_runtime_position_to_world(pause_player.z));
         pause_animation.workspace[1u][1u] = (uint8_t)pause_frame_index;
         pause_animation.workspace[1u][2u] = (uint8_t)pause_option;
         if (!alien_pause_briefly_update(
@@ -8156,8 +8201,8 @@ int main(int argc, char **argv)
             slot_bytes[64u + 63u] = pause_player.stood_in_top;
             write_be16(point_bytes + 0u, 100u);
             write_be16(point_bytes + 4u, 200u);
-            pause_player.x = 300;
-            pause_player.z = 400;
+            pause_player.x = player_runtime_world_to_position(300);
+            pause_player.z = player_runtime_world_to_position(400);
             expected_heading.old_x = 100;
             expected_heading.old_z = 200;
             expected_heading.new_x = 300;
@@ -8675,8 +8720,8 @@ int main(int argc, char **argv)
         charge_player.zone_index = charge_zone_index;
         charge_player.tmp_x = charge_player.x;
         charge_player.tmp_z = charge_player.z;
-        charge_player_x = (int16_t)(uint16_t)charge_player.x;
-        charge_player_z = (int16_t)(uint16_t)charge_player.z;
+        charge_player_x = player_runtime_position_to_world(charge_player.x);
+        charge_player_z = player_runtime_position_to_world(charge_player.z);
         charge_alien_x = source_add16(charge_player_x, -100);
         charge_objects.slot_bytes = slot_bytes;
         charge_objects.slot_count = CHARGE_SLOT_COUNT;
@@ -8952,8 +8997,8 @@ int main(int argc, char **argv)
         game_progression_init(&charge_progression);
         game_random_init(&charge_random);
         charge_player.zone_index = (uint16_t)charge_teleport_zone.teleport_zone;
-        charge_player.x = charge_teleport_zone.teleport_x;
-        charge_player.z = charge_teleport_zone.teleport_z;
+        charge_player.x = player_runtime_world_to_position(charge_teleport_zone.teleport_x);
+        charge_player.z = player_runtime_world_to_position(charge_teleport_zone.teleport_z);
         charge_player.tmp_x = charge_player.x;
         charge_player.tmp_z = charge_player.z;
         write_be16(slot_bytes + CHARGE_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
@@ -9278,9 +9323,9 @@ int main(int argc, char **argv)
             write_be16(miss_slot_bytes + 26u, UINT16_C(0x1234));
             write_be32(miss_point_bytes + 0u, UINT32_C(0x12345678));
             write_be32(miss_point_bytes + 4u, UINT32_C(0x9abcdef0));
-            miss_player.x = 0;
+            miss_player.x = player_runtime_world_to_position(0);
             miss_player.y = 1000;
-            miss_player.z = 10;
+            miss_player.z = player_runtime_world_to_position(10);
             miss_player.yaw = 0u;
             miss_player.zone_index = 0u;
             object_motion_runtime_init(&miss_motion);
@@ -9376,9 +9421,9 @@ int main(int argc, char **argv)
                        UINT32_C(0x5555beef));
             write_be32(miss_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
                        UINT32_C(0x6666face));
-            miss_player.tmp_x = 0;
+            miss_player.tmp_x = player_runtime_world_to_position(0);
             miss_player.tmp_y = 0;
-            miss_player.tmp_z = 11;
+            miss_player.tmp_z = player_runtime_world_to_position(11);
             miss_random.state = nonnegative_random_state;
             expected_random = miss_random;
             (void)game_random_next(&expected_random);

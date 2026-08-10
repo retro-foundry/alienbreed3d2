@@ -100,8 +100,8 @@ static int object_activatables_player_hits_slot(const PlayerRuntime *player,
     }
     point_x = object_activatables_read_be16s(point_bytes + 0u);
     point_z = object_activatables_read_be16s(point_bytes + 4u);
-    player_x = (int16_t)(uint16_t)player->tmp_x;
-    player_z = (int16_t)(uint16_t)player->tmp_z;
+    player_x = player_runtime_position_to_world(player->tmp_x);
+    player_z = player_runtime_position_to_world(player->tmp_z);
     horizontal_x = (int16_t)((int32_t)point_x - player_x);
     horizontal_z = (int16_t)((int32_t)point_z - player_z);
     distance_squared = (int32_t)horizontal_x * horizontal_x +

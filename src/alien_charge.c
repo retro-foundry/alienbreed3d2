@@ -302,8 +302,8 @@ static int alien_charge_update_common(
         int16_t player_cosine;
         ObjectCollisionTrace collision;
 
-        workspace->new_x = (int16_t)(uint16_t)player->x;
-        workspace->new_z = (int16_t)(uint16_t)player->z;
+        workspace->new_x = player_runtime_position_to_world(player->x);
+        workspace->new_z = player_runtime_position_to_world(player->z);
         if (to_side != 0u) {
             AlienRunAroundState run_around;
 
@@ -317,8 +317,8 @@ static int alien_charge_update_common(
             run_around.new_z = workspace->new_z;
             run_around.player_sine = player_sine;
             run_around.player_cosine = player_cosine;
-            run_around.player_temporary_x = (int16_t)(uint16_t)player->tmp_x;
-            run_around.player_temporary_z = (int16_t)(uint16_t)player->tmp_z;
+            run_around.player_temporary_x = player_runtime_position_to_world(player->tmp_x);
+            run_around.player_temporary_z = player_runtime_position_to_world(player->tmp_z);
             run_around.object_x = alien_charge_read_be16s(point);
             run_around.object_z = alien_charge_read_be16s(point + 4u);
             if (!alien_run_around_apply(&run_around, error, error_size)) {

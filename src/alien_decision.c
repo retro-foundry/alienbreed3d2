@@ -75,8 +75,8 @@ int alien_decision_check_in_front(const ObjectRuntime *objects, uint32_t slot_in
     /* modules/ai.s stores these two high source Vec2L words in newx/newz. */
     point_x = alien_decision_word_from_u16(alien_decision_read_be16(point));
     point_z = alien_decision_word_from_u16(alien_decision_read_be16(point + 4u));
-    player_x = alien_decision_word_from_u16((uint16_t)player->tmp_x);
-    player_z = alien_decision_word_from_u16((uint16_t)player->tmp_z);
+    player_x = player_runtime_position_to_world(player->tmp_x);
+    player_z = player_runtime_position_to_world(player->tmp_z);
     x_difference = alien_decision_subtract_words(player_x, point_x);
     z_difference = alien_decision_subtract_words(player_z, point_z);
     if (!game_math_sine(math,

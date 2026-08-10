@@ -57,8 +57,8 @@ int alien_memory_store_player_position(AlienRuntime *alien_runtime,
                                "ai_StorePlayerPosition object point exceeds AI workspace");
         return 0;
     }
-    player_x = (int16_t)(uint16_t)player->x;
-    player_z = (int16_t)(uint16_t)player->z;
+    player_x = player_runtime_position_to_world(player->x);
+    player_z = player_runtime_position_to_world(player->z);
     player_zone_id = (int16_t)player_zone.id;
     player_control_point = (int16_t)alien_memory_player_control_point(&player_zone, player);
 

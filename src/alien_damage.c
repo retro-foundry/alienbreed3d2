@@ -132,8 +132,8 @@ int alien_damage_take(ObjectRuntime *objects, uint32_t slot_index,
         slot[ALIEN_DAMAGE_SLOT_WHICH_ANIMATION] = 1u;
         heading.old_x = alien_damage_word_from_u16(alien_damage_read_be16(point));
         heading.old_z = alien_damage_word_from_u16(alien_damage_read_be16(point + 4u));
-        heading.new_x = (int16_t)(uint16_t)player->x;
-        heading.new_z = (int16_t)(uint16_t)player->z;
+        heading.new_x = player_runtime_position_to_world(player->x);
+        heading.new_z = player_runtime_position_to_world(player->z);
         heading.range = -20;
         heading.speed = 100;
         /* objectmove.s:AngRet persists when HeadTowardsAng sees a zero vector. */
@@ -228,8 +228,8 @@ int alien_damage_update_reaction(
 
     heading.old_x = alien_damage_word_from_u16(alien_damage_read_be16(point));
     heading.old_z = alien_damage_word_from_u16(alien_damage_read_be16(point + 4u));
-    heading.new_x = (int16_t)(uint16_t)player->x;
-    heading.new_z = (int16_t)(uint16_t)player->z;
+    heading.new_x = player_runtime_position_to_world(player->x);
+    heading.new_z = player_runtime_position_to_world(player->z);
     heading.range = -20;
     heading.speed = 20;
     heading.angle = 0u;

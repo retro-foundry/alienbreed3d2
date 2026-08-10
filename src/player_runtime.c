@@ -46,7 +46,14 @@ static int16_t player_runtime_low_word(int32_t value)
     return (int16_t)(uint16_t)value;
 }
 
-/* move.w source,destination where destination is the low word of a long. */
+/* On the big-endian 68000, move.w writes the first (high) word of a long. */
+static int32_t player_runtime_replace_position_word(int32_t value, int16_t position_word)
+{
+    return (int32_t)(((uint32_t)value & UINT32_C(0x0000ffff)) |
+                     ((uint32_t)(uint16_t)position_word << 16u));
+}
+
+/* AimSpeed retains the port's existing low-word control representation. */
 static int32_t player_runtime_replace_low_word(int32_t value, int16_t low_word)
 {
     return (int32_t)(((uint32_t)value & UINT32_C(0xffff0000)) | (uint16_t)low_word);
@@ -412,10 +419,10 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
     /* modules/player.s:Plr_Initialise player-one branch. */
     memset(&player, 0, sizeof(player));
     player.zone_index = level->player1_start_zone;
-    player.x = level->player1_start_x;
-    player.z = level->player1_start_z;
-    player.snap_x = level->player1_start_x;
-    player.snap_z = level->player1_start_z;
+    player.x = player_runtime_world_to_position(level->player1_start_x);
+    player.z = player_runtime_world_to_position(level->player1_start_z);
+    player.snap_x = player_runtime_world_to_position(level->player1_start_x);
+    player.snap_z = player_runtime_world_to_position(level->player1_start_z);
     player.height = PLAYER_STANDING_HEIGHT;
     player.snap_height = PLAYER_STANDING_HEIGHT;
     player.snap_target_height = PLAYER_STANDING_HEIGHT;
@@ -1020,10 +1027,10 @@ int player_runtime_update_spatial_with_motion(
     player->used = 0u;
     player->tmp_gun_selected = player->gun_selected;
 
-    old_x = player_runtime_low_word(player->x);
-    old_z = player_runtime_low_word(player->z);
-    new_x = player_runtime_low_word(player->snap_x);
-    new_z = player_runtime_low_word(player->snap_z);
+    old_x = player_runtime_position_to_world(player->x);
+    old_z = player_runtime_position_to_world(player->z);
+    new_x = player_runtime_position_to_world(player->snap_x);
+    new_z = player_runtime_position_to_world(player->snap_z);
     player->height = player->snap_height;
     player->yaw = player->snap_yaw;
     if (!game_math_sine(math, player->bobble, &sine, error, error_size)) {
@@ -1060,8 +1067,8 @@ int player_runtime_update_spatial_with_motion(
         !level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
         return 0;
     }
-    player->x = player_runtime_replace_low_word(player->snap_x, new_x);
-    player->z = player_runtime_replace_low_word(player->snap_z, new_z);
+    player->x = player_runtime_replace_position_word(player->snap_x, new_x);
+    player->z = player_runtime_replace_position_word(player->snap_z, new_z);
     player->snap_x = player->x;
     player->snap_z = player->z;
     player->y = visual_y;

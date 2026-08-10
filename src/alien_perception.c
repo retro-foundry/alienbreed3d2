@@ -65,8 +65,8 @@ int alien_perception_look_for_player_one(AlienRuntime *alien_runtime,
                                          query.viewer_x, query.viewer_z, query.viewer_y,
                                          query.viewer_in_upper_zone);
     query.target_zone_index = player->zone_index;
-    query.target_x = (int16_t)(uint16_t)player->x;
-    query.target_z = (int16_t)(uint16_t)player->z;
+    query.target_x = player_runtime_position_to_world(player->x);
+    query.target_z = player_runtime_position_to_world(player->z);
     query.target_y = (int16_t)alien_perception_asr32_7(player->y);
     query.target_in_upper_zone = player->stood_in_top;
     if (!object_visibility_can_see(level, clips, &query, &can_see, error, error_size)) {

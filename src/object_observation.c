@@ -124,9 +124,9 @@ int object_observation_update_single_player(ObjectObservation *observation,
         }
         point = objects->point_bytes + (size_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
         offset_x = (int16_t)((int32_t)(int16_t)object_observation_read_be16(point + 0u) -
-                             (int16_t)(uint16_t)player->x);
+                             player_runtime_position_to_world(player->x));
         offset_z = (int16_t)((int32_t)(int16_t)object_observation_read_be16(point + 4u) -
-                             (int16_t)(uint16_t)player->z);
+                             player_runtime_position_to_world(player->z));
         if ((int16_t)object_observation_read_be16(slot + OBJECT_OBSERVATION_SLOT_ZONE_ID) < 0) {
             observation->rotated_x[output_index] = 0;
             observation->rotated_z[output_index] = 0;

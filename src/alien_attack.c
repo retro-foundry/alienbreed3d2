@@ -285,8 +285,8 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
 
     approach.old_x = alien_attack_read_be16s(alien_point);
     approach.old_z = alien_attack_read_be16s(alien_point + 4u);
-    approach.new_x = (int16_t)(uint16_t)player->x;
-    approach.new_z = (int16_t)(uint16_t)player->z;
+    approach.new_x = player_runtime_position_to_world(player->x);
+    approach.new_z = player_runtime_position_to_world(player->z);
     if (!object_heading_calculate_distance(&approach, error, error_size) ||
         !alien_attack_divs16(
             alien_attack_muls16(approach.x_difference, approach.distance),
@@ -409,8 +409,8 @@ int alien_attack_shoot_player_one(ObjectRuntime *objects, uint32_t alien_slot_in
 
     trace.old_x = alien_attack_read_be16s(alien_point);
     trace.old_z = alien_attack_read_be16s(alien_point + 4u);
-    player_x = (int16_t)(uint16_t)player->tmp_x;
-    player_z = (int16_t)(uint16_t)player->tmp_z;
+    player_x = player_runtime_position_to_world(player->tmp_x);
+    player_z = player_runtime_position_to_world(player->tmp_z);
     x_difference = alien_attack_sub16(player_x, trace.old_x);
     z_difference = alien_attack_sub16(player_z, trace.old_z);
     spread = alien_attack_asr16_count((int16_t)game_random_next(random), 4u);
@@ -524,9 +524,9 @@ static int alien_attack_apply_hitscan_player_impact(
         (uint8_t)(player_slot[ALIEN_ATTACK_SLOT_DAMAGE_TAKEN] + setup->shot_power);
 
     x_difference = alien_attack_sub16(
-        alien_attack_read_be16s(alien_point), (int16_t)(uint16_t)player->tmp_x);
+        alien_attack_read_be16s(alien_point), player_runtime_position_to_world(player->tmp_x));
     z_difference = alien_attack_sub16(
-        alien_attack_read_be16s(alien_point + 4u), (int16_t)(uint16_t)player->tmp_z);
+        alien_attack_read_be16s(alien_point + 4u), player_runtime_position_to_world(player->tmp_z));
     squared_distance = alien_attack_add32(
         alien_attack_muls16(x_difference, x_difference),
         alien_attack_muls16(z_difference, z_difference));
@@ -638,8 +638,8 @@ int alien_attack_with_hitscan_update(
     }
     state.heading.old_x = alien_attack_read_be16s(point);
     state.heading.old_z = alien_attack_read_be16s(point + 4u);
-    state.heading.new_x = (int16_t)(uint16_t)player->x;
-    state.heading.new_z = (int16_t)(uint16_t)player->z;
+    state.heading.new_x = player_runtime_position_to_world(player->x);
+    state.heading.new_z = player_runtime_position_to_world(player->z);
     state.heading.range = -20;
     state.heading.speed = 20;
     state.heading.angle = alien_runtime->heading_angle;
@@ -813,8 +813,8 @@ int alien_attack_with_projectile_update(
     }
     state.heading.old_x = alien_attack_read_be16s(point);
     state.heading.old_z = alien_attack_read_be16s(point + 4u);
-    state.heading.new_x = (int16_t)(uint16_t)player->x;
-    state.heading.new_z = (int16_t)(uint16_t)player->z;
+    state.heading.new_x = player_runtime_position_to_world(player->x);
+    state.heading.new_z = player_runtime_position_to_world(player->z);
     state.heading.range = -20;
     state.heading.speed = 20;
     state.heading.angle = alien_runtime->heading_angle;

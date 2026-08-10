@@ -244,9 +244,9 @@ int player_shoot_hitscan_roll_is_hit(const ObjectRuntime *objects,
      * of Vec2L and Plr1_XOff_l/Plr1_ZOff_l before its signed MULS/ASR path.
      */
     delta_x = player_shoot_add16(player_shoot_read_be16s(target_point + 0u),
-                                 (int16_t)-(int16_t)player->x);
+                                 (int16_t)-player_runtime_position_to_world(player->x));
     delta_z = player_shoot_add16(player_shoot_read_be16s(target_point + 4u),
-                                 (int16_t)-(int16_t)player->z);
+                                 (int16_t)-player_runtime_position_to_world(player->z));
     distance = player_shoot_asr32(
         player_shoot_add32(player_shoot_muls16(delta_x, delta_x),
                            player_shoot_muls16(delta_z, delta_z)),
@@ -502,8 +502,8 @@ int player_shoot_apply_hitscan_miss_with_motion(
         return 0;
     }
     trace.zone_index = player->zone_index;
-    trace.old_x = (int16_t)player->x;
-    trace.old_z = (int16_t)player->z;
+    trace.old_x = player_runtime_position_to_world(player->x);
+    trace.old_z = player_runtime_position_to_world(player->z);
     trace.new_x = player_shoot_add16(trace.old_x, player_shoot_asr16_count(sine, 7u));
     trace.new_z = player_shoot_add16(trace.old_z, player_shoot_asr16_count(cosine, 7u));
     trace.old_y = player_shoot_add32(player->y, 10 * 128);
@@ -694,8 +694,10 @@ int player_shoot_spawn_projectile_volley(ObjectRuntime *objects, const GameMath 
         shot_slot[PLAYER_SHOOT_SHOT_SIZE] = (uint8_t)bullet_type;
         shot_slot[PLAYER_SHOOT_SHOT_POWER] = (uint8_t)bullet->hit_damage;
         /* firefive's move.w writes the high source word and retains each Vec2L tail. */
-        player_shoot_write_be16(shot_point + 0u, (uint16_t)player->x);
-        player_shoot_write_be16(shot_point + 4u, (uint16_t)player->z);
+        player_shoot_write_be16(shot_point + 0u,
+                                 (uint16_t)player_runtime_position_to_world(player->x));
+        player_shoot_write_be16(shot_point + 4u,
+                                 (uint16_t)player_runtime_position_to_world(player->z));
         player_shoot_write_be32(shot_slot + PLAYER_SHOOT_VELOCITY_X, (uint32_t)velocity_x);
         player_shoot_write_be32(shot_slot + PLAYER_SHOOT_VELOCITY_Z, (uint32_t)velocity_z);
         shot_slot[PLAYER_SHOOT_TYPE_ID] = PLAYER_SHOOT_TYPE_PROJECTILE;
