@@ -229,6 +229,7 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
         const uint8_t *point;
         const SceneSprite *sprite;
+        LevelZone source_zone;
         int16_t point_index = (int16_t)read_be16(slot + 0u);
         int16_t zone_id = (int16_t)read_be16(slot + 12u);
         int16_t graphics_type = (int16_t)read_be16(slot + 8u);
@@ -251,14 +252,20 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         point = game->object_runtime.point_bytes +
             (size_t)(uint16_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
         sprite = &frame->commands[first_command + command_count].data.sprite;
-        if (sprite->source_record_id != slot_index ||
+        if (!level_runtime_get_zone(&game->dynamic_level.runtime, sprite->source_zone_index,
+                                    &source_zone, error, error_size) ||
+            sprite->source_record_id != slot_index ||
             sprite->position.x != (int16_t)read_be16(point + 0u) ||
             sprite->position.y != (int32_t)(int16_t)read_be16(slot + 4u) * 128 ||
             sprite->position.z != (int16_t)read_be16(point + 4u) ||
             sprite->source_brightness != read_be16(slot + 2u) ||
             sprite->yaw != read_be16(slot + 30u) ||
             sprite->source_aux_offset_x != (int16_t)read_be16(slot + 44u) ||
-            sprite->source_aux_offset_y != (int16_t)read_be16(slot + 46u)) {
+            sprite->source_aux_offset_y != (int16_t)read_be16(slot + 46u) ||
+            sprite->source_clip_top_y != ((expected_flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ?
+                                           source_zone.upper_roof : source_zone.roof) ||
+            sprite->source_clip_bottom_y != ((expected_flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ?
+                                              source_zone.upper_floor : source_zone.floor)) {
             return 0;
         }
         if (!scene_sprite_expected_point_light(

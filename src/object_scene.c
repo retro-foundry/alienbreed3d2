@@ -535,6 +535,7 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     const uint8_t *slot = objects->slot_bytes +
         (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
     const uint8_t *point;
+    LevelZone source_zone;
     uint16_t point_index = object_scene_read_be16(slot + OBJECT_SCENE_POINT_INDEX);
     int16_t source_zone_id = object_scene_read_be16s(slot + OBJECT_SCENE_ZONE_ID);
     int16_t graphics_type = object_scene_read_be16s(slot + OBJECT_SCENE_GRAPHICS_TYPE);
@@ -566,6 +567,17 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
         sprite.source_zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
         object_scene_set_error(error, error_size, "ObjT sprite lighting zone is outside source tables");
         return 0;
+    }
+    if (!level_runtime_get_zone(level, sprite.source_zone_index, &source_zone, error, error_size)) {
+        object_scene_set_error(error, error_size, "ObjT sprite clip zone is outside source level data");
+        return 0;
+    }
+    if ((sprite.flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u) {
+        sprite.source_clip_top_y = source_zone.upper_roof;
+        sprite.source_clip_bottom_y = source_zone.upper_floor;
+    } else {
+        sprite.source_clip_top_y = source_zone.roof;
+        sprite.source_clip_bottom_y = source_zone.floor;
     }
     if (!object_scene_average_point_light(
             level, lighting, sprite.source_zone_index,

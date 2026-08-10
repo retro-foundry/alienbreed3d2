@@ -194,6 +194,13 @@ typedef struct {
      */
     int8_t source_point_and_polygon_brightness[16u * 16u];
     uint16_t source_zone_index;
+    /*
+     * objdrawhires.s:Draw_Objects clips bitmap frames to the active room's
+     * vertical span before drawing their packed strips. These retain that
+     * span in source 8.8 down-positive Y units without moving the origin.
+     */
+    int32_t source_clip_top_y;
+    int32_t source_clip_bottom_y;
     int16_t source_aux_offset_x;
     int16_t source_aux_offset_y;
     uint8_t source_width;

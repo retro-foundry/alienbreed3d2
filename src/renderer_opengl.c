@@ -2193,6 +2193,12 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     float right_z;
     float half_width;
     float half_height;
+    float top_y;
+    float bottom_y;
+    float top_v;
+    float bottom_v;
+    float clip_top_y;
+    float clip_bottom_y;
     float left_u;
     float right_u;
     float source_light;
@@ -2239,22 +2245,43 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     center_y -= (float)sprite->source_aux_offset_y * 0.5f;
     half_width = (float)sprite->source_width * 0.5f;
     half_height = (float)sprite->source_height * 0.5f;
+    /*
+     * Passive source objects commonly keep their vertical origin directly on
+     * ZoneT_Floor_l. draw_Bitmap keeps that origin and clips the packed image
+     * against draw_TopY_3D_l/draw_BottomY_3D_l. Crop both the quad and its V
+     * coordinates to the selected lower/upper sector span.
+     */
+    top_y = center_y + half_height;
+    bottom_y = center_y - half_height;
+    clip_top_y = -(float)sprite->source_clip_top_y * renderer_opengl_source_y_unit;
+    clip_bottom_y = -(float)sprite->source_clip_bottom_y * renderer_opengl_source_y_unit;
+    if (top_y > clip_top_y) {
+        top_y = clip_top_y;
+    }
+    if (bottom_y < clip_bottom_y) {
+        bottom_y = clip_bottom_y;
+    }
+    if (top_y <= bottom_y) {
+        return 1;
+    }
+    top_v = (center_y + half_height - top_y) / (half_height * 2.0f);
+    bottom_v = (center_y + half_height - bottom_y) / (half_height * 2.0f);
     left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ? 1.0f : 0.0f;
     right_u = 1.0f - left_u;
     source_light = renderer_opengl_sprite_light(sprite->source_light_level);
-    vertices[0] = (RendererOpenGLVertex){center_x - right_x * half_width, center_y + half_height,
-                                          center_z - right_z * half_width, left_u, 0.0f, source_light,
+    vertices[0] = (RendererOpenGLVertex){center_x - right_x * half_width, top_y,
+                                          center_z - right_z * half_width, left_u, top_v, source_light,
                                           1.0f, 1.0f, 1.0f};
-    vertices[1] = (RendererOpenGLVertex){center_x + right_x * half_width, center_y + half_height,
-                                          center_z + right_z * half_width, right_u, 0.0f, source_light,
+    vertices[1] = (RendererOpenGLVertex){center_x + right_x * half_width, top_y,
+                                          center_z + right_z * half_width, right_u, top_v, source_light,
                                           1.0f, 1.0f, 1.0f};
-    vertices[2] = (RendererOpenGLVertex){center_x + right_x * half_width, center_y - half_height,
-                                          center_z + right_z * half_width, right_u, 1.0f, source_light,
+    vertices[2] = (RendererOpenGLVertex){center_x + right_x * half_width, bottom_y,
+                                          center_z + right_z * half_width, right_u, bottom_v, source_light,
                                           1.0f, 1.0f, 1.0f};
     vertices[3] = vertices[0];
     vertices[4] = vertices[2];
-    vertices[5] = (RendererOpenGLVertex){center_x - right_x * half_width, center_y - half_height,
-                                          center_z - right_z * half_width, left_u, 1.0f, source_light,
+    vertices[5] = (RendererOpenGLVertex){center_x - right_x * half_width, bottom_y,
+                                          center_z - right_z * half_width, left_u, bottom_v, source_light,
                                           1.0f, 1.0f, 1.0f};
     renderer->gl.active_texture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
