@@ -61,8 +61,9 @@ authority for all game behavior and data formats.
 - [x] `src/asset_io.*` now directly ports `modules/file_io.s:io_LoadSample`'s
   `CSFX` Fibonacci-delta sample decode, including its post-decode signed
   clipping to `[-64, 63]`. `Res_LoadSoundFx` therefore owns the decoded source
-  PCM payloads it would supply to the original mixer; native playback and
-  source `MakeSomeNoise` event routing remain separate work.
+  PCM payloads it would supply to the original mixer. Native playback and
+  source `MakeSomeNoise` event routing are deliberately deferred from the
+  current gameplay-first scope.
 - [x] The no-op presenter remains deliberately unchanged. The future backend
   receives whole-level camera/material/geometry/sprite/HUD intent and does
   not need PVS, portals, or software rendering.
@@ -983,10 +984,11 @@ scope by design.
    - Replace the status-only presenter only after it consumes camera,
      geometry, material, sprite, and HUD commands with source-derived tests.
 
-2. **Finish deliberately absent source event outputs**
-   - Map the decoded original sound effects and music event calls to a native
-     audio backend while retaining source event/timing decisions; do not
-     emulate Paula or synthesize substitute sounds.
+2. **Keep deferred source event outputs out of the current path**
+   - Do not spend implementation time on original sound-effect/music event
+     routing, `MakeSomeNoise`, or native audio playback unless requested in a
+     later scope change. The decoded source samples remain available for that
+     future, source-backed work; do not synthesize substitute effects.
    - Trace the remaining source-owned blast/brightness/event branches before
      enabling each one. Keep any branch absent until its original caller and
      state ownership are established.
@@ -998,5 +1000,6 @@ scope by design.
      message handoffs.
    - Maintain the full A--P asset/bootstrap regression and add renderer output
      validation separately from simulation-state validation.
-   - Keep menus deferred until direct game presentation, input, simulation,
-     and audio work end to end; do not reintroduce multiplayer.
+   - Keep menus deferred until direct game presentation, input, and simulation
+     work end to end. Audio is intentionally deferred; do not reintroduce
+     multiplayer.
