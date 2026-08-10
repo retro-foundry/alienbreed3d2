@@ -4485,6 +4485,58 @@ int main(int argc, char **argv)
         }
     }
     {
+        /*
+         * newanims.s:ObjectHandler enters newaliencontrol.s:ItsAnAlien only
+         * for a worried slot, then modules/ai.s:AI_MainRoutine's mode-three
+         * ai_DoRetreat returns immediately. This verifies the live dispatch
+         * preamble and preceding AUX-zone postamble without inventing a route
+         * setup for another behaviour.
+         */
+        uint8_t slot_bytes[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime live_objects = {0};
+        MechanismRuntime live_mechanism_runtime;
+        AlienRuntime live_alien_runtime;
+
+        live_objects.slot_bytes = slot_bytes;
+        live_objects.slot_count = 3u;
+        live_objects.active_slot_count = 3u;
+        live_objects.point_bytes = point_bytes;
+        live_objects.point_count = 2u;
+        /* The source scans this AUX slot before its alien and later copies into it. */
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 12u, UINT16_C(0x7fff));
+        write_be16(slot_bytes + 26u, UINT16_C(0x7fff));
+        slot_bytes[16u] = 3u;
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 1u);
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, game.player.zone_index);
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u, UINT16_C(0x7fff));
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = UINT8_MAX;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 20u] = 3u;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] = 0u;
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 62u] = UINT8_MAX;
+        write_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        mechanism_runtime_init(&live_mechanism_runtime);
+        alien_runtime_init(&live_alien_runtime);
+        alien_runtime_begin_single_player(&live_alien_runtime);
+        if (!object_handler_update_single_player(
+                &live_objects, &game.dynamic_level, &live_mechanism_runtime,
+                &live_alien_runtime, &game.game_link_catalog, &object_handler_context,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
+                NULL, error, sizeof(error)) ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 2u) != UINT16_C(0xffec) ||
+            read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) !=
+                game.player.zone_index ||
+            read_be16(slot_bytes + 12u) != game.player.zone_index ||
+            read_be16(slot_bytes + 26u) != game.player.zone_index) {
+            fprintf(stderr, "ObjectHandler live ItsAnAlien dispatch/AUX ordering is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         uint8_t slot_bytes[4u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime lock_objects = {0};
         MechanismRuntime lock_runtime;

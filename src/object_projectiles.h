@@ -36,8 +36,9 @@ int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_
  * newanims.s:ItsABullet's live (`notpopping`) path. It advances the source
  * lifetime, descriptor/frame, floor/roof response, zero-extension MoveObject
  * trace, wall response, direct target collision, and its immediate
- * anim_BrightenPoints call in source order. Audio and ComputeBlast remain
- * owned by their unported source paths.
+ * anim_BrightenPoints call in source order. Native audio remains deferred.
+ * The source-state overload also invokes ComputeBlast at the original roof,
+ * floor, wall, timeout, and direct-target call sites.
  */
 int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint32_t slot_index,
                                                      LevelDynamicState *dynamic_level,

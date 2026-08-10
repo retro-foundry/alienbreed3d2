@@ -49,7 +49,10 @@ authority for all game behavior and data formats.
   observation, and copies the immediately preceding AUX zone pair in source
   order. `src/alien_dispatch.*` returns fatal-death narrative requests to the
   handler, which pushes them through the source message ring subject to
-  `Prefs_ShowMessages_b`.
+  `Prefs_ShowMessages_b`. Its direct regression exercises the live worried
+  `ObjectHandler`/`ItsAnAlien`/`AI_MainRoutine` handoff through the source
+  mode-three retreat no-op, including the `AI_MainRoutine` `-20` Y preamble
+  and preceding-AUX zone copy.
 - [x] `src/object_collectables.*` and `src/object_passives.*` now retain the
   direct, single-player `newaliencontrol.s:Plr1_CollectItem` and
   `Destructable` `Msg_PushLine` calls in their original state-transition
@@ -208,8 +211,9 @@ authority for all game behavior and data formats.
   the source direct-target segment test/damage write, and the immediate
   `anim_BrightenPoints` call after a moving `MoveObject` trace. `ObjectHandler`
   supplies the mutable level and source lighting state needed by those paths,
-  so non-hitscan player volleys now advance in the live game loop. Impact
-  audio and `ComputeBlast` remain unported rather than substituted.
+  so non-hitscan player volleys now advance in the live game loop. Their
+  source roof, floor, wall, timeout, and direct-target `ComputeBlast` calls
+  now apply source damage/impulse/flame state; impact audio remains deferred.
   `src/object_movement.*`
   now translates `objectmove.s:MoveObject`'s primary and non-zero-`Obj_ExtLen_w`
   extended-edge passes: source height-opening checks, edge flag writes,
@@ -631,6 +635,10 @@ authority for all game behavior and data formats.
 
 ## Historical implementation trace
 
+This is a chronological record. Where an earlier entry describes a subsystem
+as uncalled or unbound, the current completed-foundation and remaining-plan
+sections above supersede that interim status.
+
 The campaign bootstrap/whole-level scene milestone is complete. The native
 executable now enters the source default single-player session directly in
 Level A, loads source-defined resources, runs source-backed player movement,
@@ -1030,10 +1038,11 @@ scope by design.
      pre-motion coordinates with the exploding projectile's current values.
 
 3. **Direct-play validation**
-   - Extend focused source fixtures for the remaining worried live-alien
-     routes and their exact ObjT/AUX ordering as authored levels exercise
-     them; retain coverage of successful collectable, destructible, and death
-     message handoffs.
+   - Retain the focused worried-alien retreat fixture for the live
+     `ObjectHandler`/`ItsAnAlien`/`AI_MainRoutine` preamble and its exact
+     ObjT/AUX ordering. Extend equivalent source fixtures for the remaining
+     live-alien routes as authored levels exercise them; retain coverage of
+     successful collectable, destructible, and death message handoffs.
    - Maintain the full A--P asset/bootstrap regression and add renderer output
      validation separately from simulation-state validation.
    - Keep menus deferred until direct game presentation, input, and simulation

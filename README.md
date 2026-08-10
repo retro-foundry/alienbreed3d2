@@ -77,7 +77,8 @@ gameplay-first scope.
   source point-brightness call, and source-slot release. Live `firefive`
   projectiles now retain the source lifetime, fixed-point movement,
   floor/roof/wall response, direct target collision, and post-`MoveObject`
-  point-brightness call; blast and audio remain unported;
+  point-brightness call; their source `ComputeBlast` damage, impulse, and
+  flame-allocation paths are live, while audio remains deferred;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload). The native Load Position and Save
   Position menus use the original six-record, 420-byte `boot.dat` layout at a
@@ -104,26 +105,26 @@ gameplay-first scope.
   emits its source `Msg_PushLine` narrative request for the later GPU-neutral
   message consumer. `modules/ai.s:ai_PauseBriefly` now composes the exact
   damage/death, walk-animation, source-frame-timer, torch, sight, front, and
-  darkness branches; it remains uncalled until the complete alien dispatcher
-  and message consumer own it in source order. `modules/ai.s:ai_ProwlRandom`,
+  darkness branches; the live dispatcher invokes it when selected in source
+  order. `modules/ai.s:ai_ProwlRandom`,
   `ai_ProwlRandomFlying`, and their shared `ai_ProwlFly` body now compose
   player-noise/team-memory routing, the caller-owned collision words, authored
   control-point movement, room/flight state, and the final sight/reaction
-  branches. The complete mode remains uncalled until the source dispatcher and
-  narrative handoff can own it in order. `modules/ai.s:ai_AttackCommon` now
+  branches. The live dispatcher owns its source-order narrative handoff.
+  `modules/ai.s:ai_AttackCommon` now
   derives the exact source-width `SHOTTYPE`, `SHOTPOWER`, `SHOTSPEED`, and
   `SHOTSHIFT` state plus its hitscan/projectile branch from each `AlienT` and
-  `BulT`; its attack modes remain uncalled. `newaliencontrol.s:SHOOTPLAYER1`
+  `BulT`; its attack modes execute through that dispatcher.
+  `newaliencontrol.s:SHOOTPLAYER1`
   now preserves the hitscan-miss ray's source `GetRand` spread, repeated
   zero-extension `MoveObject` trace, and stationary player-shot impact-pool
   writes. `modules/ai.s:ai_AttackWithHitScan` now preserves its prior-frame
   `ObjRotated` chance test, Player 1 byte damage/`ai_CalcSqrt` impact impulse,
-  miss handoff, animation, sight, torch, and mode transitions, but remains
-  uncalled. `objectmove.s:CheckTeleport` now preserves its destination
+  miss handoff, animation, sight, torch, and mode transitions.
+  `objectmove.s:CheckTeleport` now preserves its destination
   floor-relative collision probe, temporary teleport X/Z, and source-zone
-  ownership handoff for the remaining alien movement modes; it remains
-  uncalled. `newaliencontrol.s:RunAround` now preserves its exact signed-word
-  side-target adjustment for the remaining charge/approach side modes.
+  ownership handoff for charge and approach modes. `newaliencontrol.s:RunAround`
+  now preserves its exact signed-word side-target adjustment for their side routes.
   `modules/ai.s:ai_DoWalkAnim` now also retains the raw post-call `a2`
   collision words, whose base changes when an auxiliary frame is active.
   `modules/ai.s:ai_Charge` and `ai_ChargeToSide` now compose their exact
@@ -133,19 +134,16 @@ gameplay-first scope.
   `ai_ChargeFlying` and `ai_ChargeToSideFlying` now preserve their distinct
   airborne route: its 1000-unit descent limit, byte-only melee damage,
   vertical-state restore around room stats, and `ai_FlyToPlayerHeight` final
-  attack branch. All charge modes remain uncalled until the complete source
-  alien dispatcher can own every route in `ObjectHandler` order; approach
-  modes are still pending. `ai_Approach`, `ai_ApproachToSide`,
+  attack branch. All charge modes run through the source dispatcher in
+  `ObjectHandler` order. `ai_Approach`, `ai_ApproachToSide`,
   `ai_ApproachFlying`, and `ai_ApproachToSideFlying` now preserve their
   action-gated follow-up speed, source collision/movement path, ground
   reachability-before-sight order, mode-two timer/darkness gate, and the
-  airborne fly-before-room-stat vertical restore. They likewise remain
-  uncalled pending the complete dispatcher. `modules/ai.s:AI_MainRoutine`
-  and its default/response/follow-up selectors now have an unbound composition
-  layer that calls each complete source mode with explicit animation, lighting,
-  map, observation, progression, random, and shared-workspace inputs. It
-  remains outside `ObjectHandler` until that live boundary can own the complete
-  source tick context and death-message handoff.
+  airborne fly-before-room-stat vertical restore. The live
+  `modules/ai.s:AI_MainRoutine` default/response/follow-up dispatcher calls
+  each source mode with explicit animation, lighting, map, observation,
+  progression, random, and shared-workspace inputs; `ObjectHandler` owns the
+  complete tick context and death-message handoff.
   `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
@@ -153,10 +151,10 @@ gameplay-first scope.
   predictive lead and lateral launch offset; its separate audio calls remain
   absent. `modules/ai.s:ai_AttackWithProjectile` now composes that projectile
   handoff with the source damage/death exit, attack animation, heading, memory,
-  torch, and finished/sight transitions, but remains uncalled. `ai_DoTakeDamage`
+  torch, and finished/sight transitions. `ai_DoTakeDamage`
   likewise completes the selected nonfatal reaction animation and heading
   branch with explicit source torch inputs. Enemy behavior and dynamic blast
-  remain in progress; audio is deliberately deferred;
+  are live; audio is deliberately deferred;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 
