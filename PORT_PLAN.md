@@ -50,7 +50,11 @@ authority for all game behavior and data formats.
   retain the exact shared `256pal`, source brightness tables, backdrop, and
   water-frame state. The backend converts the source wall palette prefix and
   packed 5-bit wall strips, `floortile` plus row-32 `newtexturemaps.pal`, and
-  object WAD/PTR frame columns to filtered/crisp RGBA GPU textures.
+  object WAD/PTR frame columns to filtered/crisp RGBA GPU textures. World
+  conversion resolves the source bright palette row before upload, so walls,
+  floors, ceilings, and water use ordinary linearly filtered mipmapped RGBA
+  textures; the source's live brightness gradient is then applied as modern
+  per-vertex lighting rather than by interpolating indexed palette texels.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.
