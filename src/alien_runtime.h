@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#include "object_visibility.h"
+
 enum {
     /* modules/ai.s and bss/ai_bss.s source allocation counts. */
     ALIEN_RUNTIME_ENTITY_COUNT = 300u,
@@ -33,6 +35,8 @@ typedef struct {
     int16_t boredom[ALIEN_RUNTIME_ENTITY_COUNT][ALIEN_RUNTIME_BOREDOM_WORD_COUNT];
     /* objectmove.s:AngRet, retained across source AI mode calls. */
     uint16_t heading_angle;
+    /* objectmove.s:Viewer* shared BSS, written by every live CanItBeSeen caller. */
+    ObjectVisibilityRuntime visibility;
 } AlienRuntime;
 
 /* Source process/BSS initialization before the first Game_Begin. */

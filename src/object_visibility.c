@@ -2,6 +2,28 @@
 
 #include <limits.h>
 #include <stdio.h>
+#include <string.h>
+
+void object_visibility_runtime_init(ObjectVisibilityRuntime *runtime)
+{
+    if (runtime) {
+        /* objectmove.s declares Viewerx/Viewerz/Viewery/ViewerTop in zeroed BSS. */
+        memset(runtime, 0, sizeof(*runtime));
+    }
+}
+
+void object_visibility_runtime_set_viewer(ObjectVisibilityRuntime *runtime,
+                                          int16_t viewer_x, int16_t viewer_z,
+                                          int16_t viewer_y,
+                                          uint8_t viewer_in_upper_zone)
+{
+    if (runtime) {
+        runtime->viewer_x = viewer_x;
+        runtime->viewer_z = viewer_z;
+        runtime->viewer_y = viewer_y;
+        runtime->viewer_in_upper_zone = viewer_in_upper_zone;
+    }
+}
 
 static void object_visibility_set_error(char *error, size_t error_size, const char *message)
 {

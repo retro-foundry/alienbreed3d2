@@ -129,7 +129,7 @@ int alien_pause_briefly_update(
                            alien_pause_word_from_u16(alien_pause_read_be16(point + 4u)),
                            error, error_size) ||
         !alien_perception_look_for_player_one(
-            objects, slot_index, level, clips, player,
+            alien_runtime, objects, slot_index, level, clips, player,
             alien_pause_read_be16(slot + ALIEN_PAUSE_SLOT_ZONE_ID),
             alien_pause_word_from_u16(alien_pause_read_be16(point)),
             alien_pause_word_from_u16(alien_pause_read_be16(point + 4u)),

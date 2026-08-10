@@ -7,6 +7,7 @@ void alien_runtime_init(AlienRuntime *runtime)
     if (runtime) {
         /* bss/ai_bss.s is zero-initialized once when the source starts. */
         memset(runtime, 0, sizeof(*runtime));
+        object_visibility_runtime_init(&runtime->visibility);
     }
 }
 

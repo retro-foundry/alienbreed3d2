@@ -7,6 +7,23 @@
 #include "asset_io.h"
 #include "level_runtime.h"
 
+/* objectmove.s:Viewerx/Viewerz/Viewery/ViewerTop shared BSS words. */
+typedef struct {
+    int16_t viewer_x;
+    int16_t viewer_z;
+    int16_t viewer_y;
+    uint8_t viewer_in_upper_zone;
+} ObjectVisibilityRuntime;
+
+/* Source process/BSS initialization. Game_Begin does not reset these words. */
+void object_visibility_runtime_init(ObjectVisibilityRuntime *runtime);
+
+/* Records the caller's source writes immediately before a CanItBeSeen call. */
+void object_visibility_runtime_set_viewer(ObjectVisibilityRuntime *runtime,
+                                          int16_t viewer_x, int16_t viewer_z,
+                                          int16_t viewer_y,
+                                          uint8_t viewer_in_upper_zone);
+
 /*
  * Source-word inputs consumed by objectmove.s:CanItBeSeen. This is gameplay
  * line-of-sight state: it does not participate in complete-level rendering.

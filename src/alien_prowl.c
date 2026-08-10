@@ -600,7 +600,8 @@ int alien_prowl_random_update(
                            state.movement.new_x, state.movement.new_z,
                            error, error_size) ||
         !alien_perception_look_for_player_one(
-            objects, slot_index, level, clips, player, state.movement.zone_index,
+            alien_runtime, objects, slot_index, level, clips, player,
+            state.movement.zone_index,
             state.movement.new_x, state.movement.new_z, error, error_size)) {
         return 0;
     }

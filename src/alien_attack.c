@@ -645,8 +645,8 @@ int alien_attack_with_hitscan_update(
 
     point_x = alien_attack_read_be16s(point);
     point_z = alien_attack_read_be16s(point + 4u);
-    if (!alien_perception_look_for_player_one(objects, slot_index, level, clips, player,
-                                              zone_index, point_x, point_z,
+    if (!alien_perception_look_for_player_one(alien_runtime, objects, slot_index,
+                                              level, clips, player, zone_index, point_x, point_z,
                                               error, error_size)) {
         return 0;
     }
@@ -837,8 +837,8 @@ int alien_attack_with_projectile_update(
         return 1;
     }
 
-    if (!alien_perception_look_for_player_one(objects, slot_index, level, clips, player,
-                                              zone_index, point_x, point_z,
+    if (!alien_perception_look_for_player_one(alien_runtime, objects, slot_index,
+                                              level, clips, player, zone_index, point_x, point_z,
                                               error, error_size)) {
         return 0;
     }

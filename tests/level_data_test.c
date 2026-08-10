@@ -5550,8 +5550,10 @@ int main(int argc, char **argv)
         /* modules/ai.s:AI_LookForPlayer1 clears then writes a literal one on sight. */
         uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
         ObjectRuntime perception_objects = {0};
+        AlienRuntime perception_alien_runtime;
         PlayerRuntime perception_player = game.player;
 
+        alien_runtime_init(&perception_alien_runtime);
         perception_objects.slot_bytes = slot_bytes;
         perception_objects.slot_count = 1u;
         perception_objects.active_slot_count = 1u;
@@ -5562,10 +5564,15 @@ int main(int argc, char **argv)
         slot_bytes[17u] = UINT8_MAX;
         write_be16(slot_bytes + 4u, 3u);
         if (!alien_perception_look_for_player_one(
-                &perception_objects, 0u, &game.dynamic_level.runtime, &game.level_clips,
+                &perception_alien_runtime, &perception_objects, 0u,
+                &game.dynamic_level.runtime, &game.level_clips,
                 &perception_player, perception_player.zone_index, 90, 190,
                 error, sizeof(error)) ||
-            slot_bytes[17u] != 1u) {
+            slot_bytes[17u] != 1u ||
+            perception_alien_runtime.visibility.viewer_x != 90 ||
+            perception_alien_runtime.visibility.viewer_z != 190 ||
+            perception_alien_runtime.visibility.viewer_y != 3 ||
+            perception_alien_runtime.visibility.viewer_in_upper_zone != 0u) {
             fprintf(stderr, "AI_LookForPlayer1 visible source state is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
@@ -5574,7 +5581,8 @@ int main(int argc, char **argv)
         perception_player.stood_in_top = UINT8_MAX;
         slot_bytes[17u] = UINT8_MAX;
         if (!alien_perception_look_for_player_one(
-                &perception_objects, 0u, &game.dynamic_level.runtime, &game.level_clips,
+                &perception_alien_runtime, &perception_objects, 0u,
+                &game.dynamic_level.runtime, &game.level_clips,
                 &perception_player, perception_player.zone_index, 90, 190,
                 error, sizeof(error)) ||
             slot_bytes[17u] != 0u) {

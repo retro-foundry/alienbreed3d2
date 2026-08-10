@@ -31,7 +31,8 @@ static int32_t alien_perception_asr32_7(int32_t value)
     return -(((-(int64_t)value) + 127) >> 7);
 }
 
-int alien_perception_look_for_player_one(ObjectRuntime *objects, uint32_t slot_index,
+int alien_perception_look_for_player_one(AlienRuntime *alien_runtime,
+                                         ObjectRuntime *objects, uint32_t slot_index,
                                          const LevelRuntime *level, const AssetBlob *clips,
                                          const PlayerRuntime *player,
                                          uint16_t viewer_zone_index,
@@ -42,7 +43,8 @@ int alien_perception_look_for_player_one(ObjectRuntime *objects, uint32_t slot_i
     ObjectVisibilityQuery query;
     uint8_t can_see;
 
-    if (!objects || !level || !clips || !player || slot_index >= objects->active_slot_count ||
+    if (!alien_runtime || !objects || !level || !clips || !player ||
+        slot_index >= objects->active_slot_count ||
         viewer_zone_index >= level->zone_count || player->zone_index >= level->zone_count ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
         alien_perception_set_error(error, error_size,
@@ -57,6 +59,10 @@ int alien_perception_look_for_player_one(ObjectRuntime *objects, uint32_t slot_i
     query.viewer_y = (int16_t)alien_perception_read_be16(
         slot + ALIEN_PERCEPTION_SLOT_VERTICAL_POSITION);
     query.viewer_in_upper_zone = slot[ALIEN_PERCEPTION_SLOT_IN_UPPER_ZONE];
+    /* AI_LookForPlayer1 writes these source globals before CanItBeSeen. */
+    object_visibility_runtime_set_viewer(&alien_runtime->visibility,
+                                         query.viewer_x, query.viewer_z, query.viewer_y,
+                                         query.viewer_in_upper_zone);
     query.target_zone_index = player->zone_index;
     query.target_x = (int16_t)(uint16_t)player->x;
     query.target_z = (int16_t)(uint16_t)player->z;

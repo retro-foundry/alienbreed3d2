@@ -478,8 +478,9 @@ static int alien_charge_update_common(
                 return 1;
             }
         }
-        if (!alien_perception_look_for_player_one(objects, slot_index, level, clips, player,
-                                                  zone_index, workspace->new_x, workspace->new_z,
+        if (!alien_perception_look_for_player_one(alien_runtime, objects, slot_index,
+                                                  level, clips, player, zone_index,
+                                                  workspace->new_x, workspace->new_z,
                                                   error, error_size)) {
             return 0;
         }
@@ -549,8 +550,9 @@ static int alien_charge_update_common(
     }
     if (!alien_torch_apply(lighting, level, math, objects, slot_index, setup,
                            workspace->new_x, workspace->new_z, error, error_size) ||
-        !alien_perception_look_for_player_one(objects, slot_index, level, clips, player,
-                                              zone_index, workspace->new_x, workspace->new_z,
+        !alien_perception_look_for_player_one(alien_runtime, objects, slot_index,
+                                              level, clips, player, zone_index,
+                                              workspace->new_x, workspace->new_z,
                                               error, error_size)) {
         return 0;
     }
