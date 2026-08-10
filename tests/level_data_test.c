@@ -3531,6 +3531,7 @@ int main(int argc, char **argv)
         frame.commands[0].type != SCENE_COMMAND_CAMERA ||
         frame.commands[0].data.camera.position.x !=
             player_runtime_position_to_world(game.player.x) ||
+        frame.commands[0].data.camera.position.y != game.player.y ||
         game.static_scene.wall_count == 0u || game.static_scene.flat_count == 0u ||
         frame.commands[1].type != SCENE_COMMAND_LIGHTING ||
         frame.commands[1].data.lighting.current_point_brightness !=
@@ -3620,6 +3621,21 @@ int main(int argc, char **argv)
         scene_frame_destroy(&frame);
         game_bootstrap_destroy(&game);
         return 1;
+    }
+    {
+        int32_t source_player_y = game.player.y;
+
+        /* The source fall step may briefly overshoot; its 3D presentation cannot. */
+        game.player.y = zone.floor;
+        scene_frame_begin(&frame);
+        if (!game_bootstrap_submit_scene_frame(&game, &frame) ||
+            frame.commands[0].data.camera.position.y != zone.floor - game.player.height) {
+            fprintf(stderr, "3D camera floor contact is inconsistent\n");
+            scene_frame_destroy(&frame);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game.player.y = source_player_y;
     }
     saved_floor_override = game.level_floor_override;
     saved_wall_override = game.level_wall_overrides[game.static_scene.walls[0].material_id];

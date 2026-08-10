@@ -702,12 +702,36 @@ static int game_bootstrap_scene_sky_enabled(const GameBootstrap *game)
             (uint8_t)(1u << (game->player.zone_index & 7u))) == 0u;
 }
 
+/*
+ * modules/player.s:plr_Fall intentionally lets its fixed-point source state
+ * cross SnapTYOff by up to one falling tick before it applies the next upward
+ * correction. That is harmless in the source column renderer, but a true 3D
+ * camera would briefly enter the sector floor. Keep simulation untouched and
+ * constrain only the presented camera to the selected sector contact plane.
+ */
+static int game_bootstrap_scene_camera_y(const GameBootstrap *game, int32_t *out_y)
+{
+    LevelZone zone;
+    int32_t contact_y;
+
+    if (!game || !out_y ||
+        !level_runtime_get_zone(&game->dynamic_level.runtime, game->player.zone_index, &zone,
+                                NULL, 0u)) {
+        return 0;
+    }
+    contact_y = (game->player.stood_in_top != 0u ? zone.upper_floor : zone.floor) -
+        game->player.height;
+    *out_y = game->player.y > contact_y ? contact_y : game->player.y;
+    return 1;
+}
+
 int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
 {
     SceneCommand command;
     size_t primitive_count;
     uint32_t sprite_count;
     size_t required_commands;
+    int32_t scene_camera_y;
 
     if (!game || !frame || game->game_link.size == 0 || game->story_text.size == 0) {
         return 0;
@@ -726,12 +750,13 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         return 0;
     }
     if (game->level_data.size != 0) {
-        if (!game_bootstrap_refresh_scene_lighting(game)) {
+        if (!game_bootstrap_refresh_scene_lighting(game) ||
+            !game_bootstrap_scene_camera_y(game, &scene_camera_y)) {
             return 0;
         }
         command.type = SCENE_COMMAND_CAMERA;
         command.data.camera.position.x = player_runtime_position_to_world(game->player.x);
-        command.data.camera.position.y = game->player.y;
+        command.data.camera.position.y = scene_camera_y;
         command.data.camera.position.z = player_runtime_position_to_world(game->player.z);
         command.data.camera.yaw = game->player.yaw;
         command.data.camera.look_offset = game->player.look_offset;
