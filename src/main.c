@@ -404,6 +404,188 @@ static void game_app_tick(GameApp *app)
     }
 }
 
+/*
+ * Draw one source-authored additive or glare effect in the hidden GPU test.
+ * This deliberately uses ItsABullet's exact selected asset/frame/effect mode
+ * where that mode exists; the shipped bullet table has no glare descriptor,
+ * so its glare fixture uses an authored fixed ObjT frame. Neither mutates
+ * campaign simulation simply to make an effect visible.
+ */
+static int game_app_append_source_effect_smoke(GameApp *app, int glare,
+                                               char *error, size_t error_size)
+{
+    const SceneCamera *camera;
+    int16_t sine;
+    int16_t cosine;
+
+    if (!app || app->frame.count == 0u ||
+        app->frame.commands[0u].type != SCENE_COMMAND_CAMERA) {
+        return 0;
+    }
+    camera = &app->frame.commands[0u].data.camera;
+    if (!game_math_sine(&app->game.math, camera->yaw, &sine, error, error_size) ||
+        !game_math_cosine(&app->game.math, camera->yaw, &cosine, error, error_size)) {
+        return 0;
+    }
+    for (uint16_t bullet_index = 0u; bullet_index < GAME_LINK_BULLET_COUNT; ++bullet_index) {
+        GameBulletDefinition definition;
+
+        if (!game_link_get_bullet_definition(&app->game.game_link_catalog, bullet_index,
+                                             &definition, error, error_size)) {
+            continue;
+        }
+        for (GameBulletAnimationKind animation_kind = GAME_LINK_BULLET_ANIMATION_FLIGHT;
+             animation_kind <= GAME_LINK_BULLET_ANIMATION_POP; ++animation_kind) {
+            GameBulletAnimationFrame animation;
+            GameObjectFrameData frame_data;
+            uint32_t graphics_type = animation_kind == GAME_LINK_BULLET_ANIMATION_FLIGHT ?
+                definition.graphics_type : definition.impact_graphics_type;
+            uint16_t asset_index;
+            uint16_t frame_index;
+            SceneCommand command = {0};
+
+            if ((glare != 0 ? graphics_type != 1u : (int32_t)graphics_type <= 1) ||
+                !game_link_get_bullet_animation_frame(
+                    &app->game.game_link_catalog, animation_kind, bullet_index, 0u,
+                    &animation, error, error_size)) {
+                continue;
+            }
+            asset_index = animation.byte_0;
+            frame_index = animation.byte_1;
+            if (asset_index >= app->game.shared_resources.object_count ||
+                !game_link_get_object_frame_data(&app->game.game_link_catalog, asset_index,
+                                                  frame_index, &frame_data, error, error_size) ||
+                animation.word_2 >> 8u == 0u || (uint8_t)animation.word_2 == 0u) {
+                continue;
+            }
+            command.type = SCENE_COMMAND_SPRITE;
+            command.data.sprite.position = camera->position;
+            /* A four-unit forward offset is ahead of the near plane and ordinary
+             * level walls, while retaining the authored billboard dimensions. */
+            command.data.sprite.position.x += sine / 4096;
+            command.data.sprite.position.z += cosine / 4096;
+            command.data.sprite.source = glare != 0 ? SCENE_SPRITE_SOURCE_GLARE_BITMAP :
+                                                       SCENE_SPRITE_SOURCE_OBJECT_BITMAP;
+            command.data.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+            command.data.sprite.source_asset_id = asset_index;
+            command.data.sprite.source_record_id = UINT32_MAX - (uint32_t)glare;
+            command.data.sprite.frame_index = frame_index;
+            command.data.sprite.source_clip_top_y = camera->position.y - 65536;
+            command.data.sprite.source_clip_bottom_y = camera->position.y + 65536;
+            command.data.sprite.source_width = (uint8_t)(animation.word_2 >> 8u);
+            command.data.sprite.source_height = (uint8_t)animation.word_2;
+            command.data.sprite.flags = glare != 0 ? 0u : SCENE_SPRITE_FLAG_ADDITIVE;
+            command.data.sprite.source_effect = glare != 0 ? 0u : 6u;
+            command.data.sprite.frame_metrics.pointer_table_index = frame_data.pointer_table_index;
+            command.data.sprite.frame_metrics.down_strip = frame_data.down_strip;
+            command.data.sprite.frame_metrics.strip_count = frame_data.strip_count;
+            command.data.sprite.frame_metrics.line_count = frame_data.line_count;
+            command.data.sprite.source_bytes =
+                app->game.shared_resources.object_wads[asset_index].bytes;
+            command.data.sprite.source_byte_count =
+                app->game.shared_resources.object_wads[asset_index].size;
+            command.data.sprite.source_aux_bytes =
+                app->game.shared_resources.object_ptrs[asset_index].bytes;
+            command.data.sprite.source_aux_byte_count =
+                app->game.shared_resources.object_ptrs[asset_index].size;
+            command.data.sprite.source_palette_bytes = glare != 0 ?
+                app->game.shared_resources.texture_palette.bytes :
+                app->game.shared_resources.object_palettes[asset_index].bytes;
+            command.data.sprite.source_palette_byte_count = glare != 0 ?
+                app->game.shared_resources.texture_palette.size :
+                app->game.shared_resources.object_palettes[asset_index].size;
+            command.data.sprite.source_display_palette_bytes =
+                app->game.shared_resources.main_palette.bytes;
+            command.data.sprite.source_display_palette_byte_count =
+                app->game.shared_resources.main_palette.size;
+            if (!command.data.sprite.source_bytes || !command.data.sprite.source_aux_bytes ||
+                !command.data.sprite.source_palette_bytes ||
+                !command.data.sprite.source_display_palette_bytes ||
+                !scene_frame_reserve(&app->frame, app->frame.count + 1u) ||
+                !scene_frame_submit(&app->frame, &command)) {
+                return 0;
+            }
+            return 1;
+        }
+    }
+    /* The shipped projectile table has no glare flight/pop descriptor, but
+     * ObjT definitions do: keep this pass covered with an authored fixed
+     * glare object and its normal DEFANIMOBJ frame. */
+    if (glare != 0) {
+        for (uint16_t object_index = 0u; object_index < GAME_LINK_OBJECT_COUNT; ++object_index) {
+            GameObjectDefinition definition;
+            GameObjectAnimationFrame animation;
+            GameObjectFrameData frame_data;
+            uint16_t asset_index;
+            uint16_t frame_index;
+            SceneCommand command = {0};
+
+            if (!game_link_get_object_definition(&app->game.game_link_catalog, object_index,
+                                                 &definition, error, error_size) ||
+                definition.graphics_type <= 1u ||
+                !game_link_get_object_animation_frame(
+                    &app->game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                    object_index, 0u, &animation, error, error_size)) {
+                continue;
+            }
+            asset_index = animation.byte_0;
+            frame_index = animation.byte_1;
+            if (asset_index >= app->game.shared_resources.object_count ||
+                !game_link_get_object_frame_data(&app->game.game_link_catalog, asset_index,
+                                                  frame_index, &frame_data, error, error_size) ||
+                animation.word_2 >> 8u == 0u || (uint8_t)animation.word_2 == 0u) {
+                continue;
+            }
+            command.type = SCENE_COMMAND_SPRITE;
+            command.data.sprite.position = camera->position;
+            command.data.sprite.position.x += sine / 4096;
+            command.data.sprite.position.z += cosine / 4096;
+            command.data.sprite.source = SCENE_SPRITE_SOURCE_GLARE_BITMAP;
+            command.data.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+            command.data.sprite.source_asset_id = asset_index;
+            command.data.sprite.source_record_id = UINT32_MAX - 1u;
+            command.data.sprite.frame_index = frame_index;
+            command.data.sprite.source_clip_top_y = camera->position.y - 65536;
+            command.data.sprite.source_clip_bottom_y = camera->position.y + 65536;
+            command.data.sprite.source_width = (uint8_t)(animation.word_2 >> 8u);
+            command.data.sprite.source_height = (uint8_t)animation.word_2;
+            command.data.sprite.frame_metrics.pointer_table_index = frame_data.pointer_table_index;
+            command.data.sprite.frame_metrics.down_strip = frame_data.down_strip;
+            command.data.sprite.frame_metrics.strip_count = frame_data.strip_count;
+            command.data.sprite.frame_metrics.line_count = frame_data.line_count;
+            command.data.sprite.source_bytes =
+                app->game.shared_resources.object_wads[asset_index].bytes;
+            command.data.sprite.source_byte_count =
+                app->game.shared_resources.object_wads[asset_index].size;
+            command.data.sprite.source_aux_bytes =
+                app->game.shared_resources.object_ptrs[asset_index].bytes;
+            command.data.sprite.source_aux_byte_count =
+                app->game.shared_resources.object_ptrs[asset_index].size;
+            command.data.sprite.source_palette_bytes =
+                app->game.shared_resources.texture_palette.bytes;
+            command.data.sprite.source_palette_byte_count =
+                app->game.shared_resources.texture_palette.size;
+            command.data.sprite.source_display_palette_bytes =
+                app->game.shared_resources.main_palette.bytes;
+            command.data.sprite.source_display_palette_byte_count =
+                app->game.shared_resources.main_palette.size;
+            if (!command.data.sprite.source_bytes || !command.data.sprite.source_aux_bytes ||
+                !command.data.sprite.source_palette_bytes ||
+                !command.data.sprite.source_display_palette_bytes ||
+                !scene_frame_reserve(&app->frame, app->frame.count + 1u) ||
+                !scene_frame_submit(&app->frame, &command)) {
+                return 0;
+            }
+            return 1;
+        }
+    }
+    if (error && error_size > 0u) {
+        (void)snprintf(error, error_size, "source %s projectile effect fixture is unavailable",
+                       glare != 0 ? "glare" : "additive");
+    }
+    return 0;
+}
+
 static int game_app_run_gpu_smoke(GameApp *app)
 {
     char error[256];
@@ -411,6 +593,8 @@ static int game_app_run_gpu_smoke(GameApp *app)
     uint16_t last_level = app->gpu_smoke_all_levels != 0 ? 15u : first_level;
 
     for (uint16_t level_index = first_level; level_index <= last_level; ++level_index) {
+        SceneCommand source_effect_camera;
+        uint64_t source_effect_background_checksum;
         uint64_t source_lighting_checksum;
         uint64_t source_weapon_lighting_checksum;
         if (level_index != first_level &&
@@ -437,6 +621,37 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     (char)('A' + level_index), error);
             app->exit_code = 1;
             return 0;
+        }
+        /* Exercise the effect conversion in an isolated camera frame so a
+         * valid near-wall spawn cannot hide it behind source geometry. */
+        source_effect_camera = app->frame.commands[0u];
+        scene_frame_begin(&app->frame);
+        if (!scene_frame_submit(&app->frame, &source_effect_camera) ||
+            !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
+            fprintf(stderr, "[RENDER] GPU effect background smoke failed for Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        source_effect_background_checksum = renderer_last_frame_rgb_checksum(app->renderer);
+        for (int glare = 0; glare <= 1; ++glare) {
+            scene_frame_begin(&app->frame);
+            if (!scene_frame_submit(&app->frame, &source_effect_camera) ||
+                !game_app_append_source_effect_smoke(app, glare, error, sizeof(error)) ||
+                !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
+                fprintf(stderr, "[RENDER] GPU %s effect smoke failed for Level %c: %s\n",
+                        glare != 0 ? "glare" : "additive", (char)('A' + level_index), error);
+                app->exit_code = 1;
+                return 0;
+            }
+            if (renderer_last_frame_rgb_checksum(app->renderer) ==
+                source_effect_background_checksum) {
+                fprintf(stderr,
+                        "[RENDER] GPU %s effect had no visible source blend output for Level %c\n",
+                        glare != 0 ? "glare" : "additive", (char)('A' + level_index));
+                app->exit_code = 1;
+                return 0;
+            }
         }
         /*
          * Compare two explicit source states.  A level can legitimately
