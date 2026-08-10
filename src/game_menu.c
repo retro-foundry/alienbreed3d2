@@ -212,8 +212,7 @@ static void game_menu_update_status(GameMenu *menu, const GameBootstrap *game)
     case GAME_MENU_SCREEN_NOTICE:
         break;
     case GAME_MENU_SCREEN_LEVEL_ACTIVE:
-        game_menu_set_status(menu,
-                             "Source single-player level is loaded; GPU renderer pending");
+        game_menu_set_status(menu, "Source single-player level is loaded");
         break;
     }
 }

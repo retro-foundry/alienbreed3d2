@@ -549,8 +549,8 @@ void game_bootstrap_destroy(GameBootstrap *game)
 
 int game_bootstrap_submit_diagnostic_frame(const GameBootstrap *game, SceneFrame *frame)
 {
-    static const char menu_status[] = "AB3D2 PC: single-player menu state ready; GPU renderer pending";
-    static const char level_status[] = "AB3D2 PC: source level loaded; GPU renderer pending";
+    static const char menu_status[] = "AB3D2 PC: single-player menu state ready";
+    static const char level_status[] = "AB3D2 PC: source level loaded";
     SceneCommand command;
     size_t primitive_count;
     uint32_t sprite_count;

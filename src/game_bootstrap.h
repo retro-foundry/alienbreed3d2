@@ -109,8 +109,8 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
  * ObjectHandler's source ObjT dispatch (including worry-gated ItsAnAlien), DoorRoutine, LiftRoutine,
  * CalcPLR1InLine's object observation workspace, then a retained whole-level
  * scene refresh from the mutable graph, followed by the source single-player
- * exit-zone completion check. The renderer consumes the resulting scene frame
- * separately and remains a diagnostic status presenter for now.
+ * exit-zone completion check. The API-neutral renderer consumes the resulting
+ * scene frame separately from source simulation.
  */
 int game_bootstrap_update_single_player(GameBootstrap *game,
                                         char *error, size_t error_size);

@@ -19,38 +19,65 @@ authority for all game behavior and data formats.
 - Keep rendering behind `src/scene_frame.h`. Producers submit cameras,
   materials, geometry, sprites, and HUD text; no producer may depend on Amiga
   framebuffers, copper lists, C2P, or a specific modern graphics API.
-- The current SDL window is diagnostic-only. A modern GPU backend is a later
-  replacement for that consumer, not a software-rendering interim step.
-- The future GPU renderer may draw a complete loaded level in one submission.
-  Preserve source geometry and gameplay state, but do not port PVS errata,
-  portal traversal, or zone-order rendering merely for visibility culling.
-  Those are optional native renderer optimisations, not parity requirements.
+- `src/renderer.h` is the presentation interface. `renderer_opengl.c` is one
+  backend; neither the entry point nor scene producers include OpenGL, so a
+  later DirectX backend can consume the same `SceneFrame` and `RenderView`.
+- The current OpenGL 2.1 / GLES 2 backend may draw a complete loaded level in
+  one submission. Preserve source geometry and gameplay state, but do not port
+  PVS errata, portal traversal, or zone-order rendering merely for visibility
+  culling. Those are optional native renderer optimisations, not parity
+  requirements.
+- Native real mouse-look is explicitly requested presentation behavior: source
+  mouse X still owns source yaw and input state, while `RenderView` owns only
+  a clamped pitch from mouse Y. It must not rewrite source player aiming or
+  replace the retained small-screen look state.
 
-## Current direct-gameplay scope: complete (audited 2026-08-10)
+## Current OpenGL/WebGL presentation milestone
 
-The gameplay-first scope agreed for this pass is complete. The retained
-renderer seam is intentionally the endpoint of this scope, not unfinished
-software-renderer work.
+- [x] `src/renderer.h` owns the graphics-API-neutral presenter contract,
+  configuration, frame handoff, lifecycle, and explicit backend selection.
+  The main loop is therefore insulated from `renderer_opengl.c`; no gameplay
+  producer depends on SDL or OpenGL state.
+- [x] `src/renderer_opengl.c` creates the SDL OpenGL 2.1 desktop context and
+  uses a GLES 2 shader subset under Emscripten/WebGL. It consumes source camera
+  yaw and complete `SceneFrame` geometry, triangulates source polygon
+  boundaries with ear clipping instead of a fan shortcut, depth-renders every
+  wall/floor/ceiling/water command, and renders live source object origins as
+  depth-tested markers. It deliberately ignores HUD commands because UI
+  is outside this scope.
+- [x] Native `src/render_view.*` receives mouse-Y motion in parallel with the
+  maintained `modules/player.s:plr_MouseControl` input, preserving source
+  simulation while adding a clamped real 3D pitch. Its focused regression
+  covers normal, inverted, and clamp behavior.
+- [x] Native CMake links OpenGL and preserves the first port's SDL setup.
+  Emscripten skips FetchContent, builds an `ab3d2.html` WebGL target with the
+  browser-safe main loop, and preloads the lower-case `stage_media.py` asset
+  tree as `/data`.
+
+Source texture-coordinate mapping and WAD/PTR/vector decoding remain
+unresolved in `SceneFrame`; the visible backend therefore uses deliberately
+labelled diagnostic primitive/material colours and source-object markers,
+not invented textured art. A later renderer phase can replace those visual
+diagnostics after source format evidence is established.
+
+## Earlier direct-gameplay scope audit (superseded by GPU presentation work)
+
+The direct simulation and scene-production audit below remains valid; its
+former status-only presenter has been replaced by the OpenGL/WebGL milestone.
 
 - [x] The CMake/SDL2 desktop boundary follows the Alien Breed 3D I port for
   Windows, Linux, and macOS; this audit rebuilt the Windows Debug target.
 - [x] The executable enters a source default single-player session directly in
   Level A, with `--level A` through `--level P` for direct authored-level
   selection. Its normal entry path does not enter the menu subsystem.
-- [x] `scene_frame.h` remains the GPU-neutral producer interface for cameras,
-  material/geometry, sprites, and HUD commands. `renderer_stub.c` is solely a
-  diagnostic status presenter and does not rasterize a scene.
 - [x] Whole-level scene production has no PVS, portal, or zone-order renderer
   dependency. Multiplayer is not activated or offered by the direct path.
 - [x] `ctest --test-dir build/pc -C Debug --output-on-failure` passes the
   clean-process A--P direct-play regression, including its six source
   VBlank-equivalent ticks per selected level.
 
-The following are deliberately deferred to a future, separately scoped
-renderer phase: GPU API selection, source-evidenced texture-coordinate and
-asset conversion, pixel presentation, and renderer-output validation. Menus
-and audio event/playback work remain deferred as requested; no multiplayer
-work is planned.
+Menus and audio event/playback work remain deferred as requested; no
+multiplayer work is planned.
 
 ## Current completed foundation
 
@@ -62,9 +89,9 @@ work is planned.
   messages before runtime parsing, and publishes exact byte-ranged HUD text
   commands. Its `Msg_PushLineDedupLast` state uses the platform's monotonic
   milliseconds, preserving the source's two-second EClock duration without
-  inventing a frame-count replacement. The status presenter consumes those
-  commands without rasterizing them. The source has no `Msg_Tick` caller in
-  this path, so no native expiry clock has been invented.
+  inventing a frame-count replacement. The backend deliberately ignores those
+  commands until text/UI work is requested. The source has no `Msg_Tick`
+  caller in this path, so no native expiry clock has been invented.
 - [x] `src/object_handler.*` now owns the complete source context needed at
   `newanims.s:ObjectHandler`: it retains the living-alien lock preamble,
   the `newaliencontrol.s:Collectable`, `Activatable`, and `StillHere`
@@ -467,8 +494,9 @@ work is planned.
   commands.
 - [x] The desktop entry point now starts the source default single-player
   session directly in Level A rather than routing through the native menu. The
-  minimal status presenter exposes live level, zone, and camera coordinates;
-  this is a gameplay-first temporary path, not a replacement menu or renderer.
+  minimal status presenter formerly exposed live level, zone, and camera
+  coordinates; the current OpenGL/WebGL presenter supersedes that path while
+  menus remain deferred.
 - [ ] Before resolving textured world geometry, establish the source-to-GPU
   texture-coordinate mapping for each primitive. `src/level_draw_graph.*` has
   now proven every active cursor boundary in the shipped streams: type 3 and
@@ -511,7 +539,9 @@ work is planned.
   `objectmove.s:GetNextCPt`; no AI or movement routine consumes it yet.
 - `src/level_mechanisms.*` maps `newanims.s`'s door, lift, and switch source
   data streams; no dynamic mechanism routine consumes them yet.
-- `src/scene_frame.*` and `src/renderer_stub.*` establish the renderer seam.
+- `src/scene_frame.*` originally established the renderer seam; it is now
+  consumed by the API-neutral `src/renderer.*` frontend and its OpenGL/WebGL
+  backend.
 - `tests/level_data_test.c` validates the staged data and every campaign level.
 
 ## Implementation sequence
@@ -1046,21 +1076,22 @@ worry, animation, and update ordering rather than a generalized object update.
 
 The direct single-player path now runs source-backed player control, weapons,
 object/mechanism updates, worry generation, live alien dispatch, and a
-whole-level scene submission. It intentionally bypasses menus and retains a
-diagnostic-only SDL presenter until the GPU renderer exists. Multiplayer,
-software rendering, PVS traversal, and portal-order rendering remain out of
-scope by design.
+whole-level scene submission through the visible OpenGL/WebGL presenter. It
+intentionally bypasses menus, text, and UI. Multiplayer, software rendering,
+PVS traversal, and portal-order rendering remain out of scope by design.
 
-1. **GPU presentation for direct gameplay**
-   - Select a cross-platform graphics API without changing `scene_frame.h`'s
-     producer contract.
-   - Convert the authoritative material, palette, texture-coordinate, vector,
-     bitmap, sprite, and glyph data only from demonstrated source formats.
-   - Render every submitted loaded-level primitive in a single whole-level
-     pass, then sprites and byte-ranged HUD/message text. Do not make
-     visibility culling, PVS, or portals a prerequisite.
-   - Replace the status-only presenter only after it consumes camera,
-     geometry, material, sprite, and HUD commands with source-derived tests.
+1. **Basic GPU presentation for direct gameplay — complete**
+   - [x] `renderer.h` keeps backend choice and lifecycle out of gameplay code;
+     `renderer_opengl.c` implements OpenGL 2.1 desktop and GLES 2/WebGL.
+   - [x] It depth-renders every submitted loaded-level primitive in a complete
+     level pass, safely triangulates flat boundaries, and draws source object
+     positions. It requires neither visibility culling, PVS, nor portals.
+   - [x] `render_view.*` adds user-requested real mouse-look pitch while
+     source yaw/input simulation remains unchanged.
+   - Before textured/art-complete presentation, convert material palettes,
+     demonstrated source UV mapping, WAD/PTR bitmap frames, vectors, and
+     glyphs from their owning source routines. Do not present diagnostic
+     colours/markers as source-fidelity art, and keep HUD/UI out until asked.
 
 2. **Keep deferred source event outputs out of the current path**
    - Do not spend implementation time on original sound-effect/music event

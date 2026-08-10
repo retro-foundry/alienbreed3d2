@@ -22,11 +22,23 @@ source worry byte is set. Source death, successful collectable, and
 destructible narratives enter the GPU-neutral small-screen message ring and
 appear as byte-ranged HUD commands; failed inventory pickups retain their
 source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
-presenter remains intentionally status-only, so this is simulation and scene
-production rather than a software-rendered game. Menus remain deferred and
-multiplayer is not included. The detailed inventory below records the
-source-backed foundations; older references to an unbound AI dispatcher are
-superseded by this live integration.
+active presentation path is an OpenGL 2.1 / GLES 2 renderer behind the
+API-neutral `renderer.h` boundary, so the same scene producers can later feed
+a DirectX backend. It draws the complete loaded level without software
+rasterization, PVS, portals, or zone ordering. The source UV and WAD/PTR
+bitmap conversions are still unresolved, so this first visible path uses
+explicit material/primitive diagnostic colours and source-object position
+markers rather than pretending those are original textured visuals. HUD and
+text commands are deliberately ignored. Menus remain deferred and multiplayer
+is not included. The detailed inventory below records the source-backed
+foundations; older references to an unbound AI dispatcher are superseded by
+this live integration.
+
+Mouse X remains the source controller's yaw input. Mouse Y also drives the
+native `RenderView` pitch for real 3D mouse-look (clamped to +/-85 degrees and
+respecting the source invert-mouse preference); it is deliberately isolated
+from the source simulation camera and does not replace the original aim/look
+state.
 
 The headless regression starts a clean source-process runtime, selects each
 authored Level A--P session, and runs six source VBlank-equivalent direct-play
@@ -164,8 +176,9 @@ gameplay-first scope.
   likewise completes the selected nonfatal reaction animation and heading
   branch with explicit source torch inputs. Enemy behavior and dynamic blast
   are live; audio is deliberately deferred;
-- opens a diagnostic SDL window whose title presents the active level, zone,
-  camera coordinates, and command count. It does not rasterize the game scene.
+- opens an SDL OpenGL window that draws the direct-play world with depth
+  testing: complete authored level geometry plus live source-object markers.
+  It intentionally draws no text or UI.
 
 Single-player is the only intended PC mode. The original serial master/slave
 multiplayer flow is intentionally not ported.
@@ -180,6 +193,17 @@ cmake -S . -B build/pc
 cmake --build build/pc --config Debug
 ctest --test-dir build/pc --output-on-failure
 ```
+
+The same renderer compiles to a preloaded WebGL build through Emscripten:
+
+```sh
+emcmake cmake -S . -B build/web -DBUILD_TESTING=OFF
+cmake --build build/web
+```
+
+This produces `ab3d2.html`, JavaScript/Wasm, and the lower-case `data/`
+preload package in `build/web`. Serve that directory through an HTTP server;
+opening the HTML file directly will not satisfy browser asset-loading rules.
 
 Run the `ab3d2` executable from its build output directory. It starts Level A
 directly; use `--level B` through `--level P` to select another authored level.
@@ -198,11 +222,13 @@ from the first game port. The initial mappings are:
 - startup asset ownership: `controlloop.s:Game_Start`;
 - level bootstrap: `hires.s:Game_Begin` and `modules/res.s:Res_LoadLevelData`;
 - level binary structures: `defs.i:TLBT`;
-- future whole-level scene production: `hires.s:DrawDisplay`,
+- whole-level scene production: `hires.s:DrawDisplay`,
   `newaliencontrol.s:ViewpointToDraw`, and `objdrawhires.s`. It does not
   depend on `orderzones.s:Zone_OrderZones`, PVS errata, or portal traversal.
 
-The future GPU backend will consume `src/scene_frame.h`; it must not depend on
-Amiga framebuffer, C2P, copper, or software-rasterizer state. It may submit a
-complete loaded level every frame; any visibility culling is an optional native
-optimisation rather than a porting prerequisite.
+`src/renderer.h` consumes `src/scene_frame.h` without exposing OpenGL to game
+simulation. `src/renderer_opengl.c` is the current OpenGL/WebGL backend; a
+future backend must keep that public scene and render-view contract rather than
+depending on Amiga framebuffer, C2P, copper, or software-rasterizer state. It
+may submit a complete loaded level every frame; any visibility culling is an
+optional native optimisation rather than a porting prerequisite.

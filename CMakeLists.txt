@@ -11,17 +11,20 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Windows, Linux, and macOS. The Amiga build remains under amiga/.
 include(FetchContent)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
-set(SDL_TEST OFF CACHE BOOL "" FORCE)
-set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
-FetchContent_Declare(
-  SDL2
-  GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-  GIT_TAG release-2.30.11
-  GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(SDL2)
+if(NOT EMSCRIPTEN)
+  set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+  set(SDL_STATIC ON CACHE BOOL "" FORCE)
+  set(SDL_TEST OFF CACHE BOOL "" FORCE)
+  set(SDL2_DISABLE_INSTALL ON CACHE BOOL "" FORCE)
+  FetchContent_Declare(
+    SDL2
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG release-2.30.11
+    GIT_SHALLOW TRUE
+  )
+  FetchContent_MakeAvailable(SDL2)
+  find_package(OpenGL REQUIRED)
+endif()
 
 set(AB3D2_CORE_SOURCES
   src/alien_attack.c
@@ -90,6 +93,7 @@ set(AB3D2_CORE_SOURCES
   src/player_entity.c
   src/player_runtime.c
   src/player_shoot.c
+  src/render_view.c
   src/scene_frame.c
   # Reused =SB= decoder from the first PC port. It matches
   # modules/file_io.s:io_HandlePacked, which calls the original unLHA code.
@@ -101,22 +105,48 @@ target_include_directories(ab3d2_core PUBLIC src)
 
 add_executable(ab3d2
   src/main.c
-  src/renderer_stub.c
+  src/renderer.c
+  src/renderer_opengl.c
 )
-target_link_libraries(ab3d2 PRIVATE ab3d2_core SDL2-static)
+target_link_libraries(ab3d2 PRIVATE ab3d2_core)
+if(NOT EMSCRIPTEN)
+  target_link_libraries(ab3d2 PRIVATE SDL2-static OpenGL::GL)
+endif()
 target_include_directories(ab3d2 PRIVATE src)
 
 # The authoritative game assets are preserved byte-for-byte. Their Amiga
 # volume-relative layout becomes executable-local data/ with lower-case paths,
 # avoiding Amiga's case-insensitive filesystem assumption on Linux/macOS.
-add_custom_command(TARGET ab3d2 POST_BUILD
-  COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage_media.py"
-          --source "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media"
-          --destination "$<TARGET_FILE_DIR:ab3d2>/data"
-  COMMENT "Stage authoritative AB3D2 media as case-stable executable-local data/"
-)
+if(EMSCRIPTEN)
+  # stage_media.py is also the source of the lower-case browser preload tree.
+  set(AB3D2_WEB_DATA_DIR "${CMAKE_CURRENT_BINARY_DIR}/web_data")
+  add_custom_target(ab3d2_web_media
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage_media.py"
+            --source "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media"
+            --destination "${AB3D2_WEB_DATA_DIR}"
+    COMMENT "Stage authoritative AB3D2 media for WebGL preload"
+  )
+  add_dependencies(ab3d2 ab3d2_web_media)
+  target_compile_options(ab3d2 PRIVATE "SHELL:-sUSE_SDL=2")
+  target_link_options(ab3d2 PRIVATE
+    "SHELL:-sUSE_SDL=2"
+    "SHELL:-sFULL_ES2=1"
+    "SHELL:-sMIN_WEBGL_VERSION=1"
+    "SHELL:-sMAX_WEBGL_VERSION=2"
+    "SHELL:-sALLOW_MEMORY_GROWTH=1"
+    "SHELL:--preload-file=${AB3D2_WEB_DATA_DIR}@/data"
+  )
+  set_target_properties(ab3d2 PROPERTIES SUFFIX ".html")
+else()
+  add_custom_command(TARGET ab3d2 POST_BUILD
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage_media.py"
+            --source "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media"
+            --destination "$<TARGET_FILE_DIR:ab3d2>/data"
+    COMMENT "Stage authoritative AB3D2 media as case-stable executable-local data/"
+  )
+endif()
 
-if(WIN32)
+if(WIN32 AND NOT EMSCRIPTEN)
   target_link_libraries(ab3d2 PRIVATE winmm imm32 version setupapi)
 endif()
 
@@ -135,7 +165,7 @@ endif()
 target_compile_definitions(ab3d2_core PRIVATE AB3D_STANDALONE_TOOL)
 
 include(CTest)
-if(BUILD_TESTING)
+if(BUILD_TESTING AND NOT EMSCRIPTEN)
   add_executable(ab3d2_level_data_test tests/level_data_test.c)
   target_link_libraries(ab3d2_level_data_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_level_data_test PRIVATE src)

@@ -51,6 +51,7 @@
 #include "object_worry.h"
 #include "player_entity.h"
 #include "player_shoot.h"
+#include "render_view.h"
 #include "scene_frame.h"
 
 static uint16_t read_be16(const uint8_t *source)
@@ -9487,6 +9488,30 @@ int main(int argc, char **argv)
         if (!object_visibility_can_see(&visibility_level, &clips, &visibility_query,
                                        &can_see, error, sizeof(error)) || can_see != 0u) {
             fprintf(stderr, "CanItBeSeen left clip rejection is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        RenderView view;
+
+        render_view_init(&view);
+        render_view_add_mouse_motion(&view, -100, 0u);
+        if (view.pitch_degrees < 14.99f || view.pitch_degrees > 15.01f) {
+            fprintf(stderr, "native real mouse-look upward pitch is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        render_view_add_mouse_motion(&view, 1000, 0u);
+        if (view.pitch_degrees != -85.0f) {
+            fprintf(stderr, "native real mouse-look lower clamp is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        render_view_init(&view);
+        render_view_add_mouse_motion(&view, -100, UINT8_MAX);
+        if (view.pitch_degrees > -14.99f || view.pitch_degrees < -15.01f) {
+            fprintf(stderr, "native real mouse-look inversion is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }

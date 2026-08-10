@@ -1,12 +1,15 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
 
-#include <inttypes.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "game_bootstrap.h"
-#include "renderer_stub.h"
+#include "render_view.h"
+#include "renderer.h"
 
 static int make_default_data_root(char *out_root, size_t out_root_size)
 {
@@ -175,168 +178,241 @@ static int set_mouse_button_source_key(GameBootstrap *game, uint8_t button, int 
                                   error, error_size);
 }
 
-int main(int argc, char **argv)
-{
+typedef struct {
     char data_root[1024];
-    char error[256];
-    char status[160];
-    const char *configured_data_root = NULL;
-    uint16_t selected_level_index = 0u;
+    uint16_t selected_level_index;
     GameBootstrap game;
     SceneFrame frame;
-    RendererStub *renderer = NULL;
+    Renderer *renderer;
+    RenderView view;
+    int sdl_initialized;
+    int game_initialized;
+    int frame_initialized;
+    int exit_code;
+} GameApp;
+
+static void game_app_shutdown(GameApp *app)
+{
+    if (!app) {
+        return;
+    }
+    renderer_destroy(app->renderer);
+    app->renderer = NULL;
+    if (app->frame_initialized) {
+        scene_frame_destroy(&app->frame);
+        app->frame_initialized = 0;
+    }
+    if (app->game_initialized) {
+        game_bootstrap_destroy(&app->game);
+        app->game_initialized = 0;
+    }
+    if (app->sdl_initialized) {
+        SDL_Quit();
+        app->sdl_initialized = 0;
+    }
+}
+
+static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
+{
+    int has_data_root = 0;
 
     for (int argument_index = 1; argument_index < argc; argument_index += 2) {
         if (argument_index + 1 >= argc) {
-            fprintf(stderr, "usage: %s [--data-root <directory>] [--level <A-P>]\n",
-                    argv[0]);
-            return 2;
+            return 0;
         }
-        if (strcmp(argv[argument_index], "--data-root") == 0 && !configured_data_root) {
-            configured_data_root = argv[argument_index + 1];
+        if (strcmp(argv[argument_index], "--data-root") == 0 && !has_data_root) {
+            int written = snprintf(app->data_root, sizeof(app->data_root), "%s",
+                                   argv[argument_index + 1]);
+
+            if (written < 0 || (size_t)written >= sizeof(app->data_root)) {
+                return 0;
+            }
+            has_data_root = 1;
         } else if (strcmp(argv[argument_index], "--level") == 0) {
             if (!level_index_from_argument(argv[argument_index + 1],
-                                           &selected_level_index)) {
-                fprintf(stderr, "usage: %s [--data-root <directory>] [--level <A-P>]\n",
-                        argv[0]);
-                return 2;
+                                           &app->selected_level_index)) {
+                return 0;
             }
         } else {
-            fprintf(stderr, "usage: %s [--data-root <directory>] [--level <A-P>]\n",
-                    argv[0]);
-            return 2;
+            return 0;
         }
     }
+    return 1;
+}
 
+static int game_app_init(GameApp *app, int argc, char **argv)
+{
+    char error[256];
+    RendererConfig renderer_config;
+
+    if (!app || !game_app_parse_arguments(app, argc, argv)) {
+        fprintf(stderr, "usage: %s [--data-root <directory>] [--level <A-P>]\n", argv[0]);
+        return 0;
+    }
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         fprintf(stderr, "[PLATFORM] SDL_Init failed: %s\n", SDL_GetError());
-        return 1;
+        return 0;
     }
-    if (!configured_data_root) {
-        if (!make_default_data_root(data_root, sizeof(data_root))) {
-            fprintf(stderr, "[PLATFORM] SDL_GetBasePath failed: %s\n", SDL_GetError());
-            SDL_Quit();
-            return 1;
-        }
-        configured_data_root = data_root;
+    app->sdl_initialized = 1;
+    if (!app->data_root[0] && !make_default_data_root(app->data_root, sizeof(app->data_root))) {
+        fprintf(stderr, "[PLATFORM] SDL_GetBasePath failed: %s\n", SDL_GetError());
+        return 0;
     }
-    if (!game_bootstrap_init(&game, configured_data_root, error, sizeof(error))) {
+    if (!game_bootstrap_init(&app->game, app->data_root, error, sizeof(error))) {
         fprintf(stderr, "[ASSET] %s\n", error);
-        SDL_Quit();
-        return 1;
+        return 0;
     }
-    if (!scene_frame_init(&frame, 1024)) {
+    app->game_initialized = 1;
+    if (!scene_frame_init(&app->frame, 1024u)) {
         fprintf(stderr, "[SCENE] unable to allocate frame command buffer\n");
-        game_bootstrap_destroy(&game);
-        SDL_Quit();
-        return 1;
+        return 0;
     }
-    renderer = renderer_stub_create();
-    if (!renderer) {
-        scene_frame_destroy(&frame);
-        game_bootstrap_destroy(&game);
-        SDL_Quit();
-        return 1;
+    app->frame_initialized = 1;
+    renderer_config.backend = RENDERER_BACKEND_OPENGL;
+    renderer_config.window_width = 1280;
+    renderer_config.window_height = 720;
+    renderer_config.window_title = "Alien Breed 3D II: The Killing Grounds";
+    app->renderer = renderer_create(&renderer_config, error, sizeof(error));
+    if (!app->renderer) {
+        fprintf(stderr, "[RENDER] %s\n", error);
+        return 0;
     }
-
     /* Gameplay-first bootstrap: source session enters a selected A-P level directly. */
-    if (!game_session_select_level(&game.session, selected_level_index, error, sizeof(error))) {
-        fprintf(stderr, "[GAME] %s\n", error);
-        renderer_stub_destroy(renderer);
-        scene_frame_destroy(&frame);
-        game_bootstrap_destroy(&game);
-        SDL_Quit();
-        return 1;
-    }
-    if (!game_bootstrap_start_selected_single_player(&game, configured_data_root,
+    if (!game_session_select_level(&app->game.session, app->selected_level_index,
+                                   error, sizeof(error)) ||
+        !game_bootstrap_start_selected_single_player(&app->game, app->data_root,
                                                      error, sizeof(error))) {
         fprintf(stderr, "[GAME] %s\n", error);
-        renderer_stub_destroy(renderer);
-        scene_frame_destroy(&frame);
-        game_bootstrap_destroy(&game);
-        SDL_Quit();
-        return 1;
+        return 0;
     }
-    renderer_stub_set_status(renderer, "Level active; static collision; GPU renderer pending");
+    render_view_init(&app->view);
     if (SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
     }
-
     fprintf(stdout,
             "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes Level %c active\n",
-            game.game_link.size, game.story_text.size,
-            (char)('A' + game.active_level_index));
-    while (renderer_stub_is_running(renderer)) {
-        SDL_Event event;
+            app->game.game_link.size, app->game.story_text.size,
+            (char)('A' + app->game.active_level_index));
+    return 1;
+}
 
-        while (SDL_PollEvent(&event)) {
-            uint8_t raw_key;
+static void game_app_tick(GameApp *app)
+{
+    char error[256];
+    SDL_Event event;
 
-            if (event.type == SDL_QUIT) {
-                renderer_stub_request_quit(renderer);
-                break;
-            }
-            if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
-                if (raw_key_from_scancode(event.key.keysym.scancode, &raw_key) &&
-                    !game_input_set_raw_key(&game.input, raw_key,
-                                            event.type == SDL_KEYDOWN,
-                                            error, sizeof(error))) {
-                    fprintf(stderr, "[INPUT] %s\n", error);
-                    renderer_stub_set_status(renderer, error);
-                    continue;
-                }
-            }
-            if (event.type == SDL_MOUSEMOTION) {
-                game_input_add_mouse_motion(&game.input, event.motion.xrel, event.motion.yrel);
-            }
-            if (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP) {
-                if (!set_mouse_button_source_key(&game, event.button.button,
-                                                 event.type == SDL_MOUSEBUTTONDOWN,
-                                                 error, sizeof(error))) {
-                    fprintf(stderr, "[INPUT] %s\n", error);
-                    renderer_stub_set_status(renderer, error);
-                    continue;
-                }
-            }
-            if (event.type == SDL_KEYDOWN && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
-                renderer_stub_request_quit(renderer);
-                break;
-            }
-        }
-        if (!game_bootstrap_update_single_player_at_time(
-                &game, SDL_GetTicks64(), error, sizeof(error))) {
-            fprintf(stderr, "[GAME] %s\n", error);
-            renderer_stub_set_status(renderer, error);
-        } else if (game.session.level_finished != 0u) {
-            (void)snprintf(status, sizeof(status),
-                           "Level %c complete | campaign inventory preserved",
-                           (char)('A' + game.active_level_index));
-            fprintf(stdout, "[GAME] %s\n", status);
-            renderer_stub_set_status(renderer, status);
-            /* The source returns to its menu after endlevel; direct mode exits instead. */
-            renderer_stub_request_quit(renderer);
-        } else {
-            (void)snprintf(status, sizeof(status),
-                           "Level %c | zone %u | x=%" PRId32 " y=%" PRId32
-                           " z=%" PRId32 " hp=%u look=%d | GPU renderer pending",
-                           (char)('A' + game.active_level_index), game.player.zone_index,
-                           game.player.x, game.player.y, game.player.z,
-                           game.player.health, game.player.look_offset);
-            renderer_stub_set_status(renderer, status);
-        }
-        scene_frame_begin(&frame);
-        if (!game_bootstrap_submit_diagnostic_frame(&game, &frame)) {
-            fprintf(stderr, "[SCENE] diagnostic command submission failed\n");
+    if (!app || !renderer_is_running(app->renderer)) {
+        return;
+    }
+    while (SDL_PollEvent(&event)) {
+        uint8_t raw_key;
+
+        if (event.type == SDL_QUIT) {
+            renderer_request_quit(app->renderer);
             break;
         }
-        renderer_stub_present(renderer, &frame);
-        SDL_Delay(16);
+        if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+            if (raw_key_from_scancode(event.key.keysym.scancode, &raw_key) &&
+                !game_input_set_raw_key(&app->game.input, raw_key,
+                                        event.type == SDL_KEYDOWN,
+                                        error, sizeof(error))) {
+                fprintf(stderr, "[INPUT] %s\n", error);
+                app->exit_code = 1;
+                renderer_request_quit(app->renderer);
+                break;
+            }
+        }
+        if (event.type == SDL_MOUSEMOTION) {
+            game_input_add_mouse_motion(&app->game.input, event.motion.xrel, event.motion.yrel);
+            /* Native real pitch is presentation state; source mouse input stays intact. */
+            render_view_add_mouse_motion(&app->view, event.motion.yrel,
+                                         app->game.player.invert_mouse);
+        }
+        if (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP) {
+            if (!set_mouse_button_source_key(&app->game, event.button.button,
+                                             event.type == SDL_MOUSEBUTTONDOWN,
+                                             error, sizeof(error))) {
+                fprintf(stderr, "[INPUT] %s\n", error);
+                app->exit_code = 1;
+                renderer_request_quit(app->renderer);
+                break;
+            }
+        }
+        if (event.type == SDL_KEYDOWN && event.key.keysym.scancode == SDL_SCANCODE_ESCAPE) {
+            renderer_request_quit(app->renderer);
+            break;
+        }
     }
+    if (!renderer_is_running(app->renderer)) {
+        return;
+    }
+    if (!game_bootstrap_update_single_player_at_time(&app->game, SDL_GetTicks64(), error,
+                                                     sizeof(error))) {
+        fprintf(stderr, "[GAME] %s\n", error);
+        app->exit_code = 1;
+        renderer_request_quit(app->renderer);
+        return;
+    }
+    if (app->game.session.level_finished != 0u) {
+        fprintf(stdout, "[GAME] Level %c complete; direct session is ending\n",
+                (char)('A' + app->game.active_level_index));
+        /* The source returns to its menu after endlevel; direct mode exits instead. */
+        renderer_request_quit(app->renderer);
+        return;
+    }
+    scene_frame_begin(&app->frame);
+    if (!game_bootstrap_submit_diagnostic_frame(&app->game, &app->frame)) {
+        fprintf(stderr, "[SCENE] source scene command submission failed\n");
+        app->exit_code = 1;
+        renderer_request_quit(app->renderer);
+        return;
+    }
+    if (!renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
+        fprintf(stderr, "[RENDER] %s\n", error);
+        app->exit_code = 1;
+        renderer_request_quit(app->renderer);
+    }
+}
 
-    renderer_stub_destroy(renderer);
-    scene_frame_destroy(&frame);
-    game_bootstrap_destroy(&game);
-    SDL_Quit();
+#if defined(__EMSCRIPTEN__)
+static GameApp game_app_web;
+
+static void game_app_web_tick(void *argument)
+{
+    GameApp *app = argument;
+
+    game_app_tick(app);
+    if (!renderer_is_running(app->renderer)) {
+        game_app_shutdown(app);
+        emscripten_cancel_main_loop();
+    }
+}
+#endif
+
+int main(int argc, char **argv)
+{
+#if defined(__EMSCRIPTEN__)
+    GameApp *app = &game_app_web;
+#else
+    GameApp native_app = {0};
+    GameApp *app = &native_app;
+#endif
+
+    if (!game_app_init(app, argc, argv)) {
+        game_app_shutdown(app);
+        return 1;
+    }
+#if defined(__EMSCRIPTEN__)
+    emscripten_set_main_loop_arg(game_app_web_tick, app, 0, 1);
     return 0;
+#else
+    while (renderer_is_running(app->renderer)) {
+        game_app_tick(app);
+        SDL_Delay(16u);
+    }
+    int exit_code = app->exit_code;
+    game_app_shutdown(app);
+    return exit_code;
+#endif
 }
