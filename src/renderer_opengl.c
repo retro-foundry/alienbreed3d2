@@ -2630,10 +2630,11 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 /*
                  * doapoly reads the terminal word at face + 8 into the
                  * adjacent `draw_PreGouraud_b`/`draw_Gouraud_b` bytes.  The
-                 * high byte selects gotlurvelyshading; the low byte belongs
-                 * to the next source flag and must not select Gouraud here.
+                 * low byte (`draw_Gouraud_b`) selects draw_PutInLinesGouraud
+                 * and gotlurvelyshading.  The high byte is the separate
+                 * pre-Gouraud/glare flag, evaluated later in doapoly.
                  */
-                int source_gouraud = face_bytes[8u] != 0u;
+                int source_gouraud = face_bytes[9u] != 0u;
                 uint8_t maximum_u = 0u;
                 uint8_t maximum_v = 0u;
                 const RendererOpenGLTexture *texture;
