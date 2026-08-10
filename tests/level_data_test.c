@@ -3964,6 +3964,7 @@ int main(int argc, char **argv)
         size_t object_names_size;
         LevelZone collectable_zone;
         GameObjectDefinition collectable_definition;
+        GameObjectAnimationFrame collectable_frame;
         GameInventory collectable_grant;
         GameInventory original_inventory;
         GameInventory expected_inventory;
@@ -4020,7 +4021,13 @@ int main(int argc, char **argv)
         expected_inventory = original_inventory;
         game_inventory_apply_grant(&expected_inventory, &collectable_grant,
                                    &game.inventory_limits);
-        if (!object_collectables_update_single_player(
+        /* Collectable only reaches DEFANIMOBJ after objmoveanim has worried its slot. */
+        collectable_slot[62u] = 1u;
+        if (!game_link_get_object_animation_frame(
+                &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT, 0u,
+                read_be16(collectable_slot + 34u), &collectable_frame,
+                error, sizeof(error)) ||
+            !object_collectables_update_single_player(
                 &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits,
                 &game.message_runtime, game.preferences.show_messages,
@@ -4029,6 +4036,10 @@ int main(int argc, char **argv)
             collected_count != 1u ||
             (int16_t)read_be16(collectable_slot + 12u) != -1 ||
             collectable_slot[62u] != 0u ||
+            (int16_t)read_be16(collectable_slot + 4u) !=
+                (int16_t)(source_asr32_7(collectable_zone.floor) +
+                          (int16_t)collectable_frame.signed_byte_4 * 2) ||
+            read_be16(collectable_slot + 34u) != collectable_frame.next_timer1 ||
             game.message_runtime.lines[collectable_message_line].text !=
                 game.level_runtime.level_bytes ||
             (game.message_runtime.lines[collectable_message_line].length_and_tag &
@@ -4044,6 +4055,7 @@ int main(int argc, char **argv)
         memcpy(collectable_slot, collectable_slot_original, sizeof(collectable_slot_original));
         game.session.player1_inventory = original_inventory;
         write_be16(collectable_slot + 24u, UINT16_MAX);
+        collectable_slot[62u] = 1u;
         object_name_message_line = game.message_runtime.fullscreen != 0u ?
             (uint8_t)((game.message_runtime.line_number + 1u) &
                       (MESSAGE_RUNTIME_LINE_COUNT - 1u)) :
@@ -4106,6 +4118,7 @@ int main(int argc, char **argv)
         }
         game.session.player1_inventory = full_inventory;
         collectable_slot[54u] = failed_collectable_type;
+        collectable_slot[62u] = 1u;
         game.player.tmp_y = (failed_collectable_definition.floor_ceiling == 0u ?
                                  collectable_zone.floor : collectable_zone.roof) -
             game.player.tmp_height;
@@ -4137,6 +4150,7 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        collectable_slot[62u] = 1u;
         if (!object_collectables_update_single_player(
                 &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits,
@@ -4150,6 +4164,7 @@ int main(int argc, char **argv)
             return 1;
         }
         write_be16(collectable_slot + 40u, 0u);
+        collectable_slot[62u] = 1u;
         if (!object_collectables_update_single_player(
                 &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits,
@@ -4163,6 +4178,7 @@ int main(int argc, char **argv)
             return 1;
         }
         write_be16(collectable_slot + 40u, 0u);
+        collectable_slot[62u] = 1u;
         deduped_failed_collectable_message_line = game.message_runtime.fullscreen != 0u ?
             (uint8_t)((game.message_runtime.line_number + 1u) &
                       (MESSAGE_RUNTIME_LINE_COUNT - 1u)) :

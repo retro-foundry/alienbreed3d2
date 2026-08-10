@@ -7,9 +7,13 @@ enum {
     /* defs.i source offsets in an ObjT object/ShotT overlay. */
     OBJECT_SLOT_POINT_INDEX = 0u,
     OBJECT_SLOT_VERTICAL_POSITION = 4u,
+    OBJECT_SLOT_GRAPHICS_WORD = 6u,
+    OBJECT_SLOT_GRAPHICS_LONG = 8u,
     OBJECT_SLOT_ZONE_ID = 12u,
     OBJECT_SLOT_TYPE_ID = 16u,
     OBJECT_SLOT_DISPLAY_TEXT = 24u,
+    OBJECT_SLOT_CURRENT_ANGLE = 30u,
+    OBJECT_SLOT_TIMER1 = 34u,
     OBJECT_SLOT_TIMER2 = 40u,
     OBJECT_SLOT_ENTITY_TYPE = 54u,
     OBJECT_SLOT_WHICH_ANIMATION = 55u,
@@ -52,6 +56,14 @@ static void object_collectables_write_be16(uint8_t *destination, uint16_t value)
 {
     destination[0] = (uint8_t)(value >> 8);
     destination[1] = (uint8_t)value;
+}
+
+static void object_collectables_write_be32(uint8_t *destination, uint32_t value)
+{
+    destination[0] = (uint8_t)(value >> 24);
+    destination[1] = (uint8_t)(value >> 16);
+    destination[2] = (uint8_t)(value >> 8);
+    destination[3] = (uint8_t)value;
 }
 
 static int object_collectables_push_success_message(
@@ -182,6 +194,50 @@ static int object_collectables_player_hits_slot(const PlayerRuntime *player,
     return distance_squared < radius_squared;
 }
 
+/* newaliencontrol.s:Collectable -> DEFANIMOBJ. */
+static int object_collectables_apply_default_animation(const GameLink *game_link,
+                                                       const GameObjectDefinition *definition,
+                                                       uint8_t *slot,
+                                                       char *error, size_t error_size)
+{
+    GameObjectAnimationFrame frame;
+    uint16_t frame_index = object_collectables_read_be16(slot + OBJECT_SLOT_TIMER1);
+    int16_t vertical_adjustment;
+
+    if (!game_link_get_object_animation_frame(
+            game_link, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+            slot[OBJECT_SLOT_ENTITY_TYPE], frame_index, &frame, error, error_size)) {
+        return 0;
+    }
+    object_collectables_write_be32(slot + OBJECT_SLOT_GRAPHICS_LONG, 0u);
+    if (definition->graphics_type == 1u) {
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 1u] = frame.byte_0;
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 3u] = frame.byte_1;
+        object_collectables_write_be16(slot + OBJECT_SLOT_GRAPHICS_WORD, UINT16_MAX);
+        object_collectables_write_be16(
+            slot + OBJECT_SLOT_CURRENT_ANGLE,
+            (uint16_t)((uint32_t)object_collectables_read_be16(
+                slot + OBJECT_SLOT_CURRENT_ANGLE) + frame.word_2));
+    } else if (definition->graphics_type > 1u) {
+        object_collectables_write_be16(
+            slot + OBJECT_SLOT_GRAPHICS_LONG,
+            (uint16_t)(int16_t)-(int16_t)(int8_t)frame.byte_0);
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 3u] = frame.byte_1;
+        object_collectables_write_be16(slot + OBJECT_SLOT_GRAPHICS_WORD, frame.word_2);
+    } else {
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 1u] = frame.byte_0;
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 3u] = frame.byte_1;
+        object_collectables_write_be16(slot + OBJECT_SLOT_GRAPHICS_WORD, frame.word_2);
+    }
+    vertical_adjustment = (int16_t)((int16_t)frame.signed_byte_4 * 2);
+    object_collectables_write_be16(
+        slot + OBJECT_SLOT_VERTICAL_POSITION,
+        (uint16_t)((uint32_t)object_collectables_read_be16(
+            slot + OBJECT_SLOT_VERTICAL_POSITION) + (uint16_t)vertical_adjustment));
+    object_collectables_write_be16(slot + OBJECT_SLOT_TIMER1, frame.next_timer1);
+    return 1;
+}
+
 static int object_collectables_update_range_single_player(
     ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
@@ -236,6 +292,10 @@ static int object_collectables_update_range_single_player(
         if (definition.behaviour != OBJECT_BEHAVIOUR_COLLECTABLE) {
             continue;
         }
+        /* Collectable only enters its placement, animation, and collision body when worried. */
+        if (slot[OBJECT_SLOT_WORRY] == 0u) {
+            continue;
+        }
         point_index = object_collectables_read_be16(slot + OBJECT_SLOT_POINT_INDEX);
         if (!object_runtime_get_point_bytes(objects, point_index, &point_bytes) ||
             !level_runtime_get_zone(level, (uint16_t)zone_id, &zone, error, error_size)) {
@@ -252,6 +312,12 @@ static int object_collectables_update_range_single_player(
         }
         object_collectables_write_be16(slot + OBJECT_SLOT_VERTICAL_POSITION,
                                        (uint16_t)object_collectables_asr32(floor_or_roof, 7u));
+        /* DEFANIMOBJ's high bit is retained while its one-frame worry is consumed. */
+        slot[OBJECT_SLOT_WORRY] &= 0x80u;
+        if (!object_collectables_apply_default_animation(game_link, &definition, slot,
+                                                         error, error_size)) {
+            return 0;
+        }
 
         if (!object_collectables_player_hits_slot(player, slot, point_bytes, &definition)) {
             continue;
