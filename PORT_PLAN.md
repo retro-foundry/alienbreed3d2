@@ -62,8 +62,8 @@ authority for all game behavior and data formats.
   by selecting or interpolating indexed palette texels.
 - [x] `objdrawhires.s:doapoly` vector polygons retain their authored point
   index/U/V records. The OpenGL backend decodes each selected signed
-  `Draw_TextureMapsPtr` offset with its four-byte source texel stride, retains
-  its direct top-down source V coordinate at the GPU texture boundary, and
+  `Draw_TextureMapsPtr` offset with its four-byte `U << 8 | V` source texel
+  address, retains its direct top-down source V coordinate at the GPU texture boundary, and
   converts it once through the neutral bright `Draw_TexturePalettePtr` row.
   Vector surfaces use filtered, mipmapped true-colour textures where supported
   by the GLES2-compatible source dimensions; bitmap sprites remain crisp.

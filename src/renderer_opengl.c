@@ -2568,7 +2568,14 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
     }
     for (uint16_t y = 0u; y < height; ++y) {
         for (uint16_t x = 0u; x < width; ++x) {
-            size_t source_coordinate = ((size_t)y << 8u) | x;
+            /*
+             * objdrawhires.s:drawpol first derives the U byte from d6,
+             * shifts it into bits 8..15, then copies the V byte from d5 into
+             * bits 0..7 before `(a0,d0.w*4)`. The source map is therefore
+             * addressed as U << 8 | V, even though this converted texture is
+             * stored conventionally as rows of V and columns of U.
+             */
+            size_t source_coordinate = ((size_t)x << 8u) | y;
             size_t source_texel_offset;
             size_t source_light_palette_offset;
             uint8_t source_texel;
