@@ -475,8 +475,11 @@ authority for all game behavior and data formats.
      routing, the caller-owned collision words, control-point offset/heading,
      movement, room/flight update, and sight/reaction transitions. They remain
      uncalled until the complete dispatcher and narrative handoff can own that
-     mode in source order. Next: port another complete source movement/attack
-     mode, then the audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
+     mode in source order. `ai_AttackCommon` now also derives its source-width
+     `SHOTTYPE`, `SHOTPOWER`, `SHOTSPEED`, and `SHOTSHIFT` globals and its
+     hitscan/projectile choice from each `AlienT`/`BulT` pair, without starting
+     either attack body. Next: port one complete source attack body and its
+     firing helper, then the audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
      for either an empty or successful trigger, without synthesizing the
@@ -687,6 +690,14 @@ view is still the source object-point base for no-team paths or selected team
 workspace for team paths; no global collision table is inferred. This mode is
 not yet wired into `ObjectHandler` while the rest of the dispatcher and its
 narrative consumer remain incomplete.
+`modules/ai.s:ai_AttackCommon` is now an uncalled direct setup helper. It
+reads the active `EntT_Type_b`'s `AlienT_BulType_w`, retains the low-byte
+`SHOTTYPE`, low-byte `BulT_HitDamage_l`, 68000 dynamic-longword-`BSET` result
+for `SHOTSPEED`, low-word decrement for `SHOTSHIFT`, and nonzero
+`BulT_IsHitScan_l` branch choice. The later `ai_AttackWithHitScan` and
+`ai_AttackWithProjectile` bodies still own their source animation, sight,
+damage, miss/projectile spawn, torch, and mode-transition effects, so neither
+is enabled merely by this setup state.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

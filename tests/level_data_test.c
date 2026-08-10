@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "alien_runtime.h"
+#include "alien_attack.h"
 #include "alien_animation.h"
 #include "alien_damage.h"
 #include "alien_decision.h"
@@ -4376,6 +4377,45 @@ int main(int argc, char **argv)
                 setup.away_from_wall != (int8_t)definition.girth ||
                 setup.extended_wall_length != (int16_t)(40u << definition.girth)) {
                 fprintf(stderr, "ItsAnAlien setup %u is inconsistent: %s\n", alien_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+    }
+    {
+        /* modules/ai.s:ai_AttackCommon prepares SHOT* state from every AlienT/BulT pair. */
+        uint8_t slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime attack_objects = {0};
+        AlienAttackSetup attack_setup;
+        GameAlienDefinition attack_alien;
+        GameBulletDefinition attack_bullet;
+
+        attack_objects.slot_bytes = slot_bytes;
+        attack_objects.slot_count = 1u;
+        attack_objects.active_slot_count = 1u;
+        for (uint16_t alien_index = 0u; alien_index < GAME_LINK_ALIEN_COUNT; ++alien_index) {
+            uint16_t expected_shot_speed;
+
+            slot_bytes[54u] = (uint8_t)alien_index;
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &attack_alien, error, sizeof(error)) ||
+                !game_link_get_bullet_definition(&game.game_link_catalog,
+                                                 attack_alien.bullet_type, &attack_bullet,
+                                                 error, sizeof(error)) ||
+                !alien_attack_setup_from_slot(&attack_objects, 0u, &game.game_link_catalog,
+                                              &attack_setup, error, sizeof(error))) {
+                fprintf(stderr, "could not prepare ai_AttackCommon source state: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            expected_shot_speed = (uint16_t)(UINT32_C(1) << (attack_bullet.speed & 31u));
+            if (attack_setup.shot_type != (uint8_t)attack_alien.bullet_type ||
+                attack_setup.shot_power != (uint8_t)attack_bullet.hit_damage ||
+                attack_setup.shot_speed != expected_shot_speed ||
+                attack_setup.shot_shift != (uint16_t)(attack_bullet.speed - 1u) ||
+                attack_setup.is_hitscan !=
+                    (attack_bullet.is_hitscan != 0u ? UINT8_MAX : 0u)) {
+                fprintf(stderr, "ai_AttackCommon SHOT setup %u is inconsistent\n", alien_index);
                 game_bootstrap_destroy(&game);
                 return 1;
             }

@@ -89,10 +89,13 @@ first game's software renderer:
   player-noise/team-memory routing, the caller-owned collision words, authored
   control-point movement, room/flight state, and the final sight/reaction
   branches. The complete mode remains uncalled until the source dispatcher and
-  narrative handoff can own it in order. `ai_DoTakeDamage` likewise completes
-  the selected nonfatal reaction animation and heading branch with explicit
-  source torch inputs. Enemy behavior, dynamic blast, and audio remain in
-  progress;
+  narrative handoff can own it in order. `modules/ai.s:ai_AttackCommon` now
+  derives the exact source-width `SHOTTYPE`, `SHOTPOWER`, `SHOTSPEED`, and
+  `SHOTSHIFT` state plus its hitscan/projectile branch from each `AlienT` and
+  `BulT`; its firing bodies remain uncalled. `ai_DoTakeDamage` likewise
+  completes the selected nonfatal reaction animation and heading branch with
+  explicit source torch inputs. Enemy behavior, dynamic blast, and audio
+  remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 
