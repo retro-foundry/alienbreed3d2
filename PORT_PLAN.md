@@ -100,11 +100,7 @@ authority for all game behavior and data formats.
   world billboards share the source's physical vertical scale. Every source
   column in a frame is therefore decoded and world billboard size/placement
   follows `transform.s:RotateLevelPts` and `draw_Bitmap` without applying the
-  source horizontal projection scale twice. World billboard quads retain the
-  live ObjT centre and frame extents, then translate as a complete frame when
-  necessary to remain inside their current lower/upper sector floor and roof;
-  the GPU path does not preserve `draw_Bitmap`'s pseudo-3D screen-column cut
-  through a sprite at a level surface.
+  source horizontal projection scale twice.
 - [x] `objdrawhires.s:draw_bitmap_lighted` now follows its own direct 8-bit
   WAD/PTR column format and 256-entry selected object-light palette, instead
   of incorrectly extracting an ordinary bitmap's packed 5-bit third.
