@@ -94,7 +94,9 @@ typedef enum {
     RENDERER_OPENGL_TEXTURE_WALL,
     RENDERER_OPENGL_TEXTURE_FLAT,
     RENDERER_OPENGL_TEXTURE_SPRITE,
-    RENDERER_OPENGL_TEXTURE_BACKDROP
+    RENDERER_OPENGL_TEXTURE_BACKDROP,
+    /* objdrawhires.s:doapoly source map plus one resolved palette-light row. */
+    RENDERER_OPENGL_TEXTURE_VECTOR
 } RendererOpenGLTextureKind;
 
 struct RendererOpenGL {
@@ -1756,11 +1758,11 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     return 1;
 }
 
-static int renderer_opengl_vector_face_color(const SceneSprite *sprite,
-                                              const uint8_t *face_bytes,
-                                              float *out_red, float *out_green,
-                                              float *out_blue, char *error,
-                                              size_t error_size)
+static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
+                                                     const uint8_t *face_bytes,
+                                                     size_t *out_map_offset,
+                                                     uint8_t *out_palette_row,
+                                                     char *error, size_t error_size)
 {
     enum {
         VECTOR_LIGHT_PALETTE_FIRST_ROW = 32u,
@@ -1769,18 +1771,13 @@ static int renderer_opengl_vector_face_color(const SceneSprite *sprite,
     };
     int16_t source_map_word;
     size_t source_map_offset;
-    size_t source_light_palette_offset;
-    uint8_t source_texel;
-    uint8_t source_colour;
     int32_t source_brightness;
     int32_t source_palette_row;
-    uint8_t color[4];
 
-    if (!sprite || !face_bytes || !out_red || !out_green || !out_blue ||
-        !sprite->source_palette_bytes || !sprite->source_light_palette_bytes ||
-        !sprite->source_display_palette_bytes) {
+    if (!sprite || !face_bytes || !out_map_offset || !out_palette_row ||
+        !sprite->source_palette_bytes || !sprite->source_light_palette_bytes) {
         renderer_opengl_set_error(error, error_size,
-                                  "source vector face has no texture-map, light, or display palette");
+                                  "source vector face has no texture-map or light palette");
         return 0;
     }
     /* objdrawhires.s:doapoly accepts a signed map offset and adds 64 KiB for bit 15. */
@@ -1816,21 +1813,152 @@ static int renderer_opengl_vector_face_color(const SceneSprite *sprite,
     } else if (source_palette_row >= VECTOR_LIGHT_PALETTE_ROW_COUNT) {
         source_palette_row = VECTOR_LIGHT_PALETTE_ROW_COUNT - 1;
     }
-    source_texel = sprite->source_palette_bytes[source_map_offset];
-    source_light_palette_offset =
-        (size_t)(VECTOR_LIGHT_PALETTE_FIRST_ROW + source_palette_row) *
-            VECTOR_LIGHT_PALETTE_ROW_WIDTH + source_texel;
-    source_colour = sprite->source_light_palette_bytes[source_light_palette_offset];
-    if (!renderer_opengl_display_color(sprite->source_display_palette_bytes,
-                                       sprite->source_display_palette_byte_count,
-                                       source_colour, color)) {
-        renderer_opengl_set_error(error, error_size,
-                                  "source vector face light palette references an invalid display colour");
+    *out_map_offset = source_map_offset;
+    *out_palette_row = (uint8_t)source_palette_row;
+    return 1;
+}
+
+static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
+                                                       size_t source_map_offset,
+                                                       uint8_t palette_row,
+                                                       uint8_t maximum_u, uint8_t maximum_v,
+                                                       uint8_t **out_pixels,
+                                                       uint16_t *out_width, uint16_t *out_height,
+                                                       char *error, size_t error_size)
+{
+    enum {
+        VECTOR_LIGHT_PALETTE_FIRST_ROW = 32u,
+        VECTOR_LIGHT_PALETTE_ROW_WIDTH = 256u,
+        VECTOR_SOURCE_TEXEL_STRIDE = 4u
+    };
+    uint16_t width = (uint16_t)maximum_u + 1u;
+    uint16_t height = (uint16_t)maximum_v + 1u;
+    uint8_t *pixels;
+
+    if (!sprite || !out_pixels || !out_width || !out_height || !sprite->source_palette_bytes ||
+        !sprite->source_light_palette_bytes || !sprite->source_display_palette_bytes ||
+        source_map_offset >= sprite->source_palette_byte_count ||
+        palette_row >= 32u || (size_t)width > SIZE_MAX / (size_t)height / 4u ||
+        sprite->source_light_palette_byte_count <
+            (size_t)(VECTOR_LIGHT_PALETTE_FIRST_ROW + 32u) * VECTOR_LIGHT_PALETTE_ROW_WIDTH) {
+        renderer_opengl_set_error(error, error_size, "source vector texture descriptor is invalid");
         return 0;
     }
-    *out_red = (float)color[0] / 255.0f;
-    *out_green = (float)color[1] / 255.0f;
-    *out_blue = (float)color[2] / 255.0f;
+    pixels = malloc((size_t)width * height * 4u);
+    if (!pixels) {
+        renderer_opengl_set_error(error, error_size, "source vector texture conversion allocation failed");
+        return 0;
+    }
+    for (uint16_t y = 0u; y < height; ++y) {
+        for (uint16_t x = 0u; x < width; ++x) {
+            size_t source_coordinate = ((size_t)y << 8u) | x;
+            size_t source_texel_offset;
+            size_t source_light_palette_offset;
+            uint8_t source_texel;
+            uint8_t source_colour;
+
+            if (source_coordinate > (SIZE_MAX - source_map_offset) / VECTOR_SOURCE_TEXEL_STRIDE) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source vector texture coordinate is too large");
+                return 0;
+            }
+            source_texel_offset = source_map_offset +
+                source_coordinate * VECTOR_SOURCE_TEXEL_STRIDE;
+            if (source_texel_offset > sprite->source_palette_byte_count ||
+                VECTOR_SOURCE_TEXEL_STRIDE >
+                    sprite->source_palette_byte_count - source_texel_offset) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source vector texture map is outside its asset");
+                return 0;
+            }
+            source_texel = sprite->source_palette_bytes[source_texel_offset];
+            source_light_palette_offset =
+                (size_t)(VECTOR_LIGHT_PALETTE_FIRST_ROW + palette_row) *
+                    VECTOR_LIGHT_PALETTE_ROW_WIDTH + source_texel;
+            source_colour = sprite->source_light_palette_bytes[source_light_palette_offset];
+            if (!renderer_opengl_write_palette_texel(
+                    pixels, ((size_t)y * width + x) * 4u,
+                    sprite->source_display_palette_bytes,
+                    sprite->source_display_palette_byte_count, source_colour, 0)) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source vector light palette references an invalid display colour");
+                return 0;
+            }
+        }
+    }
+    *out_pixels = pixels;
+    *out_width = width;
+    *out_height = height;
+    return 1;
+}
+
+static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
+                                                     const SceneSprite *sprite,
+                                                     size_t source_map_offset,
+                                                     uint8_t palette_row,
+                                                     uint8_t maximum_u, uint8_t maximum_v,
+                                                     GLuint *out_texture,
+                                                     char *error, size_t error_size)
+{
+    SceneTextureWindow key_window = {0};
+    uint8_t *pixels = NULL;
+    uint16_t width = 0u;
+    uint16_t height = 0u;
+    GLuint texture = 0u;
+
+    if (!renderer || !sprite || !out_texture || source_map_offset > UINT32_MAX) {
+        renderer_opengl_set_error(error, error_size, "source vector texture request is invalid");
+        return 0;
+    }
+    key_window.u_period = (uint16_t)maximum_u + 1u;
+    key_window.v_period = (uint16_t)maximum_v + 1u;
+    for (size_t index = 0u; index < renderer->texture_count; ++index) {
+        const RendererOpenGLTexture *cached = &renderer->textures[index];
+
+        if (cached->kind == RENDERER_OPENGL_TEXTURE_VECTOR &&
+            cached->source_bytes == sprite->source_palette_bytes &&
+            cached->source_byte_count == sprite->source_palette_byte_count &&
+            cached->source_palette_bytes == sprite->source_light_palette_bytes &&
+            cached->source_palette_byte_count == sprite->source_light_palette_byte_count &&
+            cached->source_display_palette_bytes == sprite->source_display_palette_bytes &&
+            cached->source_display_palette_byte_count == sprite->source_display_palette_byte_count &&
+            cached->source_asset_id == (uint32_t)source_map_offset &&
+            cached->source_effect == palette_row &&
+            memcmp(&cached->texture_window, &key_window, sizeof(key_window)) == 0) {
+            *out_texture = cached->texture;
+            return 1;
+        }
+    }
+    if (!renderer_opengl_decode_vector_face_texture(
+            sprite, source_map_offset, palette_row, maximum_u, maximum_v,
+            &pixels, &width, &height, error, error_size) ||
+        !renderer_opengl_create_texture(pixels, width, height, 0, 0, &texture, error, error_size)) {
+        free(pixels);
+        if (texture != 0u) {
+            glDeleteTextures(1, &texture);
+        }
+        return 0;
+    }
+    free(pixels);
+    if (renderer->texture_count == renderer->texture_capacity &&
+        !renderer_opengl_texture_cache_reserve(
+            renderer, renderer->texture_capacity == 0u ?
+                RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY : renderer->texture_capacity * 2u,
+            error, error_size)) {
+        glDeleteTextures(1, &texture);
+        return 0;
+    }
+    renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
+        texture, sprite->source_palette_bytes, sprite->source_palette_byte_count,
+        sprite->source_light_palette_bytes, sprite->source_light_palette_byte_count,
+        sprite->source_display_palette_bytes, sprite->source_display_palette_byte_count,
+        (uint32_t)source_map_offset, key_window, {0}, width, height,
+        RENDERER_OPENGL_TEXTURE_VECTOR, palette_row
+    };
+    *out_texture = texture;
     return 1;
 }
 
@@ -1922,47 +2050,82 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
             }
             polygon_byte_count = 18u + (size_t)line_count_minus_one * 4u;
             {
-                float source_red;
-                float source_green;
-                float source_blue;
+                const uint8_t *polygon_point_bytes = bytes + part_offset + 4u;
+                const uint8_t *face_bytes =
+                    polygon_point_bytes + (size_t)polygon_point_count * 4u;
+                size_t source_map_offset;
+                uint8_t source_palette_row;
+                uint8_t maximum_u = 0u;
+                uint8_t maximum_v = 0u;
+                GLuint texture;
 
-                if (!renderer_opengl_vector_face_color(
-                        sprite, bytes + part_offset + 4u + (size_t)polygon_point_count * 4u,
-                        &source_red, &source_green, &source_blue, error, error_size)) {
+                /* Each four-byte source polygon entry is point index, U, V. */
+                for (uint32_t corner = 0u; corner < polygon_point_count; ++corner) {
+                    const uint8_t *source_corner = polygon_point_bytes + (size_t)corner * 4u;
+
+                    if (renderer_opengl_read_be16(source_corner) >= point_count) {
+                        renderer_opengl_set_error(error, error_size,
+                                                  "source vector polygon references an invalid point");
+                        goto done;
+                    }
+                    if (source_corner[2u] > maximum_u) {
+                        maximum_u = source_corner[2u];
+                    }
+                    if (source_corner[3u] > maximum_v) {
+                        maximum_v = source_corner[3u];
+                    }
+                }
+                if (!renderer_opengl_vector_face_texture_info(
+                        sprite, face_bytes, &source_map_offset, &source_palette_row,
+                        error, error_size) ||
+                    !renderer_opengl_find_vector_face_texture(
+                        renderer, sprite, source_map_offset, source_palette_row,
+                        maximum_u, maximum_v, &texture, error, error_size)) {
                     goto done;
                 }
-            for (uint32_t triangle = 1u; triangle + 1u < polygon_point_count; ++triangle) {
-                const uint32_t corners[3] = {0u, triangle, triangle + 1u};
 
-                for (uint32_t corner = 0u; corner < 3u; ++corner) {
-                    uint16_t point_index = renderer_opengl_read_be16(
-                        bytes + part_offset + 4u + (size_t)corners[corner] * 4u);
-                    RendererOpenGLVertex vertex;
+                for (uint32_t triangle = 1u; triangle + 1u < polygon_point_count; ++triangle) {
+                    const uint32_t corners[3] = {0u, triangle, triangle + 1u};
 
-                    if (point_index >= point_count ||
-                        !renderer_opengl_vector_model_point(
-                            sprite, camera, view,
-                            bytes + point_data_offset + (size_t)point_index * 6u,
-                            sprite->presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON,
-                            &vertex)) {
-                        if (point_index >= point_count) {
+                    for (uint32_t corner = 0u; corner < 3u; ++corner) {
+                        const uint8_t *source_corner =
+                            polygon_point_bytes + (size_t)corners[corner] * 4u;
+                        uint16_t point_index = renderer_opengl_read_be16(source_corner);
+                        RendererOpenGLVertex vertex;
+
+                        if (!renderer_opengl_vector_model_point(
+                                sprite, camera, view,
+                                bytes + point_data_offset + (size_t)point_index * 6u,
+                                sprite->presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON,
+                                &vertex)) {
                             renderer_opengl_set_error(error, error_size,
-                                                      "source vector polygon references an invalid point");
+                                                      "source vector model point is invalid");
+                            goto done;
                         }
-                        goto done;
-                    }
-                    vertex.source_red = source_red;
-                    vertex.source_green = source_green;
-                    vertex.source_blue = source_blue;
-                    /* The source light-table row above already colours this vector face. */
-                    vertex.source_light = 1.0f;
-                    /* append only after the face's original map colour is attached. */
-                    if (!renderer_opengl_vector_append(&vertices, &vertex_count, &vertex_capacity,
-                                                       &vertex, error, error_size)) {
-                        goto done;
+                        vertex.u = ((float)source_corner[2u] + 0.5f) /
+                            ((float)maximum_u + 1.0f);
+                        vertex.v = ((float)source_corner[3u] + 0.5f) /
+                            ((float)maximum_v + 1.0f);
+                        /* The source light-table row is resolved in the face texture. */
+                        vertex.source_light = 1.0f;
+                        if (!renderer_opengl_vector_append(
+                                &vertices, &vertex_count, &vertex_capacity, &vertex,
+                                error, error_size)) {
+                            goto done;
+                        }
                     }
                 }
-            }
+                renderer->gl.active_texture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, texture);
+                renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
+                if (!renderer_opengl_draw_vertices(renderer, vertices, vertex_count,
+                                                   GL_TRIANGLES, error, error_size)) {
+                    goto done;
+                }
+                free(vertices);
+                vertices = NULL;
+                vertex_count = 0u;
+                vertex_capacity = 0u;
             }
             part_offset += polygon_byte_count;
             if (part_offset > size || 2u > size - part_offset) {
@@ -1972,12 +2135,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
             }
         }
     }
-    renderer->gl.active_texture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, renderer->white_texture);
-    renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
-    result = renderer_opengl_draw_vertices(renderer, vertices, vertex_count, GL_TRIANGLES,
-                                           error, error_size);
-
+    result = 1;
 done:
     free(vertices);
     return result;

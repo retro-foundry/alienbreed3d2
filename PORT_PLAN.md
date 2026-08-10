@@ -55,6 +55,13 @@ authority for all game behavior and data formats.
   floors, ceilings, and water use ordinary linearly filtered mipmapped RGBA
   textures; the source's live brightness gradient is then applied as modern
   per-vertex lighting rather than by interpolating indexed palette texels.
+- [x] `objdrawhires.s:doapoly` vector polygons retain their authored point
+  index/U/V records. The OpenGL backend decodes each selected signed
+  `Draw_TextureMapsPtr` offset with its four-byte source texel stride and
+  resolves every texel through that face's `Draw_TexturePalettePtr` light row
+  before caching a crisp GPU texture. Vector models, including Player 1's
+  companion weapon, therefore use source texture detail rather than a single
+  representative face colour.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.
