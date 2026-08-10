@@ -53,6 +53,16 @@ int lighting_runtime_refresh_single_player(LightingRuntime *runtime,
                                            PlayerRuntime *player,
                                            char *error, size_t error_size);
 
+/*
+ * Presentation extension for the complete-level GPU scene. It evaluates the
+ * same `hires.s:allinzone` equations for every zone before source effects are
+ * applied, rather than leaving zones outside Player 1's source PVST with
+ * stale BSS values. It deliberately does not alter PlayerRuntime fields.
+ */
+int lighting_runtime_refresh_all_zones(LightingRuntime *runtime,
+                                       const LevelRuntime *level,
+                                       char *error, size_t error_size);
+
 /* newanims.s:objmoveanim's Anim_Timer_w gate and brightanim call. */
 void lighting_runtime_advance_animation(LightingRuntime *runtime);
 

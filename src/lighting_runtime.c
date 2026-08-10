@@ -319,6 +319,53 @@ int lighting_runtime_refresh_single_player(LightingRuntime *runtime,
     return 1;
 }
 
+int lighting_runtime_refresh_all_zones(LightingRuntime *runtime,
+                                       const LevelRuntime *level,
+                                       char *error, size_t error_size)
+{
+    if (!runtime || !level || level->zone_count > LIGHTING_RUNTIME_POINT_ZONE_CAPACITY ||
+        level->zone_count > LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
+        lighting_runtime_set_error(error, error_size,
+                                   "complete-scene lighting refresh received invalid source state");
+        return 0;
+    }
+    /*
+     * `hires.s:donetalking` reaches this allinzone loop through Player 1's
+     * PVST. The PC scene intentionally has no PVS/portal submission, so run
+     * precisely that point and room-brightness conversion for each source
+     * zone before flash/torch updates mutate the live tables later this tick.
+     */
+    for (uint16_t zone_index = 0u; zone_index < level->zone_count; ++zone_index) {
+        LevelZone zone;
+
+        if (!level_runtime_get_zone(level, zone_index, &zone, error, error_size) ||
+            !lighting_runtime_scale_zone_brightness(
+                runtime, (int16_t)zone.brightness,
+                &runtime->zone_brightness[zone_index][LIGHTING_RUNTIME_LOWER_BRIGHTNESS],
+                error, error_size) ||
+            !lighting_runtime_scale_zone_brightness(
+                runtime, (int16_t)zone.upper_brightness,
+                &runtime->zone_brightness[zone_index][LIGHTING_RUNTIME_UPPER_BRIGHTNESS],
+                error, error_size)) {
+            return 0;
+        }
+        for (uint16_t point_index = 0u;
+             point_index < LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT; ++point_index) {
+            int16_t source_brightness;
+
+            if (!level_runtime_get_point_brightness(level, zone_index, point_index,
+                                                    &source_brightness, error, error_size) ||
+                !lighting_runtime_refresh_point_brightness(
+                    runtime, source_brightness,
+                    &runtime->current_point_brightness[zone_index][point_index],
+                    error, error_size)) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
 void lighting_runtime_advance_animation(LightingRuntime *runtime)
 {
     if (!runtime || runtime->animation_timer > 0) {

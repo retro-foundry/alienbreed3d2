@@ -1858,6 +1858,8 @@ int main(int argc, char **argv)
         if (!lighting_runtime_refresh_single_player(
                 &game.lighting_runtime, &game.dynamic_level.runtime, &game.player,
                 error, sizeof(error)) ||
+            !lighting_runtime_refresh_all_zones(
+                &game.lighting_runtime, &game.dynamic_level.runtime, error, sizeof(error)) ||
             !scene_frame_init(&frame, 1u) ||
             !object_scene_count_active(&game.object_runtime, &active_sprite_count,
                                        error, sizeof(error)) ||
@@ -1883,6 +1885,21 @@ int main(int argc, char **argv)
             int16_t maximum_source_light = INT16_MIN;
             uint32_t light_vertex_count = 0u;
             uint32_t floor_ceiling_vertex_count = 0u;
+
+            for (uint16_t zone_index = 0u;
+                 zone_index < game.dynamic_level.runtime.zone_count; ++zone_index) {
+                for (uint16_t point_index = 0u;
+                     point_index < LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT; ++point_index) {
+                    if (game.lighting_runtime.current_point_brightness[zone_index][point_index] == 0) {
+                        fprintf(stderr,
+                                "campaign level %u complete-scene lighting left zone %u point %u stale\n",
+                                level_index, zone_index, point_index);
+                        scene_frame_destroy(&frame);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                }
+            }
 
             for (uint32_t flat_index = 0u; flat_index < game.static_scene.flat_count;
                  ++flat_index) {

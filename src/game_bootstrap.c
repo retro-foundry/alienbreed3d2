@@ -261,6 +261,8 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
         !lighting_runtime_refresh_single_player(
             &game->lighting_runtime, &game->dynamic_level.runtime, &game->player,
             error, error_size) ||
+        !lighting_runtime_refresh_all_zones(
+            &game->lighting_runtime, &game->dynamic_level.runtime, error, error_size) ||
         !player_entity_sync_single_player(&game->object_runtime, &game->dynamic_level.runtime,
                                           &game->game_link_catalog, &game->player,
                                           error, error_size) ||
