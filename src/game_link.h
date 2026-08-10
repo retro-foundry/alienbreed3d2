@@ -85,7 +85,9 @@ typedef enum {
  * One GLFT_FrameData_l entry. objdrawhires.s indexes the table as 32
  * eight-byte records per object. It uses the high word of the first long as a
  * PTR-table index and the low word as its initial down-strip; words +4/+6 are
- * the strip and line counts used to scale the selected bitmap frame.
+ * the half strip-span and line count used to scale the selected bitmap frame.
+ * `objdrawhires.s:draw_Bitmap` doubles the half span for the PTR-table and
+ * WAD-column traversal.
  */
 typedef struct {
     uint16_t pointer_table_index;

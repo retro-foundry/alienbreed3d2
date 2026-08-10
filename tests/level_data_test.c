@@ -322,7 +322,13 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->frame_metrics.pointer_table_index != source_frame.pointer_table_index ||
                 sprite->frame_metrics.down_strip != source_frame.down_strip ||
                 sprite->frame_metrics.strip_count != source_frame.strip_count ||
-                sprite->frame_metrics.line_count != source_frame.line_count) {
+                sprite->frame_metrics.line_count != source_frame.line_count ||
+                source_frame.strip_count > UINT16_MAX / 2u ||
+                (size_t)source_frame.pointer_table_index * 4u >
+                    game->shared_resources.object_ptrs[asset_index].size ||
+                (size_t)source_frame.strip_count * 2u >
+                    (game->shared_resources.object_ptrs[asset_index].size -
+                     (size_t)source_frame.pointer_table_index * 4u) / 4u) {
                 return 0;
             }
             if (glare != 0) {

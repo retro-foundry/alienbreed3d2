@@ -91,6 +91,11 @@ authority for all game behavior and data formats.
   range with that face's selected `Draw_TextureMapsPtr` offset. This prevents
   a later face in the same model (including Player 1's companion weapon) from
   redrawing all earlier geometry through its unrelated texture map.
+- [x] Bitmap WAD/PTR conversion now honours `draw_Bitmap`'s doubled
+  `GLFT_FrameData_l` strip span and its authored source-unit auxiliary offsets
+  and half-extents. Every source column in a frame is therefore decoded and
+  world billboard size/placement follows the source scaler rather than an
+  arbitrary PC-space shrink.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.

@@ -906,10 +906,11 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
         (sprite->source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP &&
          sprite->source != SCENE_SPRITE_SOURCE_GLARE_BITMAP) ||
         sprite->frame_metrics.strip_count == 0u || sprite->frame_metrics.line_count == 0u ||
-        (size_t)sprite->frame_metrics.strip_count >
+        sprite->frame_metrics.strip_count > UINT16_MAX / 2u ||
+        (size_t)sprite->frame_metrics.strip_count * 2u >
             SIZE_MAX / (size_t)sprite->frame_metrics.line_count ||
-        (size_t)sprite->frame_metrics.strip_count * (size_t)sprite->frame_metrics.line_count >
-            SIZE_MAX / 4u) {
+        (size_t)sprite->frame_metrics.strip_count * 2u *
+            (size_t)sprite->frame_metrics.line_count > SIZE_MAX / 4u) {
         renderer_opengl_set_error(error, error_size, "source bitmap sprite descriptor is invalid");
         return 0;
     }
@@ -930,7 +931,14 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
             return 0;
         }
     }
-    width = sprite->frame_metrics.strip_count;
+    /*
+     * objdrawhires.s:draw_Bitmap doubles GLFT_FrameData_l's strip count
+     * before deriving both its PTR column span and its horizontal sampler.
+     * The source entry is a half-span used by the screen scaler, not the
+     * number of WAD/PTR source columns.  Decoding only that half made every
+     * bitmap sprite appear clipped or corrupt.
+     */
+    width = (uint16_t)(sprite->frame_metrics.strip_count * 2u);
     height = sprite->frame_metrics.line_count;
     table_offset = (size_t)sprite->frame_metrics.pointer_table_index * 4u;
     if (table_offset > sprite->source_aux_byte_count ||
@@ -2002,11 +2010,16 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
     right_x = cosf(yaw);
     right_z = -sinf(yaw);
-    /* objdrawhires.s applies its auxiliary bitmap offsets in 128 source units. */
-    center_x += right_x * (float)sprite->source_aux_offset_x * 0.5f;
-    center_z += right_z * (float)sprite->source_aux_offset_x * 0.5f;
+    /*
+     * draw_Bitmap shifts these authored offsets and half-extents left by
+     * seven before projection. X/Z use the native source world word, while
+     * Y arrives through renderer_opengl_world_point's 8.8 conversion; the
+     * vertical result is consequently 128 / 256 = 0.5 native units.
+     */
+    center_x += right_x * (float)sprite->source_aux_offset_x * 128.0f;
+    center_z += right_z * (float)sprite->source_aux_offset_x * 128.0f;
     center_y -= (float)sprite->source_aux_offset_y * 0.5f;
-    half_width = (float)sprite->source_width * 0.5f;
+    half_width = (float)sprite->source_width * 128.0f;
     half_height = (float)sprite->source_height * 0.5f;
     left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ? 1.0f : 0.0f;
     right_u = 1.0f - left_u;
