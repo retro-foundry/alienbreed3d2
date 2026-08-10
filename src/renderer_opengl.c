@@ -2446,10 +2446,11 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
     if (!renderer_opengl_decode_vector_face_texture(
             sprite, source_map_offset, maximum_u, maximum_v,
             &pixels, &exponent_pixels, &floor_pixels, &width, &height, error, error_size) ||
-        !renderer_opengl_create_texture(pixels, width, height, 0, 0, 0, &texture, error, error_size) ||
-        !renderer_opengl_create_texture(exponent_pixels, width, height, 0, 0, 1,
+        /* Vector faces are real 3D materials, not pixel-locked bitmap sprites. */
+        !renderer_opengl_create_texture(pixels, width, height, 0, 1, 0, &texture, error, error_size) ||
+        !renderer_opengl_create_texture(exponent_pixels, width, height, 0, 1, 1,
                                         &exponent_texture, error, error_size) ||
-        !renderer_opengl_create_texture(floor_pixels, width, height, 0, 0, 1,
+        !renderer_opengl_create_texture(floor_pixels, width, height, 0, 1, 1,
                                         &floor_texture, error, error_size)) {
         free(pixels);
         free(exponent_pixels);

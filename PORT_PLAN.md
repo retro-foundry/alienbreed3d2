@@ -65,6 +65,8 @@ authority for all game behavior and data formats.
   `Draw_TextureMapsPtr` offset with its four-byte source texel stride, retains
   its direct top-down source V coordinate at the GPU texture boundary, and
   converts it once through the neutral bright `Draw_TexturePalettePtr` row.
+  Vector surfaces use filtered, mipmapped true-colour textures where supported
+  by the GLES2-compatible source dimensions; bitmap sprites remain crisp.
   `draw_CalcBrightRings` now publishes its live 16-by-16
   `draw_PointAndPolyBrights_vl` field, including source-zone border samples,
   joined zones, solid-wall attenuation, and the model's authored polygon-angle
