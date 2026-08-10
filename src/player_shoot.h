@@ -7,6 +7,7 @@
 #include "game_random.h"
 #include "game_link.h"
 #include "object_movement.h"
+#include "object_motion.h"
 #include "object_observation.h"
 #include "object_runtime.h"
 #include "player_runtime.h"
@@ -63,6 +64,15 @@ int player_shoot_update_single_player(ObjectRuntime *objects,
                                       uint16_t frame_ticks,
                                       char *error, size_t error_size);
 
+/* Same Plr1_Shot update with source newx/newz publication retained. */
+int player_shoot_update_single_player_with_motion(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const ObjectObservation *observation, PlayerRuntime *player,
+    ObjectMotionRuntime *motion_runtime, GameInventory *inventory,
+    const GameLink *game_link, const GamePreferences *preferences,
+    const GameMath *math, GameRandom *random, uint16_t frame_ticks,
+    char *error, size_t error_size);
+
 /*
  * newplayershoot.s:plr1_HitscanSucceded.  Creates the source impact ObjT
  * when a player-shot slot is free, then applies the source byte-sized damage
@@ -91,6 +101,13 @@ int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
                                     GameRandom *random, uint16_t bullet_type,
                                     uint8_t *out_impact_spawned,
                                     char *error, size_t error_size);
+
+/* Same plr1_HitscanFailed path with source newx/newz publication retained. */
+int player_shoot_apply_hitscan_miss_with_motion(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const PlayerRuntime *player, const GameMath *math,
+    ObjectMotionRuntime *motion_runtime, GameRandom *random, uint16_t bullet_type,
+    uint8_t *out_impact_spawned, char *error, size_t error_size);
 
 /*
  * newplayershoot.s:firefive, reached from plr1_FireProjectile after Plr1_Shot

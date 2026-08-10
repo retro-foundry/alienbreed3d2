@@ -181,8 +181,9 @@ int object_handler_update_single_player(
                                                         alien_context->lighting_runtime, game_link,
                                                         error, error_size)) ||
                 (popping == 0u &&
-                 !object_projectiles_update_flight_animation_slot(
+                 !object_projectiles_update_flight_animation_slot_with_motion(
                      objects, slot_index, dynamic_level, alien_context->lighting_runtime,
+                     &alien_runtime->motion,
                      game_link, frame_ticks,
                      error, error_size))) {
                 return 0;

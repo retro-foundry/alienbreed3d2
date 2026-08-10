@@ -958,13 +958,11 @@ static void player_runtime_update_mouse_controls(PlayerRuntime *player, GameInpu
     player->look_offset = look_offset;
 }
 
-int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
-                                  const GameControls *controls,
-                                  const GamePreferences *preferences,
-                                  const GameMath *math,
-                                  const LevelRuntime *runtime,
-                                  LevelDynamicState *dynamic_state,
-                                  char *error, size_t error_size)
+int player_runtime_update_spatial_with_motion(
+    PlayerRuntime *player, GameInput *input, const GameControls *controls,
+    const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,
+    LevelDynamicState *dynamic_state, ObjectMotionRuntime *motion_runtime,
+    char *error, size_t error_size)
 {
     LevelZone zone;
     int16_t old_x;
@@ -1054,6 +1052,7 @@ int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
         player->snap_y = player->y;
         player->snap_target_y = player->y;
         player->snap_target_y = player_runtime_sub32(destination.floor, player->height);
+        object_motion_runtime_set_new_words(motion_runtime, zone.teleport_x, zone.teleport_z);
         return 1;
     }
 
@@ -1070,5 +1069,20 @@ int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
     player->y = visual_y;
     player->snap_target_y = player_runtime_sub32(
         player->stood_in_top != 0u ? zone.upper_floor : zone.floor, player->height);
+    /* hires.s:Plr1_Control leaves MoveObject's final newx/newz words live. */
+    object_motion_runtime_set_new_words(motion_runtime, new_x, new_z);
     return 1;
+}
+
+int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
+                                  const GameControls *controls,
+                                  const GamePreferences *preferences,
+                                  const GameMath *math,
+                                  const LevelRuntime *runtime,
+                                  LevelDynamicState *dynamic_state,
+                                  char *error, size_t error_size)
+{
+    return player_runtime_update_spatial_with_motion(
+        player, input, controls, preferences, math, runtime, dynamic_state, NULL,
+        error, error_size);
 }

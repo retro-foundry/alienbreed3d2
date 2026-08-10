@@ -256,17 +256,13 @@ int player_shoot_hitscan_roll_is_hit(const ObjectRuntime *objects,
     return 1;
 }
 
-int player_shoot_update_single_player(ObjectRuntime *objects,
-                                      LevelDynamicState *dynamic_level,
-                                      const ObjectObservation *observation,
-                                      PlayerRuntime *player,
-                                      GameInventory *inventory,
-                                      const GameLink *game_link,
-                                      const GamePreferences *preferences,
-                                      const GameMath *math,
-                                      GameRandom *random,
-                                      uint16_t frame_ticks,
-                                      char *error, size_t error_size)
+int player_shoot_update_single_player_with_motion(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const ObjectObservation *observation, PlayerRuntime *player,
+    ObjectMotionRuntime *motion_runtime, GameInventory *inventory,
+    const GameLink *game_link, const GamePreferences *preferences,
+    const GameMath *math, GameRandom *random, uint16_t frame_ticks,
+    char *error, size_t error_size)
 {
     GameShootDefinition shoot;
     GameBulletDefinition bullet;
@@ -343,8 +339,9 @@ int player_shoot_update_single_player(ObjectRuntime *objects,
     }
     if (target.found == 0u) {
         /* .nothing_to_shoot forces bulyspd to zero and fires one wall impact. */
-        return player_shoot_apply_hitscan_miss(objects, dynamic_level, player, math, random,
-                                               shoot.bullet_type, NULL, error, error_size);
+        return player_shoot_apply_hitscan_miss_with_motion(
+            objects, dynamic_level, player, math, motion_runtime, random, shoot.bullet_type,
+            NULL, error, error_size);
     }
     {
         int16_t remaining = (int16_t)shoot.bullet_count;
@@ -363,8 +360,9 @@ int player_shoot_update_single_player(ObjectRuntime *objects,
                         NULL, error, error_size)) {
                     return 0;
                 }
-            } else if (!player_shoot_apply_hitscan_miss(
-                           objects, dynamic_level, player, math, random, shoot.bullet_type,
+            } else if (!player_shoot_apply_hitscan_miss_with_motion(
+                           objects, dynamic_level, player, math, motion_runtime, random,
+                           shoot.bullet_type,
                            NULL, error, error_size)) {
                 return 0;
             }
@@ -375,6 +373,23 @@ int player_shoot_update_single_player(ObjectRuntime *objects,
         }
     }
     return 1;
+}
+
+int player_shoot_update_single_player(ObjectRuntime *objects,
+                                      LevelDynamicState *dynamic_level,
+                                      const ObjectObservation *observation,
+                                      PlayerRuntime *player,
+                                      GameInventory *inventory,
+                                      const GameLink *game_link,
+                                      const GamePreferences *preferences,
+                                      const GameMath *math,
+                                      GameRandom *random,
+                                      uint16_t frame_ticks,
+                                      char *error, size_t error_size)
+{
+    return player_shoot_update_single_player_with_motion(
+        objects, dynamic_level, observation, player, NULL, inventory, game_link,
+        preferences, math, random, frame_ticks, error, error_size);
 }
 
 int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
@@ -461,12 +476,11 @@ int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
     return 1;
 }
 
-int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
-                                    LevelDynamicState *dynamic_level,
-                                    const PlayerRuntime *player, const GameMath *math,
-                                    GameRandom *random, uint16_t bullet_type,
-                                    uint8_t *out_impact_spawned,
-                                    char *error, size_t error_size)
+int player_shoot_apply_hitscan_miss_with_motion(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const PlayerRuntime *player, const GameMath *math,
+    ObjectMotionRuntime *motion_runtime, GameRandom *random, uint16_t bullet_type,
+    uint8_t *out_impact_spawned, char *error, size_t error_size)
 {
     ObjectMovementTrace trace = {0};
     int16_t sine;
@@ -500,6 +514,8 @@ int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
     trace.away_from_wall = -1;
     trace.exit_first = UINT8_MAX;
     trace.step_down = 0x1000000;
+    /* newplayershoot.s publishes this ray's newx/newz before MoveObject. */
+    object_motion_runtime_set_new_words(motion_runtime, trace.new_x, trace.new_z);
 
     for (;;) {
         int16_t ray_x;
@@ -510,6 +526,7 @@ int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
                                                   error, error_size)) {
             return 0;
         }
+        object_motion_runtime_set_new_words(motion_runtime, trace.new_x, trace.new_z);
         if (trace.hit_wall != 0u) {
             break;
         }
@@ -523,6 +540,7 @@ int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
         trace.new_z = player_shoot_add16(trace.new_z, ray_z);
         trace.old_y = player_shoot_add32(trace.old_y, ray_y);
         trace.new_y = player_shoot_add32(trace.new_y, ray_y);
+        object_motion_runtime_set_new_words(motion_runtime, trace.new_x, trace.new_z);
     }
     for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
          ++shot_index) {
@@ -569,6 +587,18 @@ int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
     }
     /* The source returns unchanged when all NUM_PLR_SHOT_DATA records are live. */
     return 1;
+}
+
+int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
+                                    LevelDynamicState *dynamic_level,
+                                    const PlayerRuntime *player, const GameMath *math,
+                                    GameRandom *random, uint16_t bullet_type,
+                                    uint8_t *out_impact_spawned,
+                                    char *error, size_t error_size)
+{
+    return player_shoot_apply_hitscan_miss_with_motion(
+        objects, dynamic_level, player, math, NULL, random, bullet_type, out_impact_spawned,
+        error, error_size);
 }
 
 int player_shoot_spawn_projectile_volley(ObjectRuntime *objects, const GameMath *math,

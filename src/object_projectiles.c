@@ -467,12 +467,10 @@ static int object_projectiles_check_direct_target_collision(
     return 1;
 }
 
-int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint32_t slot_index,
-                                                     LevelDynamicState *dynamic_level,
-                                                     LightingRuntime *lighting_runtime,
-                                                     const GameLink *game_link,
-                                                     uint16_t frame_ticks,
-                                                     char *error, size_t error_size)
+int object_projectiles_update_flight_animation_slot_with_motion(
+    ObjectRuntime *objects, uint32_t slot_index, LevelDynamicState *dynamic_level,
+    LightingRuntime *lighting_runtime, ObjectMotionRuntime *motion_runtime,
+    const GameLink *game_link, uint16_t frame_ticks, char *error, size_t error_size)
 {
     uint8_t *slot;
     uint8_t *point;
@@ -671,6 +669,8 @@ int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint
     trace.stood_in_top = slot[OBJECT_PROJECTILE_IN_UPPER_ZONE];
     trace.wall_bounce = bullet.bounce_horizontal != 0u ? UINT8_MAX : 0u;
     trace.exit_first = bullet.bounce_horizontal == 0u ? UINT8_MAX : 0u;
+    /* The roof/floor branches above intentionally used the prior shared words. */
+    object_motion_runtime_set_new_words(motion_runtime, trace.new_x, trace.new_z);
     if (trace.old_x != trace.new_x || trace.old_z != trace.new_z) {
         moving = UINT8_MAX;
         if (!object_movement_trace_zero_extension(dynamic_level, &trace, error, error_size)) {
@@ -687,6 +687,10 @@ int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint
             return 0;
         }
     }
+    /* MoveObject (or the stationary flight path) leaves current newx/newz live. */
+    object_motion_runtime_set_new_words(motion_runtime,
+                                        object_projectiles_high_word(new_x),
+                                        object_projectiles_high_word(new_z));
     slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] = trace.stood_in_top;
     if (trace.wall_bounce != 0u && trace.hit_wall != 0u) {
         int16_t reflected_normal;
@@ -758,4 +762,16 @@ int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint
         return 0;
     }
     return 1;
+}
+
+int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint32_t slot_index,
+                                                     LevelDynamicState *dynamic_level,
+                                                     LightingRuntime *lighting_runtime,
+                                                     const GameLink *game_link,
+                                                     uint16_t frame_ticks,
+                                                     char *error, size_t error_size)
+{
+    return object_projectiles_update_flight_animation_slot_with_motion(
+        objects, slot_index, dynamic_level, lighting_runtime, NULL, game_link, frame_ticks,
+        error, error_size);
 }

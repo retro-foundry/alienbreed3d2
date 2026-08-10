@@ -10,6 +10,7 @@
 #include "game_preferences.h"
 #include "level_dynamic_state.h"
 #include "level_runtime.h"
+#include "object_motion.h"
 
 /* Single-player subset of modules/player.s:Plr_Initialise. */
 typedef struct {
@@ -109,5 +110,15 @@ int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
                                   const LevelRuntime *runtime,
                                   LevelDynamicState *dynamic_state,
                                   char *error, size_t error_size);
+
+/* Same source update with objectmove.s:newx/newz publication retained. */
+int player_runtime_update_spatial_with_motion(PlayerRuntime *player, GameInput *input,
+                                              const GameControls *controls,
+                                              const GamePreferences *preferences,
+                                              const GameMath *math,
+                                              const LevelRuntime *runtime,
+                                              LevelDynamicState *dynamic_state,
+                                              ObjectMotionRuntime *motion_runtime,
+                                              char *error, size_t error_size);
 
 #endif

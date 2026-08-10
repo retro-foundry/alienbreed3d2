@@ -253,10 +253,10 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
                                                  &game->controls, &game->dynamic_level.runtime,
                                                  &game->session.player1_inventory,
                                                  error, error_size) ||
-        !player_runtime_update_spatial(&game->player, &game->input, &game->controls,
-                                       &game->preferences, &game->math,
-                                       &game->dynamic_level.runtime, &game->dynamic_level,
-                                       error, error_size) ||
+        !player_runtime_update_spatial_with_motion(
+            &game->player, &game->input, &game->controls, &game->preferences, &game->math,
+            &game->dynamic_level.runtime, &game->dynamic_level, &game->alien_runtime.motion,
+            error, error_size) ||
         !lighting_runtime_refresh_single_player(
             &game->lighting_runtime, &game->dynamic_level.runtime, &game->player,
             error, error_size) ||
@@ -283,9 +283,10 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     alien_context.messages = &game->message_runtime;
     alien_context.preferences = &game->preferences;
     alien_context.message_time_milliseconds = game->message_time_milliseconds;
-    if (!player_shoot_update_single_player(
+    if (!player_shoot_update_single_player_with_motion(
             &game->object_runtime, &game->dynamic_level, &game->object_observation,
-            &game->player, &game->session.player1_inventory, &game->game_link_catalog,
+            &game->player, &game->alien_runtime.motion, &game->session.player1_inventory,
+            &game->game_link_catalog,
             &game->preferences, &game->math, &game->random, 1u, error, error_size) ||
         !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level, &game->mechanism_runtime,

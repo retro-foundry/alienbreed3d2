@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "object_motion.h"
 #include "object_visibility.h"
 
 enum {
@@ -14,9 +15,10 @@ enum {
 };
 
 /*
- * Source-owned AI storage.  Values are host-endian words because this mirrors
- * the mutable bss state addressed by the 68000 routines, rather than a media
- * record.  No native AI behaviour is implied by owning this state.
+ * Source-owned AI storage plus process-lifetime objectmove BSS used by the
+ * translated simulation. Values are host-endian words because this mirrors
+ * mutable 68000 state rather than a media record. No native AI behaviour is
+ * implied by owning this state.
  */
 typedef struct {
     /*
@@ -35,6 +37,8 @@ typedef struct {
     int16_t boredom[ALIEN_RUNTIME_ENTITY_COUNT][ALIEN_RUNTIME_BOREDOM_WORD_COUNT];
     /* objectmove.s:AngRet, retained across source AI mode calls. */
     uint16_t heading_angle;
+    /* objectmove.s:newx/newz shared BSS, retained across source callers. */
+    ObjectMotionRuntime motion;
     /* objectmove.s:Viewer* shared BSS, written by every live CanItBeSeen caller. */
     ObjectVisibilityRuntime visibility;
 } AlienRuntime;

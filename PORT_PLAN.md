@@ -888,10 +888,14 @@ projectile-versus-entity impulse split, and bounded player-shot flame
 allocation (including the source point-low-word retention). Its direct fixture
 uses authored bullet gravity variants and verifies target writes, six flame
 slots, and the source's three `GetRand` calls per flame. It remains outside
-`ItsABullet` because the roof/floor impact callers read shared source
-`newx`/`newz` values before their local flight motion update; those values must
-be given the same cross-routine ownership as `Viewer*` before any caller is
-enabled.
+`ItsABullet`. `ObjectMotionRuntime`, retained with the same process lifetime
+as the source BSS, now records the live player spatial, player hitscan-miss,
+AI-look, and projectile-flight `newx`/`newz` publications. Projectile flight
+deliberately preserves the prior words through its roof/floor branches, then
+publishes its current motion before the direct-target branch. The helper still
+needs exact per-impact caller regression coverage and wiring; it must not be
+enabled by substituting the exploding projectile's coordinates for the retained
+roof/floor values.
 Translate each remaining bounded slice directly from the maintained source and
 add source-derived regressions for its state changes and ordering.
 
@@ -1014,11 +1018,15 @@ scope by design.
      `ItsABullet` callers (roof, floor, wall, and direct-target impact). Its
      direct-target caller deliberately leaves `ViewerTop` unchanged while the
      other three set it. Wire those projectile caller writes to this shared
-     state. The checked `ComputeBlast` helper must remain unbound until the
-     roof/floor callers also have source-owned shared `newx`/`newz` state;
-     capture a targeted caller oracle before enabling blast damage, knockback,
-     or flame allocation. Do not replace the retained top-layer state or
-     pre-motion coordinates with the exploding projectile's current values.
+     state. `AlienRuntime.motion` now retains the live source `newx`/`newz`
+     words: player control, player hitscan misses, AI sight checks, and
+     `ItsABullet` motion each publish in source order. `ItsABullet` leaves the
+     retained words untouched through roof/floor handling, then publishes its
+     current movement before direct-target handling. Capture a targeted caller
+     oracle before wiring the checked `ComputeBlast` helper for damage,
+     knockback, or flame allocation. Do not replace the retained top-layer
+     state or pre-motion coordinates with the exploding projectile's current
+     values.
 
 3. **Direct-play validation**
    - Extend focused source fixtures for the remaining worried live-alien

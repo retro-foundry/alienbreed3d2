@@ -7,6 +7,7 @@
 #include "game_link.h"
 #include "level_dynamic_state.h"
 #include "lighting_runtime.h"
+#include "object_motion.h"
 #include "object_runtime.h"
 
 /*
@@ -32,5 +33,11 @@ int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint
                                                      const GameLink *game_link,
                                                      uint16_t frame_ticks,
                                                      char *error, size_t error_size);
+
+/* Same ItsABullet live path with source newx/newz publication retained. */
+int object_projectiles_update_flight_animation_slot_with_motion(
+    ObjectRuntime *objects, uint32_t slot_index, LevelDynamicState *dynamic_level,
+    LightingRuntime *lighting_runtime, ObjectMotionRuntime *motion_runtime,
+    const GameLink *game_link, uint16_t frame_ticks, char *error, size_t error_size);
 
 #endif

@@ -60,6 +60,7 @@ int alien_perception_look_for_player_one(AlienRuntime *alien_runtime,
         slot + ALIEN_PERCEPTION_SLOT_VERTICAL_POSITION);
     query.viewer_in_upper_zone = slot[ALIEN_PERCEPTION_SLOT_IN_UPPER_ZONE];
     /* AI_LookForPlayer1 writes these source globals before CanItBeSeen. */
+    object_motion_runtime_set_new_words(&alien_runtime->motion, query.viewer_x, query.viewer_z);
     object_visibility_runtime_set_viewer(&alien_runtime->visibility,
                                          query.viewer_x, query.viewer_z, query.viewer_y,
                                          query.viewer_in_upper_zone);

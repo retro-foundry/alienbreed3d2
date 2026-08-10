@@ -3117,11 +3117,13 @@ int main(int argc, char **argv)
     {
         PlayerRuntime use_snapshot_player = game.player;
         GameInput use_snapshot_input;
+        ObjectMotionRuntime use_snapshot_motion;
 
         use_snapshot_player.gun_selected = 7u;
         use_snapshot_player.fire = UINT8_MAX;
         use_snapshot_player.clicked = UINT8_MAX;
         game_input_init(&use_snapshot_input);
+        object_motion_runtime_init(&use_snapshot_motion);
         if (!game_input_set_raw_key(
                 &use_snapshot_input,
                 control_defaults.assigned_raw_keys[GAME_CONTROL_OPERATE], 1,
@@ -3135,13 +3137,16 @@ int main(int argc, char **argv)
                                                      &game.level_runtime,
                                                      &game.session.player1_inventory, error,
                                                      sizeof(error)) ||
-            !player_runtime_update_spatial(&use_snapshot_player, &use_snapshot_input,
-                                           &control_defaults, &game.preferences, &game.math,
-                                           &game.level_runtime, NULL, error, sizeof(error)) ||
+            !player_runtime_update_spatial_with_motion(
+                &use_snapshot_player, &use_snapshot_input, &control_defaults,
+                &game.preferences, &game.math, &game.level_runtime, NULL,
+                &use_snapshot_motion, error, sizeof(error)) ||
             use_snapshot_player.tmp_used != UINT8_MAX || use_snapshot_player.used != 0u ||
             use_snapshot_player.tmp_clicked != UINT8_MAX || use_snapshot_player.clicked != 0u ||
             use_snapshot_player.tmp_fire != UINT8_MAX || use_snapshot_player.fire != UINT8_MAX ||
-            use_snapshot_player.tmp_gun_selected != 7u) {
+            use_snapshot_player.tmp_gun_selected != 7u ||
+            use_snapshot_motion.new_x != (int16_t)use_snapshot_player.x ||
+            use_snapshot_motion.new_z != (int16_t)use_snapshot_player.z) {
             fprintf(stderr, "source transient player snapshot is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
@@ -3863,6 +3868,7 @@ int main(int argc, char **argv)
         uint32_t spawned_count = 0u;
         LightingRuntime projectile_lighting;
         LightingRuntime expected_projectile_lighting;
+        ObjectMotionRuntime projectile_motion;
         int16_t projectile_old_x;
         int16_t projectile_old_z;
 
@@ -3957,17 +3963,21 @@ int main(int argc, char **argv)
         }
         lighting_runtime_init(&projectile_lighting);
         expected_projectile_lighting = projectile_lighting;
+        object_motion_runtime_init(&projectile_motion);
         projectile_old_x = (int16_t)(read_be32(point_bytes) >> 16u);
         projectile_old_z = (int16_t)(read_be32(point_bytes + 4u) >> 16u);
         if (!game_link_get_bullet_animation_frame(
                 &game.game_link_catalog, GAME_LINK_BULLET_ANIMATION_FLIGHT,
                 projectile_bullet_index, 0u, &projectile_frame, error, sizeof(error)) ||
-            !object_projectiles_update_flight_animation_slot(
+            !object_projectiles_update_flight_animation_slot_with_motion(
                 &projectile_objects, 0u, &game.dynamic_level, &projectile_lighting,
+                &projectile_motion,
                 &game.game_link_catalog, 1u,
                 error, sizeof(error)) ||
             read_be16(slot_bytes + 6u) != projectile_frame.word_2 ||
             slot_bytes[11u] != projectile_frame.byte_1 ||
+            projectile_motion.new_x != (int16_t)(read_be32(point_bytes) >> 16u) ||
+            projectile_motion.new_z != (int16_t)(read_be32(point_bytes + 4u) >> 16u) ||
             slot_bytes[52u] != ((int16_t)(uint16_t)projectile_bullet.animation_frames < 1 ?
                                      0u : 1u)) {
             fprintf(stderr, "ItsABullet source flight animation is inconsistent: %s\n", error);
@@ -5570,6 +5580,8 @@ int main(int argc, char **argv)
                 &perception_player, perception_player.zone_index, 90, 190,
                 error, sizeof(error)) ||
             slot_bytes[17u] != 1u ||
+            perception_alien_runtime.motion.new_x != 90 ||
+            perception_alien_runtime.motion.new_z != 190 ||
             perception_alien_runtime.visibility.viewer_x != 90 ||
             perception_alien_runtime.visibility.viewer_z != 190 ||
             perception_alien_runtime.visibility.viewer_y != 3 ||
@@ -8596,6 +8608,7 @@ int main(int argc, char **argv)
             PlayerRuntime miss_player = {0};
             GameRandom miss_random;
             GameRandom expected_random;
+            ObjectMotionRuntime miss_motion;
             uint16_t spread_word;
             int16_t sine;
             int16_t cosine;
@@ -8644,14 +8657,16 @@ int main(int argc, char **argv)
             miss_player.z = 10;
             miss_player.yaw = 0u;
             miss_player.zone_index = 0u;
+            object_motion_runtime_init(&miss_motion);
             game_random_init(&miss_random);
             expected_random = miss_random;
             spread_word = game_random_next(&expected_random);
             spread = (int32_t)(spread_word & 0x0fffu) - 0x0800;
             expected_hit_height = miss_player.y + 10 * 128 + spread +
                 (spread / ray_z) * (10 - ray_z);
-            if (!player_shoot_apply_hitscan_miss(
+            if (!player_shoot_apply_hitscan_miss_with_motion(
                     &miss_objects, &movement_state, &miss_player, &game.math,
+                    &miss_motion,
                     &miss_random, 7u, &miss_spawned, error, sizeof(error)) ||
                 miss_spawned != UINT8_MAX || miss_random.state != expected_random.state ||
                 miss_slot_bytes[16u] != 0x7eu ||
@@ -8665,6 +8680,7 @@ int main(int argc, char **argv)
                 read_be16(miss_slot_bytes + 26u) != UINT16_C(0x1234) ||
                 read_be32(miss_point_bytes + 0u) != UINT32_C(0x00005678) ||
                 read_be32(miss_point_bytes + 4u) != UINT32_C(0x0014def0) ||
+                miss_motion.new_x != 0 || miss_motion.new_z != 20 ||
                 !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
                 edge_flags != 0x0400u) {
                 fprintf(stderr, "plr1_HitscanFailed source miss state is inconsistent: %s\n",
