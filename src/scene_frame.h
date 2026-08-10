@@ -166,8 +166,9 @@ typedef struct {
  * intentionally unprojected and unsorted: a GPU backend owns projection,
  * culling, draw order, asset conversion, and upload. `source_aux_bytes` is
  * the matching bitmap PTR data. Vector sprites carry `Draw_TextureMapsPtr`
- * bytes plus the display palette for their original face-map colours; glare
- * sprites carry the shared texture palette.
+ * bytes, `Draw_TexturePalettePtr`'s light rows, and the display palette for
+ * their original face-map colours; glare sprites carry the shared texture
+ * palette.
  */
 typedef struct {
     SceneWorldPoint position;
@@ -193,6 +194,8 @@ typedef struct {
     size_t source_aux_byte_count;
     const uint8_t *source_palette_bytes;
     size_t source_palette_byte_count;
+    const uint8_t *source_light_palette_bytes;
+    size_t source_light_palette_byte_count;
     const uint8_t *source_display_palette_bytes;
     size_t source_display_palette_byte_count;
 } SceneSprite;

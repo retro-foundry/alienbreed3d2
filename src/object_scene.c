@@ -248,9 +248,10 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     if (slot[OBJECT_SCENE_WIDTH_HEIGHT] == UINT8_MAX) {
         asset_index = (uint16_t)graphics_type;
         if (asset_index >= resources->vector_count ||
-            !resources->vector_models[asset_index].bytes) {
+            !resources->vector_models[asset_index].bytes ||
+            !resources->texture_maps.bytes || !resources->texture_palette.bytes) {
             object_scene_set_error(error, error_size,
-                                   "ObjT vector graphics index has no loaded source asset");
+                                   "ObjT vector graphics index has no loaded source texture assets");
             return 0;
         }
         sprite.source = SCENE_SPRITE_SOURCE_VECTOR_MODEL;
@@ -258,9 +259,11 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
         sprite.frame_index = object_scene_read_be16(slot + OBJECT_SCENE_EFFECT);
         sprite.source_bytes = resources->vector_models[asset_index].bytes;
         sprite.source_byte_count = resources->vector_models[asset_index].size;
-        /* objdrawhires.s:doapoly indexes Draw_TextureMapsPtr per vector face. */
+        /* objdrawhires.s:doapoly indexes both source texture resources per face. */
         sprite.source_palette_bytes = resources->texture_maps.bytes;
         sprite.source_palette_byte_count = resources->texture_maps.size;
+        sprite.source_light_palette_bytes = resources->texture_palette.bytes;
+        sprite.source_light_palette_byte_count = resources->texture_palette.size;
         sprite.source_display_palette_bytes = resources->main_palette.bytes;
         sprite.source_display_palette_byte_count = resources->main_palette.size;
         if (slot_index == objects->player1_slot + 2u) {

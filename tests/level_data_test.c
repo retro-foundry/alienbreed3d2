@@ -277,6 +277,10 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->source_aux_bytes != NULL || sprite->source_aux_byte_count != 0u ||
                 sprite->source_palette_bytes != game->shared_resources.texture_maps.bytes ||
                 sprite->source_palette_byte_count != game->shared_resources.texture_maps.size ||
+                sprite->source_light_palette_bytes !=
+                    game->shared_resources.texture_palette.bytes ||
+                sprite->source_light_palette_byte_count !=
+                    game->shared_resources.texture_palette.size ||
                 sprite->source_display_palette_bytes != game->shared_resources.main_palette.bytes ||
                 sprite->source_display_palette_byte_count != game->shared_resources.main_palette.size ||
                 sprite->presentation != (slot_index == game->object_runtime.player1_slot + 2u ?
@@ -309,6 +313,8 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->source_byte_count != game->shared_resources.object_wads[asset_index].size ||
                 sprite->source_aux_bytes != game->shared_resources.object_ptrs[asset_index].bytes ||
                 sprite->source_aux_byte_count != game->shared_resources.object_ptrs[asset_index].size ||
+                sprite->source_light_palette_bytes != NULL ||
+                sprite->source_light_palette_byte_count != 0u ||
                 sprite->source_display_palette_bytes != game->shared_resources.main_palette.bytes ||
                 sprite->source_display_palette_byte_count != game->shared_resources.main_palette.size ||
                 sprite->presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||

@@ -29,6 +29,8 @@ static const float renderer_opengl_source_y_unit = 1.0f / 256.0f;
 static const float renderer_opengl_pi = 3.14159265358979323846f;
 static const float renderer_opengl_near_plane = 0.05f;
 static const float renderer_opengl_far_plane = 8192.0f;
+static const float renderer_opengl_source_angle_full_turn = 8192.0f;
+static const float renderer_opengl_source_angle_quarter_turn = 2048.0f;
 
 typedef struct {
     PFNGLCREATESHADERPROC create_shader;
@@ -1656,10 +1658,10 @@ static int renderer_opengl_vector_append(RendererOpenGLVertex **vertices,
 }
 
 static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
-                                              const SceneCamera *camera,
-                                              const uint8_t *point_bytes,
-                                              int camera_space,
-                                              RendererOpenGLVertex *out_vertex)
+                                               const SceneCamera *camera,
+                                               const uint8_t *point_bytes,
+                                               int camera_space,
+                                               RendererOpenGLVertex *out_vertex)
 {
     RendererOpenGLVectorPoint source_point;
     float center_x;
@@ -1676,13 +1678,16 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     source_point.x = renderer_opengl_read_be16s(point_bytes);
     source_point.y = renderer_opengl_read_be16s(point_bytes + 2u);
     source_point.z = renderer_opengl_read_be16s(point_bytes + 4u);
-    yaw = (float)sprite->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
+    yaw = (float)sprite->yaw * (2.0f * renderer_opengl_pi /
+                                renderer_opengl_source_angle_full_turn);
     renderer_opengl_world_point(&sprite->position, &center_x, &center_y, &center_z);
     if (camera_space != 0) {
         float camera_x;
         float camera_y;
         float camera_z;
-        float camera_yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
+        float camera_yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi /
+                                                  renderer_opengl_source_angle_full_turn);
+        float companion_yaw;
         float forward_x = sinf(camera_yaw);
         float forward_z = cosf(camera_yaw);
         float right_x = cosf(camera_yaw);
@@ -1692,6 +1697,16 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
         local_x = (float)source_point.x * 0.0125f;
         local_y = -(float)source_point.y * 0.0125f;
         local_z = (float)source_point.z * 0.0125f;
+        /*
+         * objdrawhires.s:draw_PolygonModel rotates every vector model by
+         * EntT_CurrentAngle_w - 2048 - Vis_AngPos_w.  The regular view
+         * matrix supplies the final -Vis_AngPos_w term, so position the
+         * companion in the camera's local area but rotate its source model
+         * by EntT_CurrentAngle_w - 2048 here.  Plr1_Use itself writes the
+         * companion angle as the player's reversed angle.
+         */
+        companion_yaw = ((float)sprite->yaw - renderer_opengl_source_angle_quarter_turn) *
+            (2.0f * renderer_opengl_pi / renderer_opengl_source_angle_full_turn);
         center_x = camera_x + forward_x * 1.3f - right_x * 0.35f;
         center_z = camera_z + forward_z * 1.3f - right_z * 0.35f;
         /*
@@ -1703,14 +1718,19 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
          * of placing the whole model at the player's body height.
          */
         center_y = camera_y - 0.55f + (center_y - camera_y) * (1.0f / 64.0f);
+        out_vertex->x = center_x + cosf(companion_yaw) * local_x -
+            sinf(companion_yaw) * local_z;
+        out_vertex->y = center_y + local_y;
+        out_vertex->z = center_z + sinf(companion_yaw) * local_x +
+            cosf(companion_yaw) * local_z;
     } else {
         local_x = (float)source_point.x * 0.5f;
         local_y = -(float)source_point.y * 0.25f;
         local_z = (float)source_point.z * 0.5f;
+        out_vertex->x = center_x + cosf(yaw) * local_x - sinf(yaw) * local_z;
+        out_vertex->y = center_y + local_y;
+        out_vertex->z = center_z + sinf(yaw) * local_x + cosf(yaw) * local_z;
     }
-    out_vertex->x = center_x + cosf(yaw) * local_x - sinf(yaw) * local_z;
-    out_vertex->y = center_y + local_y;
-    out_vertex->z = center_z + sinf(yaw) * local_x + cosf(yaw) * local_z;
     out_vertex->u = 0.5f;
     out_vertex->v = 0.5f;
     out_vertex->source_light = renderer_opengl_sprite_light(sprite->source_light_level);
@@ -1721,19 +1741,30 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
 }
 
 static int renderer_opengl_vector_face_color(const SceneSprite *sprite,
-                                             const uint8_t *face_bytes,
-                                             float *out_red, float *out_green,
-                                             float *out_blue, char *error,
-                                             size_t error_size)
+                                              const uint8_t *face_bytes,
+                                              float *out_red, float *out_green,
+                                              float *out_blue, char *error,
+                                              size_t error_size)
 {
+    enum {
+        VECTOR_LIGHT_PALETTE_FIRST_ROW = 32u,
+        VECTOR_LIGHT_PALETTE_ROW_COUNT = 32u,
+        VECTOR_LIGHT_PALETTE_ROW_WIDTH = 256u
+    };
     int16_t source_map_word;
     size_t source_map_offset;
+    size_t source_light_palette_offset;
+    uint8_t source_texel;
+    uint8_t source_colour;
+    int32_t source_brightness;
+    int32_t source_palette_row;
     uint8_t color[4];
 
     if (!sprite || !face_bytes || !out_red || !out_green || !out_blue ||
-        !sprite->source_palette_bytes || !sprite->source_display_palette_bytes) {
+        !sprite->source_palette_bytes || !sprite->source_light_palette_bytes ||
+        !sprite->source_display_palette_bytes) {
         renderer_opengl_set_error(error, error_size,
-                                  "source vector face has no texture-map or display palette");
+                                  "source vector face has no texture-map, light, or display palette");
         return 0;
     }
     /* objdrawhires.s:doapoly accepts a signed map offset and adds 64 KiB for bit 15. */
@@ -1741,11 +1772,44 @@ static int renderer_opengl_vector_face_color(const SceneSprite *sprite,
     source_map_offset = source_map_word < 0 ?
         65536u + ((uint16_t)source_map_word & 0x7fffu) : (uint16_t)source_map_word;
     if (source_map_offset >= sprite->source_palette_byte_count ||
-        !renderer_opengl_display_color(sprite->source_display_palette_bytes,
-                                      sprite->source_display_palette_byte_count,
-                                      sprite->source_palette_bytes[source_map_offset], color)) {
+        sprite->source_light_palette_byte_count <
+            (size_t)(VECTOR_LIGHT_PALETTE_FIRST_ROW + VECTOR_LIGHT_PALETTE_ROW_COUNT) *
+                VECTOR_LIGHT_PALETTE_ROW_WIDTH) {
         renderer_opengl_set_error(error, error_size,
-                                  "source vector face texture map is outside its asset");
+                                  "source vector face texture map or light palette is outside its asset");
+        return 0;
+    }
+    /*
+     * objdrawhires.s:doapoly turns this face byte into 31 - ((byte * 32 * 41)
+     * >> 12), then adds draw_CalcBrightsInZone's source point brightness.
+     * Resolve that source palette row before applying the modern face draw.
+     */
+    source_palette_row = 31 - (int32_t)(((uint32_t)face_bytes[2u] * 32u * 41u) >> 12u);
+    source_brightness = sprite->source_light_level;
+    if (source_brightness < 0) {
+        int32_t source_dividend = source_brightness + 332;
+        int32_t source_shifted = source_dividend >= 0 ? source_dividend / 4 :
+            -(((-source_dividend) + 3) / 4);
+
+        /* draw_CalcBrightsInZone's negative CurrentPointBrights transform. */
+        source_brightness = 332 - source_shifted;
+    }
+    source_palette_row += (source_brightness - 300) + (source_brightness - 300) / 2;
+    if (source_palette_row < 0) {
+        source_palette_row = 0;
+    } else if (source_palette_row >= VECTOR_LIGHT_PALETTE_ROW_COUNT) {
+        source_palette_row = VECTOR_LIGHT_PALETTE_ROW_COUNT - 1;
+    }
+    source_texel = sprite->source_palette_bytes[source_map_offset];
+    source_light_palette_offset =
+        (size_t)(VECTOR_LIGHT_PALETTE_FIRST_ROW + source_palette_row) *
+            VECTOR_LIGHT_PALETTE_ROW_WIDTH + source_texel;
+    source_colour = sprite->source_light_palette_bytes[source_light_palette_offset];
+    if (!renderer_opengl_display_color(sprite->source_display_palette_bytes,
+                                       sprite->source_display_palette_byte_count,
+                                       source_colour, color)) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector face light palette references an invalid display colour");
         return 0;
     }
     *out_red = (float)color[0] / 255.0f;
@@ -1859,7 +1923,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
 
                     if (point_index >= point_count ||
                         !renderer_opengl_vector_model_point(
-                            sprite, camera, bytes + point_data_offset + (size_t)point_index * 6u,
+                            sprite, camera,
+                            bytes + point_data_offset + (size_t)point_index * 6u,
                             sprite->presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON,
                             &vertex)) {
                         if (point_index >= point_count) {
@@ -1871,6 +1936,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     vertex.source_red = source_red;
                     vertex.source_green = source_green;
                     vertex.source_blue = source_blue;
+                    /* The source light-table row above already colours this vector face. */
+                    vertex.source_light = 1.0f;
                     /* append only after the face's original map colour is attached. */
                     if (!renderer_opengl_vector_append(&vertices, &vertex_count, &vertex_capacity,
                                                        &vertex, error, error_size)) {
