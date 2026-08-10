@@ -38,6 +38,15 @@ static const float renderer_opengl_near_plane = 0.05f;
 static const float renderer_opengl_far_plane = 8192.0f;
 static const float renderer_opengl_source_angle_full_turn = 8192.0f;
 static const float renderer_opengl_source_angle_quarter_turn = 2048.0f;
+/*
+ * `Draw_Objects` paints a live ShotT after the source room columns.  A GPU
+ * depth buffer otherwise rejects an impact/blood frame whose centre lies
+ * exactly on its collision wall, floor, or ceiling.  Keep this as a tiny
+ * camera-relative presentation bias: source simulation and its collision
+ * position stay untouched, while the visible particle remains on the facing
+ * side of the contacted surface.
+ */
+static const float renderer_opengl_projectile_surface_epsilon = 16.0f;
 /* The authored shade tables are fitted before upload.  Eight comfortably
  * covers every source response while retaining useful 8-bit parameter precision. */
 static const float renderer_opengl_light_response_exponent_maximum = 8.0f;
@@ -2309,6 +2318,10 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     center_x += right_x * (float)sprite->source_aux_offset_x;
     center_z += right_z * (float)sprite->source_aux_offset_x;
     center_y -= (float)sprite->source_aux_offset_y;
+    if ((sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
+        center_x += sinf(yaw) * renderer_opengl_projectile_surface_epsilon;
+        center_z += cosf(yaw) * renderer_opengl_projectile_surface_epsilon;
+    }
     half_width = (float)sprite->source_width;
     half_height = (float)sprite->source_height;
     /*

@@ -567,6 +567,10 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     if (slot[OBJECT_SCENE_IN_UPPER_ZONE] != 0u) {
         sprite.flags |= SCENE_SPRITE_FLAG_UPPER_ZONE;
     }
+    if (slot[OBJECT_SCENE_TYPE_ID] == 2u) {
+        /* newanims.s:ItsABullet / Anim_ExplodeIntoBits. */
+        sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE;
+    }
     if (sprite.source_zone_index >= level->zone_count ||
         sprite.source_zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
         object_scene_set_error(error, error_size, "ObjT sprite lighting zone is outside source tables");

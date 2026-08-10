@@ -251,6 +251,9 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             frame->commands[first_command + command_count].type != SCENE_COMMAND_SPRITE) {
             return 0;
         }
+        if (slot[16u] == 2u) {
+            expected_flags |= SCENE_SPRITE_FLAG_PROJECTILE;
+        }
         point = game->object_runtime.point_bytes +
             (size_t)(uint16_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
         if (slot[16u] == 1u) {
@@ -4768,6 +4771,7 @@ int main(int argc, char **argv)
         LightingRuntime expected_projectile_lighting;
         ObjectMotionRuntime projectile_motion;
         ObjectProjectileSourceRuntime projectile_source_runtime = {0};
+        SceneFrame projectile_scene = {0};
         int16_t projectile_old_x;
         int16_t projectile_old_z;
 
@@ -4890,6 +4894,44 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        /*
+         * Feed the live ItsABullet descriptor into the scene handoff. A
+         * projectile can be exactly coplanar with its impact surface, so the
+         * GPU needs its source class as well as the ordinary bitmap fields.
+         */
+        projectile_objects.player1_slot = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+        if (!scene_frame_init(&projectile_scene, 2u) ||
+            !object_scene_submit_active(
+                &projectile_objects, &game.game_link_catalog, &game.shared_resources,
+                &game.dynamic_level.runtime, &projectile_lighting, &game.math,
+                &game.preferences, &projectile_scene, error, sizeof(error))) {
+            fprintf(stderr, "ItsABullet source scene submission is inconsistent: %s\n", error);
+            scene_frame_destroy(&projectile_scene);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        {
+            const SceneSprite *projectile_sprite = NULL;
+
+            for (size_t command_index = 0u; command_index < projectile_scene.count;
+                 ++command_index) {
+                if (projectile_scene.commands[command_index].type == SCENE_COMMAND_SPRITE &&
+                    projectile_scene.commands[command_index].data.sprite.source_record_id == 0u) {
+                    projectile_sprite = &projectile_scene.commands[command_index].data.sprite;
+                    break;
+                }
+            }
+            if (!projectile_sprite ||
+                (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) == 0u ||
+                projectile_sprite->source_width != (uint8_t)(projectile_frame.word_2 >> 8u) ||
+                projectile_sprite->source_height != (uint8_t)projectile_frame.word_2) {
+                fprintf(stderr, "ItsABullet source scene projectile handoff is inconsistent\n");
+                scene_frame_destroy(&projectile_scene);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        scene_frame_destroy(&projectile_scene);
         if (!lighting_runtime_brighten_points(
                 &expected_projectile_lighting, &game.dynamic_level.runtime,
                 (int16_t)-(int16_t)projectile_frame.byte_5,

@@ -162,7 +162,14 @@ enum {
     SCENE_SPRITE_FLAG_LIGHT_PALETTE = 1u << 1,
     SCENE_SPRITE_FLAG_ADDITIVE = 1u << 2,
     /* ObjT/ShotT byte 63. A backend may use it without treating it as PVS. */
-    SCENE_SPRITE_FLAG_UPPER_ZONE = 1u << 3
+    SCENE_SPRITE_FLAG_UPPER_ZONE = 1u << 3,
+    /*
+     * defs.i:OBJ_TYPE_PROJECTILE. The source draws its projectile frames
+     * after the room's software columns; a depth-buffer presenter retains
+     * this identity to prevent a contact effect from disappearing into the
+     * surface that spawned it.
+     */
+    SCENE_SPRITE_FLAG_PROJECTILE = 1u << 4
 };
 
 /* GLFT_FrameData_l's eight-byte bitmap-frame record. */
