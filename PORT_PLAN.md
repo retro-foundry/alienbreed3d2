@@ -87,6 +87,10 @@ authority for all game behavior and data formats.
   that source brightness changes its rendered RGB output, catching an inverted
   face test, a weapon pass that drops every textured polygon, or a lost
   companion-lighting handoff.
+- [x] Each `objdrawhires.s:doapoly` face now submits only its own triangle
+  range with that face's selected `Draw_TextureMapsPtr` offset. This prevents
+  a later face in the same model (including Player 1's companion weapon) from
+  redrawing all earlier geometry through its unrelated texture map.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.

@@ -2627,6 +2627,14 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 const uint8_t *polygon_point_bytes = bytes + part_offset + 4u;
                 const uint8_t *face_bytes =
                     polygon_point_bytes + (size_t)polygon_point_count * 4u;
+                /*
+                 * A source part can contain faces from different
+                 * Draw_TextureMapsPtr offsets.  Keep this face's triangles
+                 * separate: submitting the accumulated model range here
+                 * would redraw every previous face with the current
+                 * doapoly material.
+                 */
+                uint32_t face_vertex_start = vertex_count;
                 size_t source_map_offset;
                 float source_light;
                 /*
@@ -2725,7 +2733,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 glBindTexture(GL_TEXTURE_2D, texture->texture);
                 renderer_opengl_use_texture_light_response(renderer, texture);
                 renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
-                if (!renderer_opengl_draw_vertices(renderer, vertices, vertex_count,
+                if (!renderer_opengl_draw_vertices(renderer, vertices + face_vertex_start,
+                                                   vertex_count - face_vertex_start,
                                                    GL_TRIANGLES, error, error_size)) {
                     goto done;
                 }
