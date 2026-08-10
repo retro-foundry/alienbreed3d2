@@ -2075,6 +2075,8 @@ int main(int argc, char **argv)
                 } else if (passive_definition.behaviour == 2u &&
                            passive_definition.hit_points <= UINT8_MAX &&
                            destructible_fixture_count == 0u) {
+                    uint8_t destruction_message_line;
+
                     if (!level_runtime_get_zone(&game.dynamic_level.runtime,
                                                 read_be16(passive_slot + 12u), &passive_zone,
                                                 error, sizeof(error)) ||
@@ -2087,9 +2089,16 @@ int main(int argc, char **argv)
                         return 1;
                     }
                     write_be16(passive_slot + 34u, 0u);
+                    write_be16(passive_slot + 24u, 0u);
                     passive_slot[18u] = 1u;
                     passive_slot[19u] = (uint8_t)passive_definition.hit_points;
                     passive_slot[62u] = 0x80u;
+                    game.preferences.show_messages = UINT8_MAX;
+                    destruction_message_line = game.message_runtime.fullscreen != 0u ?
+                        (uint8_t)((game.message_runtime.line_number + 1u) &
+                                  (MESSAGE_RUNTIME_LINE_COUNT - 1u)) :
+                        (game.message_runtime.line_number < MESSAGE_RUNTIME_MAX_LINES_SMALL ?
+                            (uint8_t)(game.message_runtime.line_number + 1u) : 0u);
                     passive_height = passive_definition.floor_ceiling == 0u ?
                         (passive_slot[63u] != 0u ? passive_zone.upper_floor : passive_zone.floor) :
                         (passive_slot[63u] != 0u ? passive_zone.upper_roof : passive_zone.roof);
@@ -2104,7 +2113,13 @@ int main(int argc, char **argv)
                             NULL, error, sizeof(error)) ||
                         passive_slot[18u] != 0u ||
                         read_be16(passive_slot + 4u) != (uint16_t)passive_height ||
-                        read_be16(passive_slot + 34u) != passive_frame.next_timer1) {
+                        read_be16(passive_slot + 34u) != passive_frame.next_timer1 ||
+                        game.message_runtime.lines[destruction_message_line].text !=
+                            game.dynamic_level.runtime.level_bytes ||
+                        (game.message_runtime.lines[destruction_message_line].length_and_tag &
+                         (uint16_t)~MESSAGE_RUNTIME_LENGTH_MASK) !=
+                            (uint16_t)(MESSAGE_RUNTIME_TAG_NARRATIVE <<
+                                       MESSAGE_RUNTIME_TAG_SHIFT)) {
                         fprintf(stderr,
                                 "campaign level %u Destructable ObjectHandler dispatch is inconsistent: %s\n",
                                 level_index, error);
@@ -3204,11 +3219,17 @@ int main(int argc, char **argv)
     {
         uint8_t *collectable_slot;
         uint8_t *collectable_point;
+        uint8_t collectable_slot_original[OBJECT_RUNTIME_SLOT_BYTE_COUNT];
+        const uint8_t *object_names;
+        size_t object_names_size;
         LevelZone collectable_zone;
         GameObjectDefinition collectable_definition;
         GameInventory collectable_grant;
+        GameInventory original_inventory;
         GameInventory expected_inventory;
         uint32_t collected_count;
+        uint8_t collectable_message_line;
+        uint8_t object_name_message_line;
 
         if (!object_runtime_get_slot_bytes(&game.object_runtime, 20u, &collectable_slot) ||
             !object_runtime_get_point_bytes(&game.object_runtime, 20u, &collectable_point) ||
@@ -3224,6 +3245,9 @@ int main(int argc, char **argv)
             !game_link_get_object_inventory_grant(&game.game_link_catalog, 0u,
                                                   &collectable_grant,
                                                   error, sizeof(error)) ||
+            !game_link_table(&game.game_link_catalog, GAME_LINK_TABLE_OBJECT_NAMES,
+                             &object_names, &object_names_size) ||
+            object_names_size != GAME_LINK_OBJECT_COUNT * 20u ||
             !level_runtime_get_zone(&game.level_runtime, 146u, &collectable_zone,
                                     error, sizeof(error))) {
             fprintf(stderr, "Level B source collectable fixture is inconsistent: %s\n", error);
@@ -3236,19 +3260,61 @@ int main(int argc, char **argv)
         game.player.tmp_z = (int16_t)read_be16(collectable_point + 4u);
         game.player.tmp_height = 12 * 1024;
         game.player.tmp_y = collectable_zone.floor - game.player.tmp_height;
-        expected_inventory = game.session.player1_inventory;
+        memcpy(collectable_slot_original, collectable_slot, sizeof(collectable_slot_original));
+        original_inventory = game.session.player1_inventory;
+        /* Exercise Plr1_CollectItem's authored display-text message branch. */
+        write_be16(collectable_slot + 24u, 0u);
+        game.preferences.show_messages = UINT8_MAX;
+        collectable_message_line = game.message_runtime.fullscreen != 0u ?
+            (uint8_t)((game.message_runtime.line_number + 1u) &
+                      (MESSAGE_RUNTIME_LINE_COUNT - 1u)) :
+            (game.message_runtime.line_number < MESSAGE_RUNTIME_MAX_LINES_SMALL ?
+                (uint8_t)(game.message_runtime.line_number + 1u) : 0u);
+        expected_inventory = original_inventory;
         game_inventory_apply_grant(&expected_inventory, &collectable_grant,
                                    &game.inventory_limits);
         if (!object_collectables_update_single_player(
                 &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits,
+                &game.message_runtime, game.preferences.show_messages,
                 &collected_count, error, sizeof(error)) ||
             collected_count != 1u ||
             (int16_t)read_be16(collectable_slot + 12u) != -1 ||
             collectable_slot[62u] != 0u ||
+            game.message_runtime.lines[collectable_message_line].text !=
+                game.level_runtime.level_bytes ||
+            (game.message_runtime.lines[collectable_message_line].length_and_tag &
+             (uint16_t)~MESSAGE_RUNTIME_LENGTH_MASK) !=
+                (uint16_t)(MESSAGE_RUNTIME_TAG_NARRATIVE << MESSAGE_RUNTIME_TAG_SHIFT) ||
             memcmp(&game.session.player1_inventory, &expected_inventory,
                    sizeof(expected_inventory)) != 0) {
             fprintf(stderr, "Level B source collectable update is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* Restore the source slot and cover Plr1_CollectItem:.notext exactly. */
+        memcpy(collectable_slot, collectable_slot_original, sizeof(collectable_slot_original));
+        game.session.player1_inventory = original_inventory;
+        write_be16(collectable_slot + 24u, UINT16_MAX);
+        object_name_message_line = game.message_runtime.fullscreen != 0u ?
+            (uint8_t)((game.message_runtime.line_number + 1u) &
+                      (MESSAGE_RUNTIME_LINE_COUNT - 1u)) :
+            (game.message_runtime.line_number < MESSAGE_RUNTIME_MAX_LINES_SMALL ?
+                (uint8_t)(game.message_runtime.line_number + 1u) : 0u);
+        if (!object_collectables_update_single_player(
+                &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits,
+                &game.message_runtime, game.preferences.show_messages,
+                &collected_count, error, sizeof(error)) ||
+            collected_count != 1u ||
+            game.message_runtime.lines[object_name_message_line].text != object_names ||
+            game.message_runtime.lines[object_name_message_line].length_and_tag !=
+                (uint16_t)(20u |
+                           (MESSAGE_RUNTIME_TAG_DEFAULT << MESSAGE_RUNTIME_TAG_SHIFT)) ||
+            memcmp(&game.session.player1_inventory, &expected_inventory,
+                   sizeof(expected_inventory)) != 0) {
+            fprintf(stderr, "Level B source object-name collectable update is inconsistent: %s\n",
+                    error);
             game_bootstrap_destroy(&game);
             return 1;
         }

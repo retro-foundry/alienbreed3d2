@@ -9,12 +9,15 @@ enum {
     OBJECT_SLOT_VERTICAL_POSITION = 4u,
     OBJECT_SLOT_ZONE_ID = 12u,
     OBJECT_SLOT_TYPE_ID = 16u,
+    OBJECT_SLOT_DISPLAY_TEXT = 24u,
     OBJECT_SLOT_ENTITY_TYPE = 54u,
     OBJECT_SLOT_WHICH_ANIMATION = 55u,
     OBJECT_SLOT_DOORS_AND_LIFTS_HELD = 50u,
     OBJECT_SLOT_WORRY = 62u,
     OBJECT_TYPE_OBJECT = 1u,
-    OBJECT_BEHAVIOUR_COLLECTABLE = 0u
+    OBJECT_BEHAVIOUR_COLLECTABLE = 0u,
+    /* defs.i:GLFT_OBJ_NAME_LENGTH. */
+    OBJECT_COLLECTABLES_OBJECT_NAME_LENGTH = 20u
 };
 
 static void object_collectables_set_error(char *error, size_t error_size, const char *message)
@@ -44,6 +47,55 @@ static void object_collectables_write_be16(uint8_t *destination, uint16_t value)
 {
     destination[0] = (uint8_t)(value >> 8);
     destination[1] = (uint8_t)value;
+}
+
+static int object_collectables_push_success_message(
+    const LevelRuntime *level, const GameLink *game_link, const uint8_t *slot,
+    MessageRuntime *messages, uint8_t messages_enabled, char *error, size_t error_size)
+{
+    int16_t display_text = object_collectables_read_be16s(slot + OBJECT_SLOT_DISPLAY_TEXT);
+
+    if (display_text >= 0) {
+        LevelNarrativeMessage message;
+
+        /* newaliencontrol.s:Plr1_CollectItem:.can_collect display-text branch. */
+        if (!level_runtime_get_narrative_message(level, (uint16_t)display_text,
+                                                 &message, error, error_size) ||
+            message.byte_count != MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH ||
+            !message_runtime_push_line(
+                messages, message.bytes,
+                (uint16_t)(MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH |
+                           (MESSAGE_RUNTIME_TAG_NARRATIVE << MESSAGE_RUNTIME_TAG_SHIFT)),
+                messages_enabled, error, error_size)) {
+            return 0;
+        }
+        return 1;
+    }
+    {
+        const uint8_t *object_names;
+        size_t object_names_size;
+        uint8_t object_type = slot[OBJECT_SLOT_ENTITY_TYPE];
+
+        /* .notext passes the raw fixed-width GLFT_ObjectNames_l entry. */
+        if (object_type >= GAME_LINK_OBJECT_COUNT ||
+            !game_link_table(game_link, GAME_LINK_TABLE_OBJECT_NAMES,
+                             &object_names, &object_names_size) ||
+            object_names_size != GAME_LINK_OBJECT_COUNT *
+                                 OBJECT_COLLECTABLES_OBJECT_NAME_LENGTH) {
+            object_collectables_set_error(error, error_size,
+                                         "collectable object-name message is invalid");
+            return 0;
+        }
+        if (!message_runtime_push_line(
+                messages,
+                object_names + (size_t)object_type * OBJECT_COLLECTABLES_OBJECT_NAME_LENGTH,
+                (uint16_t)(OBJECT_COLLECTABLES_OBJECT_NAME_LENGTH |
+                           (MESSAGE_RUNTIME_TAG_DEFAULT << MESSAGE_RUNTIME_TAG_SHIFT)),
+                messages_enabled, error, error_size)) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /* 68000 ASR follows a negative value toward negative infinity. */
@@ -105,13 +157,14 @@ static int object_collectables_player_hits_slot(const PlayerRuntime *player,
 static int object_collectables_update_range_single_player(
     ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
-    const GameInventoryConsumableLimits *limits, uint32_t first_slot, uint32_t slot_limit,
+    const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
+    uint8_t messages_enabled, uint32_t first_slot, uint32_t slot_limit,
     uint32_t *out_collected_count,
     char *error, size_t error_size)
 {
     uint32_t collected_count = 0u;
 
-    if (!objects || !level || !game_link || !player || !inventory || !limits ||
+    if (!objects || !level || !game_link || !player || !inventory || !limits || !messages ||
         objects->active_slot_count > objects->slot_count || first_slot > slot_limit ||
         slot_limit > objects->active_slot_count ||
         player->zone_index >= level->zone_count) {
@@ -181,7 +234,13 @@ static int object_collectables_update_range_single_player(
         collectable = object_collectables_read_be32(slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD) != 0u ||
             game_inventory_can_collect_single_player(inventory, &grant, limits);
         if (!collectable) {
+            /* TODO(port): newaliencontrol.s:Plr1_CollectItem's Msg_PushLineDedupLast
+             * needs the source Sys_FrameTimeECV/EClock deduplication owner. */
             continue;
+        }
+        if (!object_collectables_push_success_message(level, game_link, slot, messages,
+                                                      messages_enabled, error, error_size)) {
+            return 0;
         }
         game_inventory_apply_grant(inventory, &grant, limits);
         /* Plr1_CollectItem / Collectable remove the source slot on success. */
@@ -202,18 +261,20 @@ static int object_collectables_update_range_single_player(
 int object_collectables_update_single_player(
     ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
-    const GameInventoryConsumableLimits *limits, uint32_t *out_collected_count,
+    const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
+    uint8_t messages_enabled, uint32_t *out_collected_count,
     char *error, size_t error_size)
 {
     return object_collectables_update_range_single_player(
-        objects, level, game_link, player, inventory, limits, 0u,
+        objects, level, game_link, player, inventory, limits, messages, messages_enabled, 0u,
         objects ? objects->active_slot_count : 0u, out_collected_count, error, error_size);
 }
 
 int object_collectables_update_slot_single_player(
     ObjectRuntime *objects, uint32_t slot_index, const LevelRuntime *level,
     const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
-    const GameInventoryConsumableLimits *limits, uint32_t *out_collected_count,
+    const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
+    uint8_t messages_enabled, uint32_t *out_collected_count,
     char *error, size_t error_size)
 {
     if (!objects || slot_index >= objects->active_slot_count) {
@@ -222,6 +283,7 @@ int object_collectables_update_slot_single_player(
         return 0;
     }
     return object_collectables_update_range_single_player(
-        objects, level, game_link, player, inventory, limits, slot_index, slot_index + 1u,
+        objects, level, game_link, player, inventory, limits, messages, messages_enabled,
+        slot_index, slot_index + 1u,
         out_collected_count, error, error_size);
 }

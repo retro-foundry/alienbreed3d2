@@ -17,13 +17,14 @@ first game's software renderer:
 The active direct-play path now runs the source single-player control,
 weapon, object/mechanism, worry, and `ItsAnAlien` update ordering. Every
 complete AI route enters through `newanims.s:ObjectHandler` only when its
-source worry byte is set; source death narratives enter the GPU-neutral
-small-screen message ring and appear as byte-ranged HUD commands. The SDL
-presenter remains intentionally status-only, so this is simulation and scene
-production rather than a software-rendered game. Menus remain deferred and
-multiplayer is not included. The detailed inventory below records the
-source-backed foundations; older references to an unbound AI dispatcher are
-superseded by this live integration.
+source worry byte is set. Source death, successful collectable, and
+destructible narratives enter the GPU-neutral small-screen message ring and
+appear as byte-ranged HUD commands; the source-EClock-deduped “cannot carry”
+notification remains deferred. The SDL presenter remains intentionally
+status-only, so this is simulation and scene production rather than a
+software-rendered game. Menus remain deferred and multiplayer is not included.
+The detailed inventory below records the source-backed foundations; older
+references to an unbound AI dispatcher are superseded by this live integration.
 
 - loads the authoritative `test.lnk` game database and `TEXT_FILE` narrative;
 - unpacks (including stored and LHA-compressed `=SB=` records), parses, and validates the map, fly map, `twolev.bin`,

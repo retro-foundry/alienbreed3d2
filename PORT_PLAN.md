@@ -45,6 +45,14 @@ authority for all game behavior and data formats.
   order. `src/alien_dispatch.*` returns fatal-death narrative requests to the
   handler, which pushes them through the source message ring subject to
   `Prefs_ShowMessages_b`.
+- [x] `src/object_collectables.*` and `src/object_passives.*` now retain the
+  direct, single-player `newaliencontrol.s:Plr1_CollectItem` and
+  `Destructable` `Msg_PushLine` calls in their original state-transition
+  order. Successful pickups publish either their authored fixed 160-byte
+  narrative or raw 20-byte object-name payload; a destructible publishes its
+  authored narrative before its timer/hit-point mutation. The timed
+  `Plr1_CollectItem` “cannot carry” `Msg_PushLineDedupLast` path remains
+  deliberately absent pending its source `Sys_FrameTimeECV_q`/EClock owner.
 - [x] The no-op presenter remains deliberately unchanged. The future backend
   receives whole-level camera/material/geometry/sprite/HUD intent and does
   not need PVS, portals, or software rendering.
@@ -360,7 +368,10 @@ authority for all game behavior and data formats.
   `Collectable`, `Plr1_CheckObjectCollide`, and `Plr1_CollectItem` subset for
   a same-zone/layer candidate: floor/roof placement, source word-coordinate
   hit test, `GLFT_AmmoGive`/`GunGive`, saturated inventory update, and removed
-  slot sentinel. The Level B slot-20 health fixture validates this exact path.
+  slot sentinel. Its successful `Msg_PushLine` handoff retains both authored
+  narrative and fixed-width object-name forms; only the source-EClock-deduped
+  failed-collection notification remains unbound. The Level B slot-20 health
+  fixture validates this exact path.
   `src/mechanism_runtime.*` now ports the single-player `newanims.s:DoorRoutine`
   slice: source `ZLiftableT` position/velocity and open timers, `ZoneT_Roof_l`,
   per-door graphics displacement records, door-state bits, source raise masks,
@@ -377,9 +388,9 @@ authority for all game behavior and data formats.
   source floor/ceiling placement, default/action six-byte frame records,
   player collision, operate-to-toggle state, active timeout, and inventory
   grant attempt. `src/object_passives.*` ports the source destructible
-  damage-threshold/hit-point transition and action animation, plus the
-  worry-gated decoration placement/default animation. It deliberately leaves
-  object locks, destructible narrative messages, and AI worry selection out
+  damage-threshold/hit-point transition, authored destruction narrative, and
+  action animation, plus the worry-gated decoration placement/default
+  animation. It deliberately leaves object locks and AI worry selection out
   of scope until their owning systems exist. Dynamic `Obj_DoCollision`,
   switches, enemies, and sounds remain absent until their owning routines are
   ported. Active source object render descriptors are emitted; live projectile
@@ -937,7 +948,7 @@ the source's object inventory grants and reproduces its inventory-limit helpers,
 owns byte-exact mutable `ObjT`/object-point storage, and applies the translated
 collectable, bounded activatable, destructible, and decoration paths in
 `ObjectHandler`'s source slot order. This does not port PVS/worry selection,
-full lock behaviour, narrative audio/messages, alien behaviour, or projectile
+full lock behaviour, narrative audio, alien behaviour, or projectile
 blast/brightness/audio. The
 missing systems must use the maintained source's mutable `ObjT` initialization,
 worry, animation, and update ordering rather than a generalized object update.
@@ -969,11 +980,15 @@ scope by design.
    - Trace the remaining source-owned blast/brightness/event branches before
      enabling each one. Keep any branch absent until its original caller and
      state ownership are established.
+   - Port `Plr1_CollectItem`'s failed-inventory notification only with its
+     original `Sys_FrameTimeECV_q`/EClock deduplication state; do not replace
+     it with a native timer or unconditional message.
 
 3. **Direct-play validation**
-   - Extend focused source fixtures for worried live aliens, message/death
-     requests, and their exact ObjT/AUX ordering as routes are exercised in
-     authored levels.
+   - Extend focused source fixtures for the remaining worried live-alien
+     routes and their exact ObjT/AUX ordering as authored levels exercise
+     them; retain coverage of successful collectable, destructible, and death
+     message handoffs.
    - Maintain the full A--P asset/bootstrap regression and add renderer output
      validation separately from simulation-state validation.
    - Keep menus deferred until direct game presentation, input, simulation,

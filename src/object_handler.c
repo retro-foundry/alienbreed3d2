@@ -180,6 +180,7 @@ int object_handler_update_single_player(
         if (definition.behaviour == OBJECT_BEHAVIOUR_COLLECTABLE) {
             if (!object_collectables_update_slot_single_player(
                     objects, slot_index, level, game_link, player, inventory, limits,
+                    alien_context->messages, alien_context->preferences->show_messages,
                     &newly_collected, error, error_size)) {
                 return 0;
             }
@@ -197,7 +198,9 @@ int object_handler_update_single_player(
         } else if ((definition.behaviour == OBJECT_BEHAVIOUR_DESTRUCTIBLE ||
                     definition.behaviour == OBJECT_BEHAVIOUR_DECORATION) &&
                    !object_passives_update_slot(objects, slot_index, level, game_link,
-                                                &definition, error, error_size)) {
+                                                &definition, alien_context->messages,
+                                                alien_context->preferences->show_messages,
+                                                error, error_size)) {
             return 0;
         }
     }

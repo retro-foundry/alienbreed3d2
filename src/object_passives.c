@@ -11,6 +11,7 @@ enum {
     OBJECT_SLOT_TYPE_ID = 16u,
     OBJECT_SLOT_HIT_POINTS = 18u,
     OBJECT_SLOT_DAMAGE_TAKEN = 19u,
+    OBJECT_SLOT_DISPLAY_TEXT = 24u,
     OBJECT_SLOT_ENTITY_TYPE = 54u,
     OBJECT_SLOT_TIMER1 = 34u,
     OBJECT_SLOT_CURRENT_ANGLE = 30u,
@@ -50,6 +51,30 @@ static void object_passives_write_be32(uint8_t *target, uint32_t value)
     target[1] = (uint8_t)(value >> 16);
     target[2] = (uint8_t)(value >> 8);
     target[3] = (uint8_t)value;
+}
+
+static int object_passives_push_destruction_message(
+    const LevelRuntime *level, const uint8_t *slot, MessageRuntime *messages,
+    uint8_t messages_enabled, char *error, size_t error_size)
+{
+    LevelNarrativeMessage message;
+    int16_t display_text = object_passives_read_be16s(slot + OBJECT_SLOT_DISPLAY_TEXT);
+
+    if (display_text < 0) {
+        return 1;
+    }
+    /* newaliencontrol.s:Destructable's single-player display-text branch. */
+    if (!level_runtime_get_narrative_message(level, (uint16_t)display_text,
+                                             &message, error, error_size) ||
+        message.byte_count != MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH ||
+        !message_runtime_push_line(
+            messages, message.bytes,
+            (uint16_t)(MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH |
+                       (MESSAGE_RUNTIME_TAG_NARRATIVE << MESSAGE_RUNTIME_TAG_SHIFT)),
+            messages_enabled, error, error_size)) {
+        return 0;
+    }
+    return 1;
 }
 
 static int32_t object_passives_asr32_7(int32_t value)
@@ -130,11 +155,12 @@ static int object_passives_apply_animation(const GameLink *game_link,
 int object_passives_update_slot(ObjectRuntime *objects, uint32_t slot_index,
                                 const LevelRuntime *level, const GameLink *game_link,
                                 const GameObjectDefinition *definition,
+                                MessageRuntime *messages, uint8_t messages_enabled,
                                 char *error, size_t error_size)
 {
     uint8_t *slot;
 
-    if (!objects || !level || !game_link || !definition ||
+    if (!objects || !level || !game_link || !definition || !messages ||
         slot_index >= objects->active_slot_count ||
         objects->active_slot_count > objects->slot_count) {
         object_passives_set_error(error, error_size,
@@ -157,7 +183,11 @@ int object_passives_update_slot(ObjectRuntime *objects, uint32_t slot_index,
             return 1;
         }
         if (slot[OBJECT_SLOT_HIT_POINTS] != 0u) {
-            /* Narrative messages are UI work; retain only the state transition. */
+            if (!object_passives_push_destruction_message(level, slot, messages,
+                                                          messages_enabled, error,
+                                                          error_size)) {
+                return 0;
+            }
             object_passives_write_be16(slot + OBJECT_SLOT_TIMER1, 0u);
         }
         slot[OBJECT_SLOT_HIT_POINTS] = 0u;
