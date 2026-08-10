@@ -71,8 +71,10 @@ first game's software renderer:
   collectables, doors, lifts, water updates, source PVST gameplay activation,
   and `hires.s:DOALLANIMS`' source-timed alien frame/action workspace update;
   the source AI's isolated player-memory, sight, facing, grounded-route,
-  room-state, vertical-flight, and per-alien setup helpers; the source single-player
-  weapon cooldown/ammunition/hitscan/projectile-launch/flight path; the
+  room-state, vertical-flight, and per-alien setup helpers, including the GLFT
+  reaction timer; the source single-player weapon cooldown/ammunition/
+  hitscan/projectile-launch/flight path, including source frame-local player
+  noise for empty and successful triggers; the
   source directional point-brightness helper, alien torch caller, and
   `Anim_ExplodeIntoBits` fragment allocation are present for later behavior
   modes, projectile, and blast callers. `ai_JustDied`'s exact smaller-alien

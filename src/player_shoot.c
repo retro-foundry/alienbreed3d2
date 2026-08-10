@@ -312,7 +312,8 @@ int player_shoot_update_single_player(ObjectRuntime *objects,
     }
     ammunition = inventory->ammunition[shoot.bullet_type];
     if ((int16_t)ammunition < (int16_t)shoot.bullet_count) {
-        /* The source only makes its out-of-ammunition sound before returning. */
+        /* newplayershoot.s:Plr1_Shot publishes this before its unported sound. */
+        player->noise_volume = 100;
         return 1;
     }
     if (objects->player1_slot > UINT32_MAX - 2u ||
@@ -326,6 +327,8 @@ int player_shoot_update_single_player(ObjectRuntime *objects,
     player->time_to_shoot = (int16_t)shoot.delay;
     inventory->ammunition[shoot.bullet_type] =
         (uint16_t)(ammunition - shoot.bullet_count);
+    /* newplayershoot.s:.okcanshoot publishes this before its unported sound. */
+    player->noise_volume = 100;
 
     vertical_speed = target.found != 0u ? target.vertical_speed :
         player_shoot_manual_vertical_speed(player, &bullet);

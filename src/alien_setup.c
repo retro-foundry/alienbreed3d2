@@ -95,6 +95,7 @@ int alien_setup_from_slot(const ObjectRuntime *objects, uint32_t slot_index,
     setup.thing_height = (int32_t)alien_setup_word_from_u16(definition.height) * 128;
     setup.auxiliary_object_type = alien_setup_word_from_u16(definition.auxiliary_type);
     setup.vector_object_flag = (uint8_t)definition.graphics_type;
+    setup.reaction_time = alien_setup_word_from_u16(definition.reaction_time);
     setup.default_mode = alien_setup_word_from_u16(definition.default_behaviour);
     setup.response_mode = alien_setup_word_from_u16(definition.response_behaviour);
     setup.retreat_mode = alien_setup_word_from_u16(definition.retreat_behaviour);

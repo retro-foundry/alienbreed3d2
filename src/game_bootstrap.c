@@ -246,8 +246,12 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
                                           &game->game_link_catalog, &game->player,
                                           error, error_size) ||
         !player_entity_disable_second_for_single_player(&game->object_runtime,
-                                                        error, error_size) ||
-        !player_shoot_update_single_player(
+                                                        error, error_size)) {
+        return 0;
+    }
+    /* newanims.s:objmoveanim clears this immediately before Plr1_Shot. */
+    game->player.noise_volume = 0;
+    if (!player_shoot_update_single_player(
             &game->object_runtime, &game->dynamic_level, &game->object_observation,
             &game->player, &game->session.player1_inventory, &game->game_link_catalog,
             &game->preferences, &game->math, &game->random, 1u, error, error_size) ||

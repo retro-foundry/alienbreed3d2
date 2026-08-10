@@ -3199,7 +3199,9 @@ int main(int argc, char **argv)
         /* Settle any authored spawn teleport before exercising post-control comparison. */
         game.dynamic_level.runtime.exit_zone_id = -1;
         game_input_init(&game.input);
+        game.player.noise_volume = 99;
         if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
+            game.player.noise_volume != 0 ||
             !object_runtime_get_player2_slot_bytes(&game.object_runtime, &player2_slot) ||
             (int16_t)read_be16(player2_slot + 12u) != -1 ||
             (int16_t)read_be16(player2_slot + 26u) != -1 || player2_slot[17u] != 0u ||
@@ -3389,6 +3391,7 @@ int main(int argc, char **argv)
                 &parent_inventory, &game.game_link_catalog, &game.preferences, &game.math,
                 &parent_random, 1u, error, sizeof(error)) ||
             parent_player.time_to_shoot != (int16_t)parent_shoot.delay ||
+            parent_player.noise_volume != 100 ||
             parent_inventory.ammunition[parent_shoot.bullet_type] !=
                 (uint16_t)(8u - parent_shoot.bullet_count) ||
             slot_bytes[PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] !=
@@ -3418,6 +3421,19 @@ int main(int argc, char **argv)
             parent_player.time_to_shoot != (int16_t)(parent_shoot.delay - 1u) ||
             parent_random.state != expected_parent_random.state) {
             fprintf(stderr, "Plr1_Shot source cooldown is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        parent_player.time_to_shoot = 0;
+        parent_player.noise_volume = 0;
+        parent_inventory.ammunition[parent_shoot.bullet_type] = 0u;
+        if (!player_shoot_update_single_player(
+                &parent_objects, &game.dynamic_level, &parent_observation, &parent_player,
+                &parent_inventory, &game.game_link_catalog, &game.preferences, &game.math,
+                &parent_random, 1u, error, sizeof(error)) ||
+            parent_player.noise_volume != 100 ||
+            parent_inventory.ammunition[parent_shoot.bullet_type] != 0u) {
+            fprintf(stderr, "Plr1_Shot out-of-ammunition noise is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
@@ -4347,6 +4363,7 @@ int main(int argc, char **argv)
                 setup.thing_height != (int32_t)(int16_t)definition.height * 128 ||
                 setup.auxiliary_object_type != (int16_t)definition.auxiliary_type ||
                 setup.vector_object_flag != (uint8_t)definition.graphics_type ||
+                setup.reaction_time != (int16_t)definition.reaction_time ||
                 setup.default_mode != (int16_t)definition.default_behaviour ||
                 setup.response_mode != (int16_t)definition.response_behaviour ||
                 setup.retreat_mode != (int16_t)definition.retreat_behaviour ||

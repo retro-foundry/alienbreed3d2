@@ -473,8 +473,10 @@ authority for all game behavior and data formats.
      Next: compose `ai_Widget`'s established caller-owned source `a2` words
      into the remaining prowl movement path, then port the audio portions of
      `newplayershoot.s`. The complete source `Plr1_Shot`
-     gameplay-state path is now wired before `ObjectHandler`; it intentionally
-     does not synthesize the unported sound effect.
+     gameplay-state path is now wired before `ObjectHandler`; its
+     `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
+     for either an empty or successful trigger, without synthesizing the
+     unported sound effect.
      Source object render descriptors are now emitted independently of those
      pending simulation branches.
      `SwitchRoutine` remains absent:
@@ -583,9 +585,9 @@ clamps, but are not invoked without a translated flying mode.
 their torch, projectile, or audio behavior before the owning AI branches.
 `newaliencontrol.s:ItsAnAlien`'s immediate per-slot setup is now a checked
 native context: it retains zone echo, inverted brightness, the raw ShootT
-longword transform, AlienT mode/speed values, and the exact three-entry girth
-mapping. It stops immediately before `AI_MainRoutine`; no incomplete dispatch
-is wired into `ObjectHandler`.
+longword transform, AlienT reaction-time/mode/speed values, and the exact
+three-entry girth mapping. It stops immediately before `AI_MainRoutine`; no
+incomplete dispatch is wired into `ObjectHandler`.
 `objectmove.s:HeadTowardsAng` is now available as an isolated native movement
 proposal helper: it retains the source three-iteration distance approximation,
 signed range/speed handling, `GotThere` byte, and four-step `bigsine` heading

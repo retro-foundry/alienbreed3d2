@@ -51,6 +51,8 @@ typedef struct {
     int16_t add_to_bobble;
     /* newplayershoot.s:Plr1_TimeToShoot_w. */
     int16_t time_to_shoot;
+    /* newanims.s/newplayershoot.s:Plr1_NoiseVol_w. */
+    int16_t noise_volume;
     uint16_t health;
     uint32_t default_enemy_flags;
     uint8_t ducked;

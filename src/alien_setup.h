@@ -25,6 +25,8 @@ typedef struct {
     int32_t thing_height;
     int16_t auxiliary_object_type;
     uint8_t vector_object_flag;
+    /* newaliencontrol.s:AI_ReactionTime_w from AlienT_ReactionTime_w. */
+    int16_t reaction_time;
     int16_t default_mode;
     int16_t response_mode;
     int16_t retreat_mode;
