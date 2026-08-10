@@ -2695,12 +2695,12 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                             ((float)maximum_u + 1.0f);
                         /*
                          * drawpol addresses map rows with V increasing down
-                         * from the first source row.  GL samples V=0 from the
-                         * first upload row at the bottom, so reflect the
-                         * authored coordinate rather than flipping the decoded
-                         * texture (and its matching light-response maps).
+                         * from the first source row. glTexImage2D uploads that
+                         * first row at V=0, so preserve the authored V value
+                         * directly. The source-to-GL Y-axis conversion applies
+                         * to geometry, not to the texture-map address.
                          */
-                        vertex.v = 1.0f - ((float)source_corner[3u] + 0.5f) /
+                        vertex.v = ((float)source_corner[3u] + 0.5f) /
                             ((float)maximum_v + 1.0f);
                         if (!source_gouraud) {
                             /* The source flat palette row is continuous GPU lighting. */
