@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "alien_runtime.h"
@@ -5936,6 +5937,146 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+    }
+    {
+        /* modules/ai.s:ai_JustDied's bullet-splat and child-splat handoffs. */
+        uint8_t slot_bytes[42u * OBJECT_RUNTIME_SLOT_BYTE_COUNT];
+        uint8_t point_bytes[42u * OBJECT_RUNTIME_POINT_BYTE_COUNT];
+        uint8_t narrative_bytes[AB3D2_LEVEL_MESSAGE_LENGTH] = {0};
+        ObjectRuntime death_objects = {0};
+        ObjectAnimationRuntime death_animation;
+        ObjectExplosionRuntime death_explosion;
+        GameProgression death_progression;
+        GameRandom death_random;
+        LevelRuntime death_level = {0};
+        AlienJustDiedState death_state;
+        AssetBlob death_link_blob = {0};
+        GameLink death_link = {0};
+        const uint8_t *alien_definition_table;
+        size_t alien_definition_table_size;
+        uint8_t *mutable_alien_definition_table;
+        uint8_t bullet_parent_type = 0u;
+        uint8_t child_parent_type = 1u;
+        uint8_t bullet_splat_type = 5u;
+        uint8_t child_splat_type = 20u;
+
+        death_link_blob.bytes = malloc(game.game_link.size);
+        death_link_blob.size = game.game_link.size;
+        if (!death_link_blob.bytes) {
+            fprintf(stderr, "ai_JustDied GLFT branch fixture allocation failed\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        memcpy(death_link_blob.bytes, game.game_link.bytes, death_link_blob.size);
+        if (!game_link_init(&death_link_blob, &death_link, error, sizeof(error)) ||
+            !game_link_table(&death_link, GAME_LINK_TABLE_ALIEN_DEFINITIONS,
+                             &alien_definition_table, &alien_definition_table_size) ||
+            alien_definition_table_size !=
+                (size_t)GAME_LINK_ALIEN_COUNT * GAME_LINK_ALIEN_DEFINITION_SIZE) {
+            fprintf(stderr, "ai_JustDied GLFT branch fixture is unavailable: %s\n", error);
+            free(death_link_blob.bytes);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        mutable_alien_definition_table = (uint8_t *)alien_definition_table;
+        /* AlienT_SplatType_w is word 19; ai_JustDied reads its low byte. */
+        write_be16(mutable_alien_definition_table + 38u, bullet_splat_type);
+        write_be16(mutable_alien_definition_table + GAME_LINK_ALIEN_DEFINITION_SIZE + 38u,
+                   child_splat_type);
+
+        death_objects.slot_bytes = slot_bytes;
+        death_objects.slot_count = 42u;
+        death_objects.active_slot_count = 1u;
+        death_objects.alien_shot_first_slot = 1u;
+        death_objects.point_bytes = point_bytes;
+        death_objects.point_count = 42u;
+        death_level.level_bytes = narrative_bytes;
+        death_level.level_size = sizeof(narrative_bytes);
+        memcpy(narrative_bytes, "SOURCE NARRATIVE", sizeof("SOURCE NARRATIVE") - 1u);
+
+        memset(slot_bytes, 0, sizeof(slot_bytes));
+        memset(point_bytes, 0, sizeof(point_bytes));
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 4u, 11u);
+        write_be16(slot_bytes + 12u, 3u);
+        write_be16(slot_bytes + 24u, UINT16_MAX);
+        write_be16(slot_bytes + 42u, 50u);
+        write_be16(slot_bytes + 44u, 70u);
+        slot_bytes[54u] = bullet_parent_type;
+        slot_bytes[63u] = UINT8_MAX;
+        write_be32(point_bytes, UINT32_C(0x012caaaa));
+        write_be32(point_bytes + 4u, UINT32_C(0xfe70bbbb));
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            uint8_t *shot_slot = slot_bytes +
+                (size_t)(shot_index + 1u) * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            write_be16(shot_slot + 0u, (uint16_t)(shot_index + 1u));
+            write_be16(shot_slot + 12u, UINT16_MAX);
+        }
+        object_animation_runtime_init(&death_animation);
+        object_explosion_runtime_init(&death_explosion);
+        game_progression_init(&death_progression);
+        game_random_init(&death_random);
+        if (!alien_death_just_died(
+                &death_objects, 0u, &death_level, &death_link, &death_progression,
+                &death_animation, &death_explosion, &game.math, &death_random, &death_state,
+                error, sizeof(error)) ||
+            death_state.narrative.bytes != NULL || death_state.splat_type != bullet_splat_type ||
+            death_state.fragment_count != 8u || death_state.child_count != 0u ||
+            death_state.got_out != UINT8_MAX || death_explosion.radius != 0 ||
+            slot_bytes[18u] != 0u || slot_bytes[20u] != 5u || slot_bytes[55u] != 3u ||
+            read_be16(slot_bytes + 40u) != 0u || death_animation.workspace[0u][1u] != UINT8_MAX ||
+            death_progression.alien_kills[bullet_parent_type] != 1u ||
+            death_progression.signal != 1u) {
+            fprintf(stderr, "ai_JustDied bullet-splat state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
+        memset(slot_bytes, 0, sizeof(slot_bytes));
+        memset(point_bytes, 0, sizeof(point_bytes));
+        write_be16(slot_bytes + 0u, 0u);
+        write_be16(slot_bytes + 4u, 12u);
+        write_be16(slot_bytes + 12u, 4u);
+        write_be16(slot_bytes + 24u, 0u);
+        write_be16(slot_bytes + 28u, 9u);
+        write_be16(slot_bytes + 30u, 0x1234u);
+        write_be32(slot_bytes + 50u, UINT32_C(0x10203040));
+        slot_bytes[54u] = child_parent_type;
+        slot_bytes[63u] = 1u;
+        write_be32(point_bytes, UINT32_C(0x00112233));
+        write_be32(point_bytes + 4u, UINT32_C(0x44556677));
+        for (uint32_t child_slot_index = 22u; child_slot_index <= 26u;
+             child_slot_index += 2u) {
+            uint8_t *child_slot = slot_bytes +
+                (size_t)child_slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            write_be16(child_slot + 0u, (uint16_t)child_slot_index);
+            write_be16(child_slot + 12u, UINT16_MAX);
+        }
+        object_animation_runtime_init(&death_animation);
+        object_explosion_runtime_init(&death_explosion);
+        game_progression_init(&death_progression);
+        game_random_init(&death_random);
+        if (!alien_death_just_died(
+                &death_objects, 0u, &death_level, &death_link, &death_progression,
+                &death_animation, &death_explosion, &game.math, &death_random, &death_state,
+                error, sizeof(error)) ||
+            death_state.narrative.bytes != narrative_bytes ||
+            death_state.narrative.byte_count != AB3D2_LEVEL_MESSAGE_LENGTH ||
+            death_state.narrative.length_and_tag != AB3D2_LEVEL_MESSAGE_LENGTH ||
+            death_state.splat_type != child_splat_type || death_state.fragment_count != 0u ||
+            death_state.child_count != 3u || death_state.got_out != UINT8_MAX ||
+            slot_bytes[18u] != 0u || slot_bytes[20u] != 5u || slot_bytes[55u] != 3u ||
+            read_be16(slot_bytes + 40u) != 0u || death_animation.workspace[0u][1u] != UINT8_MAX ||
+            death_progression.alien_kills[child_parent_type] != 1u ||
+            death_progression.signal != 1u) {
+            fprintf(stderr, "ai_JustDied child-splat state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        free(death_link_blob.bytes);
     }
     {
         /* objectmove.s:HeadTowardsAng's zero-distance, range, and speed paths. */

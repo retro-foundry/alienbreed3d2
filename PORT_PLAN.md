@@ -636,8 +636,8 @@ it begins one record after `AI_OtherAlienDataPtrs_vl`, retains its every-other-
 slot ten-probe scan and zero-hit-points reuse condition, then creates at most
 three source child records. The helper preserves its low-byte hit-point and
 display-text writes, full object-point copy, predecessor AUX state, and all
-source field widths. Narrative submission and `STATS_KILL` progression remain
-with the owning complete death routine; no partial alien dispatch is enabled.
+source field widths. Live narrative submission and the death caller remain
+with the owning complete routine; no partial alien dispatch is enabled.
 `macros.i:STATS_KILL` now has its source-owned 20-word alien counter and
 `Game_ProgressSignal_l` kill-bit update in the game bootstrap state, including
 the source 16-bit counter wrap and full signal overwrite. It is deliberately
@@ -645,6 +645,15 @@ uncalled while the death helper remains unbound. The rest of
 `defs.i:GStatT`, `c/game_progress.c` persistence, and achievement evaluation
 remain with their specific source owners rather than becoming a native
 progression substitute.
+`modules/ai.s:ai_JustDied` is now an uncalled direct death helper. It clears
+hit points before obtaining the source message index, records the kill,
+selects the low byte of `AlienT_SplatType_w`, invokes either the exact
+`Anim_ExplodeIntoBits` or smaller-alien helper, and applies the source
+death-mode/animation/timer/workspace exit handoff. Its `Msg_PushLine` input is
+published as a raw 160-byte narrative request with the source tag, rather than
+inventing a text layout while the GPU-neutral message consumer is absent. The
+helper remains outside `ObjectHandler` until that consumer and a complete AI
+mode dispatcher can call it in source order.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

@@ -77,7 +77,9 @@ first game's software renderer:
   `Anim_ExplodeIntoBits` fragment allocation are present for later behavior
   modes, projectile, and blast callers. `ai_JustDied`'s exact smaller-alien
   allocation branch, `STATS_KILL` counter/signal update, and alien-damage
-  reactions are likewise prepared for its later complete handoff. Enemy
+  reactions are likewise prepared through its direct death helper. That helper
+  emits its source `Msg_PushLine` narrative request for the later GPU-neutral
+  message consumer; it is not yet live in incomplete enemy dispatch. Enemy
   behavior, dynamic blast, and audio remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
