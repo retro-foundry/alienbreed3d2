@@ -26,8 +26,13 @@ enum {
     RENDERER_OPENGL_WINDOW_MINIMUM_SIZE = 1
 };
 
-/* Source Y coordinates are 8.8 fixed point; X/Z coordinates are integer words. */
-static const float renderer_opengl_source_y_unit = 1.0f / 256.0f;
+/*
+ * The source stores world Y in its 8.8 longword domain.  That is not a
+ * generic 1/256 world-unit conversion: `RotateLevelPts` supplies X as x<<7,
+ * while `Draw_Flats` supplies Y as flat_height<<6.  Dividing source Y by 128
+ * puts both axes in the same native projection space.
+ */
+static const float renderer_opengl_source_y_unit = 1.0f / 128.0f;
 static const float renderer_opengl_pi = 3.14159265358979323846f;
 static const float renderer_opengl_near_plane = 0.05f;
 static const float renderer_opengl_far_plane = 8192.0f;
@@ -151,8 +156,9 @@ static void renderer_opengl_set_sdl_error(char *error, size_t error_size, const 
  * directly.  In contrast, player height is 12*1024 and floor/roof records
  * use the same 8.8 Y domain (for example, Level A is y=0..-32768).  Preserve
  * that mixed source representation here: integer X/Z units, 8.8 down-positive
- * Y converted to native up-positive units.  The low-word conversion also
- * matches the source's `move.w Plr_XOff_l` and `move.w Plr_ZOff_l` reads.
+ * Y converted to the source's native x<<7 projection space, then made
+ * up-positive.  The low-word conversion also matches the source's `move.w
+ * Plr_XOff_l` and `move.w Plr_ZOff_l` reads.
  */
 static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out_x,
                                         float *out_y, float *out_z)
@@ -2234,17 +2240,18 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     right_x = cosf(yaw);
     right_z = -sinf(yaw);
     /*
-     * transform.s:RotateLevelPts has already supplied draw_Bitmap's
-     * horizontal <<7 projection factor in ObjRotated. SceneWorldPoint is the
-     * pre-rotated PC world form, so applying that factor again here stretches
-     * a billboard by 256 relative to its vertical source extent. Retain the
-     * same 8.8-to-native half-unit conversion on every presented axis.
+     * `draw_Bitmap` adds each auxiliary offset as aux<<7, then computes
+     * `(width<<7)/depth` and `(height<<7)/depth` before subtracting those
+     * values from the projected centre.  In the native x<<7 world space the
+     * offsets are therefore whole world units and each byte is already the
+     * bitmap's half-extent; applying a second projection scale or dividing
+     * these values by two shrinks and vertically misplaces world objects.
      */
-    center_x += right_x * (float)sprite->source_aux_offset_x * 0.5f;
-    center_z += right_z * (float)sprite->source_aux_offset_x * 0.5f;
-    center_y -= (float)sprite->source_aux_offset_y * 0.5f;
-    half_width = (float)sprite->source_width * 0.5f;
-    half_height = (float)sprite->source_height * 0.5f;
+    center_x += right_x * (float)sprite->source_aux_offset_x;
+    center_z += right_z * (float)sprite->source_aux_offset_x;
+    center_y -= (float)sprite->source_aux_offset_y;
+    half_width = (float)sprite->source_width;
+    half_height = (float)sprite->source_height;
     /*
      * Passive source objects commonly keep their vertical origin directly on
      * ZoneT_Floor_l. draw_Bitmap keeps that origin and clips the packed image
