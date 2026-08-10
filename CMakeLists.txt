@@ -71,6 +71,7 @@ set(AB3D2_CORE_SOURCES
   src/mechanism_runtime.c
   src/object_activatables.c
   src/object_animation.c
+  src/object_blast.c
   src/object_collectables.c
   src/object_collision.c
   src/object_explosion.c

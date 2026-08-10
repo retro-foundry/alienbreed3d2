@@ -880,7 +880,18 @@ exit-first wall contact, and joined-zone state. `player_shoot.*` consumes the
 explicit zero-extension boundary to create the source miss effect.
 The source fire/cooldown/ammunition control is wired before `ObjectHandler`,
 so the remaining projectile work is blast/audio rather than launch, basic
-  flight/collision, or point brightness.
+flight/collision, or point brightness.
+`src/object_blast.*` now directly translates `newanims.s:ComputeBlast` as a
+checked, unbound helper. It preserves the source's four-state candidate filter,
+`CanItBeSeen` gate, unusual three-pass distance arithmetic, byte damage,
+projectile-versus-entity impulse split, and bounded player-shot flame
+allocation (including the source point-low-word retention). Its direct fixture
+uses authored bullet gravity variants and verifies target writes, six flame
+slots, and the source's three `GetRand` calls per flame. It remains outside
+`ItsABullet` because the roof/floor impact callers read shared source
+`newx`/`newz` values before their local flight motion update; those values must
+be given the same cross-routine ownership as `Viewer*` before any caller is
+enabled.
 Translate each remaining bounded slice directly from the maintained source and
 add source-derived regressions for its state changes and ordering.
 
@@ -1003,9 +1014,11 @@ scope by design.
      `ItsABullet` callers (roof, floor, wall, and direct-target impact). Its
      direct-target caller deliberately leaves `ViewerTop` unchanged while the
      other three set it. Wire those projectile caller writes to this shared
-     state and capture a targeted oracle fixture before enabling blast damage,
-     knockback, or flame allocation; do not replace the retained top-layer
-     state with the exploding projectile's current layer.
+     state. The checked `ComputeBlast` helper must remain unbound until the
+     roof/floor callers also have source-owned shared `newx`/`newz` state;
+     capture a targeted caller oracle before enabling blast damage, knockback,
+     or flame allocation. Do not replace the retained top-layer state or
+     pre-motion coordinates with the exploding projectile's current values.
 
 3. **Direct-play validation**
    - Extend focused source fixtures for the remaining worried live-alien

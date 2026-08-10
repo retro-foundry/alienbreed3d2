@@ -37,6 +37,7 @@
 #include "message_runtime.h"
 #include "object_collectables.h"
 #include "object_collision.h"
+#include "object_blast.h"
 #include "object_explosion.h"
 #include "object_animation.h"
 #include "object_handler.h"
@@ -6837,6 +6838,169 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+    }
+    {
+        /* newanims.s:ComputeBlast target damage/impulse and player-shot flames. */
+        uint8_t blast_level_bytes[96u] = {0};
+        uint8_t blast_graphics_bytes[4u] = {0};
+        uint8_t blast_slot_bytes[24u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t blast_point_bytes[23u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        LevelRuntime blast_level = {0};
+        LevelDynamicState blast_dynamic = {0};
+        ObjectRuntime blast_objects = {0};
+        ObjectBlastRuntime blast_runtime;
+        ObjectVisibilityRuntime blast_visibility;
+        GameRandom blast_random;
+        GameRandom expected_blast_random;
+        GameBulletDefinition blast_bullet;
+        uint16_t blast_bullet_index = UINT16_MAX;
+        uint16_t blast_projectile_bullet_index = UINT16_MAX;
+        AssetBlob same_zone_clips = {0};
+
+        for (uint16_t bullet_index = 0u; bullet_index < GAME_LINK_BULLET_COUNT;
+             ++bullet_index) {
+            if (!game_link_get_bullet_definition(&game.game_link_catalog, bullet_index,
+                                                 &blast_bullet, error, sizeof(error))) {
+                fprintf(stderr, "could not read ComputeBlast source bullet: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (blast_bullet.gravity == 0u) {
+                blast_bullet_index = bullet_index;
+            } else {
+                blast_projectile_bullet_index = bullet_index;
+            }
+            if (blast_bullet_index != UINT16_MAX &&
+                blast_projectile_bullet_index != UINT16_MAX) {
+                break;
+            }
+        }
+        if (blast_bullet_index == UINT16_MAX || blast_projectile_bullet_index == UINT16_MAX) {
+            fprintf(stderr, "ComputeBlast source gravity variants are unavailable\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        blast_level.level_bytes = blast_level_bytes;
+        blast_level.level_size = sizeof(blast_level_bytes);
+        blast_level.graphics_bytes = blast_graphics_bytes;
+        blast_level.graphics_size = sizeof(blast_graphics_bytes);
+        blast_level.zone_offsets_table_offset = 0u;
+        blast_level.zone_count = 1u;
+        write_be32(blast_graphics_bytes, 0u);
+        write_be16(blast_level_bytes + 0u, 0u);
+        write_be32(blast_level_bytes + 2u, 100000u);
+        write_be32(blast_level_bytes + 6u, 200000u);
+        write_be32(blast_level_bytes + 10u, 100000u);
+        write_be32(blast_level_bytes + 14u, 200000u);
+        write_be16(blast_level_bytes + 32u, 56u);
+        write_be16(blast_level_bytes + 48u, UINT16_MAX);
+        write_be16(blast_level_bytes + 56u, UINT16_MAX);
+        write_be16(blast_level_bytes + 58u, UINT16_C(0xfffe));
+        if (!level_dynamic_state_init(&blast_dynamic, &blast_level, error, sizeof(error))) {
+            fprintf(stderr, "could not initialize ComputeBlast source fixture: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        blast_objects.slot_bytes = blast_slot_bytes;
+        blast_objects.slot_count = 24u;
+        blast_objects.active_slot_count = 24u;
+        blast_objects.player_shot_first_slot = 3u;
+        blast_objects.point_bytes = blast_point_bytes;
+        blast_objects.point_count = 23u;
+        write_be16(blast_slot_bytes + 0u, 0u);
+        write_be16(blast_slot_bytes + 4u, 10u);
+        write_be16(blast_slot_bytes + 12u, 0u);
+        blast_slot_bytes[16u] = 2u;
+        blast_slot_bytes[31u] = (uint8_t)blast_bullet_index;
+        write_be16(blast_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 1u);
+        write_be16(blast_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, 10u);
+        write_be16(blast_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+        blast_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        blast_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+        write_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 2u);
+        write_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, 10u);
+        write_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+        blast_slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 2u;
+        blast_slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 31u] =
+            (uint8_t)blast_projectile_bullet_index;
+        write_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u, 10u);
+        write_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 22u, 20u);
+        write_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u, 100u);
+        for (uint32_t point_index = 0u; point_index < 23u; ++point_index) {
+            uint8_t *point = blast_point_bytes +
+                (size_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+
+            write_be32(point, UINT32_C(0x00004a5a));
+            write_be32(point + 4u, UINT32_C(0x00004a5a));
+        }
+        write_be32(blast_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                   UINT32_C(0x00644a5a));
+        write_be32(blast_point_bytes + 2u * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(0x00644a5a));
+        for (uint32_t pool_index = 0u; pool_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++pool_index) {
+            uint8_t *slot = blast_slot_bytes +
+                (size_t)(pool_index + 3u) * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+            write_be16(slot, (uint16_t)(pool_index + 3u));
+            write_be16(slot + 12u, UINT16_MAX);
+        }
+        write_be16(blast_slot_bytes + 23u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        object_blast_runtime_init(&blast_runtime);
+        object_blast_runtime_note_bullet(&blast_runtime, (uint8_t)blast_bullet_index);
+        object_visibility_runtime_init(&blast_visibility);
+        object_visibility_runtime_set_viewer(&blast_visibility, 0, 0, 10, 0u);
+        game_random_init(&blast_random);
+        expected_blast_random = blast_random;
+        for (uint32_t random_call = 0u; random_call < 18u; ++random_call) {
+            (void)game_random_next(&expected_blast_random);
+        }
+        if (!object_blast_compute(
+                &blast_runtime, &blast_objects, 0u, &blast_dynamic, &same_zone_clips,
+                &game.game_link_catalog, &blast_random, &blast_visibility, 64,
+                error, sizeof(error)) ||
+            blast_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 64u ||
+            read_be16(blast_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) != 25u ||
+            read_be16(blast_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u) != 0u ||
+            read_be16(blast_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 46u) !=
+                (uint16_t)-4 ||
+            read_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u) != 74u ||
+            read_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 22u) != 45u ||
+            read_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) !=
+                (uint16_t)-924 ||
+            blast_runtime.completed_flame_count != 6u ||
+            blast_random.state != expected_blast_random.state) {
+            fprintf(stderr, "ComputeBlast source damage/impulse/flame state is inconsistent: %s\n",
+                    error);
+            level_dynamic_state_destroy(&blast_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint32_t pool_index = 0u; pool_index < 6u; ++pool_index) {
+            const uint8_t *slot = blast_slot_bytes +
+                (size_t)(pool_index + 3u) * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+            const uint8_t *point = blast_point_bytes +
+                (size_t)(pool_index + 3u) * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+
+            if (slot[16u] != 2u || read_be16(slot + 12u) != 0u ||
+                slot[30u] != UINT8_MAX || slot[31u] != (uint8_t)blast_bullet_index ||
+                slot[62u] != UINT8_MAX || (read_be32(point) & UINT32_C(0xffff)) !=
+                    UINT32_C(0x4a5a) ||
+                (read_be32(point + 4u) & UINT32_C(0xffff)) != UINT32_C(0x4a5a)) {
+                fprintf(stderr, "ComputeBlast source flame allocation is inconsistent\n");
+                level_dynamic_state_destroy(&blast_dynamic);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        if ((int16_t)read_be16(blast_slot_bytes +
+                               9u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) >= 0) {
+            fprintf(stderr, "ComputeBlast source flame cap is inconsistent\n");
+            level_dynamic_state_destroy(&blast_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        level_dynamic_state_destroy(&blast_dynamic);
     }
     {
         /* newanims.s:Anim_ExplodeIntoBits' bounded alien-shot allocation. */
