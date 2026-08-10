@@ -638,6 +638,13 @@ three source child records. The helper preserves its low-byte hit-point and
 display-text writes, full object-point copy, predecessor AUX state, and all
 source field widths. Narrative submission and `STATS_KILL` progression remain
 with the owning complete death routine; no partial alien dispatch is enabled.
+`macros.i:STATS_KILL` now has its source-owned 20-word alien counter and
+`Game_ProgressSignal_l` kill-bit update in the game bootstrap state, including
+the source 16-bit counter wrap and full signal overwrite. It is deliberately
+uncalled while the death helper remains unbound. The rest of
+`defs.i:GStatT`, `c/game_progress.c` persistence, and achievement evaluation
+remain with their specific source owners rather than becoming a native
+progression substitute.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

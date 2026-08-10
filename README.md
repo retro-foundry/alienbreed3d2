@@ -76,9 +76,9 @@ first game's software renderer:
   source directional point-brightness helper, alien torch caller, and
   `Anim_ExplodeIntoBits` fragment allocation are present for later behavior
   modes, projectile, and blast callers. `ai_JustDied`'s exact smaller-alien
-  allocation branch and alien-damage reactions are likewise prepared for its
-  later complete handoff. Enemy behavior, dynamic blast, and audio remain in
-  progress;
+  allocation branch, `STATS_KILL` counter/signal update, and alien-damage
+  reactions are likewise prepared for its later complete handoff. Enemy
+  behavior, dynamic blast, and audio remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

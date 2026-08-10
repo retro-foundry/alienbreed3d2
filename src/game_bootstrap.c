@@ -179,6 +179,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     game_controls_default(&game->controls);
     game_input_init(&game->input);
     game_preferences_default(&game->preferences);
+    game_progression_init(&game->progression);
     game_random_init(&game->random);
     object_animation_runtime_init(&game->object_animation_runtime);
     lighting_runtime_init(&game->lighting_runtime);
@@ -482,6 +483,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     lighting_runtime_init(&game->lighting_runtime);
     memset(&game->session, 0, sizeof(game->session));
     memset(&game->preferences, 0, sizeof(game->preferences));
+    game_progression_init(&game->progression);
     asset_blob_release(&game->story_text);
     game_bootstrap_release_level(game);
     game->active_level_index = 0;

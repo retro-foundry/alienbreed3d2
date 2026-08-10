@@ -21,6 +21,7 @@
 #include "game_link.h"
 #include "game_inventory.h"
 #include "game_menu.h"
+#include "game_progression.h"
 #include "game_random.h"
 #include "game_save.h"
 #include "level_bootstrap.h"
@@ -5917,6 +5918,23 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+        }
+    }
+    {
+        /* macros.i:STATS_KILL's word counter and overwritten event signal. */
+        GameProgression progression;
+
+        game_progression_init(&progression);
+        progression.alien_kills[6u] = UINT16_MAX;
+        progression.signal = UINT32_C(0xfeedface);
+        if (!game_progression_record_alien_kill(&progression, 6u, error, sizeof(error)) ||
+            progression.alien_kills[6u] != 0u || progression.signal != 1u ||
+            game_progression_record_alien_kill(&progression, GAME_LINK_ALIEN_COUNT,
+                                               error, sizeof(error)) ||
+            progression.alien_kills[GAME_LINK_ALIEN_COUNT - 1u] != 0u) {
+            fprintf(stderr, "STATS_KILL source progression state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
         }
     }
     {

@@ -10,6 +10,7 @@
 #include "game_link.h"
 #include "game_math.h"
 #include "game_preferences.h"
+#include "game_progression.h"
 #include "game_random.h"
 #include "game_resources.h"
 #include "game_session.h"
@@ -39,6 +40,8 @@ typedef struct {
     GameControls controls;
     GameInput input;
     GamePreferences preferences;
+    /* macros.i:STATS_KILL's source-owned progression subset. */
+    GameProgression progression;
     /* objectmove.s:Rand1 persists across campaign-level loads. */
     GameRandom random;
     /* hires.s:Game_Begin and modules/ai.s source-owned AI storage. */
