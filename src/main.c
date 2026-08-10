@@ -438,18 +438,37 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
-        /* A valid source directional-light field can black out a view weapon
-         * completely. renderer_present has still executed the vector weapon
-         * pass (and reports any decode, shader, or draw failure), so framebuffer
-         * coverage is not a valid all-level smoke assertion. */
+        /*
+         * Compare two explicit source states.  A level can legitimately
+         * start at the same palette-light clamp used by the bright probe, so
+         * comparing against its incidental live state is not a valid all-level
+         * assertion.  renderer_present above has already exercised that live
+         * scene; these controlled values prove its material handoff responds
+         * to `CurrentPointBrights`.
+         */
+        for (uint16_t zone_index = 0u;
+             zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
+            for (uint16_t point_index = 0u;
+                 point_index < LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT; ++point_index) {
+                app->game.lighting_runtime.current_point_brightness[zone_index][point_index] = -345;
+            }
+        }
+        scene_frame_begin(&app->frame);
+        if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+            !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
+            fprintf(stderr, "[RENDER] GPU dark-light smoke failed for Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
         source_lighting_checksum = renderer_last_frame_rgb_checksum(app->renderer);
         source_weapon_lighting_checksum = renderer_last_view_weapon_rgb_checksum(app->renderer);
         /*
          * A complete-scene frame must react to the live `CurrentPointBrights`
          * words, including geometry outside the source PVS. Use a bright
-         * source value so this hidden smoke detects a missing wall, floor, or
-         * ceiling palette-light pass without relying on a screenshot. A more
-         * negative value can map to the same fully-dark source palette row.
+         * source value opposite the prior dark probe, so this hidden smoke
+         * detects a missing wall, floor, ceiling, or vector palette-light
+         * pass without relying on a screenshot.
          */
         for (uint16_t zone_index = 0u;
              zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {

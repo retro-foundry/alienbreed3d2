@@ -61,9 +61,11 @@ authority for all game behavior and data formats.
   live brightness gradient is applied as continuous GPU lighting rather than
   by selecting or interpolating indexed palette texels.
 - [x] `objdrawhires.s:doapoly` vector polygons retain their authored point
-  index/U/V records. The OpenGL backend decodes each selected signed
+  index/U/V records, closing duplicate point, and six-byte material trailer.
+  The OpenGL backend decodes each selected signed
   `Draw_TextureMapsPtr` offset with its four-byte `U << 8 | V` source texel
-  address, retains its direct top-down source V coordinate at the GPU texture boundary, and
+  address and signed `d0.w*4` source index, retains its direct top-down source V
+  coordinate at the GPU texture boundary, and
   converts it once through the neutral bright `Draw_TexturePalettePtr` row.
   Vector surfaces use filtered, mipmapped true-colour textures where supported
   by the GLES2-compatible source dimensions; bitmap sprites remain crisp.

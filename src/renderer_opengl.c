@@ -88,6 +88,8 @@ typedef struct {
     uint32_t source_asset_id;
     SceneTextureWindow texture_window;
     SceneSpriteFrameMetrics frame_metrics;
+    /* Vector cache key: source V origin is not part of SceneTextureWindow. */
+    uint16_t vector_v_offset;
     uint16_t width;
     uint16_t height;
     uint8_t kind;
@@ -1440,7 +1442,7 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
     renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
         texture, material->source_bytes, material->source_byte_count, material->source_palette_bytes,
         material->source_palette_byte_count, material->source_display_palette_bytes,
-        material->source_display_palette_byte_count, material->source_asset_id, key_window, {0},
+        material->source_display_palette_byte_count, material->source_asset_id, key_window, {0}, 0u,
         width, height, (uint8_t)kind, 0u, exponent_texture, floor_texture
     };
     *out_texture = &renderer->textures[renderer->texture_count - 1u];
@@ -1509,7 +1511,7 @@ static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const S
         texture, sprite->source_bytes, sprite->source_byte_count, sprite->source_palette_bytes,
         sprite->source_palette_byte_count, sprite->source_display_palette_bytes,
         sprite->source_display_palette_byte_count, sprite->source_asset_id, {0},
-        sprite->frame_metrics, width, height, RENDERER_OPENGL_TEXTURE_SPRITE,
+        sprite->frame_metrics, 0u, width, height, RENDERER_OPENGL_TEXTURE_SPRITE,
         sprite->source_effect
     };
     *out_texture = texture;
@@ -1581,7 +1583,7 @@ static int renderer_opengl_find_backdrop_texture(RendererOpenGL *renderer,
     renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
         texture, environment->backdrop_bytes, environment->backdrop_byte_count, NULL, 0u,
         environment->source_display_palette_bytes,
-        environment->source_display_palette_byte_count, 0u, {0}, {0},
+        environment->source_display_palette_byte_count, 0u, {0}, {0}, 0u,
         BACKDROP_WIDTH, BACKDROP_HEIGHT, RENDERER_OPENGL_TEXTURE_BACKDROP, 0u
     };
     *out_texture = texture;
@@ -2527,7 +2529,8 @@ static int renderer_opengl_vector_point_source_light(const SceneSprite *sprite,
 
 static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                                                        size_t source_map_offset,
-                                                       uint8_t maximum_u, uint8_t maximum_v,
+                                                       uint8_t minimum_u, uint8_t maximum_u,
+                                                       uint8_t minimum_v, uint8_t maximum_v,
                                                        uint8_t **out_pixels,
                                                        uint8_t **out_exponent_pixels,
                                                        uint8_t **out_floor_pixels,
@@ -2540,8 +2543,8 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
         VECTOR_LIGHT_PALETTE_ROW_WIDTH = 256u,
         VECTOR_SOURCE_TEXEL_STRIDE = 4u
     };
-    uint16_t width = (uint16_t)maximum_u + 1u;
-    uint16_t height = (uint16_t)maximum_v + 1u;
+    uint16_t width = (uint16_t)maximum_u - minimum_u + 1u;
+    uint16_t height = (uint16_t)maximum_v - minimum_v + 1u;
     uint8_t *pixels;
     uint8_t *exponent_pixels;
     uint8_t *floor_pixels;
@@ -2573,9 +2576,15 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
              * shifts it into bits 8..15, then copies the V byte from d5 into
              * bits 0..7 before `(a0,d0.w*4)`. The source map is therefore
              * addressed as U << 8 | V, even though this converted texture is
-             * stored conventionally as rows of V and columns of U.
+             * stored conventionally as rows of V and columns of U.  The
+             * `(a0,d0.w*4)` index is signed: source coordinates with U's
+             * high bit set address backward from the selected map bank.
              */
-            size_t source_coordinate = ((size_t)x << 8u) | y;
+            uint8_t source_u = (uint8_t)(minimum_u + x);
+            uint8_t source_v = (uint8_t)(minimum_v + y);
+            int16_t source_coordinate =
+                (int16_t)(((uint16_t)source_u << 8u) | source_v);
+            int64_t source_texel_offset_signed;
             size_t source_texel_offset;
             size_t source_light_palette_offset;
             uint8_t source_texel;
@@ -2584,7 +2593,10 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
             float floor[3];
             size_t pixel_offset = ((size_t)y * width + x) * 4u;
 
-            if (source_coordinate > (SIZE_MAX - source_map_offset) / VECTOR_SOURCE_TEXEL_STRIDE) {
+            source_texel_offset_signed = (int64_t)source_map_offset +
+                (int64_t)source_coordinate * VECTOR_SOURCE_TEXEL_STRIDE;
+            if (source_texel_offset_signed < 0 ||
+                (uint64_t)source_texel_offset_signed > SIZE_MAX) {
                 free(pixels);
                 free(exponent_pixels);
                 free(floor_pixels);
@@ -2592,16 +2604,18 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                                           "source vector texture coordinate is too large");
                 return 0;
             }
-            source_texel_offset = source_map_offset +
-                source_coordinate * VECTOR_SOURCE_TEXEL_STRIDE;
-            if (source_texel_offset > sprite->source_palette_byte_count ||
-                VECTOR_SOURCE_TEXEL_STRIDE >
-                    sprite->source_palette_byte_count - source_texel_offset) {
+            source_texel_offset = (size_t)source_texel_offset_signed;
+            /* drawpol reads one source byte at the scaled address. */
+            if (source_texel_offset >= sprite->source_palette_byte_count) {
                 free(pixels);
                 free(exponent_pixels);
                 free(floor_pixels);
-                renderer_opengl_set_error(error, error_size,
-                                          "source vector texture map is outside its asset");
+                if (error && error_size > 0u) {
+                    (void)snprintf(error, error_size,
+                                   "source vector texture map offset %zu with coordinate %d is outside %zu-byte asset",
+                                   source_map_offset, (int)source_coordinate,
+                                   sprite->source_palette_byte_count);
+                }
                 return 0;
             }
             source_texel = sprite->source_palette_bytes[source_texel_offset];
@@ -2654,7 +2668,8 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
 static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
                                                      const SceneSprite *sprite,
                                                      size_t source_map_offset,
-                                                     uint8_t maximum_u, uint8_t maximum_v,
+                                                     uint8_t minimum_u, uint8_t maximum_u,
+                                                     uint8_t minimum_v, uint8_t maximum_v,
                                                      const RendererOpenGLTexture **out_texture,
                                                      char *error, size_t error_size)
 {
@@ -2672,8 +2687,9 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
         renderer_opengl_set_error(error, error_size, "source vector texture request is invalid");
         return 0;
     }
-    key_window.u_period = (uint16_t)maximum_u + 1u;
-    key_window.v_period = (uint16_t)maximum_v + 1u;
+    key_window.u_offset = minimum_u;
+    key_window.u_period = (uint16_t)maximum_u - minimum_u + 1u;
+    key_window.v_period = (uint16_t)maximum_v - minimum_v + 1u;
     for (size_t index = 0u; index < renderer->texture_count; ++index) {
         const RendererOpenGLTexture *cached = &renderer->textures[index];
 
@@ -2685,13 +2701,14 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
             cached->source_display_palette_bytes == sprite->source_display_palette_bytes &&
             cached->source_display_palette_byte_count == sprite->source_display_palette_byte_count &&
             cached->source_asset_id == (uint32_t)source_map_offset &&
-            memcmp(&cached->texture_window, &key_window, sizeof(key_window)) == 0) {
+            memcmp(&cached->texture_window, &key_window, sizeof(key_window)) == 0 &&
+            cached->vector_v_offset == minimum_v) {
             *out_texture = cached;
             return 1;
         }
     }
     if (!renderer_opengl_decode_vector_face_texture(
-            sprite, source_map_offset, maximum_u, maximum_v,
+            sprite, source_map_offset, minimum_u, maximum_u, minimum_v, maximum_v,
             &pixels, &exponent_pixels, &floor_pixels, &width, &height, error, error_size) ||
         /* Vector faces are real 3D materials, not pixel-locked bitmap sprites. */
         !renderer_opengl_create_texture(pixels, width, height, 0, 1, 0, &texture, error, error_size) ||
@@ -2730,7 +2747,7 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
         texture, sprite->source_palette_bytes, sprite->source_palette_byte_count,
         sprite->source_light_palette_bytes, sprite->source_light_palette_byte_count,
         sprite->source_display_palette_bytes, sprite->source_display_palette_byte_count,
-        (uint32_t)source_map_offset, key_window, {0}, width, height,
+        (uint32_t)source_map_offset, key_window, {0}, minimum_v, width, height,
         RENDERER_OPENGL_TEXTURE_VECTOR, 0u, exponent_texture, floor_texture
     };
     *out_texture = &renderer->textures[renderer->texture_count - 1u];
@@ -2872,8 +2889,16 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
             polygon_byte_count = 18u + (size_t)line_count_minus_one * 4u;
             {
                 const uint8_t *polygon_point_bytes = bytes + part_offset + 4u;
+                /*
+                 * draw_PutInLines walks `line_count_minus_one + 1` source
+                 * edges, reading both endpoints for each.  The model therefore
+                 * carries one final, repeated point record to close the loop.
+                 * Its final `addq #4,a1` deliberately skips that record before
+                 * doapoly reads the six-byte material trailer.  It is not an
+                 * additional polygon vertex or the first material word.
+                 */
                 const uint8_t *face_bytes =
-                    polygon_point_bytes + (size_t)polygon_point_count * 4u;
+                    polygon_point_bytes + ((size_t)polygon_point_count + 1u) * 4u;
                 /*
                  * A source part can contain faces from different
                  * Draw_TextureMapsPtr offsets.  Keep this face's triangles
@@ -2885,14 +2910,16 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 size_t source_map_offset;
                 float source_light;
                 /*
-                 * doapoly reads the terminal word at face + 8 into the
+                 * doapoly reads the terminal word at trailer + 4 into the
                  * adjacent `draw_PreGouraud_b`/`draw_Gouraud_b` bytes.  The
                  * low byte (`draw_Gouraud_b`) selects draw_PutInLinesGouraud
                  * and gotlurvelyshading.  The high byte is the separate
                  * pre-Gouraud/glare flag, evaluated later in doapoly.
                  */
-                int source_gouraud = face_bytes[9u] != 0u;
+                int source_gouraud = face_bytes[5u] != 0u;
+                uint8_t minimum_u = UINT8_MAX;
                 uint8_t maximum_u = 0u;
+                uint8_t minimum_v = UINT8_MAX;
                 uint8_t maximum_v = 0u;
                 const RendererOpenGLTexture *texture;
 
@@ -2905,8 +2932,14 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                                   "source vector polygon references an invalid point");
                         goto done;
                     }
+                    if (source_corner[2u] < minimum_u) {
+                        minimum_u = source_corner[2u];
+                    }
                     if (source_corner[2u] > maximum_u) {
                         maximum_u = source_corner[2u];
+                    }
+                    if (source_corner[3u] < minimum_v) {
+                        minimum_v = source_corner[3u];
                     }
                     if (source_corner[3u] > maximum_v) {
                         maximum_v = source_corner[3u];
@@ -2918,7 +2951,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                         error, error_size) ||
                     !renderer_opengl_find_vector_face_texture(
                         renderer, sprite, source_map_offset,
-                        maximum_u, maximum_v, &texture, error, error_size)) {
+                        minimum_u, maximum_u, minimum_v, maximum_v,
+                        &texture, error, error_size)) {
                     goto done;
                 }
 
@@ -2947,8 +2981,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                 &vertex.source_light, error, error_size)) {
                             goto done;
                         }
-                        vertex.u = ((float)source_corner[2u] + 0.5f) /
-                            ((float)maximum_u + 1.0f);
+                        vertex.u = ((float)(source_corner[2u] - minimum_u) + 0.5f) /
+                            ((float)(maximum_u - minimum_u) + 1.0f);
                         /*
                          * drawpol addresses map rows with V increasing down
                          * from the first source row. glTexImage2D uploads that
@@ -2956,8 +2990,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                          * directly. The source-to-GL Y-axis conversion applies
                          * to geometry, not to the texture-map address.
                          */
-                        vertex.v = ((float)source_corner[3u] + 0.5f) /
-                            ((float)maximum_v + 1.0f);
+                        vertex.v = ((float)(source_corner[3u] - minimum_v) + 0.5f) /
+                            ((float)(maximum_v - minimum_v) + 1.0f);
                         if (!source_gouraud) {
                             /* The source flat palette row is continuous GPU lighting. */
                             vertex.source_light = source_light;
