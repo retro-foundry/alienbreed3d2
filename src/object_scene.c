@@ -23,6 +23,7 @@ enum {
     OBJECT_SCENE_ENTITY_TYPE = 54u,
     OBJECT_SCENE_IN_UPPER_ZONE = 63u,
     OBJECT_SCENE_TYPE_OBJECT = 1u,
+    OBJECT_SCENE_TYPE_AUX = 3u,
     OBJECT_SCENE_BITMAP_LIGHT_FIRST = 2u,
     OBJECT_SCENE_BITMAP_LIGHT_COUNT = 4u,
     /* objdrawhires.s:draw_AngleBrights_vl and draw_PointAndPolyBrights_vl. */
@@ -562,8 +563,18 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     sprite.source_record_id = slot_index;
     sprite.source_brightness = object_scene_read_be16(slot + OBJECT_SCENE_BRIGHTNESS);
     sprite.yaw = object_scene_read_be16(slot + OBJECT_SCENE_CURRENT_ANGLE);
-    sprite.source_aux_offset_x = object_scene_read_be16s(slot + OBJECT_SCENE_AUX_OFFSET_X);
-    sprite.source_aux_offset_y = object_scene_read_be16s(slot + OBJECT_SCENE_AUX_OFFSET_Y);
+    /*
+     * objdrawhires.s:draw_Bitmap reads these aliasing ShotT bytes only for
+     * OBJ_TYPE_AUX. A projectile owns the same four bytes as
+     * ShotT_AccYPos_w; treating its high/low words as image offsets shifts a
+     * live shot or Anim_ExplodeIntoBits fragment far from its Vec2L position.
+     */
+    if (slot[OBJECT_SCENE_TYPE_ID] == OBJECT_SCENE_TYPE_AUX) {
+        sprite.source_aux_offset_x =
+            object_scene_read_be16s(slot + OBJECT_SCENE_AUX_OFFSET_X);
+        sprite.source_aux_offset_y =
+            object_scene_read_be16s(slot + OBJECT_SCENE_AUX_OFFSET_Y);
+    }
     if (slot[OBJECT_SCENE_IN_UPPER_ZONE] != 0u) {
         sprite.flags |= SCENE_SPRITE_FLAG_UPPER_ZONE;
     }

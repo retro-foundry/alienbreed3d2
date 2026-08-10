@@ -20,6 +20,8 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
 size_t renderer_opengl_last_view_weapon_coverage(const RendererOpenGL *renderer);
 /* Hidden-window smoke checksum of the camera-space companion's changed RGB pixels. */
 uint64_t renderer_opengl_last_view_weapon_rgb_checksum(const RendererOpenGL *renderer);
+/* Hidden-window smoke coverage for live ItsABullet/Anim_ExplodeIntoBits sprite draws. */
+size_t renderer_opengl_last_projectile_coverage(const RendererOpenGL *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
 uint64_t renderer_opengl_last_frame_rgb_checksum(const RendererOpenGL *renderer);
 

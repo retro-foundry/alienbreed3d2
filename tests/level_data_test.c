@@ -277,8 +277,10 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             sprite->source_brightness != read_be16(slot + 2u) ||
             sprite->yaw != read_be16(slot + 30u) ||
             sprite->surface_attachment != expected_surface_attachment ||
-            sprite->source_aux_offset_x != (int16_t)read_be16(slot + 44u) ||
-            sprite->source_aux_offset_y != (int16_t)read_be16(slot + 46u) ||
+            sprite->source_aux_offset_x != (slot[16u] == 3u ?
+                (int16_t)read_be16(slot + 44u) : 0) ||
+            sprite->source_aux_offset_y != (slot[16u] == 3u ?
+                (int16_t)read_be16(slot + 46u) : 0) ||
             sprite->source_clip_top_y != ((expected_flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ?
                                            source_zone.upper_roof : source_zone.roof) ||
             sprite->source_clip_bottom_y != ((expected_flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ?
@@ -4409,6 +4411,101 @@ int main(int argc, char **argv)
                 }
             }
             game_bootstrap_destroy(&movement_game);
+        }
+    }
+    /*
+     * Source integration checkpoint: an actual Plr1_Shot trigger must leave
+     * an ItsABullet record which Draw_Objects submits in the same frame.  A
+     * renderer-only fixture cannot detect a missing player-shot pool handoff.
+     */
+    {
+        GameBootstrap effects_game;
+        SceneFrame effects_frame = {0};
+        uint8_t saw_live_shot_slot = 0u;
+        uint8_t saw_live_shot_sprite = 0u;
+
+        memset(&effects_game, 0, sizeof(effects_game));
+        if (!game_bootstrap_init(&effects_game, argv[1], error, sizeof(error)) ||
+            !game_session_default(&effects_game.session, &effects_game.game_link_catalog,
+                                  error, sizeof(error)) ||
+            !game_session_select_level(&effects_game.session, 0u, error, sizeof(error)) ||
+            !game_bootstrap_start_selected_single_player(
+                &effects_game, argv[1], error, sizeof(error))) {
+            fprintf(stderr, "could not initialize source projectile scene regression: %s\n", error);
+            game_bootstrap_destroy(&effects_game);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        effects_game.dynamic_level.runtime.exit_zone_id = -1;
+        if (!game_input_set_raw_key(
+                &effects_game.input,
+                effects_game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
+                error, sizeof(error)) ||
+            !game_bootstrap_update_single_player_at_time(
+                &effects_game, 20u, error, sizeof(error))) {
+            fprintf(stderr, "source Plr1_Shot projectile regression did not update: %s\n", error);
+            game_bootstrap_destroy(&effects_game);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+             ++shot_index) {
+            uint32_t slot_index = effects_game.object_runtime.player_shot_first_slot + shot_index;
+            uint8_t *slot = NULL;
+
+            if (!object_runtime_get_slot_bytes(&effects_game.object_runtime, slot_index, &slot)) {
+                fprintf(stderr, "source player-shot pool entry is outside the owned list\n");
+                game_bootstrap_destroy(&effects_game);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if ((int16_t)read_be16(slot + 12u) >= 0 && slot[16u] == 2u) {
+                saw_live_shot_slot = UINT8_MAX;
+                break;
+            }
+        }
+        if (!scene_frame_init(&effects_frame, 1u) ||
+            !game_bootstrap_submit_scene_frame(&effects_game, &effects_frame)) {
+            fprintf(stderr, "could not submit source projectile scene regression\n");
+            scene_frame_destroy(&effects_frame);
+            game_bootstrap_destroy(&effects_game);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (size_t command_index = 0u; command_index < effects_frame.count; ++command_index) {
+            const SceneCommand *command = &effects_frame.commands[command_index];
+
+            if (command->type == SCENE_COMMAND_SPRITE &&
+                command->data.sprite.source_record_id >=
+                    effects_game.object_runtime.player_shot_first_slot &&
+                command->data.sprite.source_record_id <
+                    effects_game.object_runtime.player_shot_first_slot +
+                        OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT &&
+                (command->data.sprite.flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
+                if (command->data.sprite.source_aux_offset_x != 0 ||
+                    command->data.sprite.source_aux_offset_y != 0 ||
+                    command->data.sprite.source_width == 0u ||
+                    command->data.sprite.source_height == 0u) {
+                    fprintf(stderr,
+                            "Plr1_Shot leaked ShotT physics bytes into its bitmap placement\n");
+                    scene_frame_destroy(&effects_frame);
+                    game_bootstrap_destroy(&effects_game);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                saw_live_shot_sprite = UINT8_MAX;
+                break;
+            }
+        }
+        scene_frame_destroy(&effects_frame);
+        game_bootstrap_destroy(&effects_game);
+        if (saw_live_shot_slot == 0u || saw_live_shot_sprite == 0u) {
+            fprintf(stderr,
+                    "Plr1_Shot did not hand a live ItsABullet descriptor to Draw_Objects "
+                    "(slot=%u sprite=%u)\n",
+                    (unsigned int)saw_live_shot_slot, (unsigned int)saw_live_shot_sprite);
+            game_bootstrap_destroy(&game);
+            return 1;
         }
     }
     /* hires.s:game_main_loop ends a single-player level on Lvl_ExitZoneID_w. */

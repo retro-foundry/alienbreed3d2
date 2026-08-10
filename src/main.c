@@ -628,6 +628,42 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
+        /*
+         * Drive Plr1_Shot and ObjectHandler against the loaded room.  This
+         * is intentionally separate from the isolated asset conversion
+         * checks below: a live player-shot descriptor must alter the complete
+         * depth-tested world frame, exactly as a player firing into a wall.
+         */
+        if (!game_input_set_raw_key(
+                &app->game.input,
+                app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
+                error, sizeof(error)) ||
+            !game_bootstrap_update_single_player_at_time(
+                &app->game, (uint64_t)level_index * 20u + 21u, error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &app->game.input,
+                app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 0,
+                error, sizeof(error))) {
+            fprintf(stderr, "[GAME] GPU smoke could not fire in Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        scene_frame_begin(&app->frame);
+        if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+            !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
+            fprintf(stderr, "[RENDER] GPU live-shot smoke failed for Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        if (renderer_last_projectile_coverage(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] GPU live ItsABullet changed no visible pixels in Level %c\n",
+                    (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
         /* Exercise the effect conversion in an isolated camera frame so a
          * valid near-wall spawn cannot hide it behind source geometry. */
         source_effect_camera = app->frame.commands[0u];

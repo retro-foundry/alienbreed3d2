@@ -144,6 +144,7 @@ struct RendererOpenGL {
     size_t texture_capacity;
     size_t last_view_weapon_coverage;
     uint64_t last_view_weapon_rgb_checksum;
+    size_t last_projectile_coverage;
     uint64_t last_frame_rgb_checksum;
     uint8_t measure_view_weapon_coverage;
 };
@@ -2491,6 +2492,78 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     return result;
 }
 
+/*
+ * The source object pass is allowed to submit an effect directly on a contact
+ * surface.  The hidden GPU validation must therefore measure the actual draw,
+ * rather than infer it from a whole-frame checksum that can also change for
+ * the companion or animated level.  This is deliberately restricted to the
+ * opt-in hidden presenter, so normal presentation never readbacks the GPU.
+ */
+static int renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
+    RendererOpenGL *renderer, const SceneSprite *sprite, const SceneCamera *camera,
+    int drawable_width, int drawable_height, char *error, size_t error_size)
+{
+    uint8_t *before_pixels = NULL;
+    size_t pixel_byte_count = 0u;
+    int result;
+
+    if (!renderer || !sprite || !camera) {
+        renderer_opengl_set_error(error, error_size, "source projectile coverage draw is invalid");
+        return 0;
+    }
+    if (renderer->measure_view_weapon_coverage != 0u &&
+        (sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
+        if ((size_t)drawable_width > SIZE_MAX / (size_t)drawable_height / 4u) {
+            renderer_opengl_set_error(error, error_size,
+                                      "projectile GPU coverage buffer is too large");
+            return 0;
+        }
+        pixel_byte_count = (size_t)drawable_width * (size_t)drawable_height * 4u;
+        before_pixels = malloc(pixel_byte_count);
+        if (!before_pixels) {
+            renderer_opengl_set_error(error, error_size,
+                                      "projectile GPU coverage buffer allocation failed");
+            return 0;
+        }
+        glReadPixels(0, 0, drawable_width, drawable_height, GL_RGBA, GL_UNSIGNED_BYTE,
+                     before_pixels);
+        if (glGetError() != GL_NO_ERROR) {
+            free(before_pixels);
+            renderer_opengl_set_error(error, error_size,
+                                      "projectile GPU coverage readback before draw failed");
+            return 0;
+        }
+    }
+    result = renderer_opengl_draw_sprite(renderer, sprite, camera, error, error_size);
+    if (before_pixels) {
+        uint8_t *after_pixels = malloc(pixel_byte_count);
+
+        if (!after_pixels) {
+            free(before_pixels);
+            renderer_opengl_set_error(error, error_size,
+                                      "projectile GPU coverage buffer allocation failed");
+            return 0;
+        }
+        glReadPixels(0, 0, drawable_width, drawable_height, GL_RGBA, GL_UNSIGNED_BYTE,
+                     after_pixels);
+        if (glGetError() != GL_NO_ERROR) {
+            free(after_pixels);
+            free(before_pixels);
+            renderer_opengl_set_error(error, error_size,
+                                      "projectile GPU coverage readback after draw failed");
+            return 0;
+        }
+        for (size_t pixel_offset = 0u; pixel_offset < pixel_byte_count; pixel_offset += 4u) {
+            if (memcmp(before_pixels + pixel_offset, after_pixels + pixel_offset, 4u) != 0) {
+                ++renderer->last_projectile_coverage;
+            }
+        }
+        free(after_pixels);
+        free(before_pixels);
+    }
+    return result;
+}
+
 typedef struct {
     int16_t x;
     int16_t y;
@@ -3496,6 +3569,11 @@ uint64_t renderer_opengl_last_view_weapon_rgb_checksum(const RendererOpenGL *ren
     return renderer ? renderer->last_view_weapon_rgb_checksum : UINT64_C(0);
 }
 
+size_t renderer_opengl_last_projectile_coverage(const RendererOpenGL *renderer)
+{
+    return renderer ? renderer->last_projectile_coverage : 0u;
+}
+
 uint64_t renderer_opengl_last_frame_rgb_checksum(const RendererOpenGL *renderer)
 {
     return renderer ? renderer->last_frame_rgb_checksum : UINT64_C(0);
@@ -3540,6 +3618,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
     }
     renderer->last_view_weapon_coverage = 0u;
     renderer->last_view_weapon_rgb_checksum = UINT64_C(0);
+    renderer->last_projectile_coverage = 0u;
     renderer->last_frame_rgb_checksum = UINT64_C(0);
     for (size_t index = 0u; index < frame->count; ++index) {
         if (frame->commands[index].type == SCENE_COMMAND_CAMERA) {
@@ -3618,8 +3697,9 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                         !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
                                                            view_projection, error, error_size)) ||
                        (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-                        !renderer_opengl_draw_sprite(renderer, sprite, camera, error,
-                                                    error_size))) {
+                        !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
+                            renderer, sprite, camera, drawable_width, drawable_height,
+                            error, error_size))) {
                 free(additive_sprites);
                 return 0;
             }
@@ -3634,7 +3714,9 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
              !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
                                                 view_projection, error, error_size)) ||
             (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-             !renderer_opengl_draw_sprite(renderer, sprite, camera, error, error_size))) {
+             !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
+                 renderer, sprite, camera, drawable_width, drawable_height,
+                 error, error_size))) {
             free(additive_sprites);
             return 0;
         }

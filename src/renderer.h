@@ -38,6 +38,8 @@ int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderVi
 size_t renderer_last_view_weapon_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the camera-space weapon's changed RGB pixels. */
 uint64_t renderer_last_view_weapon_rgb_checksum(const Renderer *renderer);
+/* Hidden GPU-smoke coverage for source projectile and fragment bitmap draws. */
+size_t renderer_last_projectile_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
 uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer);
 
