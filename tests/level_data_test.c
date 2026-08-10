@@ -6240,6 +6240,64 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+
+        {
+            AlienDamageReactionState reaction_state;
+            ObjectHeading expected_heading = {0};
+
+            memset(slot_bytes, 0, sizeof(slot_bytes));
+            object_animation_runtime_init(&pause_animation);
+            lighting_runtime_init(&pause_lighting);
+            write_be16(slot_bytes + 0u, UINT16_MAX);
+            write_be16(slot_bytes + 12u, pause_player.zone_index);
+            write_be16(slot_bytes + 26u, pause_player.zone_index);
+            write_be16(slot_bytes + 64u + 0u, 0u);
+            write_be16(slot_bytes + 64u + 4u, 22u);
+            write_be16(slot_bytes + 64u + 12u, pause_player.zone_index);
+            write_be16(slot_bytes + 64u + 26u, pause_player.zone_index);
+            write_be16(slot_bytes + 64u + 30u, 0x2222u);
+            write_be16(slot_bytes + 64u + 40u, pause_frame_index);
+            slot_bytes[64u + 20u] = 4u;
+            slot_bytes[64u + 54u] = (uint8_t)pause_alien;
+            slot_bytes[64u + 55u] = 7u;
+            slot_bytes[64u + 63u] = pause_player.stood_in_top;
+            write_be16(point_bytes + 0u, 100u);
+            write_be16(point_bytes + 4u, 200u);
+            pause_player.x = 300;
+            pause_player.z = 400;
+            expected_heading.old_x = 100;
+            expected_heading.old_z = 200;
+            expected_heading.new_x = 300;
+            expected_heading.new_z = 400;
+            expected_heading.range = -20;
+            expected_heading.speed = 20;
+            if (!object_heading_towards_angle(&game.math, &expected_heading,
+                                              error, sizeof(error))) {
+                fprintf(stderr, "ai_DoTakeDamage heading fixture is invalid: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            pause_animation.workspace[1u][1u] = (uint8_t)pause_frame_index;
+            pause_animation.workspace[1u][2u] = (uint8_t)pause_option;
+            pause_animation.workspace[1u][3u] = UINT8_MAX;
+            if (!alien_damage_update_reaction(
+                    &pause_objects, 1u, &pause_animation, &game.game_link_catalog,
+                    &game.math, &game.dynamic_level.runtime, &pause_lighting,
+                    &pause_player, &pause_setup, 100, 200, &reaction_state,
+                    error, sizeof(error)) ||
+                reaction_state.got_out != 0u || reaction_state.animation.finished != UINT8_MAX ||
+                slot_bytes[64u + 20u] != 0u || slot_bytes[64u + 55u] != 0u ||
+                read_be16(slot_bytes + 64u + 40u) != 0u ||
+                read_be16(slot_bytes + 64u + 30u) !=
+                    (uint16_t)(expected_heading.angle + reaction_state.animation.facing) ||
+                read_be16(slot_bytes + 12u) != read_be16(slot_bytes + 64u + 12u) ||
+                read_be16(slot_bytes + 26u) != read_be16(slot_bytes + 64u + 26u) ||
+                (pause_setup.default_mode >= 1 && read_be16(slot_bytes + 64u + 4u) != 22u)) {
+                fprintf(stderr, "ai_DoTakeDamage source state is inconsistent: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
     }
     {
         /* modules/ai.s:ai_Widget retains team memory and its raw a2 collision view. */

@@ -4,9 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "alien_animation.h"
 #include "alien_runtime.h"
+#include "alien_setup.h"
 #include "game_math.h"
 #include "game_random.h"
+#include "lighting_runtime.h"
 #include "object_animation.h"
 #include "object_runtime.h"
 #include "player_runtime.h"
@@ -34,5 +37,24 @@ int alien_damage_take(ObjectRuntime *objects, uint32_t slot_index,
                       const GameMath *math, GameRandom *random,
                       const PlayerRuntime *player, AlienDamageState *out_state,
                       char *error, size_t error_size);
+
+/* modules/ai.s:ai_DoTakeDamage's complete nonfatal damage-animation branch. */
+typedef struct {
+    AlienAnimationState animation;
+    uint8_t got_out;
+} AlienDamageReactionState;
+
+/*
+ * modules/ai.s:ai_DoTakeDamage. `torch_new_x` and `torch_new_z` are the
+ * caller-owned source globals consumed by its ai_DoTorch call; this reaction
+ * mode does not create a substitute position for them.
+ */
+int alien_damage_update_reaction(
+    ObjectRuntime *objects, uint32_t slot_index,
+    ObjectAnimationRuntime *animation_runtime, const GameLink *game_link,
+    const GameMath *math, const LevelRuntime *level, LightingRuntime *lighting,
+    const PlayerRuntime *player, const AlienSetup *setup,
+    int16_t torch_new_x, int16_t torch_new_z,
+    AlienDamageReactionState *out_state, char *error, size_t error_size);
 
 #endif

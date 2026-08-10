@@ -662,6 +662,14 @@ writing its mode/animation byte and adding `ai_AnimFacing_w`. Its caller must
 supply the captured source frame word; no native timing rule is introduced.
 It remains outside `ObjectHandler` while the global AI dispatcher, its other
 modes, and the narrative consumer are incomplete.
+`modules/ai.s:ai_DoTakeDamage` is now an uncalled complete nonfatal reaction
+mode for `AI_MainRoutine`'s mode-four route. It retains the animation and room
+state ordering, the source default-mode vertical restore, animation-complete
+mode reset, preceding-AUX synchronization, and final `HeadTowardsAng` plus
+`ai_AnimFacing_w` write. Its `ai_DoTorch` position remains an explicit
+caller-owned `newx`/`newz` input because this source routine itself does not
+produce those globals. No replacement position is invented while the global
+dispatcher is still incomplete.
 `modules/ai.s:ai_Widget` is now an uncalled direct helper for the later
 `ai_ProwlFly` body. It retains the source player-noise control-point query,
 team `SeenBy` handoff, per-entity memory reset, `GetNextCPt`/`ONLYSEE`
