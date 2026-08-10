@@ -140,19 +140,21 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
 }
 
 /*
- * hireswall.s and hires.s deliver signed brightness values, not palette rows.
- * Keep their animation/flash-derived range continuous for the GPU instead of
- * reintroducing the Amiga's stepped shade-table lookup.
+ * hires.s:allinzone centres CurrentPointBrights at 300. Draw_Wall feeds those
+ * values directly into its corner interpolation, while flats are normalized
+ * to that same domain by the scene producer. Preserve the source flash/torch
+ * deltas as a visibly smooth response instead of quantizing them to palette
+ * rows: source's small (typically 20-unit) flash changes must not disappear.
  */
 static float renderer_opengl_source_light(int16_t source_light)
 {
-    float result = 0.35f + (float)source_light / 600.0f;
+    float result = 0.80f + ((float)source_light - 300.0f) / 150.0f;
 
     if (result < 0.05f) {
         return 0.05f;
     }
-    if (result > 1.35f) {
-        return 1.35f;
+    if (result > 1.25f) {
+        return 1.25f;
     }
     return result;
 }

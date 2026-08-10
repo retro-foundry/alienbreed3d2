@@ -1,5 +1,6 @@
 #include "object_scene.h"
 
+#include <limits.h>
 #include <stdio.h>
 
 enum {
@@ -141,6 +142,59 @@ static int object_scene_find_zone_index(const LevelRuntime *level, int16_t sourc
     return 0;
 }
 
+/*
+ * objdrawhires.s:draw_CalcBrightsInZone walks the ten ZoneBorderPoints slots
+ * in order and reads the two lower or upper CurrentPointBrights words for
+ * each. A billboard has no source polygon face to select one directional
+ * sample, so retain the same live samples as their smooth local average.
+ */
+static int object_scene_average_point_light(const LevelRuntime *level,
+                                            const LightingRuntime *lighting,
+                                            uint16_t zone_index, uint8_t upper_zone,
+                                            int16_t *out_light, char *error,
+                                            size_t error_size)
+{
+    int32_t total = 0;
+    uint32_t sample_count = 0u;
+    uint32_t component_offset = upper_zone != 0u ? 2u : 0u;
+
+    if (!level || !lighting || !out_light || zone_index >= level->zone_count ||
+        zone_index >= LIGHTING_RUNTIME_POINT_ZONE_CAPACITY) {
+        object_scene_set_error(error, error_size,
+                               "ObjT sprite point lighting is outside source tables");
+        return 0;
+    }
+    for (uint16_t marker_index = 0u;
+         marker_index < LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT; ++marker_index) {
+        int16_t marker;
+        uint32_t point_offset = (uint32_t)marker_index * 4u + component_offset;
+
+        if (!level_runtime_get_zone_border_point(level, zone_index, marker_index, &marker,
+                                                 error, error_size)) {
+            return 0;
+        }
+        if (marker < 0) {
+            break;
+        }
+        total += lighting->current_point_brightness[zone_index][point_offset];
+        total += lighting->current_point_brightness[zone_index][point_offset + 1u];
+        sample_count += 2u;
+    }
+    if (sample_count == 0u) {
+        object_scene_set_error(error, error_size,
+                               "ObjT sprite zone has no source brightness markers");
+        return 0;
+    }
+    if (total / (int32_t)sample_count > INT16_MAX) {
+        *out_light = INT16_MAX;
+    } else if (total / (int32_t)sample_count < INT16_MIN) {
+        *out_light = INT16_MIN;
+    } else {
+        *out_light = (int16_t)(total / (int32_t)sample_count);
+    }
+    return 1;
+}
+
 static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLink *game_link,
                                      const GameSharedResources *resources,
                                      const LevelRuntime *level,
@@ -183,9 +237,12 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
         object_scene_set_error(error, error_size, "ObjT sprite lighting zone is outside source tables");
         return 0;
     }
-    sprite.source_light_level = (int16_t)((uint16_t)sprite.source_brightness +
-        (uint16_t)lighting->zone_brightness[sprite.source_zone_index]
-            [(sprite.flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ? 1u : 0u]);
+    if (!object_scene_average_point_light(
+            level, lighting, sprite.source_zone_index,
+            (sprite.flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u,
+            &sprite.source_light_level, error, error_size)) {
+        return 0;
+    }
 
     /* draw_Object branches on the first byte of this source display word. */
     if (slot[OBJECT_SCENE_WIDTH_HEIGHT] == UINT8_MAX) {

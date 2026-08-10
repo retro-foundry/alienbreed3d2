@@ -626,8 +626,12 @@ static int game_bootstrap_refresh_scene_lighting(GameBootstrap *game)
             flat->source_zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
             return 0;
         }
-        /* hires.s:pastsides adds the FlatT offset after Zone_BrightTable lookup. */
-        source_light = game->lighting_runtime.zone_brightness[flat->source_zone_index]
+        /*
+         * CurrentPointBrights is centred on 300, whereas Zone_BrightTable is
+         * a signed offset. Translate flats into the same source-light domain
+         * as Draw_Wall's point samples before the GPU interpolates them.
+         */
+        source_light = 300 + game->lighting_runtime.zone_brightness[flat->source_zone_index]
             [flat->source_upper_zone != 0u ? 1u : 0u];
         source_light += flat->brightness_offset;
         for (uint32_t vertex_index = 0u; vertex_index < flat->vertex_count; ++vertex_index) {

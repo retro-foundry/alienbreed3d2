@@ -132,6 +132,43 @@ static uint32_t read_be32(const uint8_t *source)
            ((uint32_t)source[2] << 8) | source[3];
 }
 
+/* objdrawhires.s:draw_CalcBrightsInZone's live point-light samples. */
+static int scene_sprite_expected_point_light(const GameBootstrap *game,
+                                             uint16_t zone_index, uint8_t upper_zone,
+                                             int16_t *out_light, char *error,
+                                             size_t error_size)
+{
+    int32_t total = 0;
+    uint32_t sample_count = 0u;
+    uint32_t component_offset = upper_zone != 0u ? 2u : 0u;
+
+    if (!game || !out_light || zone_index >= game->level_runtime.zone_count ||
+        zone_index >= LIGHTING_RUNTIME_POINT_ZONE_CAPACITY) {
+        return 0;
+    }
+    for (uint16_t marker_index = 0u;
+         marker_index < LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT; ++marker_index) {
+        int16_t marker;
+        uint32_t point_offset = (uint32_t)marker_index * 4u + component_offset;
+
+        if (!level_runtime_get_zone_border_point(&game->level_runtime, zone_index,
+                                                 marker_index, &marker, error, error_size)) {
+            return 0;
+        }
+        if (marker < 0) {
+            break;
+        }
+        total += game->lighting_runtime.current_point_brightness[zone_index][point_offset];
+        total += game->lighting_runtime.current_point_brightness[zone_index][point_offset + 1u];
+        sample_count += 2u;
+    }
+    if (sample_count == 0u) {
+        return 0;
+    }
+    *out_light = (int16_t)(total / (int32_t)sample_count);
+    return 1;
+}
+
 static int scene_sprite_commands_match_source(const SceneFrame *frame,
                                               size_t first_command,
                                               const GameBootstrap *game,
@@ -153,6 +190,7 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         int16_t point_index = (int16_t)read_be16(slot + 0u);
         int16_t zone_id = (int16_t)read_be16(slot + 12u);
         int16_t graphics_type = (int16_t)read_be16(slot + 8u);
+        int16_t expected_light;
         uint16_t asset_index;
         uint8_t expected_flags = slot[63u] != 0u ? SCENE_SPRITE_FLAG_UPPER_ZONE : 0u;
 
@@ -179,6 +217,12 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             sprite->yaw != read_be16(slot + 30u) ||
             sprite->source_aux_offset_x != (int16_t)read_be16(slot + 44u) ||
             sprite->source_aux_offset_y != (int16_t)read_be16(slot + 46u)) {
+            return 0;
+        }
+        if (!scene_sprite_expected_point_light(
+                game, (uint16_t)zone_id, (expected_flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u,
+                &expected_light, error, error_size) ||
+            sprite->source_light_level != expected_light) {
             return 0;
         }
         if (slot[6u] == UINT8_MAX) {
@@ -1746,7 +1790,10 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
-        if (!scene_frame_init(&frame, 1u) ||
+        if (!lighting_runtime_refresh_single_player(
+                &game.lighting_runtime, &game.dynamic_level.runtime, &game.player,
+                error, sizeof(error)) ||
+            !scene_frame_init(&frame, 1u) ||
             !object_scene_count_active(&game.object_runtime, &active_sprite_count,
                                        error, sizeof(error)) ||
             !game_bootstrap_submit_scene_frame(&game, &frame) ||
@@ -1765,6 +1812,40 @@ int main(int argc, char **argv)
             scene_frame_destroy(&frame);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        {
+            int16_t minimum_source_light = INT16_MAX;
+            int16_t maximum_source_light = INT16_MIN;
+            uint32_t light_vertex_count = 0u;
+
+            for (size_t command_index = 0u; command_index < frame.count; ++command_index) {
+                const SceneCommand *command = &frame.commands[command_index];
+
+                if (command->type != SCENE_COMMAND_GEOMETRY) {
+                    continue;
+                }
+                for (uint32_t vertex_index = 0u;
+                     vertex_index < command->data.geometry.vertex_count; ++vertex_index) {
+                    int16_t source_light =
+                        command->data.geometry.vertices[vertex_index].source_light_level;
+
+                    if (source_light < minimum_source_light) {
+                        minimum_source_light = source_light;
+                    }
+                    if (source_light > maximum_source_light) {
+                        maximum_source_light = source_light;
+                    }
+                    ++light_vertex_count;
+                }
+            }
+            if (light_vertex_count == 0u || minimum_source_light == maximum_source_light) {
+                fprintf(stderr,
+                        "campaign level %u scene lighting has no source-driven variation\n",
+                        level_index);
+                scene_frame_destroy(&frame);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
         for (uint16_t pvs_zone_index = 0u; pvs_zone_index < game.level_runtime.zone_count;
              ++pvs_zone_index) {
