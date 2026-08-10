@@ -24,6 +24,11 @@ void object_visibility_runtime_set_viewer(ObjectVisibilityRuntime *runtime,
                                           int16_t viewer_y,
                                           uint8_t viewer_in_upper_zone);
 
+/* Source callers that write Viewerx/Viewerz/Viewery but deliberately retain ViewerTop. */
+void object_visibility_runtime_set_viewer_position(ObjectVisibilityRuntime *runtime,
+                                                   int16_t viewer_x, int16_t viewer_z,
+                                                   int16_t viewer_y);
+
 /*
  * Source-word inputs consumed by objectmove.s:CanItBeSeen. This is gameplay
  * line-of-sight state: it does not participate in complete-level rendering.

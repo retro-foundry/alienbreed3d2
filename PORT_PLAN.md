@@ -868,9 +868,10 @@ a native flash or invoke an unported damage effect by itself.
   zero-extension wall trace/reflection-or-impact, direct-target hit path, and
   immediate source `anim_BrightenPoints` call after a moving trace; that state
   is dispatched from `ObjectHandler` using the mutable level and lighting
-  runtime. Its pop branch uses the same source point-brightness call before
-  the next pop frame. Blast damage and audio remain in their later source
-  branches and are not replaced. The reusable `CanItBeSeen` query now
+runtime. Its pop branch uses the same source point-brightness call before
+the next pop frame. Projectile blast damage, knockback, and flame allocation
+now run through their original `ItsABullet` branches; native audio playback
+remains deferred. The reusable `CanItBeSeen` query now
 retains source gameplay PVST/clip/height behavior but is deliberately not
 wired until the owning alien path is translated. `firefive` now creates the
 source non-hitscan launch state, and its `ItsABullet` movement/collision path
@@ -881,23 +882,22 @@ explicit zero-extension boundary to create the source miss effect.
 The source fire/cooldown/ammunition control is wired before `ObjectHandler`,
 so the remaining projectile work is blast/audio rather than launch, basic
 flight/collision, or point brightness.
-`src/object_blast.*` now directly translates `newanims.s:ComputeBlast` as a
-checked, unbound helper. It preserves the source's four-state candidate filter,
+`src/object_blast.*` directly translates `newanims.s:ComputeBlast`. It preserves
+the source's four-state candidate filter,
 `CanItBeSeen` gate, unusual three-pass distance arithmetic, byte damage,
 projectile-versus-entity impulse split, and bounded player-shot flame
 allocation (including the source point-low-word retention). Its direct fixture
 uses authored bullet gravity variants and verifies target writes, six flame
-slots, and the source's three `GetRand` calls per flame. It remains outside
-`ItsABullet`. `ObjectMotionRuntime`, retained with the same process lifetime
-as the source BSS, now records the live player spatial, player hitscan-miss,
-AI-look, and projectile-flight `newx`/`newz` publications. Projectile flight
-deliberately preserves the prior words through its roof/floor branches, then
-publishes its current motion before the direct-target branch. The unbound
-helper also writes each source flame trace's final words to this same runtime;
-its direct fixture asserts the retained final flame coordinate. The helper
-still needs exact per-impact caller regression coverage and wiring; it must not
-be enabled by substituting the exploding projectile's coordinates for the
-retained roof/floor values.
+slots, and the source's three `GetRand` calls per flame. `ObjectMotionRuntime`,
+retained with the same process lifetime as the source BSS, records the live
+player spatial, player hitscan-miss, AI-look, and projectile-flight
+`newx`/`newz` publications. `ObjectHandler` supplies that state, the retained
+`Viewer*` words, source clips, randomness, and `BLOODYGREATBOMB` state to the
+live `ItsABullet` calls. Projectile flight deliberately preserves the prior
+words through roof/floor branches, then publishes its current motion before the
+direct-target branch; flame traces publish their final words. Targeted caller
+fixtures prove roof impact uses the retained pre-motion coordinates and direct
+target impact retains `ViewerTop` rather than the exploding projectile layer.
 Translate each remaining bounded slice directly from the maintained source and
 add source-derived regressions for its state changes and ordering.
 
@@ -1011,24 +1011,23 @@ scope by design.
      routing, `MakeSomeNoise`, or native audio playback unless requested in a
      later scope change. The decoded source samples remain available for that
      future, source-backed work; do not synthesize substitute effects.
-   - Trace the remaining source-owned blast/brightness/event branches before
-     enabling each one. Keep any branch absent until its original caller and
-     state ownership are established.
+   - Trace the remaining source-owned brightness/event branches before enabling
+     each one. Keep any branch absent until its original caller and state
+     ownership are established.
    - `AlienRuntime.visibility` now owns `objectmove.s:Viewerx`, `Viewerz`,
      `Viewery`, and `ViewerTop`; every live `AI_LookForPlayer1` path records
      its source writes before `CanItBeSeen`. `newanims.s:ComputeBlast` has four
      `ItsABullet` callers (roof, floor, wall, and direct-target impact). Its
      direct-target caller deliberately leaves `ViewerTop` unchanged while the
      other three set it. Wire those projectile caller writes to this shared
-     state. `AlienRuntime.motion` now retains the live source `newx`/`newz`
+     state. `AlienRuntime.motion` retains the live source `newx`/`newz`
      words: player control, player hitscan misses, AI sight checks, and
      `ItsABullet` motion each publish in source order. `ItsABullet` leaves the
      retained words untouched through roof/floor handling, then publishes its
-     current movement before direct-target handling. Capture a targeted caller
-     oracle before wiring the checked `ComputeBlast` helper for damage,
-     knockback, or flame allocation. Do not replace the retained top-layer
-     state or pre-motion coordinates with the exploding projectile's current
-     values.
+     current movement before direct-target handling. `ObjectHandler` now wires
+     the checked `ComputeBlast` helper at the source roof, floor, wall, timeout,
+     and direct-target sites. Do not replace the retained top-layer state or
+     pre-motion coordinates with the exploding projectile's current values.
 
 3. **Direct-play validation**
    - Extend focused source fixtures for the remaining worried live-alien

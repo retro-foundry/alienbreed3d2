@@ -96,6 +96,7 @@ int object_handler_update_single_player(
     uint32_t *out_collected_count, char *error, size_t error_size)
 {
     const LevelRuntime *level;
+    ObjectProjectileSourceRuntime projectile_source_runtime;
     uint32_t collected_count = 0u;
 
     if (!objects || !dynamic_level || !mechanism_runtime || !alien_runtime || !game_link ||
@@ -111,6 +112,11 @@ int object_handler_update_single_player(
         return 0;
     }
     level = &dynamic_level->runtime;
+    projectile_source_runtime.blast_runtime = &alien_runtime->blast;
+    projectile_source_runtime.motion_runtime = &alien_runtime->motion;
+    projectile_source_runtime.visibility_runtime = &alien_runtime->visibility;
+    projectile_source_runtime.clips = alien_context->clips;
+    projectile_source_runtime.random = alien_context->random;
     for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
         uint8_t *slot;
         GameObjectDefinition definition;
@@ -181,9 +187,9 @@ int object_handler_update_single_player(
                                                         alien_context->lighting_runtime, game_link,
                                                         error, error_size)) ||
                 (popping == 0u &&
-                 !object_projectiles_update_flight_animation_slot_with_motion(
+                 !object_projectiles_update_flight_animation_slot_with_source_state(
                      objects, slot_index, dynamic_level, alien_context->lighting_runtime,
-                     &alien_runtime->motion,
+                     &projectile_source_runtime,
                      game_link, frame_ticks,
                      error, error_size))) {
                 return 0;

@@ -8,6 +8,7 @@ void alien_runtime_init(AlienRuntime *runtime)
         /* bss/ai_bss.s is zero-initialized once when the source starts. */
         memset(runtime, 0, sizeof(*runtime));
         object_motion_runtime_init(&runtime->motion);
+        object_blast_runtime_init(&runtime->blast);
         object_visibility_runtime_init(&runtime->visibility);
     }
 }

@@ -305,6 +305,7 @@ int object_projectiles_update_impact_slot(ObjectRuntime *objects, uint32_t slot_
 static int object_projectiles_check_direct_target_collision(
     ObjectRuntime *objects, uint32_t projectile_slot_index, const GameLink *game_link,
     int16_t old_x, int16_t old_z, int16_t new_x, int16_t new_z, uint8_t moving,
+    uint8_t *out_hit,
     char *error, size_t error_size)
 {
     uint8_t *projectile_slot;
@@ -315,11 +316,13 @@ static int object_projectiles_check_direct_target_collision(
     int32_t range_squared;
     uint32_t enemy_flags;
 
-    if (!object_runtime_get_slot_bytes(objects, projectile_slot_index, &projectile_slot)) {
+    if (!out_hit || !object_runtime_get_slot_bytes(objects, projectile_slot_index,
+                                                    &projectile_slot)) {
         object_projectiles_set_error(error, error_size,
                                      "ItsABullet projectile slot is outside source state");
         return 0;
     }
+    *out_hit = 0u;
     x_difference = object_projectiles_sub16(new_x, old_x);
     z_difference = object_projectiles_sub16(new_z, old_z);
     length_squared = object_projectiles_add32(
@@ -462,14 +465,46 @@ static int object_projectiles_check_direct_target_collision(
                                       object_projectiles_read_be16(
                                           projectile_slot + OBJECT_PROJECTILE_VELOCITY_Z));
         object_projectiles_mark_impact(projectile_slot);
+        *out_hit = UINT8_MAX;
         return 1;
     }
     return 1;
 }
 
-int object_projectiles_update_flight_animation_slot_with_motion(
+static int object_projectiles_compute_blast(
+    ObjectProjectileSourceRuntime *source_runtime, ObjectRuntime *objects,
+    uint32_t slot_index, LevelDynamicState *dynamic_level, const GameLink *game_link,
+    const uint8_t *slot, const GameBulletDefinition *bullet, uint8_t set_viewer_top,
+    char *error, size_t error_size)
+{
+    if (bullet->explosive_force == 0u || !source_runtime || !source_runtime->blast_runtime ||
+        !source_runtime->motion_runtime || !source_runtime->visibility_runtime ||
+        !source_runtime->clips || !source_runtime->random) {
+        return 1;
+    }
+    if (set_viewer_top != 0u) {
+        object_visibility_runtime_set_viewer(
+            source_runtime->visibility_runtime, source_runtime->motion_runtime->new_x,
+            source_runtime->motion_runtime->new_z,
+            object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_VERTICAL_POSITION),
+            slot[OBJECT_PROJECTILE_IN_UPPER_ZONE]);
+    } else {
+        /* ItsABullet's direct-target caller omits the ViewerTop write. */
+        object_visibility_runtime_set_viewer_position(
+            source_runtime->visibility_runtime, source_runtime->motion_runtime->new_x,
+            source_runtime->motion_runtime->new_z,
+            object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_VERTICAL_POSITION));
+    }
+    return object_blast_compute(
+        source_runtime->blast_runtime, objects, slot_index, dynamic_level,
+        source_runtime->clips, game_link, source_runtime->random,
+        source_runtime->motion_runtime, source_runtime->visibility_runtime,
+        (int16_t)bullet->explosive_force, error, error_size);
+}
+
+int object_projectiles_update_flight_animation_slot_with_source_state(
     ObjectRuntime *objects, uint32_t slot_index, LevelDynamicState *dynamic_level,
-    LightingRuntime *lighting_runtime, ObjectMotionRuntime *motion_runtime,
+    LightingRuntime *lighting_runtime, ObjectProjectileSourceRuntime *source_runtime,
     const GameLink *game_link, uint16_t frame_ticks, char *error, size_t error_size)
 {
     uint8_t *slot;
@@ -490,6 +525,9 @@ int object_projectiles_update_flight_animation_slot_with_motion(
     int32_t new_y;
     uint8_t moving = 0u;
     uint8_t timed_out = 0u;
+    uint8_t direct_target_hit = 0u;
+    ObjectMotionRuntime *motion_runtime =
+        source_runtime ? source_runtime->motion_runtime : NULL;
     ObjectMovementTrace trace = {0};
 
     if (!objects || !dynamic_level || !lighting_runtime || !game_link ||
@@ -524,6 +562,10 @@ int object_projectiles_update_flight_animation_slot_with_motion(
                                               bullet_index, frame_index, &frame,
                                               error, error_size)) {
         return 0;
+    }
+    if (source_runtime && source_runtime->blast_runtime) {
+        /* ItsABullet:notpopping updates BLOODYGREATBOMB before every impact branch. */
+        object_blast_runtime_note_bullet(source_runtime->blast_runtime, (uint8_t)bullet_index);
     }
     /* ItsABullet compares lifetime through word operands after signed long sentinels. */
     if (object_projectiles_read_be16s(slot + OBJECT_PROJECTILE_LIFETIME) >= 0 &&
@@ -578,6 +620,11 @@ int object_projectiles_update_flight_animation_slot_with_motion(
             }
         } else {
             object_projectiles_mark_impact(slot);
+            if (!object_projectiles_compute_blast(
+                    source_runtime, objects, slot_index, dynamic_level, game_link, slot,
+                    &bullet, UINT8_MAX, error, error_size)) {
+                return 0;
+            }
         }
     }
     if (object_projectiles_sub32(slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u ?
@@ -607,6 +654,11 @@ int object_projectiles_update_flight_animation_slot_with_motion(
             }
         } else {
             object_projectiles_mark_impact(slot);
+            if (!object_projectiles_compute_blast(
+                    source_runtime, objects, slot_index, dynamic_level, game_link, slot,
+                    &bullet, UINT8_MAX, error, error_size)) {
+                return 0;
+            }
         }
     }
     point_index = object_projectiles_read_be16(slot + OBJECT_PROJECTILE_POINT_INDEX);
@@ -742,9 +794,19 @@ int object_projectiles_update_flight_animation_slot_with_motion(
                                       (uint16_t)object_projectiles_asr32(trace.wall_hit_height,
                                                                          7u));
         object_projectiles_mark_impact(slot);
+        if (!object_projectiles_compute_blast(
+                source_runtime, objects, slot_index, dynamic_level, game_link, slot,
+                &bullet, UINT8_MAX, error, error_size)) {
+            return 0;
+        }
     }
     if (timed_out != 0u) {
         object_projectiles_mark_impact(slot);
+        if (!object_projectiles_compute_blast(
+                source_runtime, objects, slot_index, dynamic_level, game_link, slot,
+                &bullet, UINT8_MAX, error, error_size)) {
+            return 0;
+        }
     }
     if (!level_runtime_get_zone(&dynamic_level->runtime, trace.zone_index, &zone,
                                 error, error_size)) {
@@ -758,7 +820,14 @@ int object_projectiles_update_flight_animation_slot_with_motion(
         !object_projectiles_check_direct_target_collision(
             objects, slot_index, game_link, object_projectiles_high_word(old_x),
             object_projectiles_high_word(old_z), object_projectiles_high_word(new_x),
-            object_projectiles_high_word(new_z), moving, error, error_size)) {
+            object_projectiles_high_word(new_z), moving, &direct_target_hit,
+            error, error_size)) {
+        return 0;
+    }
+    if (direct_target_hit != 0u &&
+        !object_projectiles_compute_blast(
+            source_runtime, objects, slot_index, dynamic_level, game_link, slot,
+            &bullet, 0u, error, error_size)) {
         return 0;
     }
     return 1;
@@ -771,7 +840,7 @@ int object_projectiles_update_flight_animation_slot(ObjectRuntime *objects, uint
                                                      uint16_t frame_ticks,
                                                      char *error, size_t error_size)
 {
-    return object_projectiles_update_flight_animation_slot_with_motion(
+    return object_projectiles_update_flight_animation_slot_with_source_state(
         objects, slot_index, dynamic_level, lighting_runtime, NULL, game_link, frame_ticks,
         error, error_size);
 }

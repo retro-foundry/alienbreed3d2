@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "object_blast.h"
 #include "object_motion.h"
 #include "object_visibility.h"
 
@@ -39,6 +40,8 @@ typedef struct {
     uint16_t heading_angle;
     /* objectmove.s:newx/newz shared BSS, retained across source callers. */
     ObjectMotionRuntime motion;
+    /* newanims.s:BLOODYGREATBOMB and ComputeBlast's active flame count. */
+    ObjectBlastRuntime blast;
     /* objectmove.s:Viewer* shared BSS, written by every live CanItBeSeen caller. */
     ObjectVisibilityRuntime visibility;
 } AlienRuntime;

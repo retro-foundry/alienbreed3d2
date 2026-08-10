@@ -25,6 +25,17 @@ void object_visibility_runtime_set_viewer(ObjectVisibilityRuntime *runtime,
     }
 }
 
+void object_visibility_runtime_set_viewer_position(ObjectVisibilityRuntime *runtime,
+                                                   int16_t viewer_x, int16_t viewer_z,
+                                                   int16_t viewer_y)
+{
+    if (runtime) {
+        runtime->viewer_x = viewer_x;
+        runtime->viewer_z = viewer_z;
+        runtime->viewer_y = viewer_y;
+    }
+}
+
 static void object_visibility_set_error(char *error, size_t error_size, const char *message)
 {
     if (error && error_size > 0u) {
