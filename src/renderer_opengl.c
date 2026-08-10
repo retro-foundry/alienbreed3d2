@@ -2189,6 +2189,48 @@ static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
     return 1;
 }
 
+/*
+ * objdrawhires.s:draw_PolygonModel calculates `boxbrights_vw` before it
+ * starts a model's part list.  A non-zero low byte in a polygon's terminal
+ * source word selects `gotlurvelyshading`, which interpolates these per-point
+ * shade rows instead of applying doapoly's flat face row.  In particular,
+ * `face_bytes[2]` is deliberately not part of this path.
+ */
+static int renderer_opengl_vector_point_source_light(const SceneSprite *sprite,
+                                                      const uint8_t *point_angle_bytes,
+                                                      size_t point_angle_byte_count,
+                                                      uint16_t point_index,
+                                                      float *out_source_light,
+                                                      char *error, size_t error_size)
+{
+    enum {
+        VECTOR_LIGHT_PALETTE_ROW_COUNT = 32u
+    };
+    uint8_t source_point_angle;
+    uint8_t source_light_index;
+    int16_t source_shade;
+
+    if (!sprite || !point_angle_bytes || !out_source_light ||
+        point_index >= point_angle_byte_count) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source Gouraud vector point has no directional light entry");
+        return 0;
+    }
+    source_point_angle = point_angle_bytes[point_index];
+    source_light_index = (uint8_t)((source_point_angle & 0xf0u) |
+        (((uint8_t)(source_point_angle + (sprite->yaw >> 9u))) & 0x0fu));
+    /* `move.b` followed by BGE/W clamp preserves the signed source byte. */
+    source_shade = sprite->source_point_and_polygon_brightness[source_light_index];
+    if (source_shade < 0) {
+        source_shade = 0;
+    } else if (source_shade >= (int16_t)VECTOR_LIGHT_PALETTE_ROW_COUNT) {
+        source_shade = (int16_t)VECTOR_LIGHT_PALETTE_ROW_COUNT - 1;
+    }
+    *out_source_light = 1.0f - (float)source_shade /
+        ((float)VECTOR_LIGHT_PALETTE_ROW_COUNT - 1.0f);
+    return 1;
+}
+
 static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                                                        size_t source_map_offset,
                                                        uint8_t maximum_u, uint8_t maximum_v,
@@ -2431,6 +2473,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     polygon_point_bytes + (size_t)polygon_point_count * 4u;
                 size_t source_map_offset;
                 float source_light;
+                int source_gouraud = face_bytes[9u] != 0u;
                 uint8_t maximum_u = 0u;
                 uint8_t maximum_v = 0u;
                 GLuint texture;
@@ -2479,12 +2522,20 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                                       "source vector model point is invalid");
                             goto done;
                         }
+                        if (source_gouraud &&
+                            !renderer_opengl_vector_point_source_light(
+                                sprite, bytes + frame_offset + 4u, point_count, point_index,
+                                &vertex.source_light, error, error_size)) {
+                            goto done;
+                        }
                         vertex.u = ((float)source_corner[2u] + 0.5f) /
                             ((float)maximum_u + 1.0f);
                         vertex.v = ((float)source_corner[3u] + 0.5f) /
                             ((float)maximum_v + 1.0f);
-                        /* The source palette-light choice is now continuous GPU lighting. */
-                        vertex.source_light = source_light;
+                        if (!source_gouraud) {
+                            /* The source flat palette row is continuous GPU lighting. */
+                            vertex.source_light = source_light;
+                        }
                         if (!renderer_opengl_vector_append(
                                 &vertices, &vertex_count, &vertex_capacity, &vertex,
                                 error, error_size)) {
