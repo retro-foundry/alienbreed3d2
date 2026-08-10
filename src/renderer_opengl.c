@@ -73,6 +73,7 @@ typedef struct {
 
 typedef struct {
     GLuint texture;
+    GLuint source_palette_texture;
     const uint8_t *source_bytes;
     size_t source_byte_count;
     const uint8_t *source_palette_bytes;
@@ -82,6 +83,10 @@ typedef struct {
     uint32_t source_asset_id;
     SceneTextureWindow texture_window;
     SceneSpriteFrameMetrics frame_metrics;
+    uint16_t width;
+    uint16_t height;
+    uint16_t source_palette_width;
+    uint16_t source_palette_row_count;
     uint8_t kind;
     uint8_t source_effect;
 } RendererOpenGLTexture;
@@ -103,6 +108,10 @@ struct RendererOpenGL {
     GLint view_projection_uniform;
     GLint point_size_uniform;
     GLint texture_uniform;
+    GLint source_palette_texture_uniform;
+    GLint source_palette_enabled_uniform;
+    GLint source_palette_width_uniform;
+    GLint source_palette_row_count_uniform;
     GLint opacity_uniform;
     RendererOpenGLTexture *textures;
     size_t texture_count;
@@ -142,20 +151,60 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
 }
 
 /*
- * hires.s:allinzone centres CurrentPointBrights at 300. Draw_Wall feeds those
- * values directly into its corner interpolation, while flats are normalized
- * to that same domain by the scene producer. Preserve the source flash/torch
- * deltas as a visibly smooth response instead of quantizing them to palette
- * rows: source's small (typically 20-unit) flash changes must not disappear.
+ * World lighting is not an RGB multiplier. hiresgourwall.s and hires.s both
+ * subtract their 300-centred CurrentPointBrights entry, add a source-space
+ * depth term, then index the material's palette-light rows. Keep that row
+ * value continuous so the desktop renderer is Gouraud smooth while retaining
+ * the source asset's hue and value changes.
  */
-static float renderer_opengl_source_light(int16_t source_light)
+static float renderer_opengl_world_palette_light(const SceneVertex *source_vertex,
+                                                 const SceneCamera *camera,
+                                                 SceneGeometryPrimitive primitive)
 {
-    /*
-     * The source's 300 neutral value is only its point-light table centre,
-     * not an instruction to present the unshaded palette at full intensity.
-     * Keep ambient light below full white, then expand the authored +/-20
-     * flash/torch deltas enough to survive the desktop display's gamma.
-     */
+    float point_x;
+    float point_y;
+    float point_z;
+    float camera_x;
+    float camera_y;
+    float camera_z;
+    float yaw;
+    float forward_depth;
+    float shade;
+    float row_count;
+
+    renderer_opengl_world_point(&source_vertex->position, &point_x, &point_y, &point_z);
+    renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
+    (void)point_y;
+    (void)camera_y;
+    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
+    forward_depth = (point_x - camera_x) * sinf(yaw) + (point_z - camera_z) * cosf(yaw);
+    if (forward_depth < 0.0f) {
+        forward_depth = 0.0f;
+    }
+
+    if (primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
+        /* hiresgourwall.s: ASR #7, add CurrentPointBrights - 300, ASR #1. */
+        shade = ((float)source_vertex->source_light_level - 300.0f +
+                 forward_depth / 128.0f) * 0.5f;
+        row_count = 32.0f;
+    } else {
+        /* hires.s:goursides/dofloorGOUR: point delta plus the /512 floor depth term. */
+        shade = (float)source_vertex->source_light_level - 300.0f +
+            forward_depth / 512.0f;
+        row_count = 31.0f;
+    }
+
+    if (shade < 0.0f) {
+        shade = 0.0f;
+    }
+    if (shade > row_count - 1.0f) {
+        shade = row_count - 1.0f;
+    }
+    return shade / (row_count - 1.0f);
+}
+
+static float renderer_opengl_sprite_light(int16_t source_light)
+{
     float result = 0.45f + ((float)source_light - 300.0f) / 96.0f;
 
     if (result < 0.05f) {
@@ -169,13 +218,15 @@ static float renderer_opengl_source_light(int16_t source_light)
 
 static void renderer_opengl_make_vertex(RendererOpenGLVertex *out_vertex,
                                         const SceneVertex *source_vertex,
-                                        float texture_u, float texture_v)
+                                        float texture_u, float texture_v,
+                                        const SceneCamera *camera,
+                                        SceneGeometryPrimitive primitive)
 {
     renderer_opengl_world_point(&source_vertex->position, &out_vertex->x, &out_vertex->y,
                                 &out_vertex->z);
     out_vertex->u = texture_u;
     out_vertex->v = texture_v;
-    out_vertex->source_light = renderer_opengl_source_light(source_vertex->source_light_level);
+    out_vertex->source_light = renderer_opengl_world_palette_light(source_vertex, camera, primitive);
     out_vertex->source_red = 1.0f;
     out_vertex->source_green = 1.0f;
     out_vertex->source_blue = 1.0f;
@@ -209,6 +260,7 @@ static int renderer_opengl_triangulate_polygon(const SceneGeometry *geometry,
                                                float texture_u_scale,
                                                float texture_v_scale,
                                                float texture_v_offset,
+                                               const SceneCamera *camera,
                                                RendererOpenGLVertex **out_vertices,
                                                uint32_t *out_vertex_count,
                                                char *error, size_t error_size)
@@ -296,15 +348,15 @@ static int renderer_opengl_triangulate_polygon(const SceneGeometry *geometry,
             renderer_opengl_make_vertex(&vertices[output_index++], first,
                                         (float)first->texture_u * texture_u_scale,
                                         ((float)first->texture_v + texture_v_offset) *
-                                            texture_v_scale);
+                                            texture_v_scale, camera, geometry->primitive);
             renderer_opengl_make_vertex(&vertices[output_index++], second,
                                         (float)second->texture_u * texture_u_scale,
                                         ((float)second->texture_v + texture_v_offset) *
-                                            texture_v_scale);
+                                            texture_v_scale, camera, geometry->primitive);
             renderer_opengl_make_vertex(&vertices[output_index++], third,
                                         (float)third->texture_u * texture_u_scale,
                                         ((float)third->texture_v + texture_v_offset) *
-                                            texture_v_scale);
+                                            texture_v_scale, camera, geometry->primitive);
             memmove(&indices[ear_index], &indices[ear_index + 1u],
                     (size_t)(active_count - ear_index - 1u) * sizeof(*indices));
             --active_count;
@@ -322,15 +374,15 @@ static int renderer_opengl_triangulate_polygon(const SceneGeometry *geometry,
     renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[0u]],
                                 (float)geometry->vertices[indices[0u]].texture_u * texture_u_scale,
                                 ((float)geometry->vertices[indices[0u]].texture_v +
-                                 texture_v_offset) * texture_v_scale);
+                                 texture_v_offset) * texture_v_scale, camera, geometry->primitive);
     renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[1u]],
                                 (float)geometry->vertices[indices[1u]].texture_u * texture_u_scale,
                                 ((float)geometry->vertices[indices[1u]].texture_v +
-                                 texture_v_offset) * texture_v_scale);
+                                 texture_v_offset) * texture_v_scale, camera, geometry->primitive);
     renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[2u]],
                                 (float)geometry->vertices[indices[2u]].texture_u * texture_u_scale,
                                 ((float)geometry->vertices[indices[2u]].texture_v +
-                                 texture_v_offset) * texture_v_scale);
+                                 texture_v_offset) * texture_v_scale, camera, geometry->primitive);
     free(indices);
     *out_vertices = vertices;
     *out_vertex_count = output_index;
@@ -392,8 +444,7 @@ static int renderer_opengl_decode_wall_texture(const SceneMaterial *material,
 
     if (!material || !window || !out_pixels || !out_width || !out_height ||
         !material->source_bytes || material->source_byte_count < 2048u ||
-        !material->source_palette_bytes || material->source_palette_byte_count < 2048u ||
-        !material->source_display_palette_bytes || window->u_period == 0u ||
+        window->u_period == 0u ||
         window->v_period == 0u ||
         (size_t)window->u_period > SIZE_MAX / (size_t)window->v_period ||
         (size_t)window->u_period * (size_t)window->v_period > SIZE_MAX / 4u) {
@@ -412,7 +463,6 @@ static int renderer_opengl_decode_wall_texture(const SceneMaterial *material,
             size_t strip_offset = 2048u + (size_t)(source_u / 3u) *
                 (size_t)window->v_period * 2u + (size_t)y * 2u;
             uint8_t packed_texel;
-            uint8_t color_index;
 
             if (strip_offset > material->source_byte_count ||
                 2u > material->source_byte_count - strip_offset) {
@@ -433,17 +483,10 @@ static int renderer_opengl_decode_wall_texture(const SceneMaterial *material,
                 packed_texel = (uint8_t)((material->source_bytes[strip_offset] >> 2u) & 31u);
                 break;
             }
-            color_index = material->source_palette_bytes[(size_t)packed_texel * 2u];
-            if (!renderer_opengl_write_palette_texel(
-                    pixels, ((size_t)y * window->u_period + x) * 4u,
-                    material->source_display_palette_bytes,
-                    material->source_display_palette_byte_count, color_index,
-                    packed_texel == 0u)) {
-                free(pixels);
-                renderer_opengl_set_error(error, error_size,
-                                          "source wall palette references invalid display colour");
-                return 0;
-            }
+            /* The source strip is indexed through its 32 x 32 shade table in the shader. */
+            pixels[((size_t)y * window->u_period + x) * 4u] = packed_texel;
+            pixels[((size_t)y * window->u_period + x) * 4u + 3u] =
+                packed_texel == 0u ? 0u : UINT8_MAX;
         }
     }
     *out_pixels = pixels;
@@ -457,16 +500,14 @@ static int renderer_opengl_decode_flat_texture(const SceneMaterial *material,
                                                 uint16_t *out_height, char *error,
                                                 size_t error_size)
 {
-    enum { LOGICAL_TILE_SIZE = 64u, TILE_ROW_STRIDE = 1024u, BASE_SHADE_ROW = 32u };
+    enum { LOGICAL_TILE_SIZE = 64u, TILE_ROW_STRIDE = 1024u };
     uint8_t *pixels;
     uint16_t x;
     uint16_t y;
     size_t tile_offset;
 
     if (!material || !out_pixels || !out_width || !out_height || !material->source_bytes ||
-        !material->source_palette_bytes || !material->source_display_palette_bytes ||
-        material->source_byte_count < LOGICAL_TILE_SIZE * TILE_ROW_STRIDE ||
-        material->source_palette_byte_count < (BASE_SHADE_ROW + 1u) * 256u) {
+        material->source_byte_count < LOGICAL_TILE_SIZE * TILE_ROW_STRIDE) {
         renderer_opengl_set_error(error, error_size, "source flat texture descriptor is invalid");
         return 0;
     }
@@ -486,24 +527,94 @@ static int renderer_opengl_decode_flat_texture(const SceneMaterial *material,
         for (x = 0u; x < LOGICAL_TILE_SIZE; ++x) {
             size_t source_offset = (tile_offset + (size_t)y * TILE_ROW_STRIDE +
                                     (size_t)x * 4u) % material->source_byte_count;
-            uint8_t packed_texel = material->source_bytes[source_offset];
-            uint8_t color_index = material->source_palette_bytes[
-                BASE_SHADE_ROW * 256u + packed_texel];
-
-            if (!renderer_opengl_write_palette_texel(
-                    pixels, ((size_t)y * LOGICAL_TILE_SIZE + x) * 4u,
-                    material->source_display_palette_bytes,
-                    material->source_display_palette_byte_count, color_index, 0)) {
-                free(pixels);
-                renderer_opengl_set_error(error, error_size,
-                                          "source flat palette references invalid display colour");
-                return 0;
-            }
+            pixels[((size_t)y * LOGICAL_TILE_SIZE + x) * 4u] =
+                material->source_bytes[source_offset];
+            pixels[((size_t)y * LOGICAL_TILE_SIZE + x) * 4u + 3u] = UINT8_MAX;
         }
     }
     *out_pixels = pixels;
     *out_width = LOGICAL_TILE_SIZE;
     *out_height = LOGICAL_TILE_SIZE;
+    return 1;
+}
+
+/*
+ * The source shades walls by indexing a 32-entry table of 64-byte rows, and
+ * flats by indexing rows 32 through 62 of newtexturemaps.pal. Convert those
+ * exact source lookups to an RGBA texture. Linear sampling between rows is the
+ * deliberate modern presentation upgrade; it preserves every authored row
+ * rather than replacing the table with a guessed RGB multiplier.
+ */
+static int renderer_opengl_decode_material_palette(const SceneMaterial *material,
+                                                   RendererOpenGLTextureKind kind,
+                                                   uint8_t **out_pixels,
+                                                   uint16_t *out_width,
+                                                   uint16_t *out_height,
+                                                   char *error, size_t error_size)
+{
+    enum {
+        WALL_SHADE_ROWS = 32u,
+        WALL_PALETTE_WIDTH = 32u,
+        FLAT_FIRST_SHADE_ROW = 32u,
+        FLAT_SHADE_ROWS = 31u,
+        FLAT_PALETTE_WIDTH = 256u
+    };
+    uint16_t width;
+    uint16_t height;
+    uint8_t *pixels;
+
+    if (!material || !out_pixels || !out_width || !out_height ||
+        !material->source_palette_bytes || !material->source_display_palette_bytes) {
+        renderer_opengl_set_error(error, error_size, "source material palette descriptor is invalid");
+        return 0;
+    }
+    if (kind == RENDERER_OPENGL_TEXTURE_WALL) {
+        width = WALL_PALETTE_WIDTH;
+        height = WALL_SHADE_ROWS;
+        if (material->source_palette_byte_count < (size_t)width * height * 2u) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source wall palette has fewer than 32 shade rows");
+            return 0;
+        }
+    } else if (kind == RENDERER_OPENGL_TEXTURE_FLAT) {
+        width = FLAT_PALETTE_WIDTH;
+        height = FLAT_SHADE_ROWS;
+        if (material->source_palette_byte_count <
+            (size_t)(FLAT_FIRST_SHADE_ROW + height) * width) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source flat palette has fewer than Gouraud shade rows");
+            return 0;
+        }
+    } else {
+        renderer_opengl_set_error(error, error_size, "source material palette kind is invalid");
+        return 0;
+    }
+    pixels = malloc((size_t)width * height * 4u);
+    if (!pixels) {
+        renderer_opengl_set_error(error, error_size, "source material palette conversion allocation failed");
+        return 0;
+    }
+    for (uint16_t row = 0u; row < height; ++row) {
+        for (uint16_t index = 0u; index < width; ++index) {
+            size_t palette_offset = kind == RENDERER_OPENGL_TEXTURE_WALL ?
+                ((size_t)row * width + index) * 2u :
+                ((size_t)(FLAT_FIRST_SHADE_ROW + row) * width + index);
+            uint8_t color_index = material->source_palette_bytes[palette_offset];
+
+            if (!renderer_opengl_write_palette_texel(
+                    pixels, ((size_t)row * width + index) * 4u,
+                    material->source_display_palette_bytes,
+                    material->source_display_palette_byte_count, color_index, 0)) {
+                free(pixels);
+                renderer_opengl_set_error(error, error_size,
+                                          "source material palette references invalid display colour");
+                return 0;
+            }
+        }
+    }
+    *out_pixels = pixels;
+    *out_width = width;
+    *out_height = height;
     return 1;
 }
 
@@ -751,13 +862,17 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
                                                  RendererOpenGLTextureKind kind,
                                                  const SceneMaterial *material,
                                                  const SceneTextureWindow *window,
-                                                 GLuint *out_texture, char *error,
+                                                 const RendererOpenGLTexture **out_texture, char *error,
                                                  size_t error_size)
 {
     uint8_t *pixels = NULL;
+    uint8_t *palette_pixels = NULL;
     uint16_t width = 0u;
     uint16_t height = 0u;
+    uint16_t palette_width = 0u;
+    uint16_t palette_height = 0u;
     GLuint texture = 0u;
+    GLuint palette_texture = 0u;
     SceneTextureWindow key_window = {0};
 
     if (!renderer || !material || !out_texture) {
@@ -779,7 +894,7 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
                 material->source_display_palette_byte_count &&
             cached->source_asset_id == material->source_asset_id &&
             memcmp(&cached->texture_window, &key_window, sizeof(key_window)) == 0) {
-            *out_texture = cached->texture;
+            *out_texture = cached;
             return 1;
         }
     }
@@ -789,26 +904,36 @@ static int renderer_opengl_find_material_texture(RendererOpenGL *renderer,
         (kind == RENDERER_OPENGL_TEXTURE_FLAT &&
          !renderer_opengl_decode_flat_texture(material, &pixels, &width, &height, error,
                                               error_size)) ||
-        !renderer_opengl_create_texture(pixels, width, height, 1, 1, &texture, error, error_size)) {
+        !renderer_opengl_decode_material_palette(material, kind, &palette_pixels, &palette_width,
+                                                 &palette_height, error, error_size) ||
+        !renderer_opengl_create_texture(pixels, width, height, 1, 0, &texture, error, error_size) ||
+        !renderer_opengl_create_texture(palette_pixels, palette_width, palette_height, 0, 1,
+                                        &palette_texture, error, error_size)) {
         free(pixels);
+        free(palette_pixels);
+        if (texture != 0u) {
+            glDeleteTextures(1, &texture);
+        }
         return 0;
     }
     free(pixels);
+    free(palette_pixels);
     if (renderer->texture_count == renderer->texture_capacity &&
         !renderer_opengl_texture_cache_reserve(
             renderer, renderer->texture_capacity == 0u ?
                 RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY : renderer->texture_capacity * 2u,
             error, error_size)) {
         glDeleteTextures(1, &texture);
+        glDeleteTextures(1, &palette_texture);
         return 0;
     }
     renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
-        texture, material->source_bytes, material->source_byte_count, material->source_palette_bytes,
+        texture, palette_texture, material->source_bytes, material->source_byte_count, material->source_palette_bytes,
         material->source_palette_byte_count, material->source_display_palette_bytes,
         material->source_display_palette_byte_count, material->source_asset_id, key_window, {0},
-        (uint8_t)kind, 0u
+        width, height, palette_width, palette_height, (uint8_t)kind, 0u
     };
-    *out_texture = texture;
+    *out_texture = &renderer->textures[renderer->texture_count - 1u];
     return 1;
 }
 
@@ -858,10 +983,11 @@ static int renderer_opengl_find_sprite_texture(RendererOpenGL *renderer, const S
         return 0;
     }
     renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
-        texture, sprite->source_bytes, sprite->source_byte_count, sprite->source_palette_bytes,
+        texture, 0u, sprite->source_bytes, sprite->source_byte_count, sprite->source_palette_bytes,
         sprite->source_palette_byte_count, sprite->source_display_palette_bytes,
         sprite->source_display_palette_byte_count, sprite->source_asset_id, {0},
-        sprite->frame_metrics, RENDERER_OPENGL_TEXTURE_SPRITE, sprite->source_effect
+        sprite->frame_metrics, width, height, 0u, 0u, RENDERER_OPENGL_TEXTURE_SPRITE,
+        sprite->source_effect
     };
     *out_texture = texture;
     return 1;
@@ -930,10 +1056,10 @@ static int renderer_opengl_find_backdrop_texture(RendererOpenGL *renderer,
         return 0;
     }
     renderer->textures[renderer->texture_count++] = (RendererOpenGLTexture){
-        texture, environment->backdrop_bytes, environment->backdrop_byte_count, NULL, 0u,
+        texture, 0u, environment->backdrop_bytes, environment->backdrop_byte_count, NULL, 0u,
         environment->source_display_palette_bytes,
         environment->source_display_palette_byte_count, 0u, {0}, {0},
-        RENDERER_OPENGL_TEXTURE_BACKDROP, 0u
+        BACKDROP_WIDTH, BACKDROP_HEIGHT, 0u, 0u, RENDERER_OPENGL_TEXTURE_BACKDROP, 0u
     };
     *out_texture = texture;
     return 1;
@@ -1151,11 +1277,23 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "varying float v_source_light;\n"
         "varying vec3 v_source_color;\n"
         "uniform sampler2D u_texture;\n"
+        "uniform sampler2D u_source_palette;\n"
+        "uniform float u_source_palette_enabled;\n"
+        "uniform float u_source_palette_width;\n"
+        "uniform float u_source_palette_row_count;\n"
         "uniform float u_opacity;\n"
         "void main() {\n"
         "  vec4 color = texture2D(u_texture, v_texture_coordinate);\n"
         "  if (color.a < 0.5) discard;\n"
-        "  gl_FragColor = vec4(color.rgb * v_source_light * v_source_color, color.a * u_opacity);\n"
+        "  if (u_source_palette_enabled > 0.5) {\n"
+        "    float palette_index = floor(color.r * 255.0 + 0.5);\n"
+        "    float palette_u = (palette_index + 0.5) / u_source_palette_width;\n"
+        "    float palette_v = (clamp(v_source_light, 0.0, 1.0) *\n"
+        "      (u_source_palette_row_count - 1.0) + 0.5) / u_source_palette_row_count;\n"
+        "    color.rgb = texture2D(u_source_palette, vec2(palette_u, palette_v)).rgb;\n"
+        "  }\n"
+        "  float lighting = u_source_palette_enabled > 0.5 ? 1.0 : v_source_light;\n"
+        "  gl_FragColor = vec4(color.rgb * lighting * v_source_color, color.a * u_opacity);\n"
         "}\n";
 #else
     static const char fragment_source[] =
@@ -1163,11 +1301,23 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
         "varying float v_source_light;\n"
         "varying vec3 v_source_color;\n"
         "uniform sampler2D u_texture;\n"
+        "uniform sampler2D u_source_palette;\n"
+        "uniform float u_source_palette_enabled;\n"
+        "uniform float u_source_palette_width;\n"
+        "uniform float u_source_palette_row_count;\n"
         "uniform float u_opacity;\n"
         "void main() {\n"
         "  vec4 color = texture2D(u_texture, v_texture_coordinate);\n"
         "  if (color.a < 0.5) discard;\n"
-        "  gl_FragColor = vec4(color.rgb * v_source_light * v_source_color, color.a * u_opacity);\n"
+        "  if (u_source_palette_enabled > 0.5) {\n"
+        "    float palette_index = floor(color.r * 255.0 + 0.5);\n"
+        "    float palette_u = (palette_index + 0.5) / u_source_palette_width;\n"
+        "    float palette_v = (clamp(v_source_light, 0.0, 1.0) *\n"
+        "      (u_source_palette_row_count - 1.0) + 0.5) / u_source_palette_row_count;\n"
+        "    color.rgb = texture2D(u_source_palette, vec2(palette_u, palette_v)).rgb;\n"
+        "  }\n"
+        "  float lighting = u_source_palette_enabled > 0.5 ? 1.0 : v_source_light;\n"
+        "  gl_FragColor = vec4(color.rgb * lighting * v_source_color, color.a * u_opacity);\n"
         "}\n";
 #endif
     GLuint vertex_shader = 0u;
@@ -1227,9 +1377,20 @@ static int renderer_opengl_create_program(RendererOpenGL *renderer, char *error,
     renderer->point_size_uniform = renderer->gl.get_uniform_location(renderer->program,
                                                                        "u_point_size");
     renderer->texture_uniform = renderer->gl.get_uniform_location(renderer->program, "u_texture");
+    renderer->source_palette_texture_uniform =
+        renderer->gl.get_uniform_location(renderer->program, "u_source_palette");
+    renderer->source_palette_enabled_uniform =
+        renderer->gl.get_uniform_location(renderer->program, "u_source_palette_enabled");
+    renderer->source_palette_width_uniform =
+        renderer->gl.get_uniform_location(renderer->program, "u_source_palette_width");
+    renderer->source_palette_row_count_uniform =
+        renderer->gl.get_uniform_location(renderer->program, "u_source_palette_row_count");
     renderer->opacity_uniform = renderer->gl.get_uniform_location(renderer->program, "u_opacity");
     if (renderer->view_projection_uniform < 0 || renderer->point_size_uniform < 0 ||
-        renderer->texture_uniform < 0 || renderer->opacity_uniform < 0) {
+        renderer->texture_uniform < 0 || renderer->source_palette_texture_uniform < 0 ||
+        renderer->source_palette_enabled_uniform < 0 ||
+        renderer->source_palette_width_uniform < 0 ||
+        renderer->source_palette_row_count_uniform < 0 || renderer->opacity_uniform < 0) {
         renderer->gl.delete_program(renderer->program);
         renderer->program = 0u;
         renderer_opengl_set_error(error, error_size, "OpenGL shader uniforms are unavailable");
@@ -1321,19 +1482,20 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
                                          const SceneMaterial *material,
                                          const SceneGeometry *geometry,
                                          const SceneEnvironment *environment,
+                                         const SceneCamera *camera,
                                          char *error, size_t error_size)
 {
     RendererOpenGLVertex *vertices = NULL;
     uint32_t vertex_count;
     RendererOpenGLTextureKind texture_kind;
-    GLuint texture;
+    const RendererOpenGLTexture *texture;
     float texture_u_scale;
     float texture_v_scale;
     float texture_v_offset = 0.0f;
     int water_blend = 0;
     int result;
 
-    if (!material || !geometry || !geometry->vertices) {
+    if (!material || !geometry || !geometry->vertices || !camera) {
         renderer_opengl_set_error(error, error_size, "scene geometry has no material or vertices");
         return 0;
     }
@@ -1379,7 +1541,14 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
         return 0;
     }
     renderer->gl.active_texture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, texture);
+    glBindTexture(GL_TEXTURE_2D, texture->texture);
+    renderer->gl.active_texture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, texture->source_palette_texture);
+    renderer->gl.uniform_1f(renderer->source_palette_enabled_uniform, 1.0f);
+    renderer->gl.uniform_1f(renderer->source_palette_width_uniform,
+                            (float)texture->source_palette_width);
+    renderer->gl.uniform_1f(renderer->source_palette_row_count_uniform,
+                            (float)texture->source_palette_row_count);
     renderer->gl.uniform_1f(renderer->opacity_uniform, water_blend != 0 ? 0.68f : 1.0f);
     if (water_blend != 0) {
         glEnable(GL_BLEND);
@@ -1402,12 +1571,13 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
                                         (float)geometry->vertices[index].texture_u *
                                             texture_u_scale,
                                         ((float)geometry->vertices[index].texture_v +
-                                         texture_v_offset) * texture_v_scale);
+                                         texture_v_offset) * texture_v_scale, camera,
+                                        geometry->primitive);
         }
         vertex_count = geometry->vertex_count;
     } else if (geometry->topology == SCENE_GEOMETRY_TOPOLOGY_POLYGON_BOUNDARY) {
         if (!renderer_opengl_triangulate_polygon(geometry, texture_u_scale, texture_v_scale,
-                                                 texture_v_offset, &vertices, &vertex_count,
+                                                 texture_v_offset, camera, &vertices, &vertex_count,
                                                  error, error_size)) {
             return 0;
         }
@@ -1423,6 +1593,7 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
         glDisable(GL_BLEND);
     }
     renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
+    renderer->gl.uniform_1f(renderer->source_palette_enabled_uniform, 0.0f);
     return result;
 }
 
@@ -1479,7 +1650,7 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     half_height = (float)sprite->source_height * 0.5f;
     left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ? 1.0f : 0.0f;
     right_u = 1.0f - left_u;
-    source_light = renderer_opengl_source_light(sprite->source_light_level);
+    source_light = renderer_opengl_sprite_light(sprite->source_light_level);
     vertices[0] = (RendererOpenGLVertex){center_x - right_x * half_width, center_y + half_height,
                                           center_z - right_z * half_width, left_u, 0.0f, source_light,
                                           1.0f, 1.0f, 1.0f};
@@ -1496,6 +1667,7 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
                                           1.0f, 1.0f, 1.0f};
     renderer->gl.active_texture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
+    renderer->gl.uniform_1f(renderer->source_palette_enabled_uniform, 0.0f);
     additive = (sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u ||
         sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP;
     renderer->gl.uniform_1f(renderer->opacity_uniform,
@@ -1614,7 +1786,7 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     out_vertex->z = center_z + sinf(yaw) * local_x + cosf(yaw) * local_z;
     out_vertex->u = 0.5f;
     out_vertex->v = 0.5f;
-    out_vertex->source_light = renderer_opengl_source_light(sprite->source_light_level);
+    out_vertex->source_light = renderer_opengl_sprite_light(sprite->source_light_level);
     out_vertex->source_red = 1.0f;
     out_vertex->source_green = 1.0f;
     out_vertex->source_blue = 1.0f;
@@ -1681,6 +1853,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
         renderer_opengl_set_error(error, error_size, "source vector sprite descriptor is invalid");
         return 0;
     }
+    renderer->gl.uniform_1f(renderer->source_palette_enabled_uniform, 0.0f);
     bytes = sprite->source_bytes;
     size = sprite->source_byte_count;
     point_count = renderer_opengl_read_be16(bytes + 2u);
@@ -1880,6 +2053,10 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_SOURCE_LIGHT_ATTRIBUTE);
     renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_SOURCE_COLOR_ATTRIBUTE);
     renderer->gl.uniform_1i(renderer->texture_uniform, 0);
+    renderer->gl.uniform_1i(renderer->source_palette_texture_uniform, 1);
+    renderer->gl.uniform_1f(renderer->source_palette_enabled_uniform, 0.0f);
+    renderer->gl.uniform_1f(renderer->source_palette_width_uniform, 1.0f);
+    renderer->gl.uniform_1f(renderer->source_palette_row_count_uniform, 1.0f);
     renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
@@ -1900,6 +2077,9 @@ void renderer_opengl_destroy(RendererOpenGL *renderer)
         for (size_t index = 0u; index < renderer->texture_count; ++index) {
             if (renderer->textures[index].texture != 0u) {
                 glDeleteTextures(1, &renderer->textures[index].texture);
+            }
+            if (renderer->textures[index].source_palette_texture != 0u) {
+                glDeleteTextures(1, &renderer->textures[index].source_palette_texture);
             }
         }
         if (renderer->white_texture != 0u) {
@@ -1985,6 +2165,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                                     view_projection);
     renderer->gl.uniform_1f(renderer->point_size_uniform, 10.0f);
     renderer->gl.uniform_1i(renderer->texture_uniform, 0);
+    renderer->gl.uniform_1i(renderer->source_palette_texture_uniform, 1);
+    renderer->gl.uniform_1f(renderer->source_palette_enabled_uniform, 0.0f);
+    renderer->gl.uniform_1f(renderer->source_palette_width_uniform, 1.0f);
+    renderer->gl.uniform_1f(renderer->source_palette_row_count_uniform, 1.0f);
     renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
     renderer->gl.active_texture(GL_TEXTURE0);
     if (!renderer_opengl_draw_sky(renderer, environment, camera, error, error_size)) {
@@ -1999,7 +2183,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             active_material = &command->data.material;
         } else if (command->type == SCENE_COMMAND_GEOMETRY) {
             if (!renderer_opengl_draw_geometry(renderer, active_material, &command->data.geometry,
-                                               environment, error, error_size)) {
+                                               environment, camera, error, error_size)) {
                 return 0;
             }
         }
