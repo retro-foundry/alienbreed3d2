@@ -2588,7 +2588,13 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     polygon_point_bytes + (size_t)polygon_point_count * 4u;
                 size_t source_map_offset;
                 float source_light;
-                int source_gouraud = face_bytes[9u] != 0u;
+                /*
+                 * doapoly reads the terminal word at face + 8 into the
+                 * adjacent `draw_PreGouraud_b`/`draw_Gouraud_b` bytes.  The
+                 * high byte selects gotlurvelyshading; the low byte belongs
+                 * to the next source flag and must not select Gouraud here.
+                 */
+                int source_gouraud = face_bytes[8u] != 0u;
                 uint8_t maximum_u = 0u;
                 uint8_t maximum_v = 0u;
                 const RendererOpenGLTexture *texture;
@@ -2995,15 +3001,21 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                     return 0;
                 }
             }
-            glDisable(GL_DEPTH_TEST);
+            /*
+             * The companion is a camera-space model, so it must not be
+             * rejected by world depth.  Do not disable depth testing though:
+             * that lets its back and internal textured polygons paint over
+             * the visible faces in source part order.  A fresh depth buffer
+             * keeps the weapon in front of the world while preserving normal
+             * per-fragment self-occlusion for the modern 3D presentation.
+             */
+            glClear(GL_DEPTH_BUFFER_BIT);
             if (command->data.sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
                 !renderer_opengl_draw_vector_sprite(renderer, &command->data.sprite, camera, view,
                                                    error, error_size)) {
-                glEnable(GL_DEPTH_TEST);
                 free(before_pixels);
                 return 0;
             }
-            glEnable(GL_DEPTH_TEST);
             if (before_pixels) {
                 uint8_t *after_pixels = malloc(pixel_byte_count);
 

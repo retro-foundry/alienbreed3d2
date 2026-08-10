@@ -71,7 +71,9 @@ authority for all game behavior and data formats.
   GPU light multiplier rather than baked into palette-indexed texture variants.
   Vector models, including Player 1's companion weapon, therefore use source
   texture detail and live room lighting rather than a single representative
-  face colour.
+  face colour. The camera-space weapon clears only the completed world's depth
+  before its pass; it retains depth testing within its own live vector model,
+  preventing rear/internal textured faces from overwriting its visible faces.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.
