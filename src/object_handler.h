@@ -41,6 +41,11 @@ typedef struct {
     uint64_t message_time_milliseconds;
 } ObjectHandlerAlienContext;
 
+/* newaliencontrol.s:Collectable:GUNHELD -> ACTANIMOBJ source display update. */
+int object_handler_apply_active_object_animation_slot(
+    ObjectRuntime *objects, uint32_t slot_index, const GameLink *game_link,
+    char *error, size_t error_size);
+
 /* Single-player newanims.s:ObjectHandler dispatch, including ItsAnAlien in source slot order. */
 int object_handler_update_single_player(
     ObjectRuntime *objects, LevelDynamicState *dynamic_level,

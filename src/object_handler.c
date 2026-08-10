@@ -10,6 +10,9 @@
 enum {
     /* defs.i:ObjT/EntT offsets and ObjectHandler type/behaviour branches. */
     OBJECT_SLOT_POINT_INDEX = 0u,
+    OBJECT_SLOT_VERTICAL_POSITION = 4u,
+    OBJECT_SLOT_GRAPHICS_WORD = 6u,
+    OBJECT_SLOT_GRAPHICS_LONG = 8u,
     OBJECT_SLOT_ZONE_ID = 12u,
     OBJECT_SLOT_TYPE_ID = 16u,
     OBJECT_SLOT_ENTITY_HIT_POINTS = 18u,
@@ -18,6 +21,8 @@ enum {
     OBJECT_SLOT_DOORS_AND_LIFTS_HELD = 50u,
     OBJECT_SLOT_ENTITY_TYPE = 54u,
     OBJECT_SLOT_WHICH_ANIMATION = 55u,
+    OBJECT_SLOT_CURRENT_ANGLE = 30u,
+    OBJECT_SLOT_TIMER1 = 34u,
     OBJECT_SLOT_WORRY = 62u,
     OBJECT_TYPE_OBJECT = 1u,
     OBJECT_TYPE_PROJECTILE = 2u,
@@ -49,6 +54,54 @@ static void object_handler_write_be16(uint8_t *target, uint16_t value)
 {
     target[0] = (uint8_t)(value >> 8);
     target[1] = (uint8_t)value;
+}
+
+/*
+ * newaliencontrol.s:ACTANIMOBJ, reached through Collectable:GUNHELD for
+ * Player 1's ENT_NEXT_2 companion.  The display descriptor belongs to the
+ * live object slot: rendering must not guess a separate PC weapon state.
+ */
+static int object_handler_apply_active_object_animation(
+    const GameLink *game_link, const GameObjectDefinition *definition, uint8_t *slot,
+    char *error, size_t error_size)
+{
+    GameObjectAnimationFrame frame;
+    uint16_t frame_index = object_handler_read_be16(slot + OBJECT_SLOT_TIMER1);
+    int16_t vertical_adjustment;
+
+    if (!game_link_get_object_animation_frame(
+            game_link, GAME_LINK_OBJECT_ANIMATION_ACTION,
+            slot[OBJECT_SLOT_ENTITY_TYPE], frame_index, &frame, error, error_size)) {
+        return 0;
+    }
+    object_handler_write_be16(slot + OBJECT_SLOT_GRAPHICS_LONG, 0u);
+    object_handler_write_be16(slot + OBJECT_SLOT_GRAPHICS_LONG + 2u, 0u);
+    if (definition->graphics_type == 1u) {
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 1u] = frame.byte_0;
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 3u] = frame.byte_1;
+        object_handler_write_be16(slot + OBJECT_SLOT_GRAPHICS_WORD, UINT16_MAX);
+        object_handler_write_be16(
+            slot + OBJECT_SLOT_CURRENT_ANGLE,
+            (uint16_t)((uint32_t)object_handler_read_be16(
+                slot + OBJECT_SLOT_CURRENT_ANGLE) + frame.word_2));
+    } else if (definition->graphics_type > 1u) {
+        object_handler_write_be16(
+            slot + OBJECT_SLOT_GRAPHICS_LONG,
+            (uint16_t)(int16_t)-(int16_t)(int8_t)frame.byte_0);
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 3u] = frame.byte_1;
+        object_handler_write_be16(slot + OBJECT_SLOT_GRAPHICS_WORD, frame.word_2);
+    } else {
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 1u] = frame.byte_0;
+        slot[OBJECT_SLOT_GRAPHICS_LONG + 3u] = frame.byte_1;
+        object_handler_write_be16(slot + OBJECT_SLOT_GRAPHICS_WORD, frame.word_2);
+    }
+    vertical_adjustment = (int16_t)((int16_t)frame.signed_byte_4 * 2);
+    object_handler_write_be16(
+        slot + OBJECT_SLOT_VERTICAL_POSITION,
+        (uint16_t)((uint32_t)object_handler_read_be16(
+            slot + OBJECT_SLOT_VERTICAL_POSITION) + (uint16_t)vertical_adjustment));
+    object_handler_write_be16(slot + OBJECT_SLOT_TIMER1, frame.next_timer1);
+    return 1;
 }
 
 static int object_handler_copy_alien_auxiliary(ObjectRuntime *objects, uint32_t slot_index,
@@ -85,6 +138,33 @@ static int object_handler_object_holds_locks(const uint8_t *slot,
         return (uint16_t)slot[OBJECT_SLOT_ENTITY_DAMAGE_TAKEN] < definition->hit_points;
     }
     return 0;
+}
+
+int object_handler_apply_active_object_animation_slot(
+    ObjectRuntime *objects, uint32_t slot_index, const GameLink *game_link,
+    char *error, size_t error_size)
+{
+    uint8_t *slot;
+    GameObjectDefinition definition;
+
+    if (!objects || !game_link || slot_index >= objects->active_slot_count ||
+        objects->active_slot_count > objects->slot_count ||
+        !object_runtime_get_slot_bytes(objects, slot_index, &slot) ||
+        slot[OBJECT_SLOT_TYPE_ID] != OBJECT_TYPE_OBJECT ||
+        slot[OBJECT_SLOT_WHICH_ANIMATION] == 0u) {
+        object_handler_set_error(error, error_size,
+                                 "ACTANIMOBJ received an invalid live object slot");
+        return 0;
+    }
+    if (!game_link_get_object_definition(game_link, slot[OBJECT_SLOT_ENTITY_TYPE],
+                                         &definition, error, error_size) ||
+        definition.behaviour != OBJECT_BEHAVIOUR_COLLECTABLE) {
+        object_handler_set_error(error, error_size,
+                                 "ACTANIMOBJ live object is not a source collectable");
+        return 0;
+    }
+    return object_handler_apply_active_object_animation(game_link, &definition, slot,
+                                                        error, error_size);
 }
 
 int object_handler_update_single_player(
@@ -202,6 +282,15 @@ int object_handler_update_single_player(
         if (!game_link_get_object_definition(game_link, slot[OBJECT_SLOT_ENTITY_TYPE],
                                              &definition, error, error_size)) {
             return 0;
+        }
+        if (definition.behaviour == OBJECT_BEHAVIOUR_COLLECTABLE &&
+            slot[OBJECT_SLOT_WHICH_ANIMATION] != 0u) {
+            /* newaliencontrol.s:Collectable:GUNHELD -> ACTANIMOBJ -> return. */
+            if (!object_handler_apply_active_object_animation_slot(
+                    objects, slot_index, game_link, error, error_size)) {
+                return 0;
+            }
+            continue;
         }
         /* newaliencontrol.s:Collectable/Activatable/StillHere's AI_NoEnemies lock branches. */
         if (alien_runtime->no_enemies != 0u &&

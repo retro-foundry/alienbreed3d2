@@ -405,6 +405,14 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
+        /* Exercise Plr1_Use followed by ObjectHandler's live companion draw state. */
+        if (!game_bootstrap_update_single_player_at_time(
+                &app->game, (uint64_t)level_index * 20u + 1u, error, sizeof(error))) {
+            fprintf(stderr, "[GAME] GPU smoke could not update Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
         scene_frame_begin(&app->frame);
         if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
             !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {

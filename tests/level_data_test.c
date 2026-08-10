@@ -1818,8 +1818,16 @@ int main(int argc, char **argv)
             uint16_t player_point_index;
             uint16_t weapon_point_index;
             uint16_t gun_object_type;
+            uint16_t weapon_source_asset_id;
             int32_t weapon_height;
             int32_t weapon_bobble;
+            GameObjectDefinition gun_definition;
+            GameObjectAnimationFrame gun_frame;
+            SceneFrame weapon_scene = {0};
+            uint8_t saw_weapon = 0u;
+            uint8_t weapon_scene_source = UINT8_MAX;
+            uint8_t weapon_scene_presentation = UINT8_MAX;
+            uint32_t weapon_scene_asset_id = UINT32_MAX;
 
             if (game.object_runtime.player_shot_first_slot !=
                     (game.level_runtime.player_shot_offset -
@@ -1934,6 +1942,84 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            /*
+             * hires.s:Plr1_Use republishes the ENT_NEXT_2 companion after
+             * startup.  ItsAnObject then supplies the selected model fields,
+             * so verify the frame produced by a complete direct-play tick.
+             */
+            if (!game_link_get_object_definition(&game.game_link_catalog, gun_object_type,
+                                                 &gun_definition, error, sizeof(error)) ||
+                !game_link_get_object_animation_frame(
+                    &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_ACTION,
+                    gun_object_type, read_be16(weapon_slot + 34u), &gun_frame, error,
+                    sizeof(error)) ||
+                gun_definition.graphics_type != 1u ||
+                !object_handler_apply_active_object_animation_slot(
+                    &game.object_runtime, game.object_runtime.player1_slot + 2u,
+                    &game.game_link_catalog, error, sizeof(error)) ||
+                !scene_frame_init(&weapon_scene, 1u) ||
+                !game_bootstrap_submit_scene_frame(&game, &weapon_scene)) {
+                fprintf(stderr, "campaign level %u weapon scene submission failed\n",
+                        level_index);
+                scene_frame_destroy(&weapon_scene);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            weapon_source_asset_id = gun_frame.byte_0;
+            for (size_t command_index = 0u; command_index < weapon_scene.count;
+                 ++command_index) {
+                const SceneCommand *weapon_command = &weapon_scene.commands[command_index];
+
+                if (weapon_command->type == SCENE_COMMAND_SPRITE &&
+                    weapon_command->data.sprite.source_record_id ==
+                        game.object_runtime.player1_slot + 2u) {
+                    weapon_scene_source = weapon_command->data.sprite.source;
+                    weapon_scene_presentation = weapon_command->data.sprite.presentation;
+                    weapon_scene_asset_id = weapon_command->data.sprite.source_asset_id;
+                    saw_weapon = weapon_command->data.sprite.presentation ==
+                        SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON &&
+                        weapon_command->data.sprite.source ==
+                            SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
+                        weapon_command->data.sprite.source_asset_id == weapon_source_asset_id;
+                    break;
+                }
+            }
+            if (saw_weapon == 0u) {
+                fprintf(stderr,
+                        "campaign level %u live companion weapon is missing from scene "
+                        "(source=%u presentation=%u asset=%u expected vector asset=%u)\n",
+                        level_index, weapon_scene_source, weapon_scene_presentation,
+                        weapon_scene_asset_id, weapon_source_asset_id);
+                scene_frame_destroy(&weapon_scene);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            game.preferences.show_weapon = UINT8_MAX;
+            scene_frame_begin(&weapon_scene);
+            if (!game_bootstrap_submit_scene_frame(&game, &weapon_scene)) {
+                fprintf(stderr, "campaign level %u hidden weapon scene submission failed\n",
+                        level_index);
+                scene_frame_destroy(&weapon_scene);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            for (size_t command_index = 0u; command_index < weapon_scene.count;
+                 ++command_index) {
+                const SceneCommand *weapon_command = &weapon_scene.commands[command_index];
+
+                if (weapon_command->type == SCENE_COMMAND_SPRITE &&
+                    weapon_command->data.sprite.source_record_id ==
+                        game.object_runtime.player1_slot + 2u) {
+                    fprintf(stderr,
+                            "campaign level %u source show-weapon preference did not hide companion\n",
+                            level_index);
+                    scene_frame_destroy(&weapon_scene);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+            game.preferences.show_weapon = 0u;
+            scene_frame_destroy(&weapon_scene);
             if (!object_observation_update_single_player(
                     &game.object_observation, &game.object_runtime, &game.player, &game.math,
                     error, sizeof(error)) ||
