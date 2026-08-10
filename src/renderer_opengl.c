@@ -2348,6 +2348,86 @@ static int renderer_opengl_vector_append(RendererOpenGLVertex **vertices,
     return 1;
 }
 
+static RendererOpenGLVertex renderer_opengl_vector_interpolate_vertex(
+    const RendererOpenGLVertex *first, const RendererOpenGLVertex *second, float fraction)
+{
+    RendererOpenGLVertex result;
+
+    result.x = first->x + (second->x - first->x) * fraction;
+    result.y = first->y + (second->y - first->y) * fraction;
+    result.z = first->z + (second->z - first->z) * fraction;
+    result.u = first->u + (second->u - first->u) * fraction;
+    result.v = first->v + (second->v - first->v) * fraction;
+    result.source_light = first->source_light +
+        (second->source_light - first->source_light) * fraction;
+    result.source_red = first->source_red + (second->source_red - first->source_red) * fraction;
+    result.source_green = first->source_green +
+        (second->source_green - first->source_green) * fraction;
+    result.source_blue = first->source_blue + (second->source_blue - first->source_blue) * fraction;
+    return result;
+}
+
+/*
+ * Complete-level rendering no longer relies on the source room draw order to
+ * hide an object's geometry below a floor or above a ceiling.  Keep every
+ * world-space vector model in the live lower/upper source-sector span before
+ * it reaches the depth pass.  The companion is camera-space and deliberately
+ * has no world-sector clip plane.
+ */
+static uint32_t renderer_opengl_clip_vector_polygon_y(const RendererOpenGLVertex *input,
+                                                       uint32_t input_count, float plane_y,
+                                                       int keep_below,
+                                                       RendererOpenGLVertex *output)
+{
+    uint32_t output_count = 0u;
+
+    if (!input || !output || input_count == 0u) {
+        return 0u;
+    }
+    for (uint32_t index = 0u; index < input_count; ++index) {
+        const RendererOpenGLVertex *first = &input[index];
+        const RendererOpenGLVertex *second = &input[(index + 1u) % input_count];
+        float first_distance = first->y - plane_y;
+        float second_distance = second->y - plane_y;
+        int first_inside = keep_below != 0 ? first_distance <= 0.0f : first_distance >= 0.0f;
+        int second_inside = keep_below != 0 ? second_distance <= 0.0f : second_distance >= 0.0f;
+
+        if (first_inside) {
+            output[output_count++] = *first;
+        }
+        if (first_inside != second_inside) {
+            float denominator = first_distance - second_distance;
+
+            if (denominator != 0.0f) {
+                float fraction = first_distance / denominator;
+
+                output[output_count++] = renderer_opengl_vector_interpolate_vertex(
+                    first, second, fraction);
+            }
+        }
+    }
+    return output_count;
+}
+
+static uint32_t renderer_opengl_clip_vector_triangle_to_sector(
+    const RendererOpenGLVertex triangle[3], float top_y, float bottom_y,
+    RendererOpenGLVertex output[5])
+{
+    RendererOpenGLVertex intermediate[5];
+    uint32_t intermediate_count;
+
+    if (!triangle || !output || top_y < bottom_y) {
+        return 0u;
+    }
+    intermediate_count = renderer_opengl_clip_vector_polygon_y(
+        triangle, 3u, top_y, 1, intermediate);
+    if (intermediate_count < 3u) {
+        return 0u;
+    }
+    return renderer_opengl_clip_vector_polygon_y(intermediate, intermediate_count,
+                                                  bottom_y, 0, output);
+}
+
 static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
                                                const SceneCamera *camera,
                                                const RenderView *view,
@@ -2834,6 +2914,9 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     RendererOpenGLVertex *vertices = NULL;
     uint32_t vertex_count = 0u;
     uint32_t vertex_capacity = 0u;
+    float clip_top_y = 0.0f;
+    float clip_bottom_y = 0.0f;
+    int clip_to_sector;
     int result = 0;
 
     if (!renderer || !sprite || !camera || !view || !view_projection ||
@@ -2843,6 +2926,16 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
         return 0;
     }
     renderer_opengl_use_default_light_response(renderer);
+    clip_to_sector = sprite->presentation == SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+    if (clip_to_sector != 0) {
+        clip_top_y = -(float)sprite->source_clip_top_y * renderer_opengl_source_y_unit;
+        clip_bottom_y = -(float)sprite->source_clip_bottom_y * renderer_opengl_source_y_unit;
+        if (clip_top_y < clip_bottom_y) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source vector object has an inverted sector span");
+            return 0;
+        }
+    }
     bytes = sprite->source_bytes;
     size = sprite->source_byte_count;
     point_count = renderer_opengl_read_be16(bytes + 2u);
@@ -2978,6 +3071,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 for (uint32_t triangle = 1u; triangle + 1u < polygon_point_count; ++triangle) {
                     const uint32_t corners[3] = {0u, triangle, triangle + 1u};
                     RendererOpenGLVertex triangle_vertices[3];
+                    RendererOpenGLVertex clipped_vertices[5];
+                    uint32_t clipped_vertex_count;
 
                     for (uint32_t corner = 0u; corner < 3u; ++corner) {
                         const uint8_t *source_corner =
@@ -3021,11 +3116,27 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                             triangle_vertices, view_projection)) {
                         continue;
                     }
-                    for (uint32_t corner = 0u; corner < 3u; ++corner) {
-                        if (!renderer_opengl_vector_append(
-                                &vertices, &vertex_count, &vertex_capacity,
-                                &triangle_vertices[corner], error, error_size)) {
-                            goto done;
+                    if (clip_to_sector != 0) {
+                        clipped_vertex_count = renderer_opengl_clip_vector_triangle_to_sector(
+                            triangle_vertices, clip_top_y, clip_bottom_y, clipped_vertices);
+                    } else {
+                        memcpy(clipped_vertices, triangle_vertices, sizeof(triangle_vertices));
+                        clipped_vertex_count = 3u;
+                    }
+                    for (uint32_t clipped_triangle = 1u;
+                         clipped_triangle + 1u < clipped_vertex_count;
+                         ++clipped_triangle) {
+                        const uint32_t clipped_corners[3] = {
+                            0u, clipped_triangle, clipped_triangle + 1u
+                        };
+
+                        for (uint32_t corner = 0u; corner < 3u; ++corner) {
+                            if (!renderer_opengl_vector_append(
+                                    &vertices, &vertex_count, &vertex_capacity,
+                                    &clipped_vertices[clipped_corners[corner]],
+                                    error, error_size)) {
+                                goto done;
+                            }
                         }
                     }
                 }
