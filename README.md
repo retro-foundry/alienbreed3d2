@@ -105,6 +105,13 @@ first game's software renderer:
   side-target adjustment for the remaining charge/approach side modes.
   `modules/ai.s:ai_DoWalkAnim` now also retains the raw post-call `a2`
   collision words, whose base changes when an auxiliary frame is active.
+  `modules/ai.s:ai_Charge` and `ai_ChargeToSide` now compose their exact
+  ground damage/death, attack animation, pre-dispatch teleport probe,
+  response-speed heading, side target, two collision probes, movement,
+  auxiliary-slot, melee, room-state, torch, sight, and final mode branches.
+  They remain uncalled until the complete source alien dispatcher can own
+  every route in `ObjectHandler` order; flying charge and approach modes are
+  still pending.
   `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`

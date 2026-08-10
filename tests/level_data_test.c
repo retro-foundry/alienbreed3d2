@@ -5,6 +5,7 @@
 #include "alien_runtime.h"
 #include "alien_attack.h"
 #include "alien_animation.h"
+#include "alien_charge.h"
 #include "alien_damage.h"
 #include "alien_decision.h"
 #include "alien_death.h"
@@ -7247,6 +7248,306 @@ int main(int argc, char **argv)
             return 1;
         }
         level_dynamic_state_destroy(&prowl_dynamic);
+    }
+    {
+        /* modules/ai.s:ai_Charge preserves its pre-dispatch workspace and melee path. */
+        enum {
+            CHARGE_AUXILIARY_SLOT = 0u,
+            CHARGE_ALIEN_SLOT = 1u,
+            CHARGE_PLAYER_SLOT = 2u,
+            CHARGE_TERMINATOR_SLOT = 3u,
+            CHARGE_SLOT_COUNT = 4u,
+            CHARGE_ALIEN_POINT = 1u
+        };
+        uint8_t slot_bytes[CHARGE_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[CHARGE_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime charge_objects = {0};
+        LevelDynamicState charge_dynamic = {0};
+        ObjectAnimationRuntime charge_animation;
+        ObjectExplosionRuntime charge_explosion;
+        AlienRuntime charge_runtime;
+        LightingRuntime charge_lighting;
+        GameProgression charge_progression;
+        GameRandom charge_random;
+        PlayerRuntime charge_player = game.player;
+        AlienSetup charge_setup;
+        AlienChargeWorkspace charge_workspace = {0};
+        AlienChargeState charge_state;
+        GameAlienDefinition charge_definition;
+        GameAlienAnimationFrame charge_frame;
+        GameObjectDefinition charge_auxiliary_definition;
+        GameObjectAnimationFrame charge_auxiliary_frame;
+        LevelZone charge_zone = {0};
+        LevelZone charge_teleport_zone = {0};
+        LevelZone charge_teleport_destination = {0};
+        uint16_t charge_alien = UINT16_MAX;
+        uint16_t charge_option = UINT16_MAX;
+        uint16_t charge_frame_index = UINT16_MAX;
+        uint16_t charge_zone_index = UINT16_MAX;
+        uint16_t charge_teleport_zone_index = UINT16_MAX;
+        int16_t charge_player_x;
+        int16_t charge_player_z;
+        int16_t charge_alien_x;
+        int16_t expected_charge_y;
+
+        for (uint16_t zone_index = 0u; zone_index < game.dynamic_level.runtime.zone_count;
+             ++zone_index) {
+            if (!level_runtime_get_zone(&game.dynamic_level.runtime, zone_index, &charge_zone,
+                                        error, sizeof(error))) {
+                fprintf(stderr, "could not read ai_Charge source zone: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (charge_zone.teleport_zone < 0 && charge_zone_index == UINT16_MAX) {
+                charge_zone_index = zone_index;
+            }
+            if (charge_zone.teleport_zone >= 0 && charge_teleport_zone_index == UINT16_MAX) {
+                charge_teleport_zone_index = zone_index;
+            }
+        }
+        for (uint16_t alien_index = 0u;
+             alien_index < GAME_LINK_ALIEN_COUNT && charge_alien == UINT16_MAX;
+             ++alien_index) {
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &charge_definition, error, sizeof(error)) ||
+                charge_definition.girth > 2u ||
+                (int16_t)charge_definition.auxiliary_type < 0 ||
+                (int16_t)charge_definition.auxiliary_type >= GAME_LINK_OBJECT_COUNT) {
+                continue;
+            }
+            for (uint16_t option_index = 1u;
+                 option_index < GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT &&
+                 charge_alien == UINT16_MAX;
+                 ++option_index) {
+                for (uint16_t frame_index = 0u;
+                     frame_index < GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT; ++frame_index) {
+                    if (!game_link_get_alien_animation_frame(
+                            &game.game_link_catalog, alien_index, option_index, frame_index,
+                            &charge_frame, error, sizeof(error)) ||
+                        (int8_t)charge_frame.bytes[8u] < 0 ||
+                        charge_frame.bytes[8u] >= GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT ||
+                        !game_link_get_object_definition(
+                            &game.game_link_catalog,
+                            (uint16_t)charge_definition.auxiliary_type,
+                            &charge_auxiliary_definition, error, sizeof(error)) ||
+                        !game_link_get_object_animation_frame(
+                            &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                            (uint16_t)charge_definition.auxiliary_type,
+                            charge_frame.bytes[8u], &charge_auxiliary_frame,
+                            error, sizeof(error))) {
+                        continue;
+                    }
+                    charge_alien = alien_index;
+                    charge_option = option_index;
+                    charge_frame_index = frame_index;
+                    break;
+                }
+            }
+        }
+        if (charge_zone_index == UINT16_MAX || charge_alien == UINT16_MAX ||
+            !level_dynamic_state_init(&charge_dynamic, &game.dynamic_level.runtime,
+                                      error, sizeof(error))) {
+            fprintf(stderr, "ai_Charge source fixture is unavailable: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (!level_runtime_get_zone(&charge_dynamic.runtime, charge_zone_index, &charge_zone,
+                                    error, sizeof(error))) {
+            fprintf(stderr, "could not read ai_Charge dynamic source zone: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (charge_teleport_zone_index != UINT16_MAX &&
+            (!level_runtime_get_zone(&charge_dynamic.runtime, charge_teleport_zone_index,
+                                     &charge_teleport_zone, error, sizeof(error)) ||
+             charge_teleport_zone.teleport_zone < 0 ||
+             !level_runtime_get_zone(&charge_dynamic.runtime,
+                                     (uint16_t)charge_teleport_zone.teleport_zone,
+                                     &charge_teleport_destination, error, sizeof(error)))) {
+            fprintf(stderr, "could not read ai_Charge teleport source zones: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        charge_player.zone_index = charge_zone_index;
+        charge_player.tmp_x = charge_player.x;
+        charge_player.tmp_z = charge_player.z;
+        charge_player_x = (int16_t)(uint16_t)charge_player.x;
+        charge_player_z = (int16_t)(uint16_t)charge_player.z;
+        charge_alien_x = source_add16(charge_player_x, -100);
+        charge_objects.slot_bytes = slot_bytes;
+        charge_objects.slot_count = CHARGE_SLOT_COUNT;
+        charge_objects.active_slot_count = CHARGE_TERMINATOR_SLOT;
+        charge_objects.player1_slot = CHARGE_PLAYER_SLOT;
+        charge_objects.point_bytes = point_bytes;
+        charge_objects.point_count = CHARGE_SLOT_COUNT;
+        write_be16(slot_bytes + CHARGE_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   0u);
+        write_be16(slot_bytes + CHARGE_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   UINT16_MAX);
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   CHARGE_ALIEN_POINT);
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                   UINT16_C(0xffec));
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   charge_zone_index);
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u,
+                   charge_zone_index);
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 40u,
+                   charge_frame_index);
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 10u;
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 21u] = UINT8_MAX;
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] =
+            (uint8_t)charge_alien;
+        write_be16(slot_bytes + CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   CHARGE_PLAYER_SLOT);
+        write_be16(slot_bytes + CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   charge_zone_index);
+        slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 2u;
+        slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+        slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] = 5u;
+        write_be16(slot_bytes + CHARGE_TERMINATOR_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT,
+                   UINT16_MAX);
+        write_be16(point_bytes + CHARGE_ALIEN_POINT * OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                   (uint16_t)charge_alien_x);
+        write_be16(point_bytes + CHARGE_ALIEN_POINT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   (uint16_t)charge_player_z);
+        if (!alien_setup_from_slot(&charge_objects, CHARGE_ALIEN_SLOT,
+                                   &charge_dynamic.runtime, &game.game_link_catalog,
+                                   &charge_setup, error, sizeof(error))) {
+            fprintf(stderr, "ai_Charge setup fixture is invalid: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        object_animation_runtime_init(&charge_animation);
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][0u] = 1u;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][1u] = (uint8_t)charge_frame_index;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][2u] = (uint8_t)charge_option;
+        alien_runtime_init(&charge_runtime);
+        alien_runtime_begin_level(&charge_runtime);
+        lighting_runtime_init(&charge_lighting);
+        object_explosion_runtime_init(&charge_explosion);
+        game_progression_init(&charge_progression);
+        game_random_init(&charge_random);
+        expected_charge_y = (int16_t)source_asr32_7(
+            (int32_t)((uint32_t)charge_zone.floor -
+                      (uint32_t)source_asr32_count(charge_setup.thing_height, 1u)));
+        if (!alien_charge_update(
+                &charge_objects, CHARGE_ALIEN_SLOT, &charge_runtime, &charge_animation,
+                &charge_lighting, &charge_dynamic, &game.level_navigation, &game.level_clips,
+                &game.game_link_catalog, &charge_progression, &charge_explosion, &game.math,
+                &charge_random, &charge_player, &charge_setup, 0u, 1u, &charge_workspace,
+                &charge_state, error, sizeof(error)) ||
+            charge_state.damage_taken != 0u || charge_state.got_out != 0u ||
+            charge_state.teleport.teleported != 0u ||
+            charge_state.heading.got_there != UINT8_MAX ||
+            charge_state.damaged_player != UINT8_MAX ||
+            slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 7u ||
+            read_be16(slot_bytes + CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) !=
+                0u ||
+            read_be16(slot_bytes + CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u) !=
+                0u ||
+            read_be16(point_bytes + CHARGE_ALIEN_POINT * OBJECT_RUNTIME_POINT_BYTE_COUNT) !=
+                (uint16_t)charge_alien_x ||
+            read_be16(point_bytes + CHARGE_ALIEN_POINT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u) !=
+                (uint16_t)charge_player_z ||
+            read_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) !=
+                charge_zone.id ||
+            read_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) !=
+                charge_zone.id ||
+            read_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u) !=
+                (uint16_t)expected_charge_y ||
+            charge_runtime.heading_angle != charge_state.heading.angle) {
+            fprintf(stderr, "ai_Charge source movement state is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
+        /* CheckTeleport's success branch skips ai_ChargeCommon's AUX zone copy. */
+        if (charge_teleport_zone_index != UINT16_MAX) {
+        memset(slot_bytes, 0, sizeof(slot_bytes));
+        memset(point_bytes, 0, sizeof(point_bytes));
+        object_animation_runtime_init(&charge_animation);
+        alien_runtime_init(&charge_runtime);
+        alien_runtime_begin_level(&charge_runtime);
+        lighting_runtime_init(&charge_lighting);
+        object_explosion_runtime_init(&charge_explosion);
+        game_progression_init(&charge_progression);
+        game_random_init(&charge_random);
+        charge_player.zone_index = (uint16_t)charge_teleport_zone.teleport_zone;
+        charge_player.x = charge_teleport_zone.teleport_x;
+        charge_player.z = charge_teleport_zone.teleport_z;
+        charge_player.tmp_x = charge_player.x;
+        charge_player.tmp_z = charge_player.z;
+        write_be16(slot_bytes + CHARGE_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   0u);
+        write_be16(slot_bytes + CHARGE_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   UINT16_MAX);
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   CHARGE_ALIEN_POINT);
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                   UINT16_C(0xffec));
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   charge_teleport_zone_index);
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u,
+                   charge_teleport_zone_index);
+        write_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 40u,
+                   charge_frame_index);
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 10u;
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 21u] = UINT8_MAX;
+        slot_bytes[CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] =
+            (uint8_t)charge_alien;
+        write_be16(slot_bytes + CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   CHARGE_PLAYER_SLOT);
+        write_be16(slot_bytes + CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   charge_player.zone_index);
+        slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 2u;
+        slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+        write_be16(slot_bytes + CHARGE_TERMINATOR_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT,
+                   UINT16_MAX);
+        write_be16(point_bytes + CHARGE_ALIEN_POINT * OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                   (uint16_t)charge_teleport_zone.teleport_x);
+        write_be16(point_bytes + CHARGE_ALIEN_POINT * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   (uint16_t)charge_teleport_zone.teleport_z);
+        if (!alien_setup_from_slot(&charge_objects, CHARGE_ALIEN_SLOT,
+                                   &charge_dynamic.runtime, &game.game_link_catalog,
+                                   &charge_setup, error, sizeof(error))) {
+            fprintf(stderr, "ai_Charge teleport setup fixture is invalid: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][0u] = 1u;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][1u] = (uint8_t)charge_frame_index;
+        charge_animation.workspace[CHARGE_ALIEN_SLOT][2u] = (uint8_t)charge_option;
+        memset(&charge_workspace, 0, sizeof(charge_workspace));
+        if (!alien_charge_update(
+                &charge_objects, CHARGE_ALIEN_SLOT, &charge_runtime, &charge_animation,
+                &charge_lighting, &charge_dynamic, &game.level_navigation, &game.level_clips,
+                &game.game_link_catalog, &charge_progression, &charge_explosion, &game.math,
+                &charge_random, &charge_player, &charge_setup, 0u, 1u, &charge_workspace,
+                &charge_state, error, sizeof(error)) ||
+            charge_state.teleport.teleported != UINT8_MAX ||
+            read_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) !=
+                charge_teleport_destination.id ||
+            read_be16(slot_bytes + CHARGE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) !=
+                charge_teleport_destination.id ||
+            read_be16(slot_bytes + CHARGE_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                      12u) != charge_teleport_zone.id ||
+            read_be16(slot_bytes + CHARGE_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                      26u) != charge_teleport_zone.id) {
+            fprintf(stderr, "ai_Charge teleport source state is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&charge_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        }
+        level_dynamic_state_destroy(&charge_dynamic);
     }
     {
         /* newaliencontrol.s:RunAround chooses the source-side lateral target. */

@@ -501,8 +501,18 @@ authority for all game behavior and data formats.
      `modules/ai.s:ai_DoWalkAnim` now also retains the raw post-call `a2`
      collision words: its auxiliary-frame path changes that register from the
      initial alien-shoot base to the global object-definition base.
-     Next: finish the remaining `ItsAnAlien` collision/dispatcher routes, then
-     the audio portions of `newplayershoot.s`. The complete source
+     `modules/ai.s:ai_Charge` and `ai_ChargeToSide` now compose the exact
+     ground response route around that handoff: damage/death, attack
+     animation, caller-owned pre-dispatch `CheckTeleport` workspace, player or
+     `RunAround` target, response-speed `HeadTowardsAng`, both source
+     `Obj_DoCollision` calls, `MoveObject`, previous-AUX copy, melee impact,
+     player memory, room/control-point update, torch, sight, and final
+     mode/animation/facing branches. A successful teleport intentionally
+     jumps over the AUX copy, as in the source. This complete mode remains
+     uncalled until every `ItsAnAlien` route and its narrative ownership can
+     run in `ObjectHandler` order. Next: finish flying charge and the approach
+     routes, then the remaining dispatcher paths and the audio portions of
+     `newplayershoot.s`. The complete source
      `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
@@ -846,6 +856,17 @@ approach routines but remains uncalled on its own.
 auxiliary-frame path replaces that view with leading `GLFT_ObjectDefs_l`
 words. This source-register handoff is ready for the remaining charge and
 approach `Obj_DoCollision` calls without inventing extents.
+
+`src/alien_charge.*` now directly translates the ground
+`modules/ai.s:ai_Charge` and `ai_ChargeToSide` routes. It makes the source
+globals consumed before charge resets movement explicit caller-owned workspace
+instead of supplying a native value, then preserves damage/death, attack
+animation's raw a2 table, teleport floor adjustment, optional `RunAround`,
+response-speed heading, the two source collision calls, movement, pre-room-
+stats AUX ownership, action-gated Player 1 byte damage/`DIVS` impact, memory,
+spatial state, torch, sight, and final source mode branches. It remains
+outside `ObjectHandler`; flying charge and all approach routes still need their
+complete source bodies before dispatcher integration.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their
