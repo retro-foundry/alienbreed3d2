@@ -594,10 +594,11 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
         return 0;
     }
     /* ZoneT+8 selects the upper floor/roof pair for an upper-layer projectile. */
+    /* newanims.s:ItsABullet branches to .nohitroof when this distance is below 10*128. */
     if (object_projectiles_sub32(slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u ?
                                      zone.upper_roof : zone.roof,
                                  object_projectiles_read_be32s(
-                                     slot + OBJECT_PROJECTILE_ACCUMULATED_Y)) < 10 * 128) {
+                                     slot + OBJECT_PROJECTILE_ACCUMULATED_Y)) >= 10 * 128) {
         if ((slot[OBJECT_PROJECTILE_FLAGS + 1u] & 1u) != 0u) {
             object_projectiles_write_be16(
                 slot + OBJECT_PROJECTILE_VELOCITY_Y,

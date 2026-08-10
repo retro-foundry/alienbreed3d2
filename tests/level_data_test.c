@@ -4871,6 +4871,9 @@ int main(int argc, char **argv)
         SceneFrame projectile_scene = {0};
         int16_t projectile_old_x;
         int16_t projectile_old_z;
+        int16_t projectile_start_x;
+        int16_t projectile_start_z;
+        int32_t projectile_launch_y;
 
         for (uint16_t bullet_index = 0u; bullet_index < GAME_LINK_BULLET_COUNT;
              ++bullet_index) {
@@ -4906,12 +4909,14 @@ int main(int argc, char **argv)
             write_be32(point + 0u, UINT32_C(0x11112222));
             write_be32(point + 4u, UINT32_C(0x33334444));
         }
-        projectile_player.x = player_runtime_world_to_position(300);
-        projectile_player.y = 400;
-        projectile_player.z = player_runtime_world_to_position(-500);
+        /* Use the loaded source start state so ItsABullet's MoveObject and
+         * anim_BrightenPoints path has a valid authored zone, not an
+         * arbitrary synthetic x/y/z triple. */
+        projectile_player = game.player;
         projectile_player.yaw = 0u;
-        projectile_player.zone_index = 4u;
-        projectile_player.stood_in_top = UINT8_MAX;
+        projectile_start_x = player_runtime_position_to_world(projectile_player.x);
+        projectile_start_z = player_runtime_position_to_world(projectile_player.z);
+        projectile_launch_y = projectile_player.y + 30 * 128;
         projectile_speed = (int16_t)(uint16_t)projectile_bullet.speed;
         if (!game_math_sine(&game.math, UINT16_C(0xff80), &first_sine,
                             error, sizeof(error)) ||
@@ -4942,7 +4947,8 @@ int main(int argc, char **argv)
             uint32_t expected_velocity_z =
                 (uint32_t)((int32_t)((int64_t)cosine * projectile_speed) * 2);
 
-            if (slot[16u] != 2u || read_be16(slot + 12u) != 4u ||
+            if (slot[16u] != 2u ||
+                read_be16(slot + 12u) != projectile_player.zone_index ||
                 slot[31u] != (uint8_t)projectile_bullet_index ||
                 slot[28u] != (uint8_t)projectile_bullet.hit_damage ||
                 read_be16(slot + 54u) != (uint16_t)projectile_bullet.gravity ||
@@ -4950,12 +4956,17 @@ int main(int argc, char **argv)
                 slot[61u] != (uint8_t)projectile_bullet.bounce_vertical ||
                 read_be32(slot + 18u) != expected_velocity_x ||
                 read_be32(slot + 22u) != expected_velocity_z ||
-                read_be16(slot + 42u) != 2560u || slot[63u] != UINT8_MAX ||
+                read_be16(slot + 42u) != 2560u ||
+                slot[63u] != projectile_player.stood_in_top ||
                 read_be16(slot + 58u) != 0u || read_be32(slot + 36u) != 0x23u ||
-                read_be32(slot + 44u) != 4240u || read_be16(slot + 4u) != 33u ||
+                read_be32(slot + 44u) != (uint32_t)projectile_launch_y ||
+                read_be16(slot + 4u) !=
+                    (uint16_t)source_asr32_7(projectile_launch_y) ||
                 slot[62u] != UINT8_MAX ||
-                read_be32(point + 0u) != UINT32_C(0x012c2222) ||
-                read_be32(point + 4u) != UINT32_C(0xfe0c4444)) {
+                read_be32(point + 0u) !=
+                    ((uint32_t)(uint16_t)projectile_start_x << 16u | UINT32_C(0x2222)) ||
+                read_be32(point + 4u) !=
+                    ((uint32_t)(uint16_t)projectile_start_z << 16u | UINT32_C(0x4444))) {
                 fprintf(stderr, "firefive source projectile launch state is inconsistent\n");
                 game_bootstrap_destroy(&game);
                 return 1;
@@ -4975,6 +4986,7 @@ int main(int argc, char **argv)
                 &projectile_source_runtime,
                 &game.game_link_catalog, 1u,
                 error, sizeof(error)) ||
+            slot_bytes[30u] != 0u ||
             read_be16(slot_bytes + 6u) != projectile_frame.word_2 ||
             slot_bytes[11u] != projectile_frame.byte_1 ||
             projectile_motion.new_x != (int16_t)(read_be32(point_bytes) >> 16u) ||
@@ -5088,8 +5100,9 @@ int main(int argc, char **argv)
             LevelRuntime flight_level = {0};
             LevelDynamicState flight_dynamic = {0};
             ObjectRuntime flight_objects = {0};
+            int32_t projectile_start_y = 150000;
             int16_t expected_target_height = source_asr32_7(
-                (int16_t)(uint16_t)projectile_bullet.gravity);
+                projectile_start_y + (int16_t)(uint16_t)projectile_bullet.gravity);
 
             flight_level.level_bytes = flight_level_bytes;
             flight_level.level_size = sizeof(flight_level_bytes);
@@ -5099,9 +5112,9 @@ int main(int argc, char **argv)
             flight_level.zone_count = 1u;
             write_be32(flight_graphics_bytes, 0u);
             write_be16(flight_level_bytes + 0u, 0u);
-            write_be32(flight_level_bytes + 2u, 100000u);
+            write_be32(flight_level_bytes + 2u, 200000u);
             write_be32(flight_level_bytes + 6u, 100000u);
-            write_be32(flight_level_bytes + 10u, 100000u);
+            write_be32(flight_level_bytes + 10u, 200000u);
             write_be32(flight_level_bytes + 14u, 100000u);
             write_be16(flight_level_bytes + 32u, 56u);
             write_be16(flight_level_bytes + 48u, UINT16_MAX);
@@ -5123,6 +5136,7 @@ int main(int argc, char **argv)
             flight_slot_bytes[31u] = (uint8_t)projectile_bullet_index;
             write_be16(flight_slot_bytes + 58u, UINT16_MAX);
             write_be32(flight_slot_bytes + 18u, UINT32_C(0x00640000));
+            write_be32(flight_slot_bytes + 44u, (uint32_t)projectile_start_y);
             write_be32(flight_slot_bytes + 36u, 1u);
             write_be32(flight_point_bytes + 0u, 0u);
             write_be32(flight_point_bytes + 4u, 0u);
@@ -5191,6 +5205,19 @@ int main(int argc, char **argv)
             write_be32(bullet_definition + 8u, UINT32_MAX);
             write_be32(bullet_definition + 16u, 1u);
             write_be32(bullet_definition + 20u, 0u);
+            /* This fixture owns collision only; its minimal level has no draw graph for flash. */
+            for (uint16_t frame = 0u; frame < GAME_LINK_BULLET_ANIMATION_FRAME_COUNT; ++frame) {
+                bullet_definition[60u + (size_t)frame *
+                    GAME_LINK_BULLET_ANIMATION_FRAME_SIZE + 5u] = 0u;
+            }
+            if (!game_link_get_bullet_animation_frame(
+                    &flight_link, GAME_LINK_BULLET_ANIMATION_FLIGHT,
+                    projectile_bullet_index, 0u, &projectile_frame, error, sizeof(error)) ||
+                projectile_frame.byte_5 != 0u) {
+                fprintf(stderr, "ItsABullet collision fixture did not disable its flash byte\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
             flight_level.level_bytes = flight_level_bytes;
             flight_level.level_size = sizeof(flight_level_bytes);
             flight_level.graphics_bytes = flight_graphics_bytes;
@@ -5201,10 +5228,11 @@ int main(int argc, char **argv)
             flight_level.zone_count = 1u;
             write_be32(flight_graphics_bytes, 0u);
             write_be16(flight_level_bytes + 0u, 0u);
-            write_be32(flight_level_bytes + 2u, 100000u);
-            write_be32(flight_level_bytes + 6u, 200000u);
-            write_be32(flight_level_bytes + 10u, 100000u);
-            write_be32(flight_level_bytes + 14u, 200000u);
+            /* ZoneT floor is below its roof in the source down-positive Y domain. */
+            write_be32(flight_level_bytes + 2u, 200000u);
+            write_be32(flight_level_bytes + 6u, 100000u);
+            write_be32(flight_level_bytes + 10u, 200000u);
+            write_be32(flight_level_bytes + 14u, 100000u);
             write_be16(flight_level_bytes + 32u, 56u);
             write_be16(flight_level_bytes + 48u, UINT16_MAX);
             write_be16(flight_level_bytes + 56u, 0u);
@@ -5235,6 +5263,8 @@ int main(int argc, char **argv)
             write_be32(flight_point_bytes + 0u, 0u);
             write_be32(flight_point_bytes + 4u, UINT32_C(0x000a0000));
             write_be32(flight_slot_bytes + 18u, UINT32_C(0x00140000));
+            write_be32(flight_slot_bytes + 44u, 100000u);
+            write_be16(flight_slot_bytes + 4u, (uint16_t)(100000u >> 7u));
             if (!object_projectiles_update_flight_animation_slot(
                     &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
                     &flight_link, 1u,
@@ -5252,19 +5282,19 @@ int main(int argc, char **argv)
             flight_slot_bytes[30u] = 0u;
             flight_slot_bytes[52u] = 0u;
             write_be32(flight_slot_bytes + 18u, UINT32_C(0x00140000));
-            write_be32(flight_slot_bytes + 44u, 0u);
+            write_be32(flight_slot_bytes + 44u, 100000u);
             write_be32(flight_point_bytes + 0u, 0u);
             if (!object_projectiles_update_flight_animation_slot(
                     &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
-                    &flight_link, 1u,
-                    error, sizeof(error)) ||
+                    &flight_link, 1u, error, sizeof(error)) ||
                 flight_slot_bytes[30u] != 1u ||
                 read_be32(flight_point_bytes + 0u) != UINT32_C(0x000a0000) ||
-                read_be32(flight_slot_bytes + 44u) != (uint32_t)-320) {
+                read_be32(flight_slot_bytes + 44u) != 100000u - 5u * 128u / 2u) {
                 fprintf(stderr,
                         "ItsABullet source horizontal impact is inconsistent: %s "
                         "(status %u, x %08x, acc-y %08x)\n",
-                        error, flight_slot_bytes[30u], read_be32(flight_point_bytes + 0u),
+                        error, flight_slot_bytes[30u],
+                        read_be32(flight_point_bytes + 0u),
                         read_be32(flight_slot_bytes + 44u));
                 level_dynamic_state_destroy(&flight_dynamic);
                 game_bootstrap_destroy(&game);
@@ -5276,14 +5306,14 @@ int main(int argc, char **argv)
             flight_slot_bytes[52u] = 0u;
             write_be32(flight_slot_bytes + 18u, 0u);
             write_be16(flight_slot_bytes + 42u, 256u);
-            write_be32(flight_slot_bytes + 44u, 99000u);
+            write_be32(flight_slot_bytes + 44u, 199000u);
             if (!object_projectiles_update_flight_animation_slot(
                     &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
                     &flight_link, 1u,
                     error, sizeof(error)) ||
                 flight_slot_bytes[30u] != 0u ||
                 read_be16(flight_slot_bytes + 42u) != UINT16_C(0xff80) ||
-                read_be32(flight_slot_bytes + 44u) != 98592u) {
+                read_be32(flight_slot_bytes + 44u) != 198592u) {
                 fprintf(stderr, "ItsABullet source floor bounce is inconsistent: %s\n", error);
                 level_dynamic_state_destroy(&flight_dynamic);
                 game_bootstrap_destroy(&game);
@@ -5296,7 +5326,7 @@ int main(int argc, char **argv)
             flight_slot_bytes[52u] = 0u;
             write_be16(flight_slot_bytes + 58u, 1u);
             write_be16(flight_slot_bytes + 42u, 0u);
-            write_be32(flight_slot_bytes + 44u, 0u);
+            write_be32(flight_slot_bytes + 44u, 100000u);
             if (!object_projectiles_update_flight_animation_slot(
                     &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
                     &flight_link, 1u,
@@ -5313,7 +5343,8 @@ int main(int argc, char **argv)
                 &projectile_objects, &game.math, &projectile_player,
                 projectile_bullet_index, &projectile_bullet, 0u, 0,
                 &spawned_count, error, sizeof(error)) || spawned_count != 1u ||
-            read_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) != 4u) {
+            read_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) !=
+                projectile_player.zone_index) {
             fprintf(stderr, "firefive source zero-count projectile attempt is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
@@ -8141,10 +8172,10 @@ int main(int argc, char **argv)
             LightingRuntime projectile_lighting;
 
             /* ItsABullet roof impact consumes the prior newx/newz before flight motion. */
-            write_be32(blast_level_bytes + 2u, 200000u);
-            write_be32(blast_level_bytes + 6u, 100000u);
-            write_be32(blast_level_bytes + 10u, 200000u);
-            write_be32(blast_level_bytes + 14u, 100000u);
+            write_be32(blast_dynamic.level_bytes + 2u, 200000u);
+            write_be32(blast_dynamic.level_bytes + 6u, 100000u);
+            write_be32(blast_dynamic.level_bytes + 10u, 200000u);
+            write_be32(blast_dynamic.level_bytes + 14u, 100000u);
             write_be32(blast_point_bytes, UINT32_C(0x03e84a5a));
             write_be16(blast_slot_bytes + 4u, 10u);
             write_be16(blast_slot_bytes + 12u, 0u);
@@ -8158,7 +8189,8 @@ int main(int argc, char **argv)
             write_be32(blast_slot_bytes + 18u, 0u);
             write_be32(blast_slot_bytes + 22u, 0u);
             write_be16(blast_slot_bytes + 42u, 0u);
-            write_be32(blast_slot_bytes + 44u, 100000u);
+            /* `cmp.l #10*128,d0 / blt .nohitroof`: equality is a roof impact. */
+            write_be32(blast_slot_bytes + 44u, 100000u - 10u * 128u);
             write_be32(blast_slot_bytes + 36u, 0u);
             blast_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] = 0u;
             write_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
@@ -8204,13 +8236,13 @@ int main(int argc, char **argv)
             ObjectProjectileSourceRuntime projectile_source_runtime = {0};
             LightingRuntime projectile_lighting;
             int16_t direct_target_y = source_asr32_7(
-                (int16_t)(uint16_t)blast_explosive_bullet.gravity);
+                150000 + (int16_t)(uint16_t)blast_explosive_bullet.gravity);
 
             /* Direct target impact writes Viewerx/y/z but deliberately retains ViewerTop. */
-            write_be32(blast_level_bytes + 2u, 100000u);
-            write_be32(blast_level_bytes + 6u, 100000u);
-            write_be32(blast_level_bytes + 10u, 100000u);
-            write_be32(blast_level_bytes + 14u, 100000u);
+            write_be32(blast_dynamic.level_bytes + 2u, 200000u);
+            write_be32(blast_dynamic.level_bytes + 6u, 100000u);
+            write_be32(blast_dynamic.level_bytes + 10u, 200000u);
+            write_be32(blast_dynamic.level_bytes + 14u, 100000u);
             write_be32(blast_point_bytes, UINT32_C(0x00004a5a));
             write_be32(blast_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT,
                        UINT32_C(0x00324a5a));
@@ -8229,7 +8261,7 @@ int main(int argc, char **argv)
             write_be32(blast_slot_bytes + 18u, UINT32_C(0x00640000));
             write_be32(blast_slot_bytes + 22u, 0u);
             write_be16(blast_slot_bytes + 42u, 0u);
-            write_be32(blast_slot_bytes + 44u, 0u);
+            write_be32(blast_slot_bytes + 44u, 150000u);
             write_be32(blast_slot_bytes + 36u, 1u);
             write_be16(blast_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
                        (uint16_t)direct_target_y);
