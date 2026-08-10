@@ -170,6 +170,46 @@ static int scene_sprite_expected_point_light(const GameBootstrap *game,
     return 1;
 }
 
+/* draw_zone_graph.s:itsafloor and hires.s:goursides source-flat light selection. */
+static int scene_flat_expected_light(const GameBootstrap *game,
+                                     const LevelStaticFlatScene *flat,
+                                     uint32_t vertex_index, int16_t *out_light)
+{
+    int16_t source_light;
+    uint32_t component_index;
+
+    if (!game || !flat || !out_light || vertex_index >= flat->vertex_count ||
+        flat->source_zone_index >= game->dynamic_level.runtime.zone_count ||
+        flat->source_zone_index >= LIGHTING_RUNTIME_POINT_ZONE_CAPACITY) {
+        return 0;
+    }
+    if (flat->primitive == SCENE_GEOMETRY_PRIMITIVE_WATER) {
+        int32_t water_light = 300 +
+            game->lighting_runtime.zone_brightness[flat->source_zone_index]
+                                                   [flat->source_upper_zone != 0u ? 1u : 0u] +
+            flat->brightness_offset;
+
+        *out_light = water_light > INT16_MAX ? INT16_MAX :
+            (water_light < INT16_MIN ? INT16_MIN : (int16_t)water_light);
+        return 1;
+    }
+    if (!flat->point_brightness_selectors ||
+        flat->point_brightness_selectors[vertex_index] >=
+            LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT) {
+        return 0;
+    }
+    component_index = (flat->source_upper_zone != 0u ? 2u : 0u) +
+        (flat->primitive == SCENE_GEOMETRY_PRIMITIVE_CEILING ? 1u : 0u);
+    source_light = game->lighting_runtime.current_point_brightness[flat->source_zone_index]
+                                                                    [flat->point_brightness_selectors
+                                                                         [vertex_index] * 4u +
+                                                                     component_index];
+    /* hires.s:goursides applies NEG.W to a negative source point brightness. */
+    *out_light = source_light < 0 ?
+        (int16_t)(UINT16_C(0) - (uint16_t)source_light) : source_light;
+    return 1;
+}
+
 static int scene_sprite_commands_match_source(const SceneFrame *frame,
                                               size_t first_command,
                                               const GameBootstrap *game,
@@ -1842,6 +1882,37 @@ int main(int argc, char **argv)
             int16_t minimum_source_light = INT16_MAX;
             int16_t maximum_source_light = INT16_MIN;
             uint32_t light_vertex_count = 0u;
+            uint32_t floor_ceiling_vertex_count = 0u;
+
+            for (uint32_t flat_index = 0u; flat_index < game.static_scene.flat_count;
+                 ++flat_index) {
+                const LevelStaticFlatScene *flat = &game.static_scene.flats[flat_index];
+
+                for (uint32_t vertex_index = 0u; vertex_index < flat->vertex_count;
+                     ++vertex_index) {
+                    int16_t expected_light;
+
+                    if (!scene_flat_expected_light(&game, flat, vertex_index, &expected_light) ||
+                        flat->vertices[vertex_index].source_light_level != expected_light) {
+                        fprintf(stderr,
+                                "campaign level %u flat %u vertex %u lighting handoff is inconsistent\n",
+                                level_index, flat_index, vertex_index);
+                        scene_frame_destroy(&frame);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    if (flat->primitive != SCENE_GEOMETRY_PRIMITIVE_WATER) {
+                        ++floor_ceiling_vertex_count;
+                    }
+                }
+            }
+            if (floor_ceiling_vertex_count == 0u) {
+                fprintf(stderr, "campaign level %u has no source-lit floors or ceilings\n",
+                        level_index);
+                scene_frame_destroy(&frame);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
 
             for (size_t command_index = 0u; command_index < frame.count; ++command_index) {
                 const SceneCommand *command = &frame.commands[command_index];
@@ -1867,6 +1938,60 @@ int main(int argc, char **argv)
                 fprintf(stderr,
                         "campaign level %u scene lighting has no source-driven variation\n",
                         level_index);
+                scene_frame_destroy(&frame);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        {
+            LightingRuntime prior_lighting = game.lighting_runtime;
+            LevelStaticFlatScene *flat_to_light = NULL;
+            uint32_t vertex_to_light = 0u;
+            uint32_t component_index;
+            uint32_t point_index;
+
+            /*
+             * `lighting_runtime_advance_animation` is separately verified
+             * against newanims.s:brightanim. This scene handoff check supplies
+             * the live CurrentPointBrights word that hires.s:goursides reads
+             * through draw_zone_graph.s:itsafloor, including NEG.W handling.
+             */
+            for (uint32_t flat_index = 0u; flat_index < game.static_scene.flat_count;
+                 ++flat_index) {
+                LevelStaticFlatScene *flat = &game.static_scene.flats[flat_index];
+
+                if (flat->primitive != SCENE_GEOMETRY_PRIMITIVE_WATER &&
+                    flat->vertex_count != 0u) {
+                    flat_to_light = flat;
+                    break;
+                }
+            }
+            if (!flat_to_light) {
+                fprintf(stderr, "campaign level %u has no flat-light scene candidate\n", level_index);
+                scene_frame_destroy(&frame);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            component_index = (flat_to_light->source_upper_zone != 0u ? 2u : 0u) +
+                (flat_to_light->primitive == SCENE_GEOMETRY_PRIMITIVE_CEILING ? 1u : 0u);
+            point_index = (uint32_t)flat_to_light->point_brightness_selectors[vertex_to_light] *
+                4u + component_index;
+            game.lighting_runtime.current_point_brightness[flat_to_light->source_zone_index]
+                                                        [point_index] = -345;
+            scene_frame_begin(&frame);
+            if (!game_bootstrap_submit_scene_frame(&game, &frame) ||
+                flat_to_light->vertices[vertex_to_light].source_light_level != 345) {
+                fprintf(stderr,
+                        "campaign level %u animated flat lighting did not reach the scene\n",
+                        level_index);
+                scene_frame_destroy(&frame);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            game.lighting_runtime = prior_lighting;
+            scene_frame_begin(&frame);
+            if (!game_bootstrap_submit_scene_frame(&game, &frame)) {
+                fprintf(stderr, "campaign level %u source light restoration failed\n", level_index);
                 scene_frame_destroy(&frame);
                 game_bootstrap_destroy(&game);
                 return 1;
@@ -3056,6 +3181,7 @@ int main(int argc, char **argv)
                 !level_draw_graph_read_flat(&game.dynamic_level.runtime, &flat_record, &draw_flat,
                                             error, sizeof(error)) ||
                 scene_flat->vertices == NULL ||
+                scene_flat->point_brightness_selectors == NULL ||
                 scene_flat->vertex_count != draw_flat.point_count ||
                 scene_flat->material_id != draw_flat.texture_offset ||
                 scene_flat->texture_scale != draw_flat.texture_scale ||
@@ -3082,6 +3208,9 @@ int main(int argc, char **argv)
                                                     error, sizeof(error)) ||
                     !level_runtime_get_world_point(&game.dynamic_level.runtime, flat_world_point_index,
                                                    &world_point, error, sizeof(error)) ||
+                    scene_flat->point_brightness_selectors[flat_point_index] !=
+                        (uint8_t)(flat_raw_point_word >> 12u) ||
+                    (flat_raw_point_word >> 12u) >= LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT ||
                     scene_flat->vertices[flat_point_index].position.x != world_point.x ||
                     scene_flat->vertices[flat_point_index].position.y !=
                         (int32_t)draw_flat.height * 64 ||

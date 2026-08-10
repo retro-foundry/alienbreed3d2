@@ -29,6 +29,8 @@ typedef struct {
  */
 typedef struct {
     SceneVertex *vertices;
+    /* hires.s:goursides takes this from each Draw_Flats point word's high nibble. */
+    uint8_t *point_brightness_selectors;
     uint32_t vertex_count;
     uint32_t material_id;
     uint32_t source_record_offset;

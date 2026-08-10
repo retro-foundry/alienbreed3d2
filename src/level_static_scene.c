@@ -323,7 +323,9 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                         goto fail;
                     }
                     scene_flat->vertices = calloc(flat.point_count, sizeof(*scene_flat->vertices));
-                    if (!scene_flat->vertices) {
+                    scene_flat->point_brightness_selectors =
+                        calloc(flat.point_count, sizeof(*scene_flat->point_brightness_selectors));
+                    if (!scene_flat->vertices || !scene_flat->point_brightness_selectors) {
                         level_static_scene_set_error(error, error_size,
                                                      "flat geometry allocation failed");
                         goto fail;
@@ -355,6 +357,14 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                                                            &world_point, error, error_size)) {
                             goto fail;
                         }
+                        if ((raw_point_word >> 12u) >= LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT) {
+                            level_static_scene_set_error(
+                                error, error_size,
+                                "flat point brightness selector is outside CurrentPointBrights_vl");
+                            goto fail;
+                        }
+                        scene_flat->point_brightness_selectors[point_index] =
+                            (uint8_t)(raw_point_word >> 12u);
                         level_static_scene_set_vertex(&scene_flat->vertices[point_index],
                                                       world_point.x, (int32_t)flat.height * 64,
                                                       world_point.z,
@@ -436,7 +446,8 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
         int8_t source_scale;
         int flat_read;
 
-        if (!level_static_scene_draw_graph_type_for_primitive(scene_flat->primitive,
+        if (!scene_flat->vertices || !scene_flat->point_brightness_selectors ||
+            !level_static_scene_draw_graph_type_for_primitive(scene_flat->primitive,
                                                                &draw_graph_type)) {
             level_static_scene_set_error(error, error_size,
                                          "dynamic scene contains an unsupported flat primitive");
@@ -479,6 +490,14 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
                                                error, error_size)) {
                 return 0;
             }
+            if ((raw_point_word >> 12u) >= LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT) {
+                level_static_scene_set_error(
+                    error, error_size,
+                    "dynamic flat point brightness selector is outside CurrentPointBrights_vl");
+                return 0;
+            }
+            scene_flat->point_brightness_selectors[point_index] =
+                (uint8_t)(raw_point_word >> 12u);
             level_static_scene_set_vertex(&scene_flat->vertices[point_index], world_point.x,
                                           (int32_t)flat.height * 64, world_point.z,
                                           level_static_scene_flat_texture_coordinate(
@@ -500,6 +519,7 @@ void level_static_scene_destroy(LevelStaticScene *scene)
     scene->wall_count = 0u;
     for (uint32_t flat_index = 0u; flat_index < scene->flat_count; ++flat_index) {
         free(scene->flats[flat_index].vertices);
+        free(scene->flats[flat_index].point_brightness_selectors);
     }
     free(scene->flats);
     scene->flats = NULL;

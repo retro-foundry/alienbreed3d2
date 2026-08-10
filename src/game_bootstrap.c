@@ -592,6 +592,38 @@ static int game_bootstrap_scene_wall_light(const GameBootstrap *game,
     return 1;
 }
 
+static int game_bootstrap_scene_flat_point_light(const GameBootstrap *game,
+                                                 const LevelStaticFlatScene *flat,
+                                                 uint8_t point_selector,
+                                                 int16_t *out_light)
+{
+    uint32_t component_index;
+    int16_t source_light;
+
+    if (!game || !flat || !out_light ||
+        point_selector >= LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT ||
+        flat->source_zone_index >= game->dynamic_level.runtime.zone_count ||
+        flat->source_zone_index >= LIGHTING_RUNTIME_POINT_ZONE_CAPACITY) {
+        return 0;
+    }
+    /*
+     * draw_zone_graph.s:itsafloor selects the lower/upper CurrentPointBrights
+     * pair for the stream, then adds one word for a ceiling. hires.s:goursides
+     * indexes that pair with the upper nibble from each source point word.
+     */
+    component_index = (flat->source_upper_zone != 0u ? 2u : 0u) +
+        (flat->primitive == SCENE_GEOMETRY_PRIMITIVE_CEILING ? 1u : 0u);
+    source_light = game->lighting_runtime.current_point_brightness[flat->source_zone_index]
+                                                                    [point_selector * 4u +
+                                                                     component_index];
+    /* goursides uses NEG.W when a source point value is negative. */
+    if (source_light < 0) {
+        source_light = (int16_t)(UINT16_C(0) - (uint16_t)source_light);
+    }
+    *out_light = source_light;
+    return 1;
+}
+
 static int game_bootstrap_refresh_scene_lighting(GameBootstrap *game)
 {
     for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count; ++wall_index) {
@@ -620,23 +652,33 @@ static int game_bootstrap_refresh_scene_lighting(GameBootstrap *game)
     }
     for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count; ++flat_index) {
         LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
-        int32_t source_light;
 
         if (flat->source_zone_index >= game->dynamic_level.runtime.zone_count ||
             flat->source_zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
             return 0;
         }
-        /*
-         * CurrentPointBrights is centred on 300, whereas Zone_BrightTable is
-         * a signed offset. Translate flats into the same source-light domain
-         * as Draw_Wall's point samples before the GPU interpolates them.
-         */
-        source_light = 300 + game->lighting_runtime.zone_brightness[flat->source_zone_index]
-            [flat->source_upper_zone != 0u ? 1u : 0u];
-        source_light += flat->brightness_offset;
-        for (uint32_t vertex_index = 0u; vertex_index < flat->vertex_count; ++vertex_index) {
-            flat->vertices[vertex_index].source_light_level =
-                game_bootstrap_scene_clamp_light(source_light);
+        if (flat->primitive == SCENE_GEOMETRY_PRIMITIVE_WATER) {
+            int32_t source_light = 300 +
+                game->lighting_runtime.zone_brightness[flat->source_zone_index]
+                                                       [flat->source_upper_zone != 0u ? 1u : 0u] +
+                flat->brightness_offset;
+
+            /* draw_zone_graph.s disables Gouraud lighting for Draw_Flats water. */
+            for (uint32_t vertex_index = 0u; vertex_index < flat->vertex_count; ++vertex_index) {
+                flat->vertices[vertex_index].source_light_level =
+                    game_bootstrap_scene_clamp_light(source_light);
+            }
+        } else {
+            if (!flat->point_brightness_selectors) {
+                return 0;
+            }
+            for (uint32_t vertex_index = 0u; vertex_index < flat->vertex_count; ++vertex_index) {
+                if (!game_bootstrap_scene_flat_point_light(
+                        game, flat, flat->point_brightness_selectors[vertex_index],
+                        &flat->vertices[vertex_index].source_light_level)) {
+                    return 0;
+                }
+            }
         }
     }
     return 1;
