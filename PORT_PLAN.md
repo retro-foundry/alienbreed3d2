@@ -892,10 +892,12 @@ slots, and the source's three `GetRand` calls per flame. It remains outside
 as the source BSS, now records the live player spatial, player hitscan-miss,
 AI-look, and projectile-flight `newx`/`newz` publications. Projectile flight
 deliberately preserves the prior words through its roof/floor branches, then
-publishes its current motion before the direct-target branch. The helper still
-needs exact per-impact caller regression coverage and wiring; it must not be
-enabled by substituting the exploding projectile's coordinates for the retained
-roof/floor values.
+publishes its current motion before the direct-target branch. The unbound
+helper also writes each source flame trace's final words to this same runtime;
+its direct fixture asserts the retained final flame coordinate. The helper
+still needs exact per-impact caller regression coverage and wiring; it must not
+be enabled by substituting the exploding projectile's coordinates for the
+retained roof/floor values.
 Translate each remaining bounded slice directly from the maintained source and
 add source-derived regressions for its state changes and ordering.
 

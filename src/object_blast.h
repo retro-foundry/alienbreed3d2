@@ -8,6 +8,7 @@
 #include "game_link.h"
 #include "game_random.h"
 #include "level_dynamic_state.h"
+#include "object_motion.h"
 #include "object_runtime.h"
 #include "object_visibility.h"
 
@@ -26,11 +27,14 @@ void object_blast_runtime_note_bullet(ObjectBlastRuntime *runtime, uint8_t bulle
  * Direct translation of newanims.s:ComputeBlast. The caller must first write
  * the source Viewer* words in `visibility` exactly as its own source branch
  * does; in particular, the direct-target ItsABullet caller retains ViewerTop.
+ * Flame MoveObject traces publish their resulting source newx/newz words to
+ * `motion_runtime` for later source callers.
  */
 int object_blast_compute(ObjectBlastRuntime *runtime, ObjectRuntime *objects,
                          uint32_t explosive_slot_index,
                          LevelDynamicState *dynamic_level, const AssetBlob *clips,
                          const GameLink *game_link, GameRandom *random,
+                         ObjectMotionRuntime *motion_runtime,
                          const ObjectVisibilityRuntime *visibility,
                          int16_t explosive_force,
                          char *error, size_t error_size);

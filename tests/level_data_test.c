@@ -6861,6 +6861,7 @@ int main(int argc, char **argv)
         LevelDynamicState blast_dynamic = {0};
         ObjectRuntime blast_objects = {0};
         ObjectBlastRuntime blast_runtime;
+        ObjectMotionRuntime blast_motion;
         ObjectVisibilityRuntime blast_visibility;
         GameRandom blast_random;
         GameRandom expected_blast_random;
@@ -6960,6 +6961,7 @@ int main(int argc, char **argv)
         write_be16(blast_slot_bytes + 23u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
         object_blast_runtime_init(&blast_runtime);
         object_blast_runtime_note_bullet(&blast_runtime, (uint8_t)blast_bullet_index);
+        object_motion_runtime_init(&blast_motion);
         object_visibility_runtime_init(&blast_visibility);
         object_visibility_runtime_set_viewer(&blast_visibility, 0, 0, 10, 0u);
         game_random_init(&blast_random);
@@ -6969,7 +6971,7 @@ int main(int argc, char **argv)
         }
         if (!object_blast_compute(
                 &blast_runtime, &blast_objects, 0u, &blast_dynamic, &same_zone_clips,
-                &game.game_link_catalog, &blast_random, &blast_visibility, 64,
+                &game.game_link_catalog, &blast_random, &blast_motion, &blast_visibility, 64,
                 error, sizeof(error)) ||
             blast_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 64u ||
             read_be16(blast_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) != 25u ||
@@ -6981,6 +6983,12 @@ int main(int argc, char **argv)
             read_be16(blast_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) !=
                 (uint16_t)-924 ||
             blast_runtime.completed_flame_count != 6u ||
+            blast_motion.new_x != (int16_t)(read_be32(
+                                      blast_point_bytes + 8u * OBJECT_RUNTIME_POINT_BYTE_COUNT) >>
+                                                  16u) ||
+            blast_motion.new_z != (int16_t)(read_be32(
+                                      blast_point_bytes + 8u * OBJECT_RUNTIME_POINT_BYTE_COUNT +
+                                      4u) >> 16u) ||
             blast_random.state != expected_blast_random.state) {
             fprintf(stderr, "ComputeBlast source damage/impulse/flame state is inconsistent: %s\n",
                     error);

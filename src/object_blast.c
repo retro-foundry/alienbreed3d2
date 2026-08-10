@@ -227,6 +227,7 @@ static int16_t object_blast_random_byte_offset(GameRandom *random, int16_t radiu
 static int object_blast_spawn_flames(ObjectBlastRuntime *runtime, ObjectRuntime *objects,
                                      uint8_t *source_slot, LevelDynamicState *dynamic_level,
                                      GameRandom *random,
+                                     ObjectMotionRuntime *motion_runtime,
                                      char *error, size_t error_size)
 {
     uint8_t *source_point;
@@ -308,12 +309,15 @@ static int object_blast_spawn_flames(ObjectBlastRuntime *runtime, ObjectRuntime 
             trace.stood_in_top = source_slot[OBJECT_BLAST_IN_UPPER_ZONE];
             trace.wall_bounce = UINT8_MAX;
             trace.exit_first = 0u;
+            object_motion_runtime_set_new_words(motion_runtime, trace.new_x, trace.new_z);
             if (!object_movement_trace(dynamic_level, &trace, error, error_size) ||
                 !level_runtime_get_zone(&dynamic_level->runtime, trace.zone_index, &zone,
                                         error, error_size)) {
                 return 0;
             }
             new_y = trace.new_y;
+            /* ComputeBlast's final flame trace leaves objectmove.s:newx/newz live. */
+            object_motion_runtime_set_new_words(motion_runtime, trace.new_x, trace.new_z);
             /* ComputeBlast clamps against the exploding slot's layer, not StoodInTop. */
             if (source_slot[OBJECT_BLAST_IN_UPPER_ZONE] != 0u) {
                 if (zone.upper_floor > new_y) {
@@ -379,6 +383,7 @@ int object_blast_compute(ObjectBlastRuntime *runtime, ObjectRuntime *objects,
                          uint32_t explosive_slot_index,
                          LevelDynamicState *dynamic_level, const AssetBlob *clips,
                          const GameLink *game_link, GameRandom *random,
+                         ObjectMotionRuntime *motion_runtime,
                          const ObjectVisibilityRuntime *visibility,
                          int16_t explosive_force,
                          char *error, size_t error_size)
@@ -564,5 +569,5 @@ int object_blast_compute(ObjectBlastRuntime *runtime, ObjectRuntime *objects,
         }
     }
     return object_blast_spawn_flames(runtime, objects, source_slot, dynamic_level,
-                                     random, error, error_size);
+                                     random, motion_runtime, error, error_size);
 }
