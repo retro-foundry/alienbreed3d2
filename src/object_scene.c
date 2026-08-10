@@ -16,10 +16,13 @@ enum {
     OBJECT_SCENE_EFFECT = 10u,
     OBJECT_SCENE_FRAME = 11u,
     OBJECT_SCENE_ZONE_ID = 12u,
+    OBJECT_SCENE_TYPE_ID = 16u,
     OBJECT_SCENE_CURRENT_ANGLE = 30u,
     OBJECT_SCENE_AUX_OFFSET_X = 44u,
     OBJECT_SCENE_AUX_OFFSET_Y = 46u,
+    OBJECT_SCENE_ENTITY_TYPE = 54u,
     OBJECT_SCENE_IN_UPPER_ZONE = 63u,
+    OBJECT_SCENE_TYPE_OBJECT = 1u,
     OBJECT_SCENE_BITMAP_LIGHT_FIRST = 2u,
     OBJECT_SCENE_BITMAP_LIGHT_COUNT = 4u,
     /* objdrawhires.s:draw_AngleBrights_vl and draw_PointAndPolyBrights_vl. */
@@ -585,6 +588,25 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
             (sprite.flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u,
             &sprite.source_light_level, error, error_size)) {
         return 0;
+    }
+    /*
+     * newaliencontrol.s:Collectable (and the other fixed ObjT handlers)
+     * writes the active floor/roof into ObjT_YPos before DEFANIMOBJ.  Its
+     * original screen-space bitmap path then crops that packed frame at the
+     * surface.  The GPU scene instead carries the explicit attachment so a
+     * full 3D presenter can retain the live source placement without cutting
+     * pickups and decorations through the floor or ceiling.
+     */
+    if (slot[OBJECT_SCENE_TYPE_ID] == OBJECT_SCENE_TYPE_OBJECT &&
+        slot[OBJECT_SCENE_ENTITY_TYPE] < GAME_LINK_OBJECT_COUNT) {
+        GameObjectDefinition definition;
+
+        if (!game_link_get_object_definition(game_link, slot[OBJECT_SCENE_ENTITY_TYPE],
+                                             &definition, error, error_size)) {
+            return 0;
+        }
+        sprite.surface_attachment = definition.floor_ceiling == 0u ?
+            SCENE_SPRITE_SURFACE_FLOOR : SCENE_SPRITE_SURFACE_CEILING;
     }
 
     /* draw_Object branches on the first byte of this source display word. */

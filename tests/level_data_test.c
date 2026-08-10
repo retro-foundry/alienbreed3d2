@@ -236,6 +236,8 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         int16_t expected_light;
         uint16_t asset_index;
         uint8_t expected_flags = slot[63u] != 0u ? SCENE_SPRITE_FLAG_UPPER_ZONE : 0u;
+        SceneSpriteSurfaceAttachment expected_surface_attachment =
+            SCENE_SPRITE_SURFACE_FREE;
 
         if (point_index < 0) {
             break;
@@ -251,6 +253,17 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         }
         point = game->object_runtime.point_bytes +
             (size_t)(uint16_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+        if (slot[16u] == 1u) {
+            GameObjectDefinition definition;
+
+            if (slot[54u] >= GAME_LINK_OBJECT_COUNT ||
+                !game_link_get_object_definition(&game->game_link_catalog, slot[54u],
+                                                 &definition, error, error_size)) {
+                return 0;
+            }
+            expected_surface_attachment = definition.floor_ceiling == 0u ?
+                SCENE_SPRITE_SURFACE_FLOOR : SCENE_SPRITE_SURFACE_CEILING;
+        }
         sprite = &frame->commands[first_command + command_count].data.sprite;
         if (!level_runtime_get_zone(&game->dynamic_level.runtime, sprite->source_zone_index,
                                     &source_zone, error, error_size) ||
@@ -260,6 +273,7 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             sprite->position.z != (int16_t)read_be16(point + 4u) ||
             sprite->source_brightness != read_be16(slot + 2u) ||
             sprite->yaw != read_be16(slot + 30u) ||
+            sprite->surface_attachment != expected_surface_attachment ||
             sprite->source_aux_offset_x != (int16_t)read_be16(slot + 44u) ||
             sprite->source_aux_offset_y != (int16_t)read_be16(slot + 46u) ||
             sprite->source_clip_top_y != ((expected_flags & SCENE_SPRITE_FLAG_UPPER_ZONE) != 0u ?

@@ -144,6 +144,18 @@ typedef enum {
     SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON
 } SceneSpritePresentation;
 
+/*
+ * Fixed ObjT records use ODefT_FloorCeiling_w to place their source origin on
+ * the selected sector surface.  Publishing this independently of the packed
+ * bitmap lets a 3D backend put the full image above/below that surface instead
+ * of inheriting the software renderer's screen-space crop.
+ */
+typedef enum {
+    SCENE_SPRITE_SURFACE_FREE,
+    SCENE_SPRITE_SURFACE_FLOOR,
+    SCENE_SPRITE_SURFACE_CEILING
+} SceneSpriteSurfaceAttachment;
+
 enum {
     /* objdrawhires.s:draw_Bitmap's byte-10 render controls. */
     SCENE_SPRITE_FLAG_FLIP_HORIZONTAL = 1u << 0,
@@ -177,6 +189,7 @@ typedef struct {
     SceneWorldPoint position;
     SceneSpriteSource source;
     SceneSpritePresentation presentation;
+    SceneSpriteSurfaceAttachment surface_attachment;
     uint32_t source_asset_id;
     uint32_t source_record_id;
     uint16_t frame_index;
