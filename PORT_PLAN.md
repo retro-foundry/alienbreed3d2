@@ -45,16 +45,21 @@ authority for all game behavior and data formats.
   boundaries with ear clipping instead of a fan shortcut, and forward-renders
   source sky, opaque world/vector geometry, animated water, cutout bitmaps,
   additive glare/effects, and Player 1's live vector companion weapon. It
-  emits no HUD commands because UI is outside this scope.
+  retains `hireswall.s:Draw_Wall`'s rear-face rejection with GPU backface
+  culling, so complete-level submission cannot overwrite a wall with an
+  opposite-zone draw-graph record. It emits no HUD commands because UI is
+  outside this scope.
 - [x] `SceneMaterial`, `SceneSprite`, `SceneLighting`, and `SceneEnvironment`
   retain the exact shared `256pal`, source brightness tables, backdrop, and
   water-frame state. The backend converts the source wall palette prefix and
   packed 5-bit wall strips, `floortile` plus row-32 `newtexturemaps.pal`, and
   object WAD/PTR frame columns to filtered/crisp RGBA GPU textures. World
-  conversion resolves the source bright palette row before upload, so walls,
-  floors, ceilings, and water use ordinary linearly filtered mipmapped RGBA
-  textures; the source's live brightness gradient is then applied as modern
-  per-vertex lighting rather than by interpolating indexed palette texels.
+  conversion resolves one neutral source row and fits a per-channel
+  linear-light response (including any authored dark-row residual) from the
+  complete source shade table before upload. Walls, floors, ceilings, and
+  water use ordinary linearly filtered mipmapped RGBA textures; the source's
+  live brightness gradient is applied as continuous GPU lighting rather than
+  by selecting or interpolating indexed palette texels.
 - [x] `objdrawhires.s:doapoly` vector polygons retain their authored point
   index/U/V records. The OpenGL backend decodes each selected signed
   `Draw_TextureMapsPtr` offset with its four-byte source texel stride and
