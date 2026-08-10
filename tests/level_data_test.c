@@ -2079,9 +2079,12 @@ int main(int argc, char **argv)
             GameObjectAnimationFrame gun_frame;
             SceneFrame weapon_scene = {0};
             uint8_t saw_weapon = 0u;
+            uint8_t weapon_lighting_changed = 0u;
             uint8_t weapon_scene_source = UINT8_MAX;
             uint8_t weapon_scene_presentation = UINT8_MAX;
             uint32_t weapon_scene_asset_id = UINT32_MAX;
+            int8_t weapon_source_light[16u * 16u];
+            int16_t saved_weapon_zone_lights[LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT];
 
             if (game.object_runtime.player_shot_first_slot !=
                     (game.level_runtime.player_shot_offset -
@@ -2235,6 +2238,9 @@ int main(int argc, char **argv)
                         weapon_command->data.sprite.source ==
                             SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         weapon_command->data.sprite.source_asset_id == weapon_source_asset_id;
+                    memcpy(weapon_source_light,
+                           weapon_command->data.sprite.source_point_and_polygon_brightness,
+                           sizeof(weapon_source_light));
                     break;
                 }
             }
@@ -2244,6 +2250,51 @@ int main(int argc, char **argv)
                         "(source=%u presentation=%u asset=%u expected vector asset=%u)\n",
                         level_index, weapon_scene_source, weapon_scene_presentation,
                         weapon_scene_asset_id, weapon_source_asset_id);
+                scene_frame_destroy(&weapon_scene);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            /*
+             * objdrawhires.s:draw_CalcBrightRings must reach the camera-space
+             * ENT_NEXT_2 companion: changing its live source-zone samples
+             * changes the unprojected vector-light field submitted to the GPU.
+             */
+            memcpy(saved_weapon_zone_lights,
+                   game.lighting_runtime.current_point_brightness[game.player.zone_index],
+                   sizeof(saved_weapon_zone_lights));
+            for (uint16_t point_index = 0u;
+                 point_index < LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT; ++point_index) {
+                game.lighting_runtime.current_point_brightness[game.player.zone_index]
+                                                               [point_index] = -345;
+            }
+            scene_frame_begin(&weapon_scene);
+            if (!game_bootstrap_submit_scene_frame(&game, &weapon_scene)) {
+                fprintf(stderr, "campaign level %u companion-light scene submission failed\n",
+                        level_index);
+                scene_frame_destroy(&weapon_scene);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            for (size_t command_index = 0u; command_index < weapon_scene.count;
+                 ++command_index) {
+                const SceneCommand *weapon_command = &weapon_scene.commands[command_index];
+
+                if (weapon_command->type == SCENE_COMMAND_SPRITE &&
+                    weapon_command->data.sprite.source_record_id ==
+                        game.object_runtime.player1_slot + 2u) {
+                    weapon_lighting_changed = memcmp(
+                        weapon_source_light,
+                        weapon_command->data.sprite.source_point_and_polygon_brightness,
+                        sizeof(weapon_source_light)) != 0;
+                    break;
+                }
+            }
+            memcpy(game.lighting_runtime.current_point_brightness[game.player.zone_index],
+                   saved_weapon_zone_lights, sizeof(saved_weapon_zone_lights));
+            if (weapon_lighting_changed == 0u) {
+                fprintf(stderr,
+                        "campaign level %u source room lighting did not reach companion weapon\n",
+                        level_index);
                 scene_frame_destroy(&weapon_scene);
                 game_bootstrap_destroy(&game);
                 return 1;

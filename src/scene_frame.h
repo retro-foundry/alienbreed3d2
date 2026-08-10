@@ -180,6 +180,13 @@ typedef struct {
     uint16_t yaw;
     uint16_t source_brightness;
     int16_t source_light_level;
+    /*
+     * objdrawhires.s:draw_CalcBrightRings builds this 16-by-16 directional
+     * point/polygon light field for every vector model.  The values retain
+     * the source byte representation; the GPU consumes them as live lighting
+     * state rather than selecting a pre-lit palette texture.
+     */
+    int8_t source_point_and_polygon_brightness[16u * 16u];
     uint16_t source_zone_index;
     int16_t source_aux_offset_x;
     int16_t source_aux_offset_y;

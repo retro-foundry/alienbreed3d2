@@ -59,10 +59,14 @@ authority for all game behavior and data formats.
   index/U/V records. The OpenGL backend decodes each selected signed
   `Draw_TextureMapsPtr` offset with its four-byte source texel stride and
   converts it once through the neutral bright `Draw_TexturePalettePtr` row.
-  The source face/zone brightness state is submitted as a continuous GPU
-  light multiplier rather than baked into palette-indexed texture variants.
+  `draw_CalcBrightRings` now publishes its live 16-by-16
+  `draw_PointAndPolyBrights_vl` field, including source-zone border samples,
+  joined zones, solid-wall attenuation, and the model's authored polygon-angle
+  table. The source face/environment brightness is submitted as a continuous
+  GPU light multiplier rather than baked into palette-indexed texture variants.
   Vector models, including Player 1's companion weapon, therefore use source
-  texture detail rather than a single representative face colour.
+  texture detail and live room lighting rather than a single representative
+  face colour.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.

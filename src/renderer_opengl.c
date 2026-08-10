@@ -1759,6 +1759,8 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
 }
 
 static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
+                                                     const uint8_t *polygon_angle_bytes,
+                                                     size_t polygon_angle_byte_count,
                                                      const uint8_t *face_bytes,
                                                      size_t *out_map_offset,
                                                      float *out_source_light,
@@ -1769,11 +1771,13 @@ static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
     };
     int16_t source_map_word;
     size_t source_map_offset;
-    float source_brightness;
+    uint8_t source_polygon_angle;
+    uint8_t source_light_index;
     float source_shade;
 
-    if (!sprite || !face_bytes || !out_map_offset || !out_source_light ||
-        !sprite->source_palette_bytes) {
+    if (!sprite || !polygon_angle_bytes || !face_bytes || !out_map_offset ||
+        !out_source_light || !sprite->source_palette_bytes ||
+        face_bytes[3u] >= polygon_angle_byte_count) {
         renderer_opengl_set_error(error, error_size, "source vector face has no texture map");
         return 0;
     }
@@ -1788,19 +1792,18 @@ static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
     }
     /*
      * objdrawhires.s:doapoly turns this face byte into 31 - ((byte * 32 * 41)
-     * >> 12), then adds draw_CalcBrightsInZone's source point brightness.
+     * >> 12), then adds the live draw_PointAndPolyBrights entry selected by
+     * the model's authored polygon-angle table and current object angle.
      * Keep that source state as a continuous GPU light multiplier.  Do not
      * bake its selected Amiga palette-light row into the material texture.
      */
     source_shade = 31.0f - (float)face_bytes[2u] * (32.0f * 41.0f / 4096.0f);
-    source_brightness = (float)sprite->source_light_level;
-    if (source_brightness < 0) {
-        /* draw_CalcBrightsInZone's negative CurrentPointBrights transform. */
-        source_brightness = 332.0f - (source_brightness + 332.0f) * 0.25f;
-    }
-    if (source_brightness > 300.0f) {
-        source_shade += (source_brightness - 300.0f) * 1.5f;
-    }
+    source_polygon_angle = polygon_angle_bytes[face_bytes[3u]];
+    source_light_index = (uint8_t)((source_polygon_angle & 0xf0u) |
+        (((uint8_t)(source_polygon_angle + (sprite->yaw >> 9u))) & 0x0fu));
+    /* The 68000 MOVE.B into D5 intentionally zero-extends the source byte. */
+    source_shade += (float)(uint8_t)sprite->source_point_and_polygon_brightness[
+        source_light_index];
     if (source_shade < 0.0f) {
         source_shade = 0.0f;
     } else if (source_shade >= (float)VECTOR_LIGHT_PALETTE_ROW_COUNT) {
@@ -1967,8 +1970,10 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     uint16_t frame_index;
     size_t start_offset = 2u;
     size_t pointer_table_offset = 6u;
+    size_t frame_pointer_offset;
     size_t lines_offset;
     size_t frame_offset;
+    size_t polygon_angle_offset;
     size_t point_data_offset;
     uint32_t on_off;
     RendererOpenGLVertex *vertices = NULL;
@@ -1993,10 +1998,14 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
         return 0;
     }
     lines_offset = pointer_table_offset + (size_t)frame_count * 4u;
-    frame_offset = start_offset + renderer_opengl_read_be16(
-        bytes + pointer_table_offset + (size_t)frame_index * 4u);
-    if (frame_offset > size || 4u > size - frame_offset) {
-        renderer_opengl_set_error(error, error_size, "source vector model frame points are outside the asset");
+    frame_pointer_offset = pointer_table_offset + (size_t)frame_index * 4u;
+    frame_offset = start_offset + renderer_opengl_read_be16(bytes + frame_pointer_offset);
+    polygon_angle_offset = start_offset + renderer_opengl_read_be16(
+        bytes + frame_pointer_offset + 2u);
+    if (frame_offset > size || 4u > size - frame_offset ||
+        polygon_angle_offset >= size) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector model frame points or polygon angles are outside the asset");
         return 0;
     }
     point_data_offset = frame_offset + 4u + (size_t)point_count + (point_count & 1u);
@@ -2068,7 +2077,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     }
                 }
                 if (!renderer_opengl_vector_face_texture_info(
-                        sprite, face_bytes, &source_map_offset, &source_light,
+                        sprite, bytes + polygon_angle_offset, size - polygon_angle_offset,
+                        face_bytes, &source_map_offset, &source_light,
                         error, error_size) ||
                     !renderer_opengl_find_vector_face_texture(
                         renderer, sprite, source_map_offset,

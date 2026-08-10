@@ -23,6 +23,7 @@ int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *gam
                                const GameSharedResources *resources,
                                const LevelRuntime *level,
                                const LightingRuntime *lighting,
+                               const GameMath *math,
                                const GamePreferences *preferences, SceneFrame *frame,
                                char *error, size_t error_size);
 
