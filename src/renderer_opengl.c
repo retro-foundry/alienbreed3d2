@@ -899,6 +899,7 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
     uint16_t height;
     size_t table_offset;
     size_t palette_offset = 0u;
+    int lighted;
 
     if (!sprite || !out_pixels || !out_width || !out_height || !sprite->source_bytes ||
         !sprite->source_aux_bytes || !sprite->source_palette_bytes ||
@@ -914,8 +915,9 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
         renderer_opengl_set_error(error, error_size, "source bitmap sprite descriptor is invalid");
         return 0;
     }
+    lighted = (sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u;
     /* objdrawhires.s:draw_Bitmap indexes one of four 256-byte light palettes. */
-    if ((sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u) {
+    if (lighted != 0) {
         uint8_t light_palette = (uint8_t)(sprite->source_effect & 0x7fu);
 
         if (light_palette < 2u || light_palette >= 6u) {
@@ -955,53 +957,72 @@ static int renderer_opengl_decode_sprite_texture(const SceneSprite *sprite,
         uint32_t source_pointer = renderer_opengl_read_be32(sprite->source_aux_bytes +
                                                              table_offset + (size_t)x * 4u);
         uint8_t pack = (uint8_t)(source_pointer >> 24u);
-        size_t column_offset = source_pointer & UINT32_C(0x00ffffff);
+        size_t column_offset = lighted != 0 ? source_pointer :
+            source_pointer & UINT32_C(0x00ffffff);
 
         if (source_pointer == 0u) {
             continue;
         }
-        if (pack > 2u || column_offset > sprite->source_byte_count ||
+        /*
+         * draw_bitmap_lighted takes the PTR long as a direct byte offset and
+         * samples `(a0,d1.w)`. Normal and additive bitmaps instead carry a
+         * high-byte packed-third selector and sample 16-bit WAD words. The
+         * two source encodings cannot share bounds or texel extraction.
+         */
+        if (column_offset > sprite->source_byte_count ||
             sprite->frame_metrics.down_strip > UINT16_MAX - height ||
-            (size_t)sprite->frame_metrics.down_strip + height >
-                (sprite->source_byte_count - column_offset) / 2u) {
+            (lighted != 0 ?
+                (size_t)sprite->frame_metrics.down_strip + height >
+                    sprite->source_byte_count - column_offset :
+                pack > 2u || (size_t)sprite->frame_metrics.down_strip + height >
+                    (sprite->source_byte_count - column_offset) / 2u)) {
             free(pixels);
             renderer_opengl_set_error(error, error_size,
                                       "source bitmap sprite WAD column is invalid");
             return 0;
         }
         for (y = 0u; y < height; ++y) {
-            size_t word_offset = column_offset +
-                ((size_t)sprite->frame_metrics.down_strip + y) * 2u;
-            uint16_t packed_word = renderer_opengl_read_be16(sprite->source_bytes + word_offset);
-            uint8_t packed_texel;
+            uint8_t source_texel;
             uint8_t color_index;
 
-            switch (pack) {
-            case 0u:
-                packed_texel = (uint8_t)(packed_word & 31u);
-                break;
-            case 1u:
-                packed_texel = (uint8_t)((packed_word >> 5u) & 31u);
-                break;
-            default:
-                packed_texel = (uint8_t)((packed_word >> 2u) & 31u);
-                break;
+            if (lighted != 0) {
+                /* draw_bitmap_lighted: move.b (a0,d1.w),d0. */
+                source_texel = sprite->source_bytes[column_offset +
+                    (size_t)sprite->frame_metrics.down_strip + y];
+            } else {
+                size_t word_offset = column_offset +
+                    ((size_t)sprite->frame_metrics.down_strip + y) * 2u;
+                uint16_t packed_word =
+                    renderer_opengl_read_be16(sprite->source_bytes + word_offset);
+
+                switch (pack) {
+                case 0u:
+                    source_texel = (uint8_t)(packed_word & 31u);
+                    break;
+                case 1u:
+                    source_texel = (uint8_t)((packed_word >> 5u) & 31u);
+                    break;
+                default:
+                    source_texel = (uint8_t)((packed_word >> 2u) & 31u);
+                    break;
+                }
             }
             if (palette_offset > sprite->source_palette_byte_count ||
-                (size_t)packed_texel * 2u + 2u >
+                (lighted != 0 ? (size_t)source_texel + 1u :
+                 (size_t)source_texel * 2u + 2u) >
                     sprite->source_palette_byte_count - palette_offset) {
                 free(pixels);
                 renderer_opengl_set_error(error, error_size,
                                           "source bitmap sprite palette is invalid");
                 return 0;
             }
-            color_index = sprite->source_palette_bytes[
-                palette_offset + (size_t)packed_texel * 2u];
+            color_index = sprite->source_palette_bytes[palette_offset +
+                (lighted != 0 ? (size_t)source_texel : (size_t)source_texel * 2u)];
             if (!renderer_opengl_write_palette_texel(
                     pixels, ((size_t)y * width + x) * 4u,
                     sprite->source_display_palette_bytes,
                     sprite->source_display_palette_byte_count, color_index,
-                    packed_texel == 0u)) {
+                    source_texel == 0u)) {
                 free(pixels);
                 renderer_opengl_set_error(error, error_size,
                                           "source bitmap palette references invalid display colour");

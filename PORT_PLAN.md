@@ -96,6 +96,9 @@ authority for all game behavior and data formats.
   and half-extents. Every source column in a frame is therefore decoded and
   world billboard size/placement follows the source scaler rather than an
   arbitrary PC-space shrink.
+- [x] `objdrawhires.s:draw_bitmap_lighted` now follows its own direct 8-bit
+  WAD/PTR column format and 256-entry selected object-light palette, instead
+  of incorrectly extracting an ordinary bitmap's packed 5-bit third.
 - [x] `hireswall.s:Draw_Wall` record words `+8`, `+10`, and `+12` now publish
   source U extent, packed-WAD tile origin, and vertical origin. Wall geometry
   carries that texture window, including the source player-height V phase.
