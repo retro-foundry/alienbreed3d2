@@ -7290,6 +7290,104 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        {
+            /* newaliencontrol.s:SHOOTPLAYER1 uses the alien/player snapshot ray, not Plr1_Shot. */
+            enum {
+                ALIEN_MISS_SLOT_COUNT = 1u + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT
+            };
+            uint8_t miss_slot_bytes[ALIEN_MISS_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT];
+            uint8_t miss_point_bytes[ALIEN_MISS_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT];
+            ObjectRuntime miss_objects = {0};
+            PlayerRuntime miss_player = {0};
+            GameRandom miss_random;
+            GameRandom expected_random;
+            AlienHitscanMissState miss_state;
+            uint16_t nonnegative_random_state = 0u;
+            int found_nonnegative_random_state = 0;
+
+            for (uint32_t candidate = 0u; candidate <= UINT16_MAX; ++candidate) {
+                GameRandom candidate_random = {(uint16_t)candidate};
+
+                if ((int16_t)game_random_next(&candidate_random) >= 0) {
+                    nonnegative_random_state = (uint16_t)candidate;
+                    found_nonnegative_random_state = 1;
+                    break;
+                }
+            }
+            if (!found_nonnegative_random_state ||
+                !level_dynamic_state_set_edge_flags(&movement_state, 0u, 0u)) {
+                fprintf(stderr, "could not prepare SHOOTPLAYER1 source fixture\n");
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            memset(miss_slot_bytes, 0xa5, sizeof(miss_slot_bytes));
+            memset(miss_point_bytes, 0x5a, sizeof(miss_point_bytes));
+            miss_objects.slot_bytes = miss_slot_bytes;
+            miss_objects.slot_count = ALIEN_MISS_SLOT_COUNT;
+            miss_objects.active_slot_count = ALIEN_MISS_SLOT_COUNT;
+            miss_objects.player_shot_first_slot = 1u;
+            miss_objects.point_bytes = miss_point_bytes;
+            miss_objects.point_count = ALIEN_MISS_SLOT_COUNT;
+            write_be16(miss_slot_bytes + 0u, 0u);
+            write_be16(miss_slot_bytes + 4u, 15u);
+            write_be16(miss_slot_bytes + 12u, 0u);
+            write_be32(miss_point_bytes + 0u, UINT32_C(0x00001111));
+            write_be32(miss_point_bytes + 4u, UINT32_C(0x000a2222));
+            for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+                 ++shot_index) {
+                uint32_t slot_index = 1u + shot_index;
+
+                write_be16(miss_slot_bytes + slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                           (uint16_t)slot_index);
+                write_be16(miss_slot_bytes + slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                           UINT16_MAX);
+            }
+            miss_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0x7eu;
+            write_be16(miss_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u,
+                       UINT16_C(0x1234));
+            write_be32(miss_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u,
+                       UINT32_C(0x5555beef));
+            write_be32(miss_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                       UINT32_C(0x6666face));
+            miss_player.tmp_x = 0;
+            miss_player.tmp_y = 0;
+            miss_player.tmp_z = 11;
+            miss_random.state = nonnegative_random_state;
+            expected_random = miss_random;
+            (void)game_random_next(&expected_random);
+            if (!alien_attack_shoot_player_one(
+                    &miss_objects, 0u, &movement_state, &miss_player, &miss_random,
+                    &miss_state, error, sizeof(error)) ||
+                miss_state.impact_spawned != UINT8_MAX ||
+                miss_state.movement.hit_wall != UINT8_MAX ||
+                miss_state.movement.new_x != 0 || miss_state.movement.new_z != 20 ||
+                miss_state.movement.wall_hit_height != 15 * 128 ||
+                miss_random.state != expected_random.state ||
+                miss_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] != 0x7eu ||
+                read_be16(miss_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) != 0u ||
+                read_be16(miss_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) !=
+                    UINT16_C(0x1234) ||
+                miss_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 30u] != 1u ||
+                miss_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 31u] != 0u ||
+                miss_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 52u] != 0u ||
+                read_be16(miss_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u) != 0u ||
+                miss_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 62u] != UINT8_MAX ||
+                read_be32(miss_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u) !=
+                    15u * 128u ||
+                read_be16(miss_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u) != 15u ||
+                read_be32(miss_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u) !=
+                    UINT32_C(0x0000beef) ||
+                read_be32(miss_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u) !=
+                    UINT32_C(0x0014face) ||
+                !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
+                edge_flags != 0x0400u) {
+                fprintf(stderr, "SHOOTPLAYER1 source miss state is inconsistent: %s\n", error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
         write_be16(movement_state.level_bytes + 200u, 10u);
         write_be16(movement_state.level_bytes + 202u, 20u);
         write_be16(movement_state.level_bytes + 204u, 0u);

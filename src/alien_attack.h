@@ -11,7 +11,9 @@
 #include "game_link.h"
 #include "game_progression.h"
 #include "lighting_runtime.h"
+#include "level_dynamic_state.h"
 #include "object_heading.h"
+#include "object_movement.h"
 #include "object_runtime.h"
 #include "object_explosion.h"
 #include "player_runtime.h"
@@ -47,6 +49,23 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
                                     const AlienAttackSetup *attack_setup,
                                     uint8_t *out_spawned,
                                     char *error, size_t error_size);
+
+/* Source outputs from newaliencontrol.s:SHOOTPLAYER1. */
+typedef struct {
+    ObjectMovementTrace movement;
+    uint8_t impact_spawned;
+} AlienHitscanMissState;
+
+/*
+ * newaliencontrol.s:SHOOTPLAYER1. It traces the source randomised ray to a
+ * wall, then creates the corresponding stationary impact in the player-shot
+ * pool. It leaves audio and the caller's register globals to their owners.
+ */
+int alien_attack_shoot_player_one(ObjectRuntime *objects, uint32_t alien_slot_index,
+                                  LevelDynamicState *dynamic_level,
+                                  const PlayerRuntime *player, GameRandom *random,
+                                  AlienHitscanMissState *out_state,
+                                  char *error, size_t error_size);
 
 /* Source outputs from modules/ai.s:ai_AttackWithProjectile. */
 typedef struct {

@@ -8,6 +8,7 @@
 #include "alien_perception.h"
 #include "alien_torch.h"
 #include "object_heading.h"
+#include "object_movement.h"
 
 #include <string.h>
 
@@ -119,6 +120,11 @@ static int16_t alien_attack_asr16_count(int16_t value, uint16_t count)
         return value < 0 ? -1 : 0;
     }
     return (int16_t)alien_attack_asr32(value, effective_count);
+}
+
+static int16_t alien_attack_high_word(int32_t value)
+{
+    return (int16_t)((uint32_t)value >> 16u);
 }
 
 static int32_t alien_attack_muls16(int16_t left, int16_t right)
@@ -353,6 +359,135 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
     if (out_spawned) {
         *out_spawned = UINT8_MAX;
     }
+    return 1;
+}
+
+int alien_attack_shoot_player_one(ObjectRuntime *objects, uint32_t alien_slot_index,
+                                  LevelDynamicState *dynamic_level,
+                                  const PlayerRuntime *player, GameRandom *random,
+                                  AlienHitscanMissState *out_state,
+                                  char *error, size_t error_size)
+{
+    uint8_t *alien_slot;
+    uint8_t *alien_point;
+    ObjectMovementTrace trace = {0};
+    AlienHitscanMissState state;
+    int16_t spread;
+    int16_t player_height;
+    int16_t player_x;
+    int16_t player_z;
+    int16_t x_difference;
+    int16_t z_difference;
+
+    if (!objects || !dynamic_level || !player || !random || !out_state ||
+        alien_slot_index >= objects->active_slot_count ||
+        objects->active_slot_count > objects->slot_count ||
+        !object_runtime_get_slot_bytes(objects, alien_slot_index, &alien_slot) ||
+        !object_runtime_get_point_bytes(
+            objects, alien_attack_read_be16(alien_slot + ALIEN_ATTACK_SLOT_POINT_INDEX),
+            &alien_point)) {
+        alien_attack_set_error(error, error_size, "SHOOTPLAYER1 received invalid source state");
+        return 0;
+    }
+    memset(&state, 0, sizeof(state));
+    trace.zone_index = alien_attack_read_be16(alien_slot + ALIEN_ATTACK_SLOT_ZONE_ID);
+    if (trace.zone_index >= dynamic_level->runtime.zone_count) {
+        alien_attack_set_error(error, error_size,
+                               "SHOOTPLAYER1 alien zone is outside the source level");
+        return 0;
+    }
+
+    trace.old_x = alien_attack_read_be16s(alien_point);
+    trace.old_z = alien_attack_read_be16s(alien_point + 4u);
+    player_x = (int16_t)(uint16_t)player->tmp_x;
+    player_z = (int16_t)(uint16_t)player->tmp_z;
+    x_difference = alien_attack_sub16(player_x, trace.old_x);
+    z_difference = alien_attack_sub16(player_z, trace.old_z);
+    spread = alien_attack_asr16_count((int16_t)game_random_next(random), 4u);
+    trace.new_z = alien_attack_add16(
+        player_z, alien_attack_high_word(alien_attack_muls16(spread, x_difference)));
+    trace.new_x = alien_attack_sub16(
+        player_x, alien_attack_high_word(alien_attack_muls16(spread, z_difference)));
+    player_height = (int16_t)alien_attack_asr32(
+        alien_attack_add32(player->tmp_y, 15 * 128), 7u);
+    player_height = alien_attack_add16(
+        player_height, alien_attack_high_word(alien_attack_muls16(spread, player_height)));
+    trace.new_y = (int32_t)((uint32_t)(int32_t)player_height << 7u);
+    trace.old_y = (int32_t)((uint32_t)(int32_t)alien_attack_read_be16s(
+        alien_slot + ALIEN_ATTACK_SLOT_Y_POSITION) << 7u);
+    trace.stood_in_top = alien_slot[ALIEN_ATTACK_SHOT_IN_UPPER_ZONE];
+    trace.exit_first = UINT8_MAX;
+    trace.extension_length = 0;
+    trace.away_from_wall = -1;
+    trace.wall_flags = 0x0400u;
+    trace.step_up = 0;
+    trace.step_down = 0x1000000;
+    trace.thing_height = 0;
+
+    for (;;) {
+        int16_t ray_x;
+        int16_t ray_z;
+        int32_t ray_y;
+
+        if (!object_movement_trace_zero_extension(dynamic_level, &trace,
+                                                  error, error_size)) {
+            return 0;
+        }
+        if (trace.hit_wall != 0u) {
+            break;
+        }
+        ray_x = alien_attack_sub16(trace.new_x, trace.old_x);
+        ray_z = alien_attack_sub16(trace.new_z, trace.old_z);
+        ray_y = alien_attack_sub32(trace.new_y, trace.old_y);
+        trace.old_x = alien_attack_add16(trace.old_x, ray_x);
+        trace.new_x = alien_attack_add16(trace.new_x, ray_x);
+        trace.old_z = alien_attack_add16(trace.old_z, ray_z);
+        trace.new_z = alien_attack_add16(trace.new_z, ray_z);
+        trace.old_y = alien_attack_add32(trace.old_y, ray_y);
+        trace.new_y = alien_attack_add32(trace.new_y, ray_y);
+    }
+    state.movement = trace;
+
+    for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+         ++shot_index) {
+        uint8_t *shot_slot;
+        uint8_t *shot_point;
+        LevelZone zone;
+
+        if (!object_runtime_get_player_shot_slot_bytes(objects, shot_index, &shot_slot)) {
+            alien_attack_set_error(error, error_size,
+                                   "SHOOTPLAYER1 player-shot pool is outside source state");
+            return 0;
+        }
+        if (alien_attack_read_be16s(shot_slot + ALIEN_ATTACK_SLOT_ZONE_ID) >= 0) {
+            continue;
+        }
+        if (!object_runtime_get_point_bytes(
+                objects, alien_attack_read_be16(shot_slot + ALIEN_ATTACK_SLOT_POINT_INDEX),
+                &shot_point) ||
+            !level_runtime_get_zone(&dynamic_level->runtime, trace.zone_index, &zone,
+                                    error, error_size)) {
+            alien_attack_set_error(error, error_size,
+                                   "SHOOTPLAYER1 impact slot is outside source state");
+            return 0;
+        }
+        alien_attack_write_be16(shot_point + 0u, (uint16_t)trace.new_x);
+        alien_attack_write_be16(shot_point + 4u, (uint16_t)trace.new_z);
+        shot_slot[30u] = 1u;
+        alien_attack_write_be16(shot_slot + 54u, 0u);
+        shot_slot[31u] = 0u;
+        shot_slot[52u] = 0u;
+        alien_attack_write_be16(shot_slot + ALIEN_ATTACK_SLOT_ZONE_ID, zone.id);
+        shot_slot[ALIEN_ATTACK_SHOT_WORRY] = UINT8_MAX;
+        alien_attack_write_be32(shot_slot + ALIEN_ATTACK_SHOT_ACCUMULATED_Y,
+                                (uint32_t)trace.wall_hit_height);
+        alien_attack_write_be16(shot_slot + ALIEN_ATTACK_SLOT_Y_POSITION,
+                                (uint16_t)alien_attack_asr32(trace.wall_hit_height, 7u));
+        state.impact_spawned = UINT8_MAX;
+        *out_state = state;
+        return 1;
+    }
+    *out_state = state;
     return 1;
 }
 

@@ -485,8 +485,12 @@ authority for all game behavior and data formats.
      its projectile launch fields without filling in its separate audio calls.
      `ai_AttackWithProjectile` now composes the complete source projectile
      attack body around that helper, still outside the global dispatcher.
-     Next: port the complete hitscan attack body and `SHOOTPLAYER1`, then the
-     audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
+     `newaliencontrol.s:SHOOTPLAYER1` now traces its source randomized
+     player-snapshot ray through repeated zero-extension `MoveObject` calls,
+     then writes the resulting wall-impact state to the first free player-shot
+     pool slot. It too remains outside the global dispatcher. Next: port the
+     complete hitscan attack body, then the audio portions of
+     `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
      for either an empty or successful trigger, without synthesizing the
@@ -728,6 +732,15 @@ finished-animation followup, and unfinished-animation sight/front fallback.
 only its `HeadTowardsAng` reaction changes it, while the source hit-animation
 route leaves it untouched. The live dispatcher remains absent until its other
 routes and narrative ownership can be enabled in source order.
+`newaliencontrol.s:SHOOTPLAYER1` is now an uncalled direct hitscan-miss helper.
+It takes the source player temporary position/height snapshot, applies the
+signed-word `GetRand >> 4` lateral and vertical spread, repeatedly invokes the
+zero-extension `MoveObject` path until a wall contact, and initializes only
+the exact stationary impact fields in the first negative-zone player-shot
+slot. The caller's `oldx`/`oldz`/`newx`/`newz` globals and separate audio
+calls remain outside this native helper. `ai_AttackWithHitScan` still owns the
+shot decision, damage route, animation, torch, and mode transitions and
+remains unbound.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

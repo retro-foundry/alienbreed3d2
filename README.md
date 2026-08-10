@@ -92,7 +92,10 @@ first game's software renderer:
   narrative handoff can own it in order. `modules/ai.s:ai_AttackCommon` now
   derives the exact source-width `SHOTTYPE`, `SHOTPOWER`, `SHOTSPEED`, and
   `SHOTSHIFT` state plus its hitscan/projectile branch from each `AlienT` and
-  `BulT`; its firing bodies remain uncalled. `objectmove.s:CalcDist` and
+  `BulT`; its attack modes remain uncalled. `newaliencontrol.s:SHOOTPLAYER1`
+  now preserves the hitscan-miss ray's source `GetRand` spread, repeated
+  zero-extension `MoveObject` trace, and stationary player-shot impact-pool
+  writes. `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
   now allocates and initializes its source alien-projectile state, including
