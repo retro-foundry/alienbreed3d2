@@ -79,8 +79,11 @@ first game's software renderer:
   allocation branch, `STATS_KILL` counter/signal update, and alien-damage
   reactions are likewise prepared through its direct death helper. That helper
   emits its source `Msg_PushLine` narrative request for the later GPU-neutral
-  message consumer; it is not yet live in incomplete enemy dispatch. Enemy
-  behavior, dynamic blast, and audio remain in progress;
+  message consumer. `modules/ai.s:ai_PauseBriefly` now composes the exact
+  damage/death, walk-animation, source-frame-timer, torch, sight, front, and
+  darkness branches; it remains uncalled until the complete alien dispatcher
+  and message consumer own it in source order. Enemy behavior, dynamic blast,
+  and audio remain in progress;
 - opens a diagnostic SDL window whose title presents the active level, zone,
   camera coordinates, and command count. It does not rasterize the game scene.
 

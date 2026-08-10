@@ -654,6 +654,14 @@ published as a raw 160-byte narrative request with the source tag, rather than
 inventing a text layout while the GPU-neutral message consumer is absent. The
 helper remains outside `ObjectHandler` until that consumer and a complete AI
 mode dispatcher can call it in source order.
+`modules/ai.s:ai_PauseBriefly` is now a complete but uncalled mode. It retains
+the immediate damage return (including the exact direct `ai_JustDied` handoff),
+the zero `EntT_Timer2_w` before `ai_DoWalkAnim`, signed `Anim_TempFrames_w`
+subtraction, and every source-order torch/sight/front/darkness decision before
+writing its mode/animation byte and adding `ai_AnimFacing_w`. Its caller must
+supply the captured source frame word; no native timing rule is introduced.
+It remains outside `ObjectHandler` while the global AI dispatcher, its other
+modes, and the narrative consumer are incomplete.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

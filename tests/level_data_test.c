@@ -12,6 +12,7 @@
 #include "alien_math.h"
 #include "alien_main.h"
 #include "alien_memory.h"
+#include "alien_pause.h"
 #include "alien_perception.h"
 #include "alien_setup.h"
 #include "alien_spatial.h"
@@ -6077,6 +6078,167 @@ int main(int argc, char **argv)
             return 1;
         }
         free(death_link_blob.bytes);
+    }
+    {
+        /* modules/ai.s:ai_PauseBriefly retains its timer, sight, and facing order. */
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime pause_objects = {0};
+        ObjectAnimationRuntime pause_animation;
+        ObjectExplosionRuntime pause_explosion;
+        AlienRuntime pause_runtime;
+        LightingRuntime pause_lighting;
+        GameProgression pause_progression;
+        GameRandom pause_random;
+        PlayerRuntime pause_player = game.player;
+        AlienSetup pause_setup;
+        AlienPauseState pause_state;
+        GameAlienDefinition pause_definition;
+        GameAlienAnimationFrame pause_frame;
+        GameObjectDefinition pause_auxiliary_definition;
+        GameObjectAnimationFrame pause_auxiliary_frame;
+        uint16_t pause_alien = UINT16_MAX;
+        uint16_t pause_option = UINT16_MAX;
+        uint16_t pause_frame_index = UINT16_MAX;
+
+        for (uint16_t alien_index = 0u;
+             alien_index < GAME_LINK_ALIEN_COUNT && pause_alien == UINT16_MAX;
+             ++alien_index) {
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &pause_definition, error, sizeof(error)) ||
+                (int16_t)pause_definition.auxiliary_type < 0 ||
+                (int16_t)pause_definition.auxiliary_type >= GAME_LINK_OBJECT_COUNT) {
+                continue;
+            }
+            for (uint16_t option_index = 1u;
+                 option_index < GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT &&
+                 pause_alien == UINT16_MAX;
+                 ++option_index) {
+                for (uint16_t frame_index = 0u;
+                     frame_index < GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT;
+                     ++frame_index) {
+                    if (!game_link_get_alien_animation_frame(
+                            &game.game_link_catalog, alien_index, option_index, frame_index,
+                            &pause_frame, error, sizeof(error)) ||
+                        (int8_t)pause_frame.bytes[8u] < 0 ||
+                        pause_frame.bytes[8u] >= GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT ||
+                        !game_link_get_object_definition(
+                            &game.game_link_catalog, (uint16_t)pause_definition.auxiliary_type,
+                            &pause_auxiliary_definition, error, sizeof(error)) ||
+                        !game_link_get_object_animation_frame(
+                            &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                            (uint16_t)pause_definition.auxiliary_type, pause_frame.bytes[8u],
+                            &pause_auxiliary_frame, error, sizeof(error))) {
+                        continue;
+                    }
+                    pause_alien = alien_index;
+                    pause_option = option_index;
+                    pause_frame_index = frame_index;
+                    break;
+                }
+            }
+        }
+        if (pause_alien == UINT16_MAX) {
+            fprintf(stderr, "ai_PauseBriefly animation source fixture is unavailable: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        pause_objects.slot_bytes = slot_bytes;
+        pause_objects.slot_count = 2u;
+        pause_objects.active_slot_count = 2u;
+        pause_objects.point_bytes = point_bytes;
+        pause_objects.point_count = 1u;
+        pause_player.x = 100;
+        pause_player.z = 200;
+        pause_player.tmp_x = 100;
+        pause_player.tmp_z = 200;
+        pause_player.y = 3 * 128;
+        pause_player.stood_in_top = 0u;
+
+        write_be16(slot_bytes + 0u, UINT16_MAX);
+        write_be16(slot_bytes + 12u, UINT16_MAX);
+        write_be16(slot_bytes + 64u + 0u, 0u);
+        write_be16(slot_bytes + 64u + 4u, 3u);
+        write_be16(slot_bytes + 64u + 12u, pause_player.zone_index);
+        write_be16(slot_bytes + 64u + 26u, pause_player.zone_index);
+        write_be16(slot_bytes + 64u + 30u, 0x1000u);
+        write_be16(slot_bytes + 64u + 34u, 2u);
+        slot_bytes[64u + 20u] = 4u;
+        slot_bytes[64u + 54u] = (uint8_t)pause_alien;
+        slot_bytes[64u + 55u] = 7u;
+        slot_bytes[64u + 63u] = pause_player.stood_in_top;
+        write_be16(point_bytes + 0u, (uint16_t)pause_player.x);
+        write_be16(point_bytes + 4u, (uint16_t)pause_player.z);
+        if (!alien_setup_from_slot(&pause_objects, 1u, &game.dynamic_level.runtime,
+                                   &game.game_link_catalog, &pause_setup,
+                                   error, sizeof(error))) {
+            fprintf(stderr, "ai_PauseBriefly setup fixture is invalid: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        object_animation_runtime_init(&pause_animation);
+        pause_animation.workspace[1u][1u] = (uint8_t)pause_frame_index;
+        pause_animation.workspace[1u][2u] = (uint8_t)pause_option;
+        alien_runtime_init(&pause_runtime);
+        lighting_runtime_init(&pause_lighting);
+        object_explosion_runtime_init(&pause_explosion);
+        game_progression_init(&pause_progression);
+        game_random_init(&pause_random);
+        if (!alien_pause_briefly_update(
+                &pause_objects, 1u, &pause_runtime, &pause_animation, &pause_lighting,
+                &game.dynamic_level.runtime, &game.level_clips, &game.game_link_catalog,
+                &pause_progression, &pause_explosion, &game.math, &pause_random,
+                &pause_player, &pause_setup, 1u, &pause_state, error, sizeof(error)) ||
+            pause_state.damage_taken != 0u || pause_state.got_out != 0u ||
+            read_be16(slot_bytes + 64u + 34u) != 1u ||
+            read_be16(slot_bytes + 64u + 40u) != 0u || slot_bytes[64u + 20u] != 4u ||
+            slot_bytes[64u + 55u] != 7u ||
+            read_be16(slot_bytes + 64u + 30u) !=
+                (uint16_t)(0x1000u + pause_state.animation.facing)) {
+            fprintf(stderr, "ai_PauseBriefly waiting source state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
+        memset(slot_bytes, 0, sizeof(slot_bytes));
+        object_animation_runtime_init(&pause_animation);
+        alien_runtime_init(&pause_runtime);
+        lighting_runtime_init(&pause_lighting);
+        object_explosion_runtime_init(&pause_explosion);
+        game_progression_init(&pause_progression);
+        game_random_init(&pause_random);
+        write_be16(slot_bytes + 0u, UINT16_MAX);
+        write_be16(slot_bytes + 12u, UINT16_MAX);
+        write_be16(slot_bytes + 64u + 0u, 0u);
+        write_be16(slot_bytes + 64u + 4u, 3u);
+        write_be16(slot_bytes + 64u + 12u, pause_player.zone_index);
+        write_be16(slot_bytes + 64u + 26u, pause_player.zone_index);
+        write_be16(slot_bytes + 64u + 30u, 0x1000u);
+        write_be16(slot_bytes + 64u + 34u, 0u);
+        slot_bytes[64u + 20u] = 4u;
+        slot_bytes[64u + 54u] = (uint8_t)pause_alien;
+        slot_bytes[64u + 55u] = 7u;
+        slot_bytes[64u + 63u] = pause_player.stood_in_top;
+        write_be16(point_bytes + 0u, (uint16_t)pause_player.x);
+        write_be16(point_bytes + 4u, (uint16_t)pause_player.z);
+        pause_animation.workspace[1u][1u] = (uint8_t)pause_frame_index;
+        pause_animation.workspace[1u][2u] = (uint8_t)pause_option;
+        if (!alien_pause_briefly_update(
+                &pause_objects, 1u, &pause_runtime, &pause_animation, &pause_lighting,
+                &game.dynamic_level.runtime, &game.level_clips, &game.game_link_catalog,
+                &pause_progression, &pause_explosion, &game.math, &pause_random,
+                &pause_player, &pause_setup, 1u, &pause_state, error, sizeof(error)) ||
+            pause_state.damage_taken != 0u || pause_state.got_out != 0u ||
+            slot_bytes[64u + 17u] != 1u || slot_bytes[64u + 20u] != 0u ||
+            slot_bytes[64u + 55u] != 0u ||
+            read_be16(slot_bytes + 64u + 30u) !=
+                (uint16_t)(0x1000u + pause_state.animation.facing)) {
+            fprintf(stderr, "ai_PauseBriefly expired no-front source state is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     {
         /* objectmove.s:HeadTowardsAng's zero-distance, range, and speed paths. */
