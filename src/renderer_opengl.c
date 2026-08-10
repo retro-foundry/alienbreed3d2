@@ -1591,11 +1591,19 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
 
         renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
         local_x = (float)source_point.x * 0.0125f;
-        local_y = -(float)source_point.y * 0.00625f;
+        local_y = -(float)source_point.y * 0.0125f;
         local_z = (float)source_point.z * 0.0125f;
         center_x = camera_x + forward_x * 1.3f - right_x * 0.35f;
         center_z = camera_z + forward_z * 1.3f - right_z * 0.35f;
-        center_y = camera_y - 0.40f + (center_y - camera_y) * 0.25f;
+        /*
+         * objdrawhires.s:draw_PolygonModel special-cases Plr1_Use's
+         * ENT_NEXT_2 companion at depth one and resets its projection centre
+         * to the screen centre.  Its ObjT vertical word still carries the
+         * live Plr1_Use bob, but is not a world-space origin for that pass.
+         * Keep that source bob as a small camera-space displacement instead
+         * of placing the whole model at the player's body height.
+         */
+        center_y = camera_y - 0.55f + (center_y - camera_y) * (1.0f / 64.0f);
     } else {
         local_x = (float)source_point.x * 0.5f;
         local_y = -(float)source_point.y * 0.25f;
