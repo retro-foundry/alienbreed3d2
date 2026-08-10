@@ -496,6 +496,8 @@ authority for all game behavior and data formats.
      dispatcher. `objectmove.s:CheckTeleport` now preserves its source-zone
      collision probe, floor-relative destination, and delayed `Obj_ZonePtr`
      replacement as an uncalled helper for the remaining charge/approach modes.
+     `newaliencontrol.s:RunAround` now preserves its caller-owned signed-word
+     side-target adjustment for the charge/approach side routes.
      Next: finish the remaining `ItsAnAlien` collision/dispatcher routes, then
      the audio portions of `newplayershoot.s`. The complete source
      `Plr1_Shot`
@@ -828,6 +830,12 @@ It retains the source's destination-floor delta, temporary teleport X/Z, and
 restores `newy` after that collision call and only replaces the returned source
 zone pointer after a collision-free result. The helper remains uncalled until
 the complete charge and approach mode routines own its result in source order.
+
+`src/alien_run_around.*` now directly translates
+`newaliencontrol.s:RunAround`. It preserves the source caller's old/target
+coordinate globals, player temporary-position/trigonometric inputs, and
+signed-word lateral adjustment. It is available to the later side charge and
+approach routines but remains uncalled on its own.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their

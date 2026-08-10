@@ -16,6 +16,7 @@
 #include "alien_pause.h"
 #include "alien_perception.h"
 #include "alien_prowl.h"
+#include "alien_run_around.h"
 #include "alien_setup.h"
 #include "alien_spatial.h"
 #include "alien_spawn.h"
@@ -7206,6 +7207,30 @@ int main(int argc, char **argv)
             return 1;
         }
         level_dynamic_state_destroy(&prowl_dynamic);
+    }
+    {
+        /* newaliencontrol.s:RunAround chooses the source-side lateral target. */
+        AlienRunAroundState run_around = {
+            100, 50, 20, 10,
+            0, 100, 0, 0,
+            50, 0
+        };
+
+        if (!alien_run_around_apply(&run_around, error, sizeof(error)) ||
+            run_around.new_x != 40 || run_around.new_z != -30) {
+            fprintf(stderr, "RunAround right-side source target is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        run_around.new_x = 20;
+        run_around.new_z = 10;
+        run_around.object_x = -50;
+        if (!alien_run_around_apply(&run_around, error, sizeof(error)) ||
+            run_around.new_x != 0 || run_around.new_z != 50) {
+            fprintf(stderr, "RunAround left-side source target is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     {
         /* objectmove.s:CalcDist/HeadTowards and HeadTowardsAng source paths. */

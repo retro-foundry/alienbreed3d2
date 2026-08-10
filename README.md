@@ -101,7 +101,8 @@ first game's software renderer:
   uncalled. `objectmove.s:CheckTeleport` now preserves its destination
   floor-relative collision probe, temporary teleport X/Z, and source-zone
   ownership handoff for the remaining alien movement modes; it remains
-  uncalled. `objectmove.s:CalcDist` and
+  uncalled. `newaliencontrol.s:RunAround` now preserves its exact signed-word
+  side-target adjustment for the remaining charge/approach side modes. `objectmove.s:CalcDist` and
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
   now allocates and initializes its source alien-projectile state, including
