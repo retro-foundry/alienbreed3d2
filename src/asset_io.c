@@ -20,6 +20,77 @@ static uint32_t asset_io_read_be32(const uint8_t *source)
            ((uint32_t)source[2] << 8) | source[3];
 }
 
+int asset_io_decode_csfx(const uint8_t *source, size_t source_size,
+                         AssetBlob *out_blob, char *error, size_t error_size)
+{
+    static const int8_t fibonacci_deltas[16] = {
+        -34, -21, -13, -8, -5, -3, -2, -1, 0, 1, 2, 3, 5, 8, 13, 21
+    };
+    uint32_t decoded_size;
+    size_t packed_size;
+    uint8_t *decoded;
+    uint8_t sample_value;
+    size_t output_index;
+    size_t input_index;
+
+    if (!out_blob) {
+        asset_io_set_error(error, error_size, "CSFX output pointer is null");
+        return 0;
+    }
+    out_blob->bytes = NULL;
+    out_blob->size = 0u;
+    if (!source || source_size < 9u || memcmp(source, "CSFX", 4u) != 0) {
+        asset_io_set_error(error, error_size, "CSFX sample has an invalid source header");
+        return 0;
+    }
+    decoded_size = asset_io_read_be32(source + 4u);
+    if (decoded_size == 0u) {
+        asset_io_set_error(error, error_size, "CSFX sample declares zero decoded bytes");
+        return 0;
+    }
+    /* io_LoadSample consumes one initial byte then high/low Fibonacci nibbles. */
+    packed_size = (size_t)decoded_size / 2u;
+    if (packed_size > source_size - 9u) {
+        asset_io_set_error(error, error_size, "CSFX sample payload is truncated");
+        return 0;
+    }
+    decoded = malloc((size_t)decoded_size);
+    if (!decoded) {
+        asset_io_set_error(error, error_size, "out of memory while decoding CSFX sample");
+        return 0;
+    }
+    sample_value = source[8u];
+    decoded[0u] = sample_value;
+    output_index = 1u;
+    input_index = 9u;
+    while (output_index < (size_t)decoded_size) {
+        uint8_t packed = source[input_index++];
+
+        sample_value = (uint8_t)(sample_value +
+                                  (uint8_t)fibonacci_deltas[packed >> 4]);
+        decoded[output_index++] = sample_value;
+        if (output_index < (size_t)decoded_size) {
+            sample_value = (uint8_t)(sample_value +
+                                      (uint8_t)fibonacci_deltas[packed & 0x0fu]);
+            decoded[output_index++] = sample_value;
+        }
+    }
+    /* io_LoadSample clips only after the complete byte-wrapping delta pass. */
+    for (output_index = 0u; output_index < (size_t)decoded_size; ++output_index) {
+        int16_t signed_sample = decoded[output_index] < 0x80u ?
+            (int16_t)decoded[output_index] : (int16_t)decoded[output_index] - 256;
+
+        if (signed_sample >= 64) {
+            decoded[output_index] = 63u;
+        } else if (signed_sample < -64) {
+            decoded[output_index] = (uint8_t)-64;
+        }
+    }
+    out_blob->bytes = decoded;
+    out_blob->size = (size_t)decoded_size;
+    return 1;
+}
+
 int asset_io_join(const char *data_root, const char *relative_path,
                   char *out_path, size_t out_path_size)
 {
@@ -147,6 +218,19 @@ static int asset_io_load_internal(const char *data_root, const char *relative_pa
         }
         bytes = unpacked_bytes;
         size = decoded_size;
+    }
+
+    /* modules/file_io.s:io_LoadCommon dispatches raw and unpacked CSFX here. */
+    if (size >= 4u && memcmp(bytes, "CSFX", 4u) == 0) {
+        AssetBlob decoded_sample;
+
+        if (!asset_io_decode_csfx(bytes, size, &decoded_sample, error, error_size)) {
+            free(bytes);
+            return 0;
+        }
+        free(bytes);
+        bytes = decoded_sample.bytes;
+        size = decoded_sample.size;
     }
 
     out_blob->bytes = bytes;

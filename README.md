@@ -26,6 +26,10 @@ software-rendered game. Menus remain deferred and multiplayer is not included.
 The detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live integration.
 
+The shared-resource loader also now decodes the original `CSFX` Fibonacci
+sample payloads exactly as the source file loader does, ready for a future
+native audio consumer; it does not yet route or play sound events.
+
 - loads the authoritative `test.lnk` game database and `TEXT_FILE` narrative;
 - unpacks (including stored and LHA-compressed `=SB=` records), parses, and validates the map, fly map, `twolev.bin`,
   `twolev.graph.bin`, and clip stream for every campaign level (`A`–`P`). The

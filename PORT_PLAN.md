@@ -53,6 +53,11 @@ authority for all game behavior and data formats.
   authored narrative before its timer/hit-point mutation. The timed
   `Plr1_CollectItem` “cannot carry” `Msg_PushLineDedupLast` path remains
   deliberately absent pending its source `Sys_FrameTimeECV_q`/EClock owner.
+- [x] `src/asset_io.*` now directly ports `modules/file_io.s:io_LoadSample`'s
+  `CSFX` Fibonacci-delta sample decode, including its post-decode signed
+  clipping to `[-64, 63]`. `Res_LoadSoundFx` therefore owns the decoded source
+  PCM payloads it would supply to the original mixer; native playback and
+  source `MakeSomeNoise` event routing remain separate work.
 - [x] The no-op presenter remains deliberately unchanged. The future backend
   receives whole-level camera/material/geometry/sprite/HUD intent and does
   not need PVS, portals, or software rendering.
@@ -974,9 +979,9 @@ scope by design.
      geometry, material, sprite, and HUD commands with source-derived tests.
 
 2. **Finish deliberately absent source event outputs**
-   - Map original music and sound-effect event calls to a native audio backend
-     while retaining source event/timing decisions; do not emulate Paula or
-     synthesize substitute sounds.
+   - Map the decoded original sound effects and music event calls to a native
+     audio backend while retaining source event/timing decisions; do not
+     emulate Paula or synthesize substitute sounds.
    - Trace the remaining source-owned blast/brightness/event branches before
      enabling each one. Keep any branch absent until its original caller and
      state ownership are established.

@@ -14,9 +14,9 @@ int asset_io_join(const char *data_root, const char *relative_path,
                   char *out_path, size_t out_path_size);
 
 /*
- * Loads an authoritative asset in full. =SB= packed assets are unpacked using
- * the same io_HandlePacked boundary as modules/file_io.s; no replacement is
- * attempted when an asset is missing or malformed.
+ * Loads an authoritative asset in full. =SB= packed assets are unpacked and
+ * CSFX samples are Fibonacci-decoded using the same modules/file_io.s load
+ * boundary; no replacement is attempted when an asset is missing or malformed.
  */
 int asset_io_load(const char *data_root, const char *relative_path,
                   AssetBlob *out_blob, char *error, size_t error_size);
@@ -29,6 +29,10 @@ int asset_io_load(const char *data_root, const char *relative_path,
 int asset_io_load_optional(const char *data_root, const char *relative_path,
                            AssetBlob *out_blob, int *out_found,
                            char *error, size_t error_size);
+
+/* modules/file_io.s:io_LoadSample's CSFX Fibonacci-delta decode and clip pass. */
+int asset_io_decode_csfx(const uint8_t *source, size_t source_size,
+                         AssetBlob *out_blob, char *error, size_t error_size);
 
 void asset_blob_release(AssetBlob *blob);
 

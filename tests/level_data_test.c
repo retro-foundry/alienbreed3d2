@@ -883,6 +883,47 @@ int main(int argc, char **argv)
         asset_blob_release(&game_link_blob);
         return 1;
     }
+    {
+        static const uint8_t csfx_sample[] = {
+            'C', 'S', 'F', 'X', 0u, 0u, 0u, 5u, 0u, 0xc3u, 0x0fu
+        };
+        static const uint8_t clipped_csfx_sample[] = {
+            'C', 'S', 'F', 'X', 0u, 0u, 0u, 3u, 120u, 0xffu
+        };
+        static const uint8_t expected_csfx_sample[] = {0u, 5u, 253u, 219u, 240u};
+        static const uint8_t expected_clipped_sample[] = {63u, 192u, 192u};
+        AssetBlob decoded_sample;
+
+        if (!asset_io_decode_csfx(csfx_sample, sizeof(csfx_sample), &decoded_sample,
+                                  error, sizeof(error)) ||
+            decoded_sample.size != sizeof(expected_csfx_sample) ||
+            memcmp(decoded_sample.bytes, expected_csfx_sample,
+                   sizeof(expected_csfx_sample)) != 0) {
+            fprintf(stderr, "source CSFX Fibonacci decode is inconsistent: %s\n", error);
+            asset_blob_release(&decoded_sample);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+        asset_blob_release(&decoded_sample);
+        if (!asset_io_decode_csfx(clipped_csfx_sample, sizeof(clipped_csfx_sample),
+                                  &decoded_sample, error, sizeof(error)) ||
+            decoded_sample.size != sizeof(expected_clipped_sample) ||
+            memcmp(decoded_sample.bytes, expected_clipped_sample,
+                   sizeof(expected_clipped_sample)) != 0) {
+            fprintf(stderr, "source CSFX clipping or bounds are inconsistent: %s\n", error);
+            asset_blob_release(&decoded_sample);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+        asset_blob_release(&decoded_sample);
+        if (asset_io_decode_csfx(csfx_sample, sizeof(csfx_sample) - 1u,
+                                 &decoded_sample, error, sizeof(error))) {
+            fprintf(stderr, "truncated source CSFX sample was accepted\n");
+            asset_blob_release(&decoded_sample);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+    }
     for (bullet_definition_index = 0u;
          bullet_definition_index < GAME_LINK_BULLET_COUNT;
          ++bullet_definition_index) {
@@ -1191,6 +1232,8 @@ int main(int argc, char **argv)
         game.shared_resources.wall_texture_count != 13u ||
         /* Res_LoadSoundFx scans 59 slots and skips 13 empty entries. */
         game.shared_resources.sound_effect_count != 46u ||
+        game.shared_resources.sound_effects[0u].size < 4u ||
+        memcmp(game.shared_resources.sound_effects[0u].bytes, "CSFX", 4u) == 0 ||
         game.shared_resources.backdrop_image.size == 0) {
         fprintf(stderr,
                 "source-defined shared resources are inconsistent "
