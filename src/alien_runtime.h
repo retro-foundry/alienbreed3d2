@@ -31,6 +31,8 @@ typedef struct {
     int16_t damage[ALIEN_RUNTIME_ENTITY_COUNT];
     /* bss/ai_bss.s: AI_BoredomSpace_vl, eight bytes per entity. */
     int16_t boredom[ALIEN_RUNTIME_ENTITY_COUNT][ALIEN_RUNTIME_BOREDOM_WORD_COUNT];
+    /* objectmove.s:AngRet, retained across source AI mode calls. */
+    uint16_t heading_angle;
 } AlienRuntime;
 
 /* Source process/BSS initialization before the first Game_Begin. */

@@ -470,9 +470,13 @@ authority for all game behavior and data formats.
      `object_movement.*` now preserves `MoveObject`'s source primary and
      extended-edge passes; `player_shoot.*` uses its explicit zero-extension
      trace for the `plr1_HitscanFailed` pool write.
-     Next: compose `ai_Widget`'s established caller-owned source `a2` words
-     into the remaining prowl movement path, then port the audio portions of
-     `newplayershoot.s`. The complete source `Plr1_Shot`
+     `ai_ProwlRandom`, `ai_ProwlRandomFlying`, and their shared
+     `ai_ProwlFly` body now preserve source boredom, player-noise/team-memory
+     routing, the caller-owned collision words, control-point offset/heading,
+     movement, room/flight update, and sight/reaction transitions. They remain
+     uncalled until the complete dispatcher and narrative handoff can own that
+     mode in source order. Next: port another complete source movement/attack
+     mode, then the audio portions of `newplayershoot.s`. The complete source `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
      for either an empty or successful trigger, without synthesizing the
@@ -672,14 +676,17 @@ mode reset, preceding-AUX synchronization, and final `HeadTowardsAng` plus
 caller-owned `newx`/`newz` input because this source routine itself does not
 produce those globals. No replacement position is invented while the global
 dispatcher is still incomplete.
-`modules/ai.s:ai_Widget` is now an uncalled direct helper for the later
-`ai_ProwlFly` body. It retains the source player-noise control-point query,
-team `SeenBy` handoff, per-entity memory reset, `GetNextCPt`/`ONLYSEE`
-selection, and its eight failed-candidate random sequence. Crucially, it
-publishes the exact caller-owned `a2` word view that reaches `Obj_DoCollision`:
-the object-point base for no-team paths or the selected team workspace for
-team paths. It does not infer one global collision table or activate prowl
-movement before the rest of its source body is translated.
+`modules/ai.s:ai_Widget` now composes into the complete but uncalled
+`ai_ProwlRandom`/`ai_ProwlRandomFlying` and shared `ai_ProwlFly` translation.
+It retains the source player-noise control-point query, team `SeenBy` handoff,
+per-entity memory reset, `GetNextCPt`/`ONLYSEE` selection, its eight failed-
+candidate random sequence, authored point offset, `HeadTowardsAng`, exact
+`Obj_DoCollision` caller words, `MoveObject`, room/flight update, torch,
+sight, darkness, attack-memory, and reaction-timer branches. The collision
+view is still the source object-point base for no-team paths or selected team
+workspace for team paths; no global collision table is inferred. This mode is
+not yet wired into `ObjectHandler` while the rest of the dispatcher and its
+narrative consumer remain incomplete.
 `hires.s:Game_Begin`'s forty signed point-brightness words and ten signed
 border markers per zone are now exposed through checked level-runtime views.
 `src/lighting_runtime.*` owns the corresponding source BSS state:

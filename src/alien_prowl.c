@@ -258,3 +258,415 @@ int alien_prowl_widget(AlienRuntime *alien_runtime, ObjectRuntime *objects,
     *out_state = state;
     return 1;
 }
+
+enum {
+    /* defs.i: ObjT/EntT/ShotT fields used by modules/ai.s:ai_ProwlFly. */
+    ALIEN_PROWL_MODE_SLOT_VERTICAL_POSITION = 4u,
+    ALIEN_PROWL_MODE_SLOT_ZONE_ID = 12u,
+    ALIEN_PROWL_MODE_SLOT_SEES_PLAYER = 17u,
+    ALIEN_PROWL_MODE_SLOT_DAMAGE_TAKEN = 19u,
+    ALIEN_PROWL_MODE_SLOT_CURRENT_MODE = 20u,
+    ALIEN_PROWL_MODE_SLOT_ENTITY_ZONE_ID = 26u,
+    ALIEN_PROWL_MODE_SLOT_CURRENT_CONTROL_POINT = 28u,
+    ALIEN_PROWL_MODE_SLOT_CURRENT_ANGLE = 30u,
+    ALIEN_PROWL_MODE_SLOT_TARGET_CONTROL_POINT = 32u,
+    ALIEN_PROWL_MODE_SLOT_TIMER1 = 34u,
+    ALIEN_PROWL_MODE_SLOT_TIMER2 = 40u,
+    ALIEN_PROWL_MODE_SLOT_WHICH_ANIMATION = 55u,
+    ALIEN_PROWL_MODE_SLOT_IN_UPPER_ZONE = 63u,
+    /* ai_ProwlRandom/ai_ProwlRandomFlying inputs for MoveObject. */
+    ALIEN_PROWL_MODE_STEP_UP = 20 * 256,
+    ALIEN_PROWL_MODE_STEP_DOWN = 30 * 256,
+    ALIEN_PROWL_MODE_FLY_STEP_DOWN = 1000 * 256,
+    ALIEN_PROWL_MODE_WALL_FLAGS = 0x0200u
+};
+
+static int16_t alien_prowl_mode_add16(int16_t left, int16_t right)
+{
+    return alien_prowl_word_from_u16((uint16_t)((uint16_t)left + (uint16_t)right));
+}
+
+static int16_t alien_prowl_mode_sub16(int16_t left, int16_t right)
+{
+    return alien_prowl_word_from_u16((uint16_t)((uint16_t)left - (uint16_t)right));
+}
+
+static int16_t alien_prowl_mode_abs16(int16_t value)
+{
+    return value >= 0 ? value : alien_prowl_word_from_u16((uint16_t)(0u - (uint16_t)value));
+}
+
+static int32_t alien_prowl_mode_asr32(int32_t value, unsigned int count)
+{
+    if (value >= 0) {
+        return value >> count;
+    }
+    return -(((-(int64_t)value) + ((INT64_C(1) << count) - 1)) >> count);
+}
+
+static int16_t alien_prowl_mode_sine_offset(int16_t value)
+{
+    /* `ext.l`, `asl.l #4`, and `swap` is the signed source value divided by 4096. */
+    return (int16_t)alien_prowl_mode_asr32((int32_t)value, 12u);
+}
+
+static int alien_prowl_mode_get_zone_index(const uint8_t *slot, const LevelRuntime *level,
+                                            uint16_t *out_zone_index,
+                                            char *error, size_t error_size)
+{
+    int16_t zone_index;
+
+    if (!slot || !level || !out_zone_index) {
+        alien_prowl_set_error(error, error_size, "ai_ProwlFly has no source zone state");
+        return 0;
+    }
+    zone_index = alien_prowl_word_from_u16(
+        alien_prowl_read_be16(slot + ALIEN_PROWL_MODE_SLOT_ZONE_ID));
+    if (zone_index < 0 || (uint16_t)zone_index >= level->zone_count) {
+        alien_prowl_set_error(error, error_size,
+                              "ai_ProwlFly object zone is outside the source level");
+        return 0;
+    }
+    *out_zone_index = (uint16_t)zone_index;
+    return 1;
+}
+
+static void alien_prowl_mode_add_facing(uint8_t *slot, uint16_t facing)
+{
+    alien_prowl_write_be16(
+        slot + ALIEN_PROWL_MODE_SLOT_CURRENT_ANGLE,
+        (uint16_t)(alien_prowl_read_be16(slot + ALIEN_PROWL_MODE_SLOT_CURRENT_ANGLE) + facing));
+}
+
+static int alien_prowl_mode_choose_boredom_target(
+    AlienRuntime *alien_runtime, ObjectRuntime *objects, uint32_t slot_index,
+    const LevelRuntime *level, const LevelNavigation *navigation, uint16_t zone_index,
+    uint8_t flying, GameRandom *random, int16_t old_x, int16_t old_z,
+    char *error, size_t error_size)
+{
+    uint8_t *slot;
+    int16_t *boredom;
+    int16_t distance;
+
+    if (!alien_runtime || !objects || !level || !navigation || !random ||
+        slot_index >= ALIEN_RUNTIME_ENTITY_COUNT ||
+        !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
+        alien_prowl_set_error(error, error_size, "ai_ProwlFly boredom received invalid source state");
+        return 0;
+    }
+    boredom = alien_runtime->boredom[slot_index];
+    distance = alien_prowl_mode_add16(
+        alien_prowl_mode_abs16(alien_prowl_mode_sub16(old_x, boredom[1u])),
+        alien_prowl_mode_abs16(alien_prowl_mode_sub16(old_z, boredom[2u])));
+    if (distance >= 50) {
+        boredom[1u] = old_x;
+        boredom[2u] = old_z;
+        boredom[0u] = 100;
+        return 1;
+    }
+    boredom[0u] = alien_prowl_mode_sub16(boredom[0u], 1);
+    if (boredom[0u] > 0) {
+        return 1;
+    }
+    if (!alien_spatial_store_current_control_point(objects, slot_index, level, zone_index,
+                                                   error, error_size)) {
+        return 0;
+    }
+    {
+        uint16_t target_control_point;
+        LevelNavigationLink link;
+
+        target_control_point = alien_prowl_read_be16(
+            slot + ALIEN_PROWL_MODE_SLOT_TARGET_CONTROL_POINT);
+        if (!alien_prowl_choose_random_target(
+                navigation, level->control_point_count,
+                alien_prowl_read_be16(slot + ALIEN_PROWL_MODE_SLOT_CURRENT_CONTROL_POINT),
+                flying, random, &target_control_point, &link, error, error_size)) {
+            return 0;
+        }
+        alien_prowl_write_be16(slot + ALIEN_PROWL_MODE_SLOT_TARGET_CONTROL_POINT,
+                               target_control_point);
+    }
+    boredom[0u] = 50;
+    return 1;
+}
+
+int alien_prowl_random_update(
+    ObjectRuntime *objects, uint32_t slot_index, AlienRuntime *alien_runtime,
+    ObjectAnimationRuntime *animation_runtime, LightingRuntime *lighting,
+    LevelDynamicState *dynamic_level, const LevelNavigation *navigation,
+    const AssetBlob *clips, const GameLink *game_link, GameProgression *progression,
+    ObjectExplosionRuntime *explosion_runtime, const GameMath *math,
+    GameRandom *random, const PlayerRuntime *player, const AlienSetup *setup,
+    uint8_t flying, uint16_t frame_ticks, AlienProwlState *out_state,
+    char *error, size_t error_size)
+{
+    const LevelRuntime *level;
+    uint8_t *slot;
+    uint8_t *previous_slot;
+    uint8_t *point;
+    uint16_t point_index;
+    uint16_t zone_index;
+    LevelControlPoint control_point;
+    int16_t sine;
+    int16_t cosine;
+    uint16_t phase;
+    int16_t old_x;
+    int16_t old_z;
+    int16_t new_x;
+    int16_t new_z;
+    int16_t old_vertical_position;
+    int16_t dark_result;
+    AlienProwlState state;
+
+    if (!objects || !alien_runtime || !animation_runtime || !lighting || !dynamic_level ||
+        !navigation || !clips || !game_link || !progression || !explosion_runtime || !math ||
+        !random || !player || !setup || !out_state ||
+        slot_index == 0u || slot_index >= objects->active_slot_count ||
+        slot_index >= ALIEN_RUNTIME_ENTITY_COUNT ||
+        slot_index >= OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT ||
+        player->zone_index >= dynamic_level->runtime.zone_count ||
+        !object_runtime_get_slot_bytes(objects, slot_index, &slot) ||
+        !object_runtime_get_slot_bytes(objects, slot_index - 1u, &previous_slot)) {
+        alien_prowl_set_error(error, error_size, "ai_ProwlFly received invalid source state");
+        return 0;
+    }
+    level = &dynamic_level->runtime;
+    point_index = alien_prowl_read_be16(slot + ALIEN_PROWL_SLOT_POINT_INDEX);
+    if (point_index >= objects->point_count || point_index >= ALIEN_RUNTIME_ENTITY_COUNT ||
+        !object_runtime_get_point_bytes(objects, point_index, &point) ||
+        !alien_prowl_mode_get_zone_index(slot, level, &zone_index, error, error_size)) {
+        alien_prowl_set_error(error, error_size,
+                              "ai_ProwlFly has an invalid source point or zone");
+        return 0;
+    }
+    memset(&state, 0, sizeof(state));
+
+    if (slot[ALIEN_PROWL_MODE_SLOT_DAMAGE_TAKEN] != 0u) {
+        state.damage_taken = UINT8_MAX;
+        if (!alien_damage_take(objects, slot_index, alien_runtime, animation_runtime, math,
+                               random, player, &state.damage, error, error_size)) {
+            return 0;
+        }
+        if (state.damage.route == ALIEN_DAMAGE_ROUTE_JUST_DIED) {
+            if (!alien_death_just_died(objects, slot_index, level, game_link, progression,
+                                       animation_runtime, explosion_runtime, math, random,
+                                       &state.death, error, error_size)) {
+                return 0;
+            }
+            state.got_out = state.death.got_out;
+        } else {
+            /* ai_TakeDamage's HeadTowardsAng has just written the shared AngRet to this slot. */
+            alien_runtime->heading_angle = alien_prowl_read_be16(
+                slot + ALIEN_PROWL_MODE_SLOT_CURRENT_ANGLE);
+            state.got_out = state.damage.got_out;
+        }
+        if (state.got_out != 0u) {
+            *out_state = state;
+            return 1;
+        }
+    }
+
+    if (!alien_animation_update_walk_or_attack(
+            objects, slot_index, animation_runtime, game_link, math, setup, player->yaw,
+            &state.animation, error, error_size)) {
+        return 0;
+    }
+    old_x = alien_prowl_word_from_u16(alien_prowl_read_be16(point));
+    old_z = alien_prowl_word_from_u16(alien_prowl_read_be16(point + 4u));
+    if (!alien_prowl_mode_choose_boredom_target(
+            alien_runtime, objects, slot_index, level, navigation, zone_index, flying, random,
+            old_x, old_z, error, error_size) ||
+        !alien_prowl_widget(alien_runtime, objects, slot_index, level, navigation, player,
+                            player->noise_volume, flying, random, &state.widget,
+                            error, error_size) ||
+        !level_runtime_get_control_point(level, state.widget.middle_control_point,
+                                         &control_point, error, error_size)) {
+        return 0;
+    }
+
+    /* ai_ProwlFly's point/phase-derived control-point displacement. */
+    phase = (uint16_t)((uint16_t)(state.widget.middle_control_point << 2u) + point_index);
+    phase = (uint16_t)((int32_t)(int16_t)phase * INT16_C(0x1347)) & UINT16_C(4095);
+    if (!game_math_sine(math, (uint16_t)(phase << 1u), &sine, error, error_size) ||
+        !game_math_cosine(math, (uint16_t)(phase << 1u), &cosine, error, error_size)) {
+        return 0;
+    }
+    new_x = alien_prowl_mode_add16(control_point.x, alien_prowl_mode_sine_offset(sine));
+    new_z = alien_prowl_mode_add16(control_point.z, alien_prowl_mode_sine_offset(cosine));
+
+    memset(&state.heading, 0, sizeof(state.heading));
+    state.heading.old_x = old_x;
+    state.heading.old_z = old_z;
+    state.heading.new_x = new_x;
+    state.heading.new_z = new_z;
+    state.heading.range = 40;
+    if (state.animation.action != 0u) {
+        state.heading.speed = (int16_t)((int32_t)(int16_t)(state.animation.action << 2u) *
+                                        setup->prowl_speed);
+    }
+    state.heading.angle = alien_runtime->heading_angle;
+    if (!object_heading_towards_angle(math, &state.heading, error, error_size)) {
+        return 0;
+    }
+    alien_runtime->heading_angle = state.heading.angle;
+    alien_prowl_write_be16(slot + ALIEN_PROWL_MODE_SLOT_CURRENT_ANGLE, state.heading.angle);
+    new_x = state.heading.new_x;
+    new_z = state.heading.new_z;
+    if (state.heading.got_there != 0u) {
+        alien_prowl_write_be16(slot + ALIEN_PROWL_MODE_SLOT_CURRENT_CONTROL_POINT,
+                               state.widget.middle_control_point);
+        if (state.widget.middle_control_point == alien_prowl_read_be16(
+                slot + ALIEN_PROWL_MODE_SLOT_TARGET_CONTROL_POINT)) {
+            if (level->control_point_count == 0u) {
+                alien_prowl_set_error(error, error_size,
+                                      "ai_ProwlFly target selection divides by zero control points");
+                return 0;
+            }
+            alien_prowl_write_be16(slot + ALIEN_PROWL_MODE_SLOT_TARGET_CONTROL_POINT,
+                                   (uint16_t)(game_random_next(random) %
+                                              level->control_point_count));
+        }
+    }
+
+    old_vertical_position = alien_prowl_word_from_u16(
+        alien_prowl_read_be16(slot + ALIEN_PROWL_MODE_SLOT_VERTICAL_POSITION));
+    memset(&state.movement, 0, sizeof(state.movement));
+    state.movement.zone_index = zone_index;
+    state.movement.old_x = old_x;
+    state.movement.old_z = old_z;
+    state.movement.new_x = new_x;
+    state.movement.new_z = new_z;
+    state.movement.old_y = (int32_t)old_vertical_position * 128 -
+        alien_prowl_mode_asr32(setup->thing_height, 1u);
+    state.movement.new_y = state.movement.old_y;
+    state.movement.thing_height = setup->thing_height;
+    state.movement.step_up = ALIEN_PROWL_MODE_STEP_UP;
+    state.movement.step_down = flying != 0u ? ALIEN_PROWL_MODE_FLY_STEP_DOWN :
+                                             ALIEN_PROWL_MODE_STEP_DOWN;
+    state.movement.extension_length = setup->extended_wall_length;
+    state.movement.wall_flags = ALIEN_PROWL_MODE_WALL_FLAGS;
+    state.movement.away_from_wall = setup->away_from_wall;
+    state.movement.stood_in_top = slot[ALIEN_PROWL_MODE_SLOT_IN_UPPER_ZONE];
+    {
+        ObjectCollisionTrace collision;
+
+        memset(&collision, 0, sizeof(collision));
+        collision.collision_id = point_index;
+        collision.old_x = old_x;
+        collision.old_z = old_z;
+        collision.new_x = state.movement.new_x;
+        collision.new_z = state.movement.new_z;
+        collision.new_y = state.movement.new_y;
+        collision.thing_height = state.movement.thing_height;
+        collision.stood_in_top = state.movement.stood_in_top;
+        if (!object_collision_check(objects, game_link, state.widget.words,
+                                    ALIEN_RUNTIME_WORKSPACE_WORD_COUNT, &collision,
+                                    &state.hit_object, error, error_size)) {
+            return 0;
+        }
+    }
+    if (state.hit_object != 0u) {
+        state.movement.new_x = old_x;
+        state.movement.new_z = old_z;
+    } else {
+        if (!object_movement_trace(dynamic_level, &state.movement, error, error_size)) {
+            return 0;
+        }
+        slot[ALIEN_PROWL_MODE_SLOT_IN_UPPER_ZONE] = state.movement.stood_in_top;
+    }
+    if (alien_prowl_word_from_u16(
+            alien_prowl_read_be16(previous_slot + ALIEN_PROWL_MODE_SLOT_ZONE_ID)) >= 0) {
+        alien_prowl_write_be16(previous_slot + ALIEN_PROWL_MODE_SLOT_ZONE_ID,
+                               alien_prowl_read_be16(slot + ALIEN_PROWL_MODE_SLOT_ZONE_ID));
+        alien_prowl_write_be16(previous_slot + ALIEN_PROWL_MODE_SLOT_ENTITY_ZONE_ID,
+                               alien_prowl_read_be16(
+                                   slot + ALIEN_PROWL_MODE_SLOT_ENTITY_ZONE_ID));
+    }
+    if (!alien_spatial_store_room_stats(
+            objects, slot_index, level, state.movement.zone_index,
+            state.movement.new_x, state.movement.new_z, setup->thing_height,
+            error, error_size)) {
+        return 0;
+    }
+    if (flying != 0u) {
+        alien_prowl_write_be16(slot + ALIEN_PROWL_MODE_SLOT_VERTICAL_POSITION,
+                               (uint16_t)old_vertical_position);
+        if (!alien_flight_move_toward_control_point_height(
+                objects, slot_index, level, state.movement.zone_index,
+                state.widget.middle_control_point, setup->thing_height,
+                error, error_size)) {
+            return 0;
+        }
+    }
+    if (!alien_torch_apply(lighting, level, math, objects, slot_index, setup,
+                           state.movement.new_x, state.movement.new_z,
+                           error, error_size) ||
+        !alien_perception_look_for_player_one(
+            objects, slot_index, level, clips, player, state.movement.zone_index,
+            state.movement.new_x, state.movement.new_z, error, error_size)) {
+        return 0;
+    }
+
+    slot[ALIEN_PROWL_MODE_SLOT_CURRENT_MODE] = 0u;
+    slot[ALIEN_PROWL_MODE_SLOT_WHICH_ANIMATION] = 0u;
+    if (slot[ALIEN_PROWL_MODE_SLOT_SEES_PLAYER] != 0u) {
+        uint8_t in_front;
+
+        if (!alien_decision_check_in_front(objects, slot_index, player, math, &in_front,
+                                           error, error_size)) {
+            return 0;
+        }
+        if (in_front != 0u) {
+            LevelZone player_zone;
+
+            alien_prowl_write_be16(
+                slot + ALIEN_PROWL_MODE_SLOT_TIMER1,
+                (uint16_t)alien_prowl_mode_sub16(
+                    alien_prowl_word_from_u16(
+                        alien_prowl_read_be16(slot + ALIEN_PROWL_MODE_SLOT_TIMER1)),
+                    (int16_t)frame_ticks));
+            if (alien_prowl_word_from_u16(
+                    alien_prowl_read_be16(slot + ALIEN_PROWL_MODE_SLOT_TIMER1)) > 0) {
+                alien_prowl_mode_add_facing(slot, state.animation.facing);
+                *out_state = state;
+                return 1;
+            }
+            if (!level_runtime_get_zone(level, player->zone_index, &player_zone,
+                                        error, error_size) ||
+                !alien_dark_check(objects, slot_index, player_zone.id,
+                                  player->room_brightness, random, &dark_result,
+                                  error, error_size)) {
+                return 0;
+            }
+            if (dark_result != 0) {
+                uint8_t can_attack = 0u;
+
+                if (flying != 0u || setup->response_mode == 2 || setup->response_mode == 5) {
+                    can_attack = UINT8_MAX;
+                } else if (!alien_decision_check_attack_on_ground(
+                               objects, slot_index, level, navigation, player, &can_attack,
+                               error, error_size)) {
+                    return 0;
+                }
+                if (can_attack != 0u) {
+                    alien_prowl_write_be16(slot + ALIEN_PROWL_MODE_SLOT_TIMER2, 0u);
+                    slot[ALIEN_PROWL_MODE_SLOT_CURRENT_MODE] = 1u;
+                    slot[ALIEN_PROWL_MODE_SLOT_WHICH_ANIMATION] = 1u;
+                    alien_prowl_mode_add_facing(slot, state.animation.facing);
+                    *out_state = state;
+                    return 1;
+                }
+                if (!alien_memory_store_player_position(alien_runtime, objects, slot_index,
+                                                        level, player, error, error_size)) {
+                    return 0;
+                }
+            }
+        }
+    }
+    alien_prowl_write_be16(slot + ALIEN_PROWL_MODE_SLOT_TIMER1,
+                           (uint16_t)setup->reaction_time);
+    alien_prowl_mode_add_facing(slot, state.animation.facing);
+    *out_state = state;
+    return 1;
+}

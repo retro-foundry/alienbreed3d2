@@ -6471,6 +6471,201 @@ int main(int argc, char **argv)
         }
     }
     {
+        /* modules/ai.s:ai_ProwlFly moves with its Widget a2 words and no global collision table. */
+        enum {
+            PROWL_AUXILIARY_SLOT = 0u,
+            PROWL_ALIEN_SLOT = 1u,
+            PROWL_TERMINATOR_SLOT = 2u,
+            PROWL_SLOT_COUNT = 3u,
+            PROWL_POINT_INDEX = 1u
+        };
+        uint8_t slot_bytes[PROWL_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[PROWL_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime prowl_objects = {0};
+        LevelDynamicState prowl_dynamic = {0};
+        ObjectAnimationRuntime prowl_animation;
+        ObjectExplosionRuntime prowl_explosion;
+        AlienRuntime prowl_runtime;
+        LightingRuntime prowl_lighting;
+        GameProgression prowl_progression;
+        GameRandom prowl_random;
+        PlayerRuntime prowl_player = game.player;
+        AlienSetup prowl_setup;
+        AlienProwlState prowl_state;
+        GameAlienDefinition prowl_definition;
+        GameAlienAnimationFrame prowl_frame;
+        LevelZone prowl_zone;
+        LevelControlPoint prowl_control_point;
+        uint16_t prowl_alien = UINT16_MAX;
+        uint16_t prowl_option = UINT16_MAX;
+        uint16_t prowl_frame_index = UINT16_MAX;
+        uint16_t prowl_phase;
+        int16_t prowl_sine;
+        int16_t prowl_cosine;
+        int16_t prowl_target_x;
+        int16_t prowl_target_z;
+        int16_t prowl_old_x;
+        int16_t prowl_old_z;
+        int16_t expected_prowl_y;
+
+        for (uint16_t alien_index = 0u;
+             alien_index < GAME_LINK_ALIEN_COUNT && prowl_alien == UINT16_MAX;
+             ++alien_index) {
+            if (!game_link_get_alien_definition(&game.game_link_catalog, alien_index,
+                                                &prowl_definition, error, sizeof(error)) ||
+                prowl_definition.girth > 2u) {
+                continue;
+            }
+            for (uint16_t option_index = 0u;
+                 option_index < GAME_LINK_ALIEN_ANIMATION_OPTION_COUNT &&
+                 prowl_alien == UINT16_MAX;
+                 ++option_index) {
+                for (uint16_t frame_index = 0u;
+                     frame_index < GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT;
+                     ++frame_index) {
+                    if (!game_link_get_alien_animation_frame(
+                            &game.game_link_catalog, alien_index, option_index, frame_index,
+                            &prowl_frame, error, sizeof(error)) ||
+                        ((int16_t)prowl_definition.auxiliary_type >= 0 &&
+                         (int8_t)prowl_frame.bytes[8u] >= 0)) {
+                        continue;
+                    }
+                    prowl_alien = alien_index;
+                    prowl_option = option_index;
+                    prowl_frame_index = frame_index;
+                    break;
+                }
+            }
+        }
+        if (prowl_alien == UINT16_MAX ||
+            !level_dynamic_state_init(&prowl_dynamic, &game.dynamic_level.runtime,
+                                      error, sizeof(error))) {
+            fprintf(stderr, "ai_ProwlFly source fixture is unavailable: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* A private source-layout clone supplies the one control-point record this mode reads. */
+        prowl_dynamic.runtime.control_point_coordinates_offset = 0u;
+        prowl_dynamic.runtime.control_point_count = 1u;
+        write_be16(prowl_dynamic.level_bytes + 0u, 100u);
+        write_be16(prowl_dynamic.level_bytes + 2u, 200u);
+        write_be16(prowl_dynamic.level_bytes + 4u, 0u);
+        write_be16(prowl_dynamic.level_bytes + 6u, 0u);
+        if (!level_runtime_get_zone(&prowl_dynamic.runtime, prowl_player.zone_index,
+                                    &prowl_zone, error, sizeof(error)) ||
+            !level_runtime_get_control_point(&prowl_dynamic.runtime, 0u,
+                                             &prowl_control_point, error, sizeof(error))) {
+            fprintf(stderr, "ai_ProwlFly source fixture is unavailable: %s\n", error);
+            level_dynamic_state_destroy(&prowl_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        prowl_phase = (uint16_t)((int32_t)(int16_t)PROWL_POINT_INDEX * 0x1347) & 4095u;
+        if (!game_math_sine(&game.math, (uint16_t)(prowl_phase << 1u), &prowl_sine,
+                            error, sizeof(error)) ||
+            !game_math_cosine(&game.math, (uint16_t)(prowl_phase << 1u), &prowl_cosine,
+                              error, sizeof(error))) {
+            fprintf(stderr, "ai_ProwlFly phase fixture is invalid: %s\n", error);
+            level_dynamic_state_destroy(&prowl_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        prowl_target_x = source_add16(
+            prowl_control_point.x, (int16_t)source_asr32_count(prowl_sine, 12u));
+        prowl_target_z = source_add16(
+            prowl_control_point.z, (int16_t)source_asr32_count(prowl_cosine, 12u));
+        prowl_old_x = source_add16(prowl_target_x, 20);
+        prowl_old_z = prowl_target_z;
+        prowl_objects.slot_bytes = slot_bytes;
+        prowl_objects.slot_count = PROWL_SLOT_COUNT;
+        prowl_objects.active_slot_count = PROWL_TERMINATOR_SLOT;
+        prowl_objects.point_bytes = point_bytes;
+        prowl_objects.point_count = PROWL_SLOT_COUNT;
+        write_be16(slot_bytes + PROWL_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   0u);
+        write_be16(slot_bytes + PROWL_AUXILIARY_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   UINT16_MAX);
+        write_be16(slot_bytes + PROWL_TERMINATOR_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   UINT16_MAX);
+        write_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                   PROWL_POINT_INDEX);
+        write_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, 3u);
+        write_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   prowl_player.zone_index);
+        write_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u,
+                   prowl_player.zone_index);
+        write_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 28u, 0u);
+        write_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 32u, 0u);
+        write_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 34u, 99u);
+        write_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 40u,
+                   prowl_frame_index);
+        slot_bytes[PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 10u;
+        slot_bytes[PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 21u] = UINT8_MAX;
+        slot_bytes[PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] =
+            (uint8_t)prowl_alien;
+        write_be16(point_bytes + PROWL_POINT_INDEX * OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u,
+                   (uint16_t)prowl_old_x);
+        write_be16(point_bytes + PROWL_POINT_INDEX * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   (uint16_t)prowl_old_z);
+        if (!alien_setup_from_slot(&prowl_objects, PROWL_ALIEN_SLOT,
+                                   &prowl_dynamic.runtime, &game.game_link_catalog,
+                                   &prowl_setup, error, sizeof(error))) {
+            fprintf(stderr, "ai_ProwlFly setup fixture is invalid: %s\n", error);
+            level_dynamic_state_destroy(&prowl_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        object_animation_runtime_init(&prowl_animation);
+        prowl_animation.workspace[PROWL_ALIEN_SLOT][1u] = (uint8_t)prowl_frame_index;
+        prowl_animation.workspace[PROWL_ALIEN_SLOT][2u] = (uint8_t)prowl_option;
+        alien_runtime_init(&prowl_runtime);
+        alien_runtime_begin_level(&prowl_runtime);
+        prowl_runtime.boredom[PROWL_ALIEN_SLOT][1u] = source_add16(prowl_old_x, -100);
+        prowl_runtime.boredom[PROWL_ALIEN_SLOT][2u] = prowl_old_z;
+        lighting_runtime_init(&prowl_lighting);
+        object_explosion_runtime_init(&prowl_explosion);
+        game_progression_init(&prowl_progression);
+        game_random_init(&prowl_random);
+        prowl_player.noise_volume = 0;
+        expected_prowl_y = (int16_t)source_asr32_7(
+            (int32_t)((uint32_t)prowl_zone.floor -
+                      (uint32_t)source_asr32_count(prowl_setup.thing_height, 1u)));
+        if (!alien_prowl_random_update(
+                &prowl_objects, PROWL_ALIEN_SLOT, &prowl_runtime, &prowl_animation,
+                &prowl_lighting, &prowl_dynamic, &game.level_navigation, &game.level_clips,
+                &game.game_link_catalog, &prowl_progression, &prowl_explosion, &game.math,
+                &prowl_random, &prowl_player, &prowl_setup, 0u, 1u, &prowl_state,
+                error, sizeof(error)) ||
+            prowl_state.damage_taken != 0u || prowl_state.got_out != 0u ||
+            prowl_state.widget.middle_control_point != 0u ||
+            prowl_state.heading.got_there != UINT8_MAX ||
+            prowl_runtime.heading_angle != prowl_state.heading.angle ||
+            prowl_state.hit_object != 0u ||
+            prowl_state.movement.new_x != prowl_old_x ||
+            prowl_state.movement.new_z != prowl_old_z ||
+            read_be16(point_bytes + PROWL_POINT_INDEX * OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u) !=
+                (uint16_t)prowl_old_x ||
+            read_be16(point_bytes + PROWL_POINT_INDEX * OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u) !=
+                (uint16_t)prowl_old_z ||
+            read_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u) !=
+                prowl_zone.id ||
+            read_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) !=
+                prowl_zone.id ||
+            read_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u) !=
+                (uint16_t)expected_prowl_y ||
+            read_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 28u) !=
+                0u ||
+            read_be16(slot_bytes + PROWL_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 32u) >=
+                prowl_dynamic.runtime.control_point_count ||
+            prowl_runtime.boredom[PROWL_ALIEN_SLOT][0u] != 100) {
+            fprintf(stderr, "ai_ProwlFly source movement state is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&prowl_dynamic);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        level_dynamic_state_destroy(&prowl_dynamic);
+    }
+    {
         /* objectmove.s:HeadTowardsAng's zero-distance, range, and speed paths. */
         ObjectHeading heading = {0};
         int16_t heading_sine;
