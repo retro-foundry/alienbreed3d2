@@ -98,6 +98,11 @@ authority for all game behavior and data formats.
   auxiliary offsets and half-extents. The renderer maps source 8.8 Y through
   the matching x<<7 projection basis (`y / 128`), so floors, camera, sector
   clips, and world billboards share the source's physical vertical scale.
+- [x] `objdrawhires.s:Draw_Objects` paints live `ShotT` records after the
+  room columns. The depth-buffer presenter therefore biases `ItsABullet` and
+  `Anim_ExplodeIntoBits` sprites a small distance toward the camera, retaining
+  their source state while keeping impacts, gibs, flames, and shots on the
+  visible side of their wall/floor/roof contact.
 - [x] Fixed floor/ceiling objects use the selected live `ZoneT_Floor`/`Roof`
   scene boundary as their 3D anchor. `newaliencontrol.s:Collectable` writes
   that surface before `DEFANIMOBJ` adds a frame-local Y offset, so anchoring

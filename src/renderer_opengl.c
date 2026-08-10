@@ -2394,8 +2394,18 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     center_z += right_z * (float)sprite->source_aux_offset_x;
     center_y -= (float)sprite->source_aux_offset_y;
     if ((sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
-        center_x += sinf(yaw) * renderer_opengl_projectile_surface_epsilon;
-        center_z += cosf(yaw) * renderer_opengl_projectile_surface_epsilon;
+        /*
+         * objdrawhires.s:Draw_Objects paints ShotT records after the room
+         * columns.  A depth buffer needs the inverse of the view forward
+         * vector here: a projectile that stopped on a wall/floor/roof must
+         * move onto the camera-facing side of that contact surface.  Adding
+         * the forward vector places it through the wall and makes the live
+         * impact, gib, and flame records disappear behind the world mesh.
+         * This leaves `ItsABullet` / `Anim_ExplodeIntoBits` source state
+         * unchanged; it is solely the GPU equivalent of source draw order.
+         */
+        center_x -= sinf(yaw) * renderer_opengl_projectile_surface_epsilon;
+        center_z -= cosf(yaw) * renderer_opengl_projectile_surface_epsilon;
     }
     half_width = (float)sprite->source_width;
     half_height = (float)sprite->source_height;
