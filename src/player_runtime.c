@@ -93,11 +93,20 @@ static int player_runtime_divs16(int32_t dividend, int16_t divisor, int16_t *out
                                  "source collision attempted a zero EdgeT divisor");
         return 0;
     }
+    /*
+     * 68000 DIVS.W leaves Dn unchanged when its quotient overflows.  The
+     * objectmove.s callers do not inspect V before consuming Dn's low word,
+     * so preserve the register result rather than turning valid source motion
+     * into a host-side fatal update failure.
+     */
+    if (dividend == INT32_MIN && divisor == -1) {
+        *out_quotient = (int16_t)(uint16_t)dividend;
+        return 1;
+    }
     quotient = dividend / divisor;
     if (quotient < INT16_MIN || quotient > INT16_MAX) {
-        player_runtime_set_error(error, error_size,
-                                 "source collision DIVS result is outside its word destination");
-        return 0;
+        *out_quotient = (int16_t)(uint16_t)dividend;
+        return 1;
     }
     *out_quotient = (int16_t)quotient;
     return 1;

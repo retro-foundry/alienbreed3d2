@@ -3673,6 +3673,64 @@ int main(int argc, char **argv)
         }
         game_bootstrap_destroy(&direct_game);
     }
+    /*
+     * SDL maps physical W/A/S/D into these source AssignableKeys_vb defaults.
+     * Keep the authored completion zone out of this input-to-update check: its
+     * scope is modules/player.s:plr_KeyboardControl and hires.s:Plr1_Control,
+     * not level-completion presentation.
+     */
+    {
+        static const uint16_t movement_bindings[] = {
+            GAME_CONTROL_FORWARDS,
+            GAME_CONTROL_BACKWARDS,
+            GAME_CONTROL_SIDESTEP_LEFT,
+            GAME_CONTROL_SIDESTEP_RIGHT
+        };
+        GameBootstrap movement_game;
+
+        for (size_t binding_index = 0u;
+             binding_index < sizeof(movement_bindings) / sizeof(movement_bindings[0]);
+             ++binding_index) {
+            memset(&movement_game, 0, sizeof(movement_game));
+            if (!game_bootstrap_init(&movement_game, argv[1], error, sizeof(error)) ||
+                !game_session_default(&movement_game.session,
+                                      &movement_game.game_link_catalog,
+                                      error, sizeof(error)) ||
+                !game_session_select_level(&movement_game.session, 0u, error, sizeof(error)) ||
+                !game_bootstrap_start_selected_single_player(
+                    &movement_game, argv[1], error, sizeof(error))) {
+                fprintf(stderr, "could not initialize movement input regression: %s\n", error);
+                game_bootstrap_destroy(&movement_game);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            movement_game.dynamic_level.runtime.exit_zone_id = -1;
+            if (!game_input_set_raw_key(
+                    &movement_game.input,
+                    movement_game.controls.assigned_raw_keys[movement_bindings[binding_index]],
+                    1, error, sizeof(error))) {
+                fprintf(stderr, "could not press source movement binding %u: %s\n",
+                        (unsigned int)movement_bindings[binding_index], error);
+                game_bootstrap_destroy(&movement_game);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            for (uint16_t frame_index = 1u; frame_index <= 120u; ++frame_index) {
+                if (!game_bootstrap_update_single_player_at_time(
+                        &movement_game, (uint64_t)frame_index * 20u, error, sizeof(error)) ||
+                    movement_game.session.level_finished != 0u) {
+                    fprintf(stderr,
+                            "source movement binding %u ended direct play on VBlank %u: %s\n",
+                            (unsigned int)movement_bindings[binding_index],
+                            (unsigned int)frame_index, error);
+                    game_bootstrap_destroy(&movement_game);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+            game_bootstrap_destroy(&movement_game);
+        }
+    }
     /* hires.s:game_main_loop ends a single-player level on Lvl_ExitZoneID_w. */
     if (!game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error)) ||
         !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||
