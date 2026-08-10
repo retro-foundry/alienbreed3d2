@@ -1505,6 +1505,7 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
     float texture_v_scale;
     float texture_v_offset = 0.0f;
     int water_blend = 0;
+    int cull_backfaces;
     int result;
 
     if (!material || !geometry || !geometry->vertices || !camera) {
@@ -1590,12 +1591,24 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
         renderer_opengl_set_error(error, error_size, "scene geometry topology is unsupported");
         return 0;
     }
+    /* hireswall.s:Draw_Wall returns through wallfacingaway for a rear-facing
+     * record. With every source graph submitted, retain that face ownership
+     * in the GPU depth pass rather than allowing an opposite-zone duplicate
+     * to overwrite the wall's light and material. */
+    cull_backfaces = geometry->primitive == SCENE_GEOMETRY_PRIMITIVE_WALL;
+    if (cull_backfaces != 0) {
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
+    }
     result = renderer_opengl_draw_vertices(renderer, vertices, vertex_count, GL_TRIANGLES,
                                            error, error_size);
     free(vertices);
     if (water_blend != 0) {
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
+    }
+    if (cull_backfaces != 0) {
+        glDisable(GL_CULL_FACE);
     }
     renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
     return result;
