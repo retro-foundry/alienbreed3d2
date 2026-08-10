@@ -20,12 +20,13 @@ weapon, object/mechanism (including source-held door/lift locks), worry, and
 complete AI route enters through `newanims.s:ObjectHandler` only when its
 source worry byte is set. Source death, successful collectable, and
 destructible narratives enter the GPU-neutral small-screen message ring and
-appear as byte-ranged HUD commands; the source-EClock-deduped “cannot carry”
-notification remains deferred. The SDL presenter remains intentionally
-status-only, so this is simulation and scene production rather than a
-software-rendered game. Menus remain deferred and multiplayer is not included.
-The detailed inventory below records the source-backed foundations; older
-references to an unbound AI dispatcher are superseded by this live integration.
+appear as byte-ranged HUD commands; failed inventory pickups retain their
+source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
+presenter remains intentionally status-only, so this is simulation and scene
+production rather than a software-rendered game. Menus remain deferred and
+multiplayer is not included. The detailed inventory below records the
+source-backed foundations; older references to an unbound AI dispatcher are
+superseded by this live integration.
 
 The shared-resource loader also now decodes the original `CSFX` Fibonacci
 sample payloads exactly as the source file loader does, ready for a future

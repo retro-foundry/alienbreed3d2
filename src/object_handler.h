@@ -37,6 +37,8 @@ typedef struct {
     AlienDispatchWorkspace *dispatch_workspace;
     MessageRuntime *messages;
     const GamePreferences *preferences;
+    /* c/message.c Sys_FrameTimeECV_q[0], represented as native monotonic milliseconds. */
+    uint64_t message_time_milliseconds;
 } ObjectHandlerAlienContext;
 
 /* Single-player newanims.s:ObjectHandler dispatch, including ItsAnAlien in source slot order. */

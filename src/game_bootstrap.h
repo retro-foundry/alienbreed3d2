@@ -2,6 +2,7 @@
 #define AB3D2_GAME_BOOTSTRAP_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "alien_runtime.h"
 #include "alien_dispatch.h"
@@ -84,6 +85,8 @@ typedef struct {
     ObjectObservation object_observation;
     /* c/message.c:Msg_Init/Msg_PushLine's per-level source line ring. */
     MessageRuntime message_runtime;
+    /* c/message.c Sys_FrameTimeECV_q[0], supplied by the native platform boundary. */
+    uint64_t message_time_milliseconds;
     LevelStaticScene static_scene;
     PlayerRuntime player;
 } GameBootstrap;
@@ -111,6 +114,10 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
  */
 int game_bootstrap_update_single_player(GameBootstrap *game,
                                         char *error, size_t error_size);
+/* Same source update with the platform's monotonic time for message EClock semantics. */
+int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
+                                                uint64_t message_time_milliseconds,
+                                                char *error, size_t error_size);
 /*
  * controlloop.s:levelMenu/DEFGAME. This reads the selected level's optional
  * deflev.dat record; when it is absent, the source resets to DEFAULTGAME.

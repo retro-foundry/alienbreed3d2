@@ -676,6 +676,32 @@ int main(int argc, char **argv)
             return 1;
         }
         scene_frame_destroy(&message_frame);
+        if (!message_runtime_push_line_dedup_last(
+                &messages, text_line,
+                (uint16_t)(sizeof(text_line) |
+                           (MESSAGE_RUNTIME_TAG_OPTIONS << MESSAGE_RUNTIME_TAG_SHIFT)),
+                UINT8_MAX, 100u, error, sizeof(error)) ||
+            messages.line_number != 1u || messages.last_message != text_line ||
+            messages.next_duplicate_time_milliseconds !=
+                100u + MESSAGE_RUNTIME_DEDUPLICATION_PERIOD_MILLISECONDS ||
+            !message_runtime_push_line_dedup_last(
+                &messages, text_line,
+                (uint16_t)(sizeof(text_line) |
+                           (MESSAGE_RUNTIME_TAG_OPTIONS << MESSAGE_RUNTIME_TAG_SHIFT)),
+                UINT8_MAX, 101u, error, sizeof(error)) ||
+            messages.line_number != 1u ||
+            !message_runtime_push_line_dedup_last(
+                &messages, text_line,
+                (uint16_t)(sizeof(text_line) |
+                           (MESSAGE_RUNTIME_TAG_OPTIONS << MESSAGE_RUNTIME_TAG_SHIFT)),
+                UINT8_MAX,
+                100u + MESSAGE_RUNTIME_DEDUPLICATION_PERIOD_MILLISECONDS,
+                error, sizeof(error)) ||
+            messages.line_number != 2u) {
+            fprintf(stderr, "c/message.c source deduplication timing is inconsistent: %s\n",
+                    error);
+            return 1;
+        }
     }
     for (uint16_t workspace_index = 0u;
          workspace_index < ALIEN_RUNTIME_ENTITY_COUNT; ++workspace_index) {
@@ -1219,6 +1245,7 @@ int main(int argc, char **argv)
     object_handler_context.dispatch_workspace = &game.alien_dispatch_workspace;
     object_handler_context.messages = &game.message_runtime;
     object_handler_context.preferences = &game.preferences;
+    object_handler_context.message_time_milliseconds = 0u;
     if (game.random.state != 234u) {
         fprintf(stderr, "Game_Start source random seed is inconsistent\n");
         game_bootstrap_destroy(&game);
@@ -3270,9 +3297,14 @@ int main(int argc, char **argv)
         GameInventory collectable_grant;
         GameInventory original_inventory;
         GameInventory expected_inventory;
+        GameInventory full_inventory;
+        GameObjectDefinition failed_collectable_definition;
         uint32_t collected_count;
         uint8_t collectable_message_line;
         uint8_t object_name_message_line;
+        uint8_t failed_collectable_message_line;
+        uint8_t deduped_failed_collectable_message_line;
+        uint8_t failed_collectable_type;
 
         if (!object_runtime_get_slot_bytes(&game.object_runtime, 20u, &collectable_slot) ||
             !object_runtime_get_point_bytes(&game.object_runtime, 20u, &collectable_point) ||
@@ -3320,6 +3352,7 @@ int main(int argc, char **argv)
                 &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits,
                 &game.message_runtime, game.preferences.show_messages,
+                0u,
                 &collected_count, error, sizeof(error)) ||
             collected_count != 1u ||
             (int16_t)read_be16(collectable_slot + 12u) != -1 ||
@@ -3348,6 +3381,7 @@ int main(int argc, char **argv)
                 &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits,
                 &game.message_runtime, game.preferences.show_messages,
+                0u,
                 &collected_count, error, sizeof(error)) ||
             collected_count != 1u ||
             game.message_runtime.lines[object_name_message_line].text != object_names ||
@@ -3357,6 +3391,123 @@ int main(int argc, char **argv)
             memcmp(&game.session.player1_inventory, &expected_inventory,
                    sizeof(expected_inventory)) != 0) {
             fprintf(stderr, "Level B source object-name collectable update is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* Plr1_CollectItem's failed single-player Timer2/deduplicated narrative path. */
+        memcpy(collectable_slot, collectable_slot_original, sizeof(collectable_slot_original));
+        memset(&full_inventory, 0, sizeof(full_inventory));
+        full_inventory.health = game.inventory_limits.health;
+        full_inventory.jetpack_fuel = game.inventory_limits.jetpack_fuel;
+        for (uint16_t ammunition_index = 0u;
+             ammunition_index < GAME_INVENTORY_AMMUNITION_COUNT;
+             ++ammunition_index) {
+            full_inventory.ammunition[ammunition_index] =
+                game.inventory_limits.ammunition[ammunition_index];
+        }
+        failed_collectable_type = UINT8_MAX;
+        for (uint8_t object_type = 0u; object_type < GAME_LINK_OBJECT_COUNT; ++object_type) {
+            GameObjectDefinition definition;
+            GameInventory grant;
+
+            if (!game_link_get_object_definition(&game.game_link_catalog, object_type,
+                                                 &definition, error, sizeof(error)) ||
+                !game_link_get_object_inventory_grant(&game.game_link_catalog, object_type,
+                                                      &grant, error, sizeof(error))) {
+                fprintf(stderr, "could not read failed-collection source fixture: %s\n", error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (definition.behaviour == 0u &&
+                !game_inventory_can_collect_single_player(&full_inventory, &grant,
+                                                          &game.inventory_limits)) {
+                failed_collectable_type = object_type;
+                failed_collectable_definition = definition;
+                break;
+            }
+        }
+        if (failed_collectable_type == UINT8_MAX) {
+            fprintf(stderr, "Level B failed-collection source fixture is not inventory-bound\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game.session.player1_inventory = full_inventory;
+        collectable_slot[54u] = failed_collectable_type;
+        game.player.tmp_y = (failed_collectable_definition.floor_ceiling == 0u ?
+                                 collectable_zone.floor : collectable_zone.roof) -
+            game.player.tmp_height;
+        write_be16(collectable_slot + 40u, 0u);
+        write_be32(collectable_slot + 50u, 0u);
+        failed_collectable_message_line = game.message_runtime.fullscreen != 0u ?
+            (uint8_t)((game.message_runtime.line_number + 1u) &
+                      (MESSAGE_RUNTIME_LINE_COUNT - 1u)) :
+            (game.message_runtime.line_number < MESSAGE_RUNTIME_MAX_LINES_SMALL ?
+                (uint8_t)(game.message_runtime.line_number + 1u) : 0u);
+        if (!object_collectables_update_single_player(
+                &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits,
+                &game.message_runtime, game.preferences.show_messages,
+                1000u, &collected_count, error, sizeof(error)) ||
+            collected_count != 0u || read_be16(collectable_slot + 40u) != 199u ||
+            (int16_t)read_be16(collectable_slot + 12u) != 146 ||
+            game.message_runtime.lines[failed_collectable_message_line].text == NULL ||
+            memcmp(game.message_runtime.lines[failed_collectable_message_line].text,
+                   "I can't carry any more of these just now.",
+                   sizeof("I can't carry any more of these just now.") - 1u) != 0 ||
+            (game.message_runtime.lines[failed_collectable_message_line].length_and_tag &
+             (uint16_t)~MESSAGE_RUNTIME_LENGTH_MASK) !=
+                (uint16_t)(MESSAGE_RUNTIME_TAG_NARRATIVE << MESSAGE_RUNTIME_TAG_SHIFT) ||
+            memcmp(&game.session.player1_inventory, &full_inventory,
+                   sizeof(full_inventory)) != 0) {
+            fprintf(stderr, "Level B source failed-collection notification is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (!object_collectables_update_single_player(
+                &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits,
+                &game.message_runtime, game.preferences.show_messages,
+                1001u, &collected_count, error, sizeof(error)) ||
+            collected_count != 0u || read_be16(collectable_slot + 40u) != 198u ||
+            game.message_runtime.line_number != failed_collectable_message_line) {
+            fprintf(stderr, "Level B source failed-collection Timer2 decay is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(collectable_slot + 40u, 0u);
+        if (!object_collectables_update_single_player(
+                &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits,
+                &game.message_runtime, game.preferences.show_messages,
+                1001u, &collected_count, error, sizeof(error)) ||
+            collected_count != 0u || read_be16(collectable_slot + 40u) != 199u ||
+            game.message_runtime.line_number != failed_collectable_message_line) {
+            fprintf(stderr, "Level B source failed-collection deduplication is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be16(collectable_slot + 40u, 0u);
+        deduped_failed_collectable_message_line = game.message_runtime.fullscreen != 0u ?
+            (uint8_t)((game.message_runtime.line_number + 1u) &
+                      (MESSAGE_RUNTIME_LINE_COUNT - 1u)) :
+            (game.message_runtime.line_number < MESSAGE_RUNTIME_MAX_LINES_SMALL ?
+                (uint8_t)(game.message_runtime.line_number + 1u) : 0u);
+        if (!object_collectables_update_single_player(
+                &game.object_runtime, &game.level_runtime, &game.game_link_catalog,
+                &game.player, &game.session.player1_inventory, &game.inventory_limits,
+                &game.message_runtime, game.preferences.show_messages,
+                3000u, &collected_count, error, sizeof(error)) ||
+            collected_count != 0u || read_be16(collectable_slot + 40u) != 199u ||
+            game.message_runtime.line_number != deduped_failed_collectable_message_line ||
+            game.message_runtime.lines[deduped_failed_collectable_message_line].text == NULL ||
+            memcmp(game.message_runtime.lines[deduped_failed_collectable_message_line].text,
+                   "I can't carry any more of these just now.",
+                   sizeof("I can't carry any more of these just now.") - 1u) != 0) {
+            fprintf(stderr, "Level B source failed-collection dedup expiry is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;

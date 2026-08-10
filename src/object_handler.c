@@ -204,6 +204,7 @@ int object_handler_update_single_player(
             if (!object_collectables_update_slot_single_player(
                     objects, slot_index, level, game_link, player, inventory, limits,
                     alien_context->messages, alien_context->preferences->show_messages,
+                    alien_context->message_time_milliseconds,
                     &newly_collected, error, error_size)) {
                 return 0;
             }

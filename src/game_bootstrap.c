@@ -219,12 +219,14 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
     /* game_ReadMainMenu:playgame then game_DoneMenu's Plr_ -> Plr1 copy. */
     game_session_begin_single_player(&game->session);
     alien_runtime_begin_single_player(&game->alien_runtime);
+    game->message_time_milliseconds = 0u;
     level_index = game->session.active_level_index;
     return game_bootstrap_load_level(game, data_root, level_index, error, error_size);
 }
 
-int game_bootstrap_update_single_player(GameBootstrap *game,
-                                        char *error, size_t error_size)
+int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
+                                                uint64_t message_time_milliseconds,
+                                                char *error, size_t error_size)
 {
     LevelZone player_zone;
     ObjectHandlerAlienContext alien_context;
@@ -240,6 +242,7 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     if (game->session.level_finished != 0u) {
         return 1;
     }
+    game->message_time_milliseconds = message_time_milliseconds;
     /* hires.s:VBlankInterrupt decrements Anim_Timer_w before frame work. */
     lighting_runtime_vblank(&game->lighting_runtime);
     /* hires.s:dosomething calls DOALLANIMS before its control/object work. */
@@ -279,6 +282,7 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
     alien_context.dispatch_workspace = &game->alien_dispatch_workspace;
     alien_context.messages = &game->message_runtime;
     alien_context.preferences = &game->preferences;
+    alien_context.message_time_milliseconds = game->message_time_milliseconds;
     if (!player_shoot_update_single_player(
             &game->object_runtime, &game->dynamic_level, &game->object_observation,
             &game->player, &game->session.player1_inventory, &game->game_link_catalog,
@@ -325,6 +329,21 @@ int game_bootstrap_update_single_player(GameBootstrap *game,
         game_session_finish_single_player(&game->session, 1);
     }
     return 1;
+}
+
+int game_bootstrap_update_single_player(GameBootstrap *game,
+                                        char *error, size_t error_size)
+{
+    /* hires.s runs this work from PAL VBlank; retain a deterministic 20 ms test boundary. */
+    if (!game || game->message_time_milliseconds > UINT64_MAX - 20u) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "single-player message clock cannot advance one source VBlank");
+        }
+        return 0;
+    }
+    return game_bootstrap_update_single_player_at_time(
+        game, game->message_time_milliseconds + 20u, error, error_size);
 }
 
 int game_bootstrap_load_level_definition(GameBootstrap *game, const char *data_root,

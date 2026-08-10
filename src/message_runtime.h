@@ -18,7 +18,9 @@ enum {
     MESSAGE_RUNTIME_TAG_OTHER = 3u,
     MESSAGE_RUNTIME_LEVEL_MESSAGE_COUNT = 10u,
     MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH = 160u,
-    MESSAGE_RUNTIME_GLYPH_SPACING_BYTE_COUNT = 256u
+    MESSAGE_RUNTIME_GLYPH_SPACING_BYTE_COUNT = 256u,
+    /* c/message.h:MSG_DEDUPLICATION_PERIOD_MS. */
+    MESSAGE_RUNTIME_DEDUPLICATION_PERIOD_MILLISECONDS = 2000u
 };
 
 typedef struct {
@@ -38,6 +40,9 @@ typedef struct {
     uint8_t redraw_count;
     uint8_t lines_visible;
     uint8_t line_number;
+    /* c/message.c:msg_Buffer's deduplication state, expressed in native monotonic ms. */
+    const uint8_t *last_message;
+    uint64_t next_duplicate_time_milliseconds;
 } MessageRuntime;
 
 /* c/message.c:Msg_Init, called after Res_LoadLevelData and before Game_Begin decodes the level. */
@@ -49,6 +54,12 @@ int message_runtime_init(MessageRuntime *runtime, uint8_t *level_bytes, size_t l
 int message_runtime_push_line(MessageRuntime *runtime, const uint8_t *text,
                               uint16_t length_and_tag, uint8_t messages_enabled,
                               char *error, size_t error_size);
+
+/* c/message.c:Msg_PushLineDedupLast with Sys_FrameTimeECV represented as monotonic ms. */
+int message_runtime_push_line_dedup_last(MessageRuntime *runtime, const uint8_t *text,
+                                         uint16_t length_and_tag, uint8_t messages_enabled,
+                                         uint64_t current_time_milliseconds,
+                                         char *error, size_t error_size);
 
 /* c/message.c's small-screen render ordering, published as GPU-neutral HUD commands. */
 int message_runtime_submit_hud(const MessageRuntime *runtime, SceneFrame *frame);

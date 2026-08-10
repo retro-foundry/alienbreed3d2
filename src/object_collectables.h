@@ -13,15 +13,16 @@
 
 /*
  * Focused single-player branch of newaliencontrol.s:ItsAnObject / Collectable
- * and Plr1_CheckObjectCollide. It emits the complete successful-collection
- * Msg_PushLine calls; the timed failed-collection deduplication remains with
- * its source EClock owner.
+ * and Plr1_CheckObjectCollide, including the successful and failed collection
+ * message calls. The caller supplies the source EClock-equivalent monotonic
+ * time in milliseconds for Msg_PushLineDedupLast.
  */
 int object_collectables_update_single_player(
     ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
-    uint8_t messages_enabled, uint32_t *out_collected_count,
+    uint8_t messages_enabled, uint64_t message_time_milliseconds,
+    uint32_t *out_collected_count,
     char *error, size_t error_size);
 
 /* One source ObjT iteration for ObjectHandler's exact list order. */
@@ -29,7 +30,8 @@ int object_collectables_update_slot_single_player(
     ObjectRuntime *objects, uint32_t slot_index, const LevelRuntime *level,
     const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
-    uint8_t messages_enabled, uint32_t *out_collected_count,
+    uint8_t messages_enabled, uint64_t message_time_milliseconds,
+    uint32_t *out_collected_count,
     char *error, size_t error_size);
 
 #endif

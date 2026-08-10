@@ -218,6 +218,36 @@ int message_runtime_push_line(MessageRuntime *runtime, const uint8_t *text,
             text_length = (uint16_t)(text_length - fit_length);
         } while (next_text && lines-- != 0u);
     }
+    /* c/message.c: Msg_PushLine clears lastMessagePtr after every normal push. */
+    runtime->last_message = NULL;
+    return 1;
+}
+
+int message_runtime_push_line_dedup_last(MessageRuntime *runtime, const uint8_t *text,
+                                         uint16_t length_and_tag, uint8_t messages_enabled,
+                                         uint64_t current_time_milliseconds,
+                                         char *error, size_t error_size)
+{
+    if (!runtime || !runtime->glyph_spacing || !text) {
+        message_runtime_set_error(error, error_size,
+                                  "Msg_PushLineDedupLast received invalid source state");
+        return 0;
+    }
+    if (messages_enabled == 0u) {
+        return 1;
+    }
+    /* c/message.c: text pointer identity or Sys_CheckTimeGE on the source EClock. */
+    if (text != runtime->last_message ||
+        current_time_milliseconds >= runtime->next_duplicate_time_milliseconds) {
+        runtime->next_duplicate_time_milliseconds =
+            current_time_milliseconds + MESSAGE_RUNTIME_DEDUPLICATION_PERIOD_MILLISECONDS;
+        if (!message_runtime_push_line(runtime, text, length_and_tag, messages_enabled,
+                                       error, error_size)) {
+            return 0;
+        }
+        runtime->last_message = text;
+        runtime->redraw_count = 1u;
+    }
     return 1;
 }
 

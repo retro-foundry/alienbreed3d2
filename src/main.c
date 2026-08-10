@@ -304,7 +304,8 @@ int main(int argc, char **argv)
                 break;
             }
         }
-        if (!game_bootstrap_update_single_player(&game, error, sizeof(error))) {
+        if (!game_bootstrap_update_single_player_at_time(
+                &game, SDL_GetTicks64(), error, sizeof(error))) {
             fprintf(stderr, "[GAME] %s\n", error);
             renderer_stub_set_status(renderer, error);
         } else if (game.session.level_finished != 0u) {

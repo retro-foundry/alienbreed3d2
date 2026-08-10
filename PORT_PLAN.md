@@ -34,9 +34,11 @@ authority for all game behavior and data formats.
   `Msg_Init` and `Msg_PushLine` line-ring boundary. `Game_Begin` now loads
   the source glyph-spacing table, preprocesses the ten mutable 160-byte level
   messages before runtime parsing, and publishes exact byte-ranged HUD text
-  commands. The status presenter consumes those commands without rasterizing
-  them. The source has no `Msg_Tick` caller in this path, so no native expiry
-  clock has been invented.
+  commands. Its `Msg_PushLineDedupLast` state uses the platform's monotonic
+  milliseconds, preserving the source's two-second EClock duration without
+  inventing a frame-count replacement. The status presenter consumes those
+  commands without rasterizing them. The source has no `Msg_Tick` caller in
+  this path, so no native expiry clock has been invented.
 - [x] `src/object_handler.*` now owns the complete source context needed at
   `newanims.s:ObjectHandler`: it retains the living-alien lock preamble,
   the `newaliencontrol.s:Collectable`, `Activatable`, and `StillHere`
@@ -53,9 +55,9 @@ authority for all game behavior and data formats.
   `Destructable` `Msg_PushLine` calls in their original state-transition
   order. Successful pickups publish either their authored fixed 160-byte
   narrative or raw 20-byte object-name payload; a destructible publishes its
-  authored narrative before its timer/hit-point mutation. The timed
-  `Plr1_CollectItem` “cannot carry” `Msg_PushLineDedupLast` path remains
-  deliberately absent pending its source `Sys_FrameTimeECV_q`/EClock owner.
+  authored narrative before its timer/hit-point mutation. Failed inventory-
+  bound pickups now retain `Plr1_CollectItem`'s signed `Timer2` gate and its
+  deduplicated 160-byte “cannot carry” narrative in source order.
 - [x] `src/asset_io.*` now directly ports `modules/file_io.s:io_LoadSample`'s
   `CSFX` Fibonacci-delta sample decode, including its post-decode signed
   clipping to `[-64, 63]`. `Res_LoadSoundFx` therefore owns the decoded source
@@ -377,9 +379,9 @@ authority for all game behavior and data formats.
   a same-zone/layer candidate: floor/roof placement, source word-coordinate
   hit test, `GLFT_AmmoGive`/`GunGive`, saturated inventory update, and removed
   slot sentinel. Its successful `Msg_PushLine` handoff retains both authored
-  narrative and fixed-width object-name forms; only the source-EClock-deduped
-  failed-collection notification remains unbound. The Level B slot-20 health
-  fixture validates this exact path.
+  narrative and fixed-width object-name forms, while its failed inventory path
+  retains the source `Timer2`/EClock-deduplicated notification. The Level B
+  slot-20 health fixture validates this exact path.
   `src/mechanism_runtime.*` now ports the single-player `newanims.s:DoorRoutine`
   slice: source `ZLiftableT` position/velocity and open timers, `ZoneT_Roof_l`,
   per-door graphics displacement records, door-state bits, source raise masks,
@@ -988,9 +990,6 @@ scope by design.
    - Trace the remaining source-owned blast/brightness/event branches before
      enabling each one. Keep any branch absent until its original caller and
      state ownership are established.
-   - Port `Plr1_CollectItem`'s failed-inventory notification only with its
-     original `Sys_FrameTimeECV_q`/EClock deduplication state; do not replace
-     it with a native timer or unconditional message.
 
 3. **Direct-play validation**
    - Extend focused source fixtures for the remaining worried live-alien
