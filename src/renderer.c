@@ -93,3 +93,16 @@ int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderVi
         return 0;
     }
 }
+
+size_t renderer_last_view_weapon_coverage(const Renderer *renderer)
+{
+    if (!renderer) {
+        return 0u;
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_OPENGL:
+        return renderer_opengl_last_view_weapon_coverage(renderer->opengl);
+    default:
+        return 0u;
+    }
+}

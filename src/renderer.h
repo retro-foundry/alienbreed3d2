@@ -33,5 +33,7 @@ int renderer_is_running(const Renderer *renderer);
 void renderer_request_quit(Renderer *renderer);
 int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderView *view,
                      char *error, size_t error_size);
+/* Nonzero only for the hidden GPU-smoke frame's rendered Player 1 weapon. */
+size_t renderer_last_view_weapon_coverage(const Renderer *renderer);
 
 #endif

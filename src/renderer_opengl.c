@@ -107,6 +107,8 @@ struct RendererOpenGL {
     RendererOpenGLTexture *textures;
     size_t texture_count;
     size_t texture_capacity;
+    size_t last_view_weapon_coverage;
+    uint8_t measure_view_weapon_coverage;
 };
 
 static void renderer_opengl_set_error(char *error, size_t error_size, const char *message)
@@ -1841,6 +1843,8 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
         renderer_opengl_set_error(error, error_size, "OpenGL renderer allocation failed");
         return NULL;
     }
+    /* The opt-in hidden window is the GPU smoke path, not the game loop. */
+    renderer->measure_view_weapon_coverage = hidden_window != 0 ? 1u : 0u;
     renderer->window = SDL_CreateWindow(window_title, SDL_WINDOWPOS_CENTERED,
                                         SDL_WINDOWPOS_CENTERED, window_width, window_height,
                                         SDL_WINDOW_OPENGL |
@@ -1922,6 +1926,11 @@ void renderer_opengl_destroy(RendererOpenGL *renderer)
     free(renderer);
 }
 
+size_t renderer_opengl_last_view_weapon_coverage(const RendererOpenGL *renderer)
+{
+    return renderer ? renderer->last_view_weapon_coverage : 0u;
+}
+
 typedef struct {
     const SceneSprite *sprite;
     float depth;
@@ -1959,6 +1968,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         renderer_opengl_set_error(error, error_size, "OpenGL presenter received invalid state");
         return 0;
     }
+    renderer->last_view_weapon_coverage = 0u;
     for (size_t index = 0u; index < frame->count; ++index) {
         if (frame->commands[index].type == SCENE_COMMAND_CAMERA) {
             camera = &frame->commands[index].data.camera;
@@ -2062,14 +2072,68 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
 
         if (command->type == SCENE_COMMAND_SPRITE &&
             command->data.sprite.presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
+            uint8_t *before_pixels = NULL;
+            size_t pixel_byte_count = 0u;
+
+            if (renderer->measure_view_weapon_coverage != 0u) {
+                if ((size_t)drawable_width > SIZE_MAX / (size_t)drawable_height / 4u) {
+                    renderer_opengl_set_error(error, error_size,
+                                              "weapon GPU coverage buffer is too large");
+                    return 0;
+                }
+                pixel_byte_count = (size_t)drawable_width * (size_t)drawable_height * 4u;
+                before_pixels = malloc(pixel_byte_count);
+                if (!before_pixels) {
+                    renderer_opengl_set_error(error, error_size,
+                                              "weapon GPU coverage buffer allocation failed");
+                    return 0;
+                }
+                glReadPixels(0, 0, drawable_width, drawable_height, GL_RGBA, GL_UNSIGNED_BYTE,
+                             before_pixels);
+                if (glGetError() != GL_NO_ERROR) {
+                    free(before_pixels);
+                    renderer_opengl_set_error(error, error_size,
+                                              "weapon GPU coverage readback before draw failed");
+                    return 0;
+                }
+            }
             glDisable(GL_DEPTH_TEST);
             if (command->data.sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
                 !renderer_opengl_draw_vector_sprite(renderer, &command->data.sprite, camera,
                                                    error, error_size)) {
                 glEnable(GL_DEPTH_TEST);
+                free(before_pixels);
                 return 0;
             }
             glEnable(GL_DEPTH_TEST);
+            if (before_pixels) {
+                uint8_t *after_pixels = malloc(pixel_byte_count);
+
+                if (!after_pixels) {
+                    free(before_pixels);
+                    renderer_opengl_set_error(error, error_size,
+                                              "weapon GPU coverage buffer allocation failed");
+                    return 0;
+                }
+                glReadPixels(0, 0, drawable_width, drawable_height, GL_RGBA, GL_UNSIGNED_BYTE,
+                             after_pixels);
+                if (glGetError() != GL_NO_ERROR) {
+                    free(after_pixels);
+                    free(before_pixels);
+                    renderer_opengl_set_error(error, error_size,
+                                              "weapon GPU coverage readback after draw failed");
+                    return 0;
+                }
+                for (size_t pixel_offset = 0u; pixel_offset < pixel_byte_count;
+                     pixel_offset += 4u) {
+                    if (memcmp(before_pixels + pixel_offset, after_pixels + pixel_offset,
+                               4u) != 0) {
+                        ++renderer->last_view_weapon_coverage;
+                    }
+                }
+                free(after_pixels);
+                free(before_pixels);
+            }
         }
     }
     SDL_GL_SwapWindow(renderer->window);

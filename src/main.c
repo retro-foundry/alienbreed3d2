@@ -421,6 +421,13 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
+        if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] GPU smoke weapon pass did not change any framebuffer pixels "
+                    "for Level %c\n", (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
     }
     return 1;
 }
