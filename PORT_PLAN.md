@@ -493,8 +493,11 @@ authority for all game behavior and data formats.
      pool slot. `ai_AttackWithHitScan` now composes that source miss path or
      its direct Player 1 hit/impact path around the attack animation, heading,
      memory, sight, torch, and mode transitions, still outside the global
-     dispatcher. Next: finish the remaining `ItsAnAlien` collision/dispatcher
-     routes, then the audio portions of `newplayershoot.s`. The complete source
+     dispatcher. `objectmove.s:CheckTeleport` now preserves its source-zone
+     collision probe, floor-relative destination, and delayed `Obj_ZonePtr`
+     replacement as an uncalled helper for the remaining charge/approach modes.
+     Next: finish the remaining `ItsAnAlien` collision/dispatcher routes, then
+     the audio portions of `newplayershoot.s`. The complete source
      `Plr1_Shot`
      gameplay-state path is now wired before `ObjectHandler`; its
      `Plr1_NoiseVol_w` is cleared in source order each frame and becomes 100
@@ -818,6 +821,13 @@ object-point words without a team, or the selected team workspace otherwise.
 Other callers still require their own maintained-source register evidence, so
 the helper remains uncalled and no live object-to-object collision is enabled.
 The first game's implementation is not authority for the values.
+
+`src/object_teleport.*` now directly translates `objectmove.s:CheckTeleport`.
+It retains the source's destination-floor delta, temporary teleport X/Z, and
+`Obj_DoCollision` call while the colliding ObjT retains its original zone. It
+restores `newy` after that collision call and only replaces the returned source
+zone pointer after a collision-free result. The helper remains uncalled until
+the complete charge and approach mode routines own its result in source order.
 
 The milestone is complete when the equivalent single-player routines update
 source-named state in the same order, direct source-derived tests cover their

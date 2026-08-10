@@ -40,6 +40,7 @@
 #include "object_movement.h"
 #include "object_projectiles.h"
 #include "object_scene.h"
+#include "object_teleport.h"
 #include "object_viewpoint.h"
 #include "object_visibility.h"
 #include "object_worry.h"
@@ -7756,6 +7757,97 @@ int main(int argc, char **argv)
                 &collision_trace, &hit_wall, error, sizeof(error)) ||
             hit_wall != 0u) {
             fprintf(stderr, "Obj_DoCollision source type gate is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /*
+         * objectmove.s:CheckTeleport keeps the object's ObjT zone until its
+         * caller later runs ai_GetRoomStats. Its collision pass therefore
+         * still examines the source zone, even while testing teleport X/Z.
+         */
+        uint8_t teleport_level_bytes[256u] = {0};
+        uint8_t teleport_graphics_bytes[16u] = {0};
+        uint8_t teleport_slot_bytes[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t teleport_point_bytes[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        int16_t teleport_a2_words[8u] = {0, 20, 40, 0, 0, 20, 40, 0};
+        LevelRuntime teleport_level = {0};
+        ObjectRuntime teleport_objects = {0};
+        ObjectCollisionTrace teleport_trace = {0};
+        ObjectTeleportState teleport_state = {0};
+
+        teleport_level.level_bytes = teleport_level_bytes;
+        teleport_level.level_size = sizeof(teleport_level_bytes);
+        teleport_level.graphics_bytes = teleport_graphics_bytes;
+        teleport_level.graphics_size = sizeof(teleport_graphics_bytes);
+        teleport_level.zone_offsets_table_offset = 0u;
+        teleport_level.zone_count = 2u;
+        write_be32(teleport_graphics_bytes + 0u, 0u);
+        write_be32(teleport_graphics_bytes + 4u, 100u);
+        write_be16(teleport_level_bytes + 0u, 0u);
+        write_be32(teleport_level_bytes + 2u, 100u);
+        write_be16(teleport_level_bytes + 38u, 1u);
+        write_be16(teleport_level_bytes + 40u, 300u);
+        write_be16(teleport_level_bytes + 42u, 400u);
+        write_be16(teleport_level_bytes + 100u, 1u);
+        write_be32(teleport_level_bytes + 102u, 600u);
+        write_be16(teleport_level_bytes + 138u, UINT16_MAX);
+
+        teleport_objects.slot_bytes = teleport_slot_bytes;
+        teleport_objects.slot_count = 3u;
+        teleport_objects.active_slot_count = 1u;
+        teleport_objects.point_bytes = teleport_point_bytes;
+        teleport_objects.point_count = 2u;
+        write_be16(teleport_slot_bytes + 0u, 0u);
+        write_be16(teleport_slot_bytes + 12u, 0u);
+        teleport_slot_bytes[16u] = 0u;
+        teleport_slot_bytes[18u] = 1u;
+        write_be16(teleport_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        teleport_trace.collision_id = 0u;
+        teleport_trace.old_x = 0;
+        teleport_trace.old_z = 0;
+        teleport_trace.new_x = 111;
+        teleport_trace.new_z = 222;
+        teleport_trace.new_y = 500;
+        teleport_trace.thing_height = 20 * 128;
+        if (!object_teleport_check(
+                &teleport_level, &teleport_objects, &game.game_link_catalog, 0u,
+                teleport_a2_words,
+                sizeof(teleport_a2_words) / sizeof(teleport_a2_words[0]),
+                &teleport_trace, &teleport_state, error, sizeof(error)) ||
+            teleport_state.teleported != UINT8_MAX || teleport_state.zone_index != 1u ||
+            teleport_state.floor_delta != 500 || teleport_trace.new_x != 300 ||
+            teleport_trace.new_z != 400 || teleport_trace.new_y != 500) {
+            fprintf(stderr, "CheckTeleport successful source transition is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
+        /* The candidate stays in the original zone: this rejects the jump. */
+        write_be16(teleport_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, 1u);
+        write_be16(teleport_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+        teleport_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        teleport_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+        write_be16(teleport_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        write_be32(teleport_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                   UINT32_C(300) << 16u);
+        write_be32(teleport_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(400) << 16u);
+        teleport_objects.active_slot_count = 2u;
+        teleport_trace.new_x = 111;
+        teleport_trace.new_z = 222;
+        teleport_trace.new_y = 500;
+        if (!object_teleport_check(
+                &teleport_level, &teleport_objects, &game.game_link_catalog, 0u,
+                teleport_a2_words,
+                sizeof(teleport_a2_words) / sizeof(teleport_a2_words[0]),
+                &teleport_trace, &teleport_state, error, sizeof(error)) ||
+            teleport_state.teleported != 0u || teleport_state.zone_index != 0u ||
+            teleport_state.floor_delta != 500 || teleport_trace.new_x != 300 ||
+            teleport_trace.new_z != 400 || teleport_trace.new_y != 500) {
+            fprintf(stderr, "CheckTeleport collision rejection is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }
