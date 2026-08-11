@@ -1932,6 +1932,7 @@ int main(int argc, char **argv)
             background_events.events[0u].volume != 38u ||
             background_events.events[0u].world_x != 0 ||
             background_events.events[0u].world_z != 0 ||
+            background_events.events[0u].listener_relative == 0u ||
             background_events.events[0u].source_id != UINT16_C(0xfff0) ||
             background_events.events[0u].suppress_if_playing != UINT8_MAX ||
             background_events.events[0u].echo != 0u) {
@@ -5334,6 +5335,7 @@ int main(int argc, char **argv)
             damage_slots[18u] != 10u || damage_audio.count != 1u ||
             damage_audio.events[0u].sample_index != 19u ||
             damage_audio.events[0u].volume != 60u ||
+            damage_audio.events[0u].listener_relative == 0u ||
             damage_audio.events[0u].source_id != UINT16_C(0xfffa)) {
             fprintf(stderr, "Plr1_Use player damage/impact response is inconsistent: %s\n",
                     error);
@@ -5429,6 +5431,9 @@ int main(int argc, char **argv)
             footstep_events.count != 1u ||
             footstep_events.events[0u].sample_index != (uint16_t)expected_sample ||
             footstep_events.events[0u].volume != 80u ||
+            footstep_events.events[0u].world_x != 0 ||
+            footstep_events.events[0u].world_z != 100 ||
+            footstep_events.events[0u].listener_relative == 0u ||
             footstep_events.events[0u].source_id != UINT16_C(0xfff8) ||
             footstep_events.events[0u].channel_pick != 0u ||
             footstep_events.events[0u].echo != footstep_zone.echo ||

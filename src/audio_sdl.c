@@ -352,10 +352,16 @@ uint16_t audio_sdl_consume_events(AudioSdl *audio, const GameAudioEvents *events
         if (!sample->samples || sample->frame_count == 0u) {
             continue;
         }
-        delta_x = (float)((int32_t)event->world_x - listener_x);
-        delta_z = (float)((int32_t)event->world_z - listener_z);
-        depth = delta_x * sine + delta_z * cosine;
-        right = delta_x * cosine - delta_z * sine;
+        if (event->listener_relative != 0u) {
+            /* Aud_NoiseX_w/Aud_NoiseZ_w have already passed through ObjRotated. */
+            right = (float)event->world_x;
+            depth = (float)event->world_z;
+        } else {
+            delta_x = (float)((int32_t)event->world_x - listener_x);
+            delta_z = (float)((int32_t)event->world_z - listener_z);
+            depth = delta_x * sine + delta_z * cosine;
+            right = delta_x * cosine - delta_z * sine;
+        }
         distance = SDL_sqrtf(depth * depth + right * right);
         /* MakeSomeNoise: (Aud_NoiseVol << 6) / ((sqrt(distance) >> 2) + 1), cap 64. */
         loudness = ((float)event->volume * 64.0f) / (distance * 0.25f + 1.0f);

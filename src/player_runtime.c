@@ -788,42 +788,21 @@ static int player_runtime_move_static(const LevelRuntime *runtime, uint16_t *io_
     return 1;
 }
 
-/*
- * MakeSomeNoise consumes listener-relative coordinates. The player-only
- * plr_DoFootstepFX caller supplies (0, 100), so rotate that source point back
- * into map words for the API-neutral event queue consumed by the desktop
- * listener.
- */
-static int player_runtime_emit_relative_player_sound(
-    const PlayerRuntime *player, const GameMath *math, GameAudioEvents *audio_events,
-    int16_t sample_index, int16_t volume, uint8_t echo,
-    char *error, size_t error_size)
+/* Player source calls write (0, 100) directly to MakeSomeNoise's view-space words. */
+static void player_runtime_emit_relative_player_sound(
+    GameAudioEvents *audio_events, int16_t sample_index, int16_t volume, uint8_t echo)
 {
-    int16_t sine;
-    int16_t cosine;
-    int16_t world_x;
-    int16_t world_z;
-
     if (!audio_events) {
-        return 1;
+        return;
     }
-    if (!game_math_sine(math, player->snap_yaw, &sine, error, error_size) ||
-        !game_math_cosine(math, player->snap_yaw, &cosine, error, error_size)) {
-        return 0;
-    }
-    /* transform.s's table values are 2.14 fixed point. */
-    world_x = (int16_t)((int32_t)player_runtime_position_to_world(player->snap_x) +
-                        ((int32_t)sine * 100) / 16384);
-    world_z = (int16_t)((int32_t)player_runtime_position_to_world(player->snap_z) +
-                        ((int32_t)cosine * 100) / 16384);
-    game_audio_events_emit(audio_events, sample_index, volume, world_x, world_z,
-                           UINT16_C(0xfff8), GAME_AUDIO_RESTART_SOURCE, 0u, echo);
-    return 1;
+    game_audio_events_emit_relative(
+        audio_events, sample_index, volume, 0, 100, UINT16_C(0xfff8),
+        GAME_AUDIO_RESTART_SOURCE, 0u, echo);
 }
 
 /* modules/player.s:plr_DoFootstepFX. */
 static int player_runtime_emit_footstep(PlayerRuntime *player, const LevelZone *zone,
-                                        const GameMath *math, const GameLink *game_link,
+                                        const GameLink *game_link,
                                         GameAudioEvents *audio_events,
                                         char *error, size_t error_size)
 {
@@ -854,9 +833,8 @@ static int player_runtime_emit_footstep(PlayerRuntime *player, const LevelZone *
             return 1;
         }
     }
-    return player_runtime_emit_relative_player_sound(player, math, audio_events,
-                                                      sample_index, 80, zone->echo,
-                                                      error, error_size);
+    player_runtime_emit_relative_player_sound(audio_events, sample_index, 80, zone->echo);
+    return 1;
 }
 
 int player_runtime_update_fall(PlayerRuntime *player, const GameInput *input,
@@ -911,7 +889,7 @@ int player_runtime_update_fall(PlayerRuntime *player, const GameInput *input,
             (uint16_t)(player->walk_sfx_time + (uint16_t)player->add_to_bobble);
         player->walk_sfx_time = (uint16_t)(walk_sound_accumulator & 4095u);
         if ((walk_sound_accumulator & UINT16_C(0xf000)) != 0u &&
-            !player_runtime_emit_footstep(player, &zone, math, game_link, audio_events,
+            !player_runtime_emit_footstep(player, &zone, game_link, audio_events,
                                            error, error_size)) {
             return 0;
         }
@@ -955,10 +933,8 @@ int player_runtime_update_fall(PlayerRuntime *player, const GameInput *input,
              */
             if (y >= zone.water) {
                 /* plr_OldHeight_l is source BSS and has no maintained writer. */
-                if (zone.water >= 0 &&
-                    !player_runtime_emit_relative_player_sound(
-                        player, math, audio_events, 6, 80, 0u, error, error_size)) {
-                    return 0;
+                if (zone.water >= 0) {
+                    player_runtime_emit_relative_player_sound(audio_events, 6, 80, 0u);
                 }
                 player->decelerate = UINT8_MAX;
                 player->fall_damage = 0;

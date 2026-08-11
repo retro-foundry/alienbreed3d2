@@ -19,8 +19,9 @@ enum {
 
 /*
  * One source MakeSomeNoise request, kept renderer- and host-audio-neutral.
- * Coordinates are the source map's signed world words.  The desktop boundary
- * applies listener-relative attenuation/panning only when it presents this.
+ * Coordinates are either source map words or the already transformed
+ * Aud_NoiseX_w/Aud_NoiseZ_w listener-relative words selected by the flag.
+ * The desktop boundary applies attenuation/panning only when it presents this.
  */
 typedef struct {
     uint16_t sample_index;
@@ -32,6 +33,7 @@ typedef struct {
     uint8_t suppress_if_playing;
     uint8_t channel_pick;
     uint8_t echo;
+    uint8_t listener_relative;
 } GameAudioEvent;
 
 typedef struct {
@@ -55,6 +57,11 @@ void game_audio_events_begin(GameAudioEvents *events);
 void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16_t volume,
                             int16_t world_x, int16_t world_z, uint16_t source_id,
                             uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
+/* Source caller already supplied MakeSomeNoise listener-relative X/Z words. */
+void game_audio_events_emit_relative(
+    GameAudioEvents *events, int16_t sample_index, int16_t volume,
+    int16_t relative_x, int16_t relative_z, uint16_t source_id,
+    uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
 /* MakeSomeNoise using the last value written to hires.s:Aud_SampleNum_w. */
 void game_audio_events_emit_current_sample(
     GameAudioEvents *events, int16_t volume, int16_t world_x, int16_t world_z,

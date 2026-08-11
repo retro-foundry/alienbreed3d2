@@ -30,7 +30,8 @@ void game_audio_events_begin(GameAudioEvents *events)
 static void game_audio_events_queue(GameAudioEvents *events, int16_t sample_index,
                                     int16_t volume, int16_t world_x, int16_t world_z,
                                     uint16_t source_id, uint8_t suppress_if_playing,
-                                    uint8_t channel_pick, uint8_t echo)
+                                    uint8_t channel_pick, uint8_t echo,
+                                    uint8_t listener_relative)
 {
     GameAudioEvent *event;
 
@@ -51,6 +52,7 @@ static void game_audio_events_queue(GameAudioEvents *events, int16_t sample_inde
     event->suppress_if_playing = suppress_if_playing != 0u ? UINT8_MAX : 0u;
     event->channel_pick = channel_pick;
     event->echo = echo;
+    event->listener_relative = listener_relative != 0u ? UINT8_MAX : 0u;
 }
 
 void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16_t volume,
@@ -63,7 +65,20 @@ void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16
     /* Every explicit source caller writes Aud_SampleNum_w before MakeSomeNoise. */
     events->source_sample_index = sample_index;
     game_audio_events_queue(events, sample_index, volume, world_x, world_z, source_id,
-                            suppress_if_playing, channel_pick, echo);
+                            suppress_if_playing, channel_pick, echo, 0u);
+}
+
+void game_audio_events_emit_relative(
+    GameAudioEvents *events, int16_t sample_index, int16_t volume,
+    int16_t relative_x, int16_t relative_z, uint16_t source_id,
+    uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo)
+{
+    if (!events) {
+        return;
+    }
+    events->source_sample_index = sample_index;
+    game_audio_events_queue(events, sample_index, volume, relative_x, relative_z, source_id,
+                            suppress_if_playing, channel_pick, echo, UINT8_MAX);
 }
 
 void game_audio_events_emit_current_sample(
@@ -74,7 +89,7 @@ void game_audio_events_emit_current_sample(
         return;
     }
     game_audio_events_queue(events, events->source_sample_index, volume, world_x, world_z,
-                            source_id, suppress_if_playing, channel_pick, echo);
+                            source_id, suppress_if_playing, channel_pick, echo, 0u);
 }
 
 void game_background_audio_runtime_init(GameBackgroundAudioRuntime *runtime)
@@ -141,7 +156,8 @@ int game_background_audio_update(GameBackgroundAudioRuntime *runtime, uint16_t f
         return 0;
     }
     volume = (uint16_t)((game_random_next(random) & UINT16_C(15)) + UINT16_C(32));
-    game_audio_events_emit(events, (int16_t)sample_index, (int16_t)volume, 0, 0,
-                           UINT16_C(0xfff0), GAME_AUDIO_SUPPRESS_IF_PLAYING, 0u, 0u);
+    game_audio_events_emit_relative(
+        events, (int16_t)sample_index, (int16_t)volume, 0, 0,
+        UINT16_C(0xfff0), GAME_AUDIO_SUPPRESS_IF_PLAYING, 0u, 0u);
     return 1;
 }

@@ -118,8 +118,9 @@ static void player_entity_apply_damage(uint8_t *slot, const LevelZone *zone,
         player_entity_write_be16(slot + PLAYER_ENTITY_IMPACT_X_OFFSET, 0u);
         player_entity_write_be16(slot + PLAYER_ENTITY_IMPACT_Z_OFFSET, 0u);
         player_entity_write_be16(slot + PLAYER_ENTITY_IMPACT_Y_OFFSET, 0u);
-        game_audio_events_emit(audio_events, 19, 60, 0, 0, UINT16_C(0xfffa),
-                               GAME_AUDIO_RESTART_SOURCE, 0u, zone->echo);
+        game_audio_events_emit_relative(
+            audio_events, 19, 60, 0, 0, UINT16_C(0xfffa),
+            GAME_AUDIO_RESTART_SOURCE, 0u, zone->echo);
     }
     slot[PLAYER_ENTITY_DAMAGE_TAKEN_OFFSET] = 0u;
 }
