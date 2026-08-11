@@ -1,7 +1,6 @@
 #ifndef AB3D2_SOURCE_VECTOR_PROJECTION_H
 #define AB3D2_SOURCE_VECTOR_PROJECTION_H
 
-#include <stddef.h>
 #include <stdint.h>
 
 #include "scene_frame.h"
@@ -17,17 +16,6 @@ int source_vector_transform_view_weapon_point(
     const SceneViewWeaponProjection *projection,
     int16_t source_x, int16_t source_y, int16_t source_z,
     SourceVectorEyePoint *out_point);
-
-/*
- * Configure a frame-local half turn for an authored model whose longitudinal
- * basis faces into the software weapon camera. Bounds come from the selected
- * source frame; malformed source data fails instead of producing a partial
- * model.
- */
-int source_vector_configure_view_weapon_axis_correction(
-    SceneViewWeaponProjection *projection, const uint8_t *source_bytes,
-    size_t source_byte_count, uint16_t frame_index,
-    char *error, size_t error_size);
 
 /*
  * Perspective matrix for the source-authored weapon projection.  The source

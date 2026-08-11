@@ -2901,28 +2901,27 @@ int main(int argc, char **argv)
                 }
             }
             if (weapon_source_asset_id == 4u && weapon_projection.depth_bias == 3) {
-                SourceVectorEyePoint stock;
-                SourceVectorEyePoint barrel;
+                SourceVectorEyePoint muzzle;
+                SourceVectorEyePoint breech;
 
                 /*
                  * Connect the live Plr1_Use scene command to the compiled
-                 * shotgun direction oracle below. The authored stock occupies
-                 * the long negative-X end while the barrels occupy the short
-                 * end; the real-3D presentation must place the stock nearer.
+                 * shotgun direction oracle below.  The old test supplied a
+                 * synthetic projection and therefore missed a sideways live
+                 * companion transform.
                  */
                 if (!source_vector_transform_view_weapon_point(
-                        &weapon_projection, -353, 0, 0, &stock) ||
+                        &weapon_projection, -353, 0, 0, &muzzle) ||
                     !source_vector_transform_view_weapon_point(
-                        &weapon_projection, -35, 0, 0, &barrel) ||
-                    weapon_projection.reverse_longitudinal_axis == 0u ||
-                    -stock.z >= -barrel.z || stock.x != 0.0f || barrel.x != 0.0f) {
+                        &weapon_projection, -35, 0, 0, &breech) ||
+                    -muzzle.z <= -breech.z || muzzle.x != 0.0f || breech.x != 0.0f) {
                     fprintf(stderr,
                             "campaign level %u live shotgun companion faces the wrong direction "
-                            "(weapon yaw=%u view yaw=%u sine=%d cosine=%d stock=%g,%g,%g "
-                            "barrel=%g,%g,%g)\n",
+                            "(weapon yaw=%u view yaw=%u sine=%d cosine=%d muzzle=%g,%g,%g "
+                            "breech=%g,%g,%g)\n",
                             level_index, weapon_scene_yaw, game.player.yaw,
                             weapon_projection.sine, weapon_projection.cosine,
-                            stock.x, stock.y, stock.z, barrel.x, barrel.y, barrel.z);
+                            muzzle.x, muzzle.y, muzzle.z, breech.x, breech.y, breech.z);
                     scene_frame_destroy(&weapon_scene);
                     game_bootstrap_destroy(&game);
                     return 1;
@@ -5709,16 +5708,16 @@ int main(int argc, char **argv)
     }
     {
         SceneViewWeaponProjection projection = {0};
-        SourceVectorEyePoint stock;
-        SourceVectorEyePoint barrel;
+        SourceVectorEyePoint muzzle;
+        SourceVectorEyePoint breech;
         float matrix[16];
 
         /*
          * Compiled media/vectobj/shotgun is authored along negative X: frame
-         * zero's named stock pieces reach X=-353 and its barrel pieces end
-         * near X=-35. The software near-plane transform reverses those ends;
-         * the neutral scene correction turns the model about its depth centre
-         * so the stock is near the camera without changing its source extent.
+         * zero's muzzle reaches X=-353 and its rear body is near X=-35.
+         * At Plr1_Use + ACTANIMOBJ's initial relative angle, the source
+         * rotation must put that muzzle farther down the view ray. This is
+         * the direction oracle that the former guessed world transform lost.
          */
         projection.sine = 0;
         projection.cosine = INT16_MIN;
@@ -5727,30 +5726,16 @@ int main(int argc, char **argv)
         projection.centre_y = 120u;
         projection.scale_numerator = 5u;
         projection.scale_denominator = 3u;
-        if (!source_vector_configure_view_weapon_axis_correction(
-                &projection, game.shared_resources.vector_models[4u].bytes,
-                game.shared_resources.vector_models[4u].size, 0u,
-                error, sizeof(error)) ||
+        if (!source_vector_transform_view_weapon_point(
+                &projection, -353, 0, 0, &muzzle) ||
             !source_vector_transform_view_weapon_point(
-                &projection, -353, 0, 0, &stock) ||
-            !source_vector_transform_view_weapon_point(
-                &projection, -35, 0, 0, &barrel) ||
+                &projection, -35, 0, 0, &breech) ||
             !source_vector_make_view_weapon_matrix(
                 &projection, 16.0f / 9.0f, matrix) ||
-            projection.reverse_longitudinal_axis == 0u ||
-            -stock.z >= -barrel.z || stock.x != 0.0f || barrel.x != 0.0f ||
+            -muzzle.z <= -breech.z || muzzle.x != 0.0f || breech.x != 0.0f ||
             matrix[0] < 0.00780f || matrix[0] > 0.00782f ||
             matrix[5] < 0.01388f || matrix[5] > 0.01390f) {
-            fprintf(stderr, "source shotgun view projection faces the wrong direction: %s\n",
-                    error);
-            game_bootstrap_destroy(&game);
-            return 1;
-        }
-        error[0] = '\0';
-        if (source_vector_configure_view_weapon_axis_correction(
-                &projection, game.shared_resources.vector_models[4u].bytes, 5u, 0u,
-                error, sizeof(error)) || error[0] == '\0') {
-            fprintf(stderr, "malformed shotgun basis source was not rejected clearly\n");
+            fprintf(stderr, "source shotgun view projection faces the wrong direction\n");
             game_bootstrap_destroy(&game);
             return 1;
         }
