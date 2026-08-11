@@ -14,7 +14,7 @@
  * stay with their original owning routines.
  */
 int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime *level,
-                                     const GameLink *game_link, const PlayerRuntime *player,
+                                     const GameLink *game_link, PlayerRuntime *player,
                                      char *error, size_t error_size);
 
 /* hires.s single-player game loop: FREE_ENT Plr2_ObjectPtr then clears sight. */

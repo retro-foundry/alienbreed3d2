@@ -2561,6 +2561,7 @@ int main(int argc, char **argv)
                 return 1;
             }
 
+            game.player.reset_weapon_animation = UINT8_MAX;
             if (!player_entity_sync_single_player(&game.object_runtime,
                                                   &game.dynamic_level.runtime,
                                                   &game.game_link_catalog, &game.player,
@@ -2616,6 +2617,7 @@ int main(int argc, char **argv)
                 read_be16(weapon_slot + 12u) != zone.id ||
                 read_be16(weapon_slot + 26u) != zone.id || weapon_slot[16u] != 1u ||
                 weapon_slot[54u] != (uint8_t)gun_object_type || weapon_slot[55u] != UINT8_MAX ||
+                read_be16(weapon_slot + 34u) != 0u || game.player.reset_weapon_animation != 0u ||
                 read_be16(weapon_slot + 30u) !=
                     (uint16_t)((game.player.tmp_yaw + 4096u) & 8190u) ||
                 read_be16(weapon_slot + 4u) !=
@@ -4749,6 +4751,32 @@ int main(int argc, char **argv)
             use_snapshot_motion.new_x != player_runtime_position_to_world(use_snapshot_player.x) ||
             use_snapshot_motion.new_z != player_runtime_position_to_world(use_snapshot_player.z)) {
             fprintf(stderr, "source transient player snapshot is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        PlayerRuntime number_weapon_player = game.player;
+        GameInput number_weapon_input;
+        GameInventory number_weapon_inventory = {0};
+
+        number_weapon_player.gun_selected = 3u;
+        number_weapon_inventory.weapons[3u] = UINT8_MAX;
+        number_weapon_inventory.weapons[7u] = UINT8_MAX;
+        game_input_init(&number_weapon_input);
+        /* raw key $08 is RAWKEY_8, which selects source weapon table entry 7. */
+        if (!game_input_set_raw_key(&number_weapon_input, 8u, 1, error, sizeof(error)) ||
+            !player_runtime_update_discrete_controls(
+                &number_weapon_player, &number_weapon_input, &control_defaults,
+                &game.level_runtime, &number_weapon_inventory, error, sizeof(error)) ||
+            number_weapon_player.gun_selected != 7u ||
+            number_weapon_player.reset_weapon_animation != UINT8_MAX ||
+            !player_runtime_update_discrete_controls(
+                &number_weapon_player, &number_weapon_input, &control_defaults,
+                &game.level_runtime, &number_weapon_inventory, error, sizeof(error)) ||
+            number_weapon_player.gun_selected != 7u ||
+            number_weapon_player.reset_weapon_animation != UINT8_MAX) {
+            fprintf(stderr, "source number-key weapon selection is inconsistent: %s\\n", error);
             game_bootstrap_destroy(&game);
             return 1;
         }

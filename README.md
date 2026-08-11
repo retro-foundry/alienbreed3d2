@@ -31,6 +31,10 @@ port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
 An explicit `--level A` through `--level P` command-line option overrides
 `start_level`.
 
+Weapon selection retains the source controls: number keys `1`--`0` directly
+select their owned weapon, while Backslash and the right mouse button advance
+to the next owned weapon.
+
 ## Current native slice
 
 The initial desktop target establishes the port boundary without reusing the

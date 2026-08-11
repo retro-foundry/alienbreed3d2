@@ -14,6 +14,7 @@ enum {
     PLAYER_ENTITY_SEES_PLAYER_OFFSET = 17u,
     PLAYER_ENTITY_ENTITY_ZONE_ID_OFFSET = 26u,
     PLAYER_ENTITY_CURRENT_ANGLE_OFFSET = 30u,
+    PLAYER_ENTITY_TIMER1_OFFSET = 34u,
     PLAYER_ENTITY_OBJECT_KIND_OFFSET = 54u,
     PLAYER_ENTITY_WHICH_ANIMATION_OFFSET = 55u,
     PLAYER_ENTITY_IN_UPPER_ZONE_OFFSET = 63u,
@@ -86,7 +87,7 @@ int player_entity_disable_second_for_single_player(ObjectRuntime *objects,
 }
 
 int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime *level,
-                                     const GameLink *game_link, const PlayerRuntime *player,
+                                     const GameLink *game_link, PlayerRuntime *player,
                                      char *error, size_t error_size)
 {
     uint8_t *slot;
@@ -155,6 +156,11 @@ int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime 
     weapon_slot[PLAYER_ENTITY_TYPE_ID_OFFSET] = PLAYER_ENTITY_TYPE_OBJECT;
     memcpy(weapon_point, point, OBJECT_RUNTIME_POINT_BYTE_COUNT);
     weapon_slot[PLAYER_ENTITY_WHICH_ANIMATION_OFFSET] = UINT8_MAX;
+    if (player->reset_weapon_animation != 0u) {
+        /* modules/player.s:.pickweap clears ENT_NEXT_2+EntT_Timer1_w. */
+        player_entity_write_be16(weapon_slot + PLAYER_ENTITY_TIMER1_OFFSET, 0u);
+        player->reset_weapon_animation = 0u;
+    }
     weapon_height = player_entity_asr32(
         (int32_t)((uint32_t)player->tmp_y +
                   (uint32_t)player_entity_asr32(player->tmp_height, 2u) +

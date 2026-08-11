@@ -471,6 +471,13 @@ int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *in
         return 0;
     }
 
+    /*
+     * modules/player.s:plr_KeyboardControl clears only on the next controller
+     * tick. A direct number-key selection below reasserts the request while
+     * that key remains held, matching the source Timer1 write.
+     */
+    player->reset_weapon_animation = 0u;
+
     /* modules/player.s only advances one owned weapon per next-weapon press. */
     if (game_input_is_control_down(input, controls, GAME_CONTROL_NEXT_WEAPON)) {
         if (player->previous_next_weapon_key_state == 0u) {
@@ -493,6 +500,22 @@ int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *in
         }
     } else {
         player->previous_next_weapon_key_state = 0u;
+    }
+
+    /*
+     * modules/player.s:.pickweap scans RAWKEY_1 through RAWKEY_0 (raw codes
+     * 1..10) in weapon-table order. Unlike next-weapon it chooses the first
+     * held, owned weapon directly and restarts the Player 1 companion weapon
+     * animation by clearing ENT_NEXT_2+EntT_Timer1_w.
+     */
+    for (uint16_t weapon_index = 0u; weapon_index < GAME_INVENTORY_WEAPON_COUNT;
+         ++weapon_index) {
+        if (inventory->weapons[weapon_index] != 0u &&
+            game_input_is_raw_key_down(input, (uint8_t)(weapon_index + 1u))) {
+            player->gun_selected = (uint8_t)weapon_index;
+            player->reset_weapon_animation = UINT8_MAX;
+            break;
+        }
     }
 
     /* modules/player.s: plr_PrevUseKeyState_b gates one Used_b pulse per press. */

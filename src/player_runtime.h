@@ -84,6 +84,13 @@ typedef struct {
     uint8_t invert_mouse;
     /* modules/player.s:PlrT_GunSelected_b and its next-weapon edge gate. */
     uint8_t gun_selected;
+    /*
+     * modules/player.s:plr_KeyboardControl resets Player 1's ENT_NEXT_2
+     * EntT_Timer1_w after a successful direct number-key weapon selection.
+     * This one-tick handoff lets hires.s:Plr1_Use publish that write after
+     * the native controller has selected the source weapon.
+     */
+    uint8_t reset_weapon_animation;
     uint8_t previous_use_key_state;
     uint8_t previous_centre_view_key_state;
     uint8_t previous_next_weapon_key_state;
