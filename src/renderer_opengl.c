@@ -2824,13 +2824,8 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
             local_z * cosf(source_relative_yaw);
         source_view_z = local_z * sinf(source_relative_yaw) +
             local_x * cosf(source_relative_yaw);
-        /*
-         * The source companion path resets its projection centre to the
-         * screen centre.  Do not add a host-side lateral placement: the
-         * authored vector points already contain the weapon's asymmetry.
-         */
-        center_x = camera_x + forward_x * 1.3f;
-        center_z = camera_z + forward_z * 1.3f;
+        center_x = camera_x + forward_x * 1.3f - right_x * 0.35f;
+        center_z = camera_z + forward_z * 1.3f - right_z * 0.35f;
         /*
          * objdrawhires.s:draw_PolygonModel special-cases Plr1_Use's
          * ENT_NEXT_2 companion at depth one and resets its projection centre
