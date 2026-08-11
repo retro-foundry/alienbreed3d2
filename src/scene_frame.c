@@ -504,13 +504,6 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
             destination_sprite->view_weapon_projection.cosine = scene_frame_interpolate_i16(
                 previous_sprite->view_weapon_projection.cosine,
                 current_sprite->view_weapon_projection.cosine, alpha);
-            if (previous_sprite->view_weapon_projection.reverse_longitudinal_axis ==
-                    current_sprite->view_weapon_projection.reverse_longitudinal_axis) {
-                destination_sprite->view_weapon_projection.depth_reflection_sum =
-                    scene_frame_interpolate_i32(
-                        previous_sprite->view_weapon_projection.depth_reflection_sum,
-                        current_sprite->view_weapon_projection.depth_reflection_sum, alpha);
-            }
             destination_sprite->source_clip_top_y = scene_frame_interpolate_i32(
                 previous_sprite->source_clip_top_y, current_sprite->source_clip_top_y, alpha);
             destination_sprite->source_clip_bottom_y = scene_frame_interpolate_i32(

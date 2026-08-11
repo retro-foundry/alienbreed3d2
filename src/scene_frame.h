@@ -240,15 +240,6 @@ typedef struct {
     uint16_t centre_y;
     uint16_t scale_numerator;
     uint16_t scale_denominator;
-    /*
-     * The compiled shotgun's authored longitudinal basis has its named stock
-     * at the far end of the source near-plane transform.  A camera-space GPU
-     * view model needs the equivalent frame-local half turn, reflected about
-     * the selected frame's depth centre so it remains in front of the camera.
-     */
-    uint8_t reverse_longitudinal_axis;
-    uint8_t reserved[3];
-    int32_t depth_reflection_sum;
 } SceneViewWeaponProjection;
 
 /*
