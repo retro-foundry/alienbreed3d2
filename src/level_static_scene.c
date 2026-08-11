@@ -534,10 +534,10 @@ static int level_static_scene_find_wall_mechanism(
 }
 
 /*
- * A mutable Draw_Flats record belongs to one native dynamic mesh.  The source
- * mutation still happens in LiftRoutine/DoWaterAnims; this only retains its
- * controller identity so the presentation boundary can build a matching
- * dynamic BLAS/TLAS instance instead of treating each polygon as an object.
+ * A mutable Draw_Flats record belongs to one native dynamic mesh. DoorRoutine,
+ * LiftRoutine, and DoWaterAnims mutate their direct records in that order;
+ * retain that same final-owner order so a controller's moving plane and wall
+ * sides form one dynamic BLAS/TLAS candidate instead of separate geometry.
  */
 static int level_static_scene_find_flat_dynamic_surface(
     const LevelMechanisms *mechanisms, uint32_t source_record_offset,
@@ -550,6 +550,18 @@ static int level_static_scene_find_flat_dynamic_surface(
     }
     *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_NONE;
     *out_index = 0u;
+    for (uint16_t door_index = 0u; door_index < mechanisms->door_count; ++door_index) {
+        LevelLiftable door;
+
+        if (!level_mechanisms_get_door(mechanisms, door_index, &door, error, error_size)) {
+            return 0;
+        }
+        /* newanims.s:DoorRoutine writes this Draw_Flats +2 height directly. */
+        if (door.graphics_offset == source_record_offset) {
+            *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_DOOR;
+            *out_index = door_index;
+        }
+    }
     for (uint16_t lift_index = 0u; lift_index < mechanisms->lift_count; ++lift_index) {
         LevelLiftable lift;
 

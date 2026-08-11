@@ -195,6 +195,69 @@ static int find_direct_mechanism_wall_target(const LevelMechanisms *mechanisms,
     return 1;
 }
 
+/* DoorRoutine, LiftRoutine, then DoWaterAnims overwrite direct flat records. */
+static int find_direct_dynamic_flat_target(const LevelMechanisms *mechanisms,
+                                           uint32_t source_record_offset,
+                                           uint8_t *out_kind, uint16_t *out_index,
+                                           char *error, size_t error_size)
+{
+    if (!mechanisms || !out_kind || !out_index) {
+        return 0;
+    }
+    *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_NONE;
+    *out_index = 0u;
+    for (uint16_t mechanism_index = 0u; mechanism_index < mechanisms->door_count;
+         ++mechanism_index) {
+        LevelLiftable door;
+
+        if (!level_mechanisms_get_door(mechanisms, mechanism_index, &door,
+                                       error, error_size)) {
+            return 0;
+        }
+        if (door.graphics_offset == source_record_offset) {
+            *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_DOOR;
+            *out_index = mechanism_index;
+        }
+    }
+    for (uint16_t mechanism_index = 0u; mechanism_index < mechanisms->lift_count;
+         ++mechanism_index) {
+        LevelLiftable lift;
+
+        if (!level_mechanisms_get_lift(mechanisms, mechanism_index, &lift,
+                                       error, error_size)) {
+            return 0;
+        }
+        if (lift.graphics_offset == source_record_offset) {
+            *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_LIFT;
+            *out_index = mechanism_index;
+        }
+    }
+    for (uint16_t animation_index = 0u;
+         animation_index < mechanisms->water_animation_count; ++animation_index) {
+        LevelWaterAnimation animation;
+
+        if (!level_mechanisms_get_water_animation(mechanisms, animation_index, &animation,
+                                                  error, error_size)) {
+            return 0;
+        }
+        for (uint16_t target_index = 0u; target_index < animation.target_count;
+             ++target_index) {
+            LevelWaterAnimationTarget target;
+
+            if (!level_mechanisms_get_water_animation_target(
+                    mechanisms, animation_index, target_index, &target,
+                    error, error_size)) {
+                return 0;
+            }
+            if (target.graphics_offset == source_record_offset) {
+                *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_WATER;
+                *out_index = animation_index;
+            }
+        }
+    }
+    return 1;
+}
+
 /* Full-scene depth ownership: co-oriented opaque walls must not overlap. */
 static int scene_walls_have_same_facing_overlap(const LevelStaticWallScene *left,
                                                 const LevelStaticWallScene *right)
@@ -3644,27 +3707,50 @@ int main(int argc, char **argv)
             const LevelStaticWallScene *scene_wall =
                 &game.static_scene.walls[static_wall_index];
             uint8_t *dynamic_door_bounds;
+            uint8_t *dynamic_door_plane;
+            LevelLiftable door;
             int32_t top;
             int32_t bottom;
+            int32_t moved_bottom;
 
             if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_DOOR ||
                 scene_wall->source_record_offset != scene_wall->mechanism_wall_source_offset ||
+                !level_mechanisms_get_door(&game.level_mechanisms,
+                                           scene_wall->mechanism_index, &door,
+                                           error, sizeof(error)) ||
                 !level_dynamic_state_get_graphics_range(
                     &game.dynamic_level, scene_wall->mechanism_wall_source_offset + 20u, 8u,
-                    &dynamic_door_bounds)) {
+                    &dynamic_door_bounds) ||
+                !level_dynamic_state_get_graphics_range(
+                    &game.dynamic_level, door.graphics_offset + 2u, 2u,
+                    &dynamic_door_plane)) {
                 continue;
             }
             top = (int32_t)read_be32(dynamic_door_bounds + 0u);
             bottom = (int32_t)read_be32(dynamic_door_bounds + 4u);
             if (bottom > top + 512) {
-                write_be32(dynamic_door_bounds + 4u,
-                           (uint32_t)(top + (bottom - top) / 2));
+                moved_bottom = top + (bottom - top) / 2;
             } else if (top > bottom + 512) {
-                write_be32(dynamic_door_bounds + 4u,
-                           (uint32_t)(top - (top - bottom) / 2));
+                moved_bottom = top - (top - bottom) / 2;
             } else {
                 continue;
             }
+            /*
+             * DoorRoutine derives both fields from d3: Draw_Wall +24 is
+             * d3 << 8 while Draw_Flats +2 is d3 << 6.  Keep the artificial
+             * V-span fixture source-coherent so it continues to represent a
+             * closed controller mesh, rather than creating a false seam.
+             */
+            if ((moved_bottom % 64) != 0 || moved_bottom / 64 < INT16_MIN ||
+                moved_bottom / 64 > INT16_MAX) {
+                fprintf(stderr,
+                        "campaign level %u door V-span fixture cannot preserve source plane\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            write_be32(dynamic_door_bounds + 4u, (uint32_t)moved_bottom);
+            write_be16(dynamic_door_plane, (uint16_t)(int16_t)(moved_bottom / 64));
             ++dynamic_wall_v_scale_fixture_count;
             break;
         }
@@ -3988,6 +4074,8 @@ int main(int argc, char **argv)
                 &game.static_scene.flats[static_flat_index];
             const uint8_t *source;
             LevelDrawGraphRecord flat_record;
+            uint8_t direct_dynamic_kind;
+            uint16_t direct_dynamic_index;
 
             if (scene_flat->source_record_offset > game.dynamic_level.runtime.graphics_size ||
                 6u > game.dynamic_level.runtime.graphics_size - scene_flat->source_record_offset) {
@@ -4012,6 +4100,11 @@ int main(int argc, char **argv)
                 scene_flat->material_id != draw_flat.texture_offset ||
                 scene_flat->texture_scale != draw_flat.texture_scale ||
                 scene_flat->brightness_offset != draw_flat.brightness_offset ||
+                !find_direct_dynamic_flat_target(
+                    &game.level_mechanisms, scene_flat->source_record_offset,
+                    &direct_dynamic_kind, &direct_dynamic_index, error, sizeof(error)) ||
+                scene_flat->dynamic_surface_kind != direct_dynamic_kind ||
+                scene_flat->dynamic_surface_index != direct_dynamic_index ||
                 (flat_record.type == LEVEL_DRAW_GRAPH_TYPE_FLOOR &&
                  scene_flat->primitive != SCENE_GEOMETRY_PRIMITIVE_FLOOR) ||
                 (flat_record.type == LEVEL_DRAW_GRAPH_TYPE_CEILING &&
@@ -4052,6 +4145,66 @@ int main(int argc, char **argv)
                     game_bootstrap_destroy(&game);
                     return 1;
                 }
+            }
+        }
+        /*
+         * DoorRoutine writes the door Draw_Flats +2 plane and each direct
+         * ZDoorWall fields under one controller. In the complete 3D scene
+         * the authored plane must follow those direct wall faces in the same
+         * controller mesh, rather than remaining static and opening a
+         * floor/side gap for a door with any number of wall segments.
+         */
+        for (uint16_t door_index = 0u;
+             door_index < game.level_mechanisms.door_count; ++door_index) {
+            LevelLiftable door;
+            uint32_t matching_flat_count = 0u;
+            uint32_t direct_wall_count = 0u;
+
+            if (!level_mechanisms_get_door(&game.level_mechanisms, door_index, &door,
+                                           error, sizeof(error))) {
+                fprintf(stderr, "campaign level %u door %u has invalid controller data: %s\n",
+                        level_index, door_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            for (static_flat_index = 0u; static_flat_index < game.static_scene.flat_count;
+                 ++static_flat_index) {
+                const LevelStaticFlatScene *scene_flat =
+                    &game.static_scene.flats[static_flat_index];
+
+                if (scene_flat->source_record_offset != door.graphics_offset) {
+                    continue;
+                }
+                if (scene_flat->dynamic_surface_kind != LEVEL_STATIC_DYNAMIC_SURFACE_DOOR ||
+                    scene_flat->dynamic_surface_index != door_index ||
+                    scene_flat->vertex_count == 0u || !scene_flat->vertices) {
+                    fprintf(stderr,
+                            "campaign level %u door %u has an ungrouped source movement plane\n",
+                            level_index, door_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                ++matching_flat_count;
+            }
+            for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
+                 ++static_wall_index) {
+                const LevelStaticWallScene *scene_wall =
+                    &game.static_scene.walls[static_wall_index];
+
+                if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_DOOR ||
+                    scene_wall->mechanism_index != door_index ||
+                    scene_wall->source_record_offset !=
+                        scene_wall->mechanism_wall_source_offset) {
+                    continue;
+                }
+                ++direct_wall_count;
+            }
+            if (direct_wall_count != 0u && matching_flat_count == 0u) {
+                fprintf(stderr,
+                        "campaign level %u door %u has sides but no source movement plane\n",
+                        level_index, door_index);
+                game_bootstrap_destroy(&game);
+                return 1;
             }
         }
         for (uint32_t object_index = 0;

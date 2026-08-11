@@ -552,7 +552,11 @@ multiplayer work is planned.
   `ZDoorWall.graphics_offset` retains that individual source `Draw_Wall`'s
   material, lighting, V-origin, texture window, and source-8.8 V density;
   same-`EdgeT` counterpart faces use the controller only for doors when no
-  exact source target exists. Lift faces retain `LiftRoutine`'s live +20
+  exact source target exists. Every `DoorRoutine` direct `Draw_Flats +2`
+  movement plane is submitted with those direct faces under the same dynamic
+  controller instance, so arbitrary authored door perimeters remain a single
+  moving closed mesh instead of separating from a static bottom plane. Lift
+  faces retain `LiftRoutine`'s live +20
   boundary and fixed +24 boundary beside the live `Draw_Flats` plane; no
   same-`EdgeT` shaft face follows a lift. For a complete graph's unlisted,
   co-oriented static shaft record that overlaps a direct lift face at a shared
