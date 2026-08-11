@@ -1126,6 +1126,7 @@ int player_runtime_update_spatial_with_motion_and_audio(
     int32_t thing_height;
     int32_t step_up;
     int object_blocked = 0;
+    int teleported = 0;
     int16_t published_new_x;
     int16_t published_new_z;
 
@@ -1193,8 +1194,9 @@ int player_runtime_update_spatial_with_motion_and_audio(
 
     if (object_collision != NULL) {
         ObjectCollisionTrace collision = {0};
+        LevelZone destination_zone;
         uint8_t *player_slot;
-        uint8_t hit_wall;
+        uint8_t hit_wall = 0u;
 
         if (!object_collision->objects || !object_collision->source_a2_words ||
             !object_runtime_get_player1_slot_bytes(
@@ -1212,15 +1214,61 @@ int player_runtime_update_spatial_with_motion_and_audio(
         collision.new_y = visual_y;
         collision.thing_height = thing_height;
         collision.stood_in_top = player->stood_in_top;
-        /* hires.s:Plr1_Control .noteleport calls this before MoveObject. */
-        if (!object_collision_check(
-                object_collision->objects, game_link,
-                object_collision->source_a2_words,
-                object_collision->source_a2_word_count,
-                &collision, &hit_wall, error, error_size)) {
-            return 0;
+
+        /* hires.s:Plr1_Control probes the authored destination before .noteleport. */
+        if (zone.teleport_zone >= 0) {
+            if ((uint16_t)zone.teleport_zone >= runtime->zone_count ||
+                !level_runtime_get_zone(runtime, (uint16_t)zone.teleport_zone,
+                                        &destination_zone, error, error_size)) {
+                player_runtime_set_error(error, error_size,
+                                         "Plr1_Control teleport destination is invalid");
+                return 0;
+            }
+            collision.new_x = zone.teleport_x;
+            collision.new_z = zone.teleport_z;
+            if (!object_collision_check(
+                    object_collision->objects, game_link,
+                    object_collision->source_a2_words,
+                    object_collision->source_a2_word_count,
+                    &collision, &hit_wall, error, error_size)) {
+                return 0;
+            }
+            if (hit_wall == 0u) {
+                /*
+                 * The player path does not use CheckTeleport's temporary Y
+                 * probe adjustment. It preserves height above the source
+                 * floor only after the destination X/Z collision succeeds.
+                 */
+                new_x = zone.teleport_x;
+                new_z = zone.teleport_z;
+                visual_y = player_runtime_add32(
+                    player_runtime_sub32(visual_y, zone.floor), destination_zone.floor);
+                player->snap_y = visual_y;
+                player->zone_index = (uint16_t)zone.teleport_zone;
+                published_new_x = new_x;
+                published_new_z = new_z;
+                teleported = 1;
+                game_audio_events_emit(audio_events, 26, 100, new_x, new_z,
+                                       UINT16_C(0xfff9), GAME_AUDIO_RESTART_SOURCE,
+                                       0u, destination_zone.echo);
+            }
         }
-        if (hit_wall != 0u) {
+
+        /* A rejected teleport restores attempted movement before .noteleport. */
+        if (teleported == 0) {
+            collision.new_x = new_x;
+            collision.new_z = new_z;
+            collision.new_y = visual_y;
+            /* hires.s:Plr1_Control .noteleport calls this before MoveObject. */
+            if (!object_collision_check(
+                    object_collision->objects, game_link,
+                    object_collision->source_a2_words,
+                    object_collision->source_a2_word_count,
+                    &collision, &hit_wall, error, error_size)) {
+                return 0;
+            }
+        }
+        if (teleported == 0 && hit_wall != 0u) {
             /*
              * The two move.w writes restore only the integer position words;
              * the attempted snap state's fractional words keep accumulating.
@@ -1232,7 +1280,7 @@ int player_runtime_update_spatial_with_motion_and_audio(
         }
     }
 
-    if (object_blocked == 0 && dynamic_state != NULL) {
+    if (teleported == 0 && object_blocked == 0 && dynamic_state != NULL) {
         ObjectMovementTrace movement = {0};
 
         /* hires.s:Plr1_Control's .nothitanything -> objectmove.s:MoveObject. */
@@ -1258,12 +1306,12 @@ int player_runtime_update_spatial_with_motion_and_audio(
         new_z = movement.new_z;
         published_new_x = new_x;
         published_new_z = new_z;
-    } else if (object_blocked == 0 && !player_runtime_move_static(
+    } else if (teleported == 0 && object_blocked == 0 && !player_runtime_move_static(
                    runtime, &player->zone_index, &player->stood_in_top, old_x, old_z,
                    visual_y, visual_y, thing_height, step_up, &new_x, &new_z, NULL,
                    error, error_size)) {
         return 0;
-    } else if (object_blocked == 0) {
+    } else if (teleported == 0 && object_blocked == 0) {
         published_new_x = new_x;
         published_new_z = new_z;
     }

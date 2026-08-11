@@ -4876,6 +4876,181 @@ int main(int argc, char **argv)
         }
     }
     {
+        /*
+         * hires.s:Plr1_Control's player teleport differs from the generic
+         * CheckTeleport helper: it probes destination X/Z at the current Y,
+         * then preserves the player's floor-relative Y only after success.
+         */
+        uint8_t teleport_level_bytes[256u] = {0};
+        uint8_t teleport_graphics_bytes[8u] = {0};
+        uint8_t teleport_slot_bytes[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t teleport_point_bytes[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        int16_t teleport_a2_words[8u] = {0};
+        LevelRuntime player_teleport_level = {0};
+        ObjectRuntime player_teleport_objects = {0};
+        PlayerObjectCollisionContext player_teleport_context = {0};
+        PlayerRuntime player_teleport_player = game.player;
+        GameInput player_teleport_input;
+        ObjectMotionRuntime player_teleport_motion;
+        GameAudioEvents player_teleport_audio;
+        const int32_t source_floor = 200 * 256;
+        const int32_t destination_floor = 300 * 256;
+        const int32_t source_snap_y = source_floor - player_teleport_player.snap_height;
+        const int32_t expected_visual_y =
+            destination_floor - player_teleport_player.snap_height + 2048;
+
+        player_teleport_level.level_bytes = teleport_level_bytes;
+        player_teleport_level.level_size = sizeof(teleport_level_bytes);
+        player_teleport_level.graphics_bytes = teleport_graphics_bytes;
+        player_teleport_level.graphics_size = sizeof(teleport_graphics_bytes);
+        player_teleport_level.zone_offsets_table_offset = 0u;
+        player_teleport_level.zone_count = 2u;
+        write_be32(teleport_graphics_bytes + 0u, 0u);
+        write_be32(teleport_graphics_bytes + 4u, 100u);
+        write_be16(teleport_level_bytes + 0u, 5u);
+        write_be32(teleport_level_bytes + 2u, (uint32_t)source_floor);
+        write_be32(teleport_level_bytes + 6u, 0u);
+        write_be32(teleport_level_bytes + 18u, (uint32_t)source_floor);
+        write_be16(teleport_level_bytes + 32u, 50u);
+        write_be16(teleport_level_bytes + 38u, 1u);
+        write_be16(teleport_level_bytes + 40u, 300u);
+        write_be16(teleport_level_bytes + 42u, 400u);
+        write_be16(teleport_level_bytes + 50u, UINT16_C(0xfffe));
+        write_be16(teleport_level_bytes + 100u, 9u);
+        write_be32(teleport_level_bytes + 102u, (uint32_t)destination_floor);
+        write_be32(teleport_level_bytes + 106u, 0u);
+        write_be32(teleport_level_bytes + 118u, (uint32_t)destination_floor);
+        write_be16(teleport_level_bytes + 132u, 50u);
+        teleport_level_bytes[137u] = 7u;
+        write_be16(teleport_level_bytes + 138u, UINT16_MAX);
+        write_be16(teleport_level_bytes + 150u, UINT16_C(0xfffe));
+
+        player_teleport_objects.slot_bytes = teleport_slot_bytes;
+        player_teleport_objects.slot_count = 3u;
+        player_teleport_objects.active_slot_count = 1u;
+        player_teleport_objects.player1_slot = 0u;
+        player_teleport_objects.point_bytes = teleport_point_bytes;
+        player_teleport_objects.point_count = 1u;
+        write_be16(teleport_slot_bytes + 0u, 0u);
+        write_be16(teleport_slot_bytes + 12u, 5u);
+        teleport_slot_bytes[63u] = player_teleport_player.stood_in_top;
+        write_be16(teleport_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        write_be32(teleport_point_bytes + 0u, UINT32_C(1000) << 16u);
+        write_be32(teleport_point_bytes + 4u, UINT32_C(1000) << 16u);
+        player_teleport_context.objects = &player_teleport_objects;
+        player_teleport_context.source_a2_words = teleport_a2_words;
+        player_teleport_context.source_a2_word_count =
+            sizeof(teleport_a2_words) / sizeof(teleport_a2_words[0]);
+
+        player_teleport_player.zone_index = 0u;
+        player_teleport_player.x = player_runtime_world_to_position(1000);
+        player_teleport_player.z = player_runtime_world_to_position(1000);
+        player_teleport_player.snap_x =
+            (int32_t)((uint32_t)player_runtime_world_to_position(1010) | UINT32_C(0x1234));
+        player_teleport_player.snap_z =
+            (int32_t)((uint32_t)player_runtime_world_to_position(1020) | UINT32_C(0x5678));
+        player_teleport_player.snap_x_speed = 0;
+        player_teleport_player.snap_z_speed = 0;
+        player_teleport_player.y = source_snap_y;
+        player_teleport_player.snap_y = source_snap_y;
+        player_teleport_player.snap_target_y = source_snap_y;
+        player_teleport_player.snap_y_velocity = 0;
+        player_teleport_player.bobble = 0u;
+        player_teleport_player.ducked = 0u;
+        player_teleport_player.squished = 0u;
+        game_input_init(&player_teleport_input);
+        object_motion_runtime_init(&player_teleport_motion);
+        game_audio_events_init(&player_teleport_audio);
+        if (!player_runtime_update_spatial_with_motion_and_audio(
+                &player_teleport_player, &player_teleport_input, &control_defaults,
+                &game.preferences, &game.math, &player_teleport_level, NULL,
+                &player_teleport_motion, &player_teleport_context,
+                &game.game_link_catalog, &player_teleport_audio, error, sizeof(error)) ||
+            player_teleport_player.zone_index != 1u ||
+            player_runtime_position_to_world(player_teleport_player.x) != 300 ||
+            player_runtime_position_to_world(player_teleport_player.z) != 400 ||
+            ((uint32_t)player_teleport_player.x & UINT32_C(0xffff)) != UINT32_C(0x1234) ||
+            ((uint32_t)player_teleport_player.z & UINT32_C(0xffff)) != UINT32_C(0x5678) ||
+            player_teleport_player.y != expected_visual_y ||
+            player_teleport_player.snap_y != expected_visual_y ||
+            player_teleport_player.snap_target_y !=
+                destination_floor - player_teleport_player.height ||
+            player_teleport_motion.new_x != 300 || player_teleport_motion.new_z != 400 ||
+            player_teleport_audio.count != 1u ||
+            player_teleport_audio.events[0u].sample_index != 26u ||
+            player_teleport_audio.events[0u].volume != 100u ||
+            player_teleport_audio.events[0u].world_x != 300 ||
+            player_teleport_audio.events[0u].world_z != 400 ||
+            player_teleport_audio.events[0u].source_id != UINT16_C(0xfff9) ||
+            player_teleport_audio.events[0u].echo != 7u) {
+            fprintf(stderr, "Plr1_Control source teleport is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+
+        /* A destination collision restores attempted movement and continues normally. */
+        memset(teleport_slot_bytes, 0, sizeof(teleport_slot_bytes));
+        memset(teleport_point_bytes, 0, sizeof(teleport_point_bytes));
+        teleport_a2_words[1u] = 20;
+        teleport_a2_words[2u] = 80;
+        player_teleport_objects.active_slot_count = 2u;
+        player_teleport_objects.point_count = 2u;
+        write_be16(teleport_slot_bytes + 0u, 0u);
+        write_be16(teleport_slot_bytes + 12u, 5u);
+        teleport_slot_bytes[63u] = game.player.stood_in_top;
+        write_be16(teleport_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, 1u);
+        write_be16(teleport_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                   (uint16_t)(source_asr32_7(source_snap_y + 2048) + 20));
+        write_be16(teleport_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 5u);
+        teleport_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        teleport_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+        teleport_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 63u] = game.player.stood_in_top;
+        write_be16(teleport_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        write_be32(teleport_point_bytes + 0u, UINT32_C(1000) << 16u);
+        write_be32(teleport_point_bytes + 4u, UINT32_C(1000) << 16u);
+        write_be32(teleport_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                   UINT32_C(300) << 16u);
+        write_be32(teleport_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   UINT32_C(400) << 16u);
+        player_teleport_player = game.player;
+        player_teleport_player.zone_index = 0u;
+        player_teleport_player.x = player_runtime_world_to_position(1000);
+        player_teleport_player.z = player_runtime_world_to_position(1000);
+        player_teleport_player.snap_x =
+            (int32_t)((uint32_t)player_runtime_world_to_position(1010) | UINT32_C(0x1234));
+        player_teleport_player.snap_z =
+            (int32_t)((uint32_t)player_runtime_world_to_position(1020) | UINT32_C(0x5678));
+        player_teleport_player.snap_x_speed = 0;
+        player_teleport_player.snap_z_speed = 0;
+        player_teleport_player.y = source_snap_y;
+        player_teleport_player.snap_y = source_snap_y;
+        player_teleport_player.snap_target_y = source_snap_y;
+        player_teleport_player.snap_y_velocity = 0;
+        player_teleport_player.bobble = 0u;
+        player_teleport_player.ducked = 0u;
+        player_teleport_player.squished = 0u;
+        game_input_init(&player_teleport_input);
+        object_motion_runtime_init(&player_teleport_motion);
+        game_audio_events_begin(&player_teleport_audio);
+        if (!player_runtime_update_spatial_with_motion_and_audio(
+                &player_teleport_player, &player_teleport_input, &control_defaults,
+                &game.preferences, &game.math, &player_teleport_level, NULL,
+                &player_teleport_motion, &player_teleport_context,
+                &game.game_link_catalog, &player_teleport_audio, error, sizeof(error)) ||
+            player_teleport_player.zone_index != 0u ||
+            player_runtime_position_to_world(player_teleport_player.x) != 1010 ||
+            player_runtime_position_to_world(player_teleport_player.z) != 1020 ||
+            ((uint32_t)player_teleport_player.x & UINT32_C(0xffff)) != UINT32_C(0x1234) ||
+            ((uint32_t)player_teleport_player.z & UINT32_C(0xffff)) != UINT32_C(0x5678) ||
+            player_teleport_motion.new_x != 1010 || player_teleport_motion.new_z != 1020 ||
+            player_teleport_audio.count != 0u) {
+            fprintf(stderr, "Plr1_Control rejected teleport handoff is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         PlayerRuntime number_weapon_player = game.player;
         GameInput number_weapon_input;
         GameInventory number_weapon_inventory = {0};

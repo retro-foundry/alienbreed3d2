@@ -279,6 +279,10 @@ sound effects and music now play through the SDL WAV backend.
   skips static edge movement, and leaves the attempted `newx/newz` words
   published for the following source routines. A focused regression covers
   that complete handoff rather than testing the collision helper in isolation.
+  The preceding Player 1 teleport branch is live as well: it probes authored
+  destination X/Z at the current player Y, continues through ordinary movement
+  after a rejected probe, and on success preserves floor-relative Y, source
+  fixed-point X/Z fractions, destination zone, and sample-26 `$fff9` audio.
 - [x] `src/audio_sdl.*` now preserves `hires.s:MakeSomeNoise` source-identity
   behavior at the eight-voice host boundary: unrelated source IDs overlap and
   are summed, a clear `notifplaying` restarts its matching source voice, and a
