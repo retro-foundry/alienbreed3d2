@@ -5303,10 +5303,8 @@ int main(int argc, char **argv)
             player_runtime_position_to_world(player_collision_player.z) != old_z ||
             ((uint32_t)player_collision_player.x & UINT32_C(0xffff)) != UINT32_C(0x1234) ||
             ((uint32_t)player_collision_player.z & UINT32_C(0xffff)) != UINT32_C(0x5678) ||
-            player_collision_player.presentation_x !=
-                player_runtime_world_to_position(old_x) ||
-            player_collision_player.presentation_z !=
-                player_runtime_world_to_position(old_z) ||
+            player_collision_player.presentation_x != player_collision_player.x ||
+            player_collision_player.presentation_z != player_collision_player.z ||
             player_collision_motion.new_x != attempted_x ||
             player_collision_motion.new_z != attempted_z) {
             fprintf(stderr, "Plr1_Control object collision handoff is inconsistent: %s\n",

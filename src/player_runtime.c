@@ -1207,8 +1207,6 @@ int player_runtime_update_spatial_with_motion_and_audio(
     int16_t old_z;
     int16_t new_x;
     int16_t new_z;
-    int16_t attempted_x;
-    int16_t attempted_z;
     int16_t sine;
     int32_t bobble;
     int32_t visual_y;
@@ -1299,8 +1297,6 @@ int player_runtime_update_spatial_with_motion_and_audio(
     old_z = player_runtime_position_to_world(player->z);
     new_x = player_runtime_position_to_world(player->snap_x);
     new_z = player_runtime_position_to_world(player->snap_z);
-    attempted_x = new_x;
-    attempted_z = new_z;
     published_new_x = new_x;
     published_new_z = new_z;
     player->height = player->snap_height;
@@ -1454,16 +1450,14 @@ int player_runtime_update_spatial_with_motion_and_audio(
     player->snap_x = player->x;
     player->snap_z = player->z;
     /*
-     * Keep accepted fractional motion on each independent axis. MoveObject
-     * can slide along a wall by correcting only X or Z, so snapping both
-     * presentation axes when either changed produces visible lateral steps.
+     * Match the first port's renderer handoff: oldxoff/xoff and oldzoff/zoff
+     * retain the complete post-collision 16.16 values.  Plr1_Control replaces
+     * a corrected axis's high word but deliberately preserves its low word;
+     * rounding that endpoint only for presentation makes wall sliding step in
+     * whole source units even though the simulation state remains smooth.
      */
-    player->presentation_x =
-        teleported != 0 || object_blocked != 0 || new_x != attempted_x ?
-            player_runtime_world_to_position(new_x) : player->x;
-    player->presentation_z =
-        teleported != 0 || object_blocked != 0 || new_z != attempted_z ?
-            player_runtime_world_to_position(new_z) : player->z;
+    player->presentation_x = player->x;
+    player->presentation_z = player->z;
     player->y = visual_y;
     player->snap_target_y = player_runtime_sub32(
         player->stood_in_top != 0u ? zone.upper_floor : zone.floor, player->height);
