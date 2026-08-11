@@ -1375,9 +1375,13 @@ int player_runtime_update_spatial_with_motion_and_audio(
                 published_new_x = new_x;
                 published_new_z = new_z;
                 teleported = 1;
-                game_audio_events_emit(audio_events, 26, 100, new_x, new_z,
-                                       UINT16_C(0xfff9), GAME_AUDIO_RESTART_SOURCE,
-                                       0u, destination_zone.echo);
+                /*
+                 * hires.s:.teleport writes Aud_NoiseX/Z=(0,0) directly and
+                 * does not update PlayEcho from the destination zone.
+                 */
+                game_audio_events_emit_relative(
+                    audio_events, 26, 100, 0, 0, UINT16_C(0xfff9),
+                    GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
             }
         }
 

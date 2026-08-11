@@ -5420,10 +5420,11 @@ int main(int argc, char **argv)
             player_teleport_audio.count != 1u ||
             player_teleport_audio.events[0u].sample_index != 26u ||
             player_teleport_audio.events[0u].volume != 100u ||
-            player_teleport_audio.events[0u].world_x != 300 ||
-            player_teleport_audio.events[0u].world_z != 400 ||
+            player_teleport_audio.events[0u].world_x != 0 ||
+            player_teleport_audio.events[0u].world_z != 0 ||
             player_teleport_audio.events[0u].source_id != UINT16_C(0xfff9) ||
-            player_teleport_audio.events[0u].echo != 7u) {
+            player_teleport_audio.events[0u].listener_relative == 0u ||
+            player_teleport_audio.events[0u].echo != 0u) {
             fprintf(stderr, "Plr1_Control source teleport is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
