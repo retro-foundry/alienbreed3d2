@@ -5792,6 +5792,57 @@ int main(int argc, char **argv)
         }
     }
     {
+        /*
+         * modules/transform.s:CalcPLR1InLine writes a dense observation
+         * stream for non-AUX slots.  newplayershoot.s:Plr1_Shot must consume
+         * that stream separately from ObjT_PointID, which indexes distances.
+         */
+        uint8_t slot_bytes[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t point_bytes[3u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime shot_objects = {0};
+        ObjectObservation shot_observation;
+        PlayerRuntime shot_player = {0};
+        GameBulletDefinition shot_bullet = {0};
+        PlayerShotTarget shot_target;
+
+        shot_objects.slot_bytes = slot_bytes;
+        shot_objects.slot_count = 3u;
+        shot_objects.active_slot_count = 3u;
+        shot_objects.point_bytes = point_bytes;
+        shot_objects.point_count = 3u;
+        /* First normal record uses point 2 but is not in line. */
+        write_be16(slot_bytes + 0u, 2u);
+        write_be16(slot_bytes + 4u, 4u);
+        write_be16(slot_bytes + 12u, 0u);
+        slot_bytes[16u] = 1u;
+        slot_bytes[17u] = 1u;
+        slot_bytes[18u] = 1u;
+        /* AUX consumes neither Plr1_ObsInLine_vb nor its distance entry. */
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 1u);
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 3u;
+        /* Second normal record uses point 0 and consumes observation entry 1. */
+        write_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 0u);
+        write_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u, 4u);
+        write_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+        slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 1u;
+        slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 17u] = 1u;
+        slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+        object_observation_init(&shot_observation);
+        shot_observation.in_line[1u] = UINT8_MAX;
+        shot_observation.distances[0u] = 50u;
+        shot_player.height = 12 * 1024;
+        if (!player_shoot_find_target_single_player(
+                &shot_objects, &shot_observation, &shot_player, &shot_bullet,
+                &shot_target, error, sizeof(error)) || shot_target.found != UINT8_MAX ||
+            shot_target.slot_index != 2u || shot_target.point_index != 0u ||
+            shot_target.distance != 50u) {
+            fprintf(stderr, "Plr1_Shot dense observation indexing is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         enum {
             PARENT_TARGET_SLOT = 0u,
             PARENT_SHOT_FIRST_SLOT = 1u,

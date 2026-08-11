@@ -140,6 +140,7 @@ int player_shoot_find_target_single_player(const ObjectRuntime *objects,
 {
     PlayerShotTarget target;
     uint16_t best_distance = INT16_MAX;
+    uint32_t observation_index = 0u;
 
     if (!objects || !objects->slot_bytes || !observation || !player || !bullet || !out_target ||
         objects->active_slot_count > objects->slot_count) {
@@ -153,6 +154,7 @@ int player_shoot_find_target_single_player(const ObjectRuntime *objects,
             (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
         int16_t point_index = player_shoot_read_be16s(slot + PLAYER_SHOOT_POINT_INDEX);
         uint8_t type_id;
+        uint8_t in_line;
         int32_t vertical_difference;
         int32_t vertical_magnitude;
         int16_t scaled_vertical_magnitude;
@@ -166,14 +168,21 @@ int player_shoot_find_target_single_player(const ObjectRuntime *objects,
             /* newplayershoot.s does not consume an observation byte for AUX. */
             continue;
         }
-        if ((uint16_t)point_index >= objects->point_count ||
-            (uint16_t)point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT ||
-            (uint16_t)point_index >= OBJECT_OBSERVATION_IN_LINE_COUNT) {
+        /*
+         * transform.s:CalcPLR1InLine writes Plr1_ObsInLine_vb densely for
+         * non-AUX ObjT records.  Plr1_Shot consumes the same dense sequence
+         * with (a1)+, then uses ObjT_PointID for the distance workspace.
+         */
+        if (observation_index >= OBJECT_OBSERVATION_IN_LINE_COUNT ||
+            (uint16_t)point_index >= objects->point_count ||
+            (uint16_t)point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT) {
             player_shoot_set_error(error, error_size,
-                                   "Plr1_Shot target has an invalid source point");
+                                   "Plr1_Shot target is outside source observation or point state");
             return 0;
         }
-        if (observation->in_line[(uint16_t)point_index] == 0u ||
+        in_line = observation->in_line[observation_index];
+        ++observation_index;
+        if (in_line == 0u ||
             (slot[PLAYER_SHOOT_SEES_PLAYER] & 1u) == 0u ||
             player_shoot_read_be16s(slot + PLAYER_SHOOT_ZONE_ID) < 0 ||
             type_id >= 32u ||
