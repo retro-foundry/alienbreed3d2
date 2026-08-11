@@ -130,6 +130,16 @@ int main(int argc, char **argv)
         audio_sdl_destroy(audio);
         return 1;
     }
+    audio_sdl_set_volume(audio, 0u);
+    memset(combined, 0, sizeof(combined));
+    audio_sdl_test_mix(audio, combined, AUDIO_SDL_TEST_FRAMES);
+    for (size_t sample = 0u; sample < sizeof(combined) / sizeof(combined[0u]); ++sample) {
+        if (combined[sample] != 0) {
+            fprintf(stderr, "zero master volume did not silence the mixer\n");
+            audio_sdl_destroy(audio);
+            return 1;
+        }
+    }
     audio_sdl_destroy(audio);
     return 0;
 }

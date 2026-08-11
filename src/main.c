@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "audio_sdl.h"
+#include "desktop_settings.h"
 #include "game_bootstrap.h"
 #include "game_vblank_clock.h"
 #include "render_view.h"
@@ -206,6 +207,8 @@ static int set_mouse_button_source_key(GameBootstrap *game, uint8_t button, int 
 typedef struct {
     char data_root[1024];
     uint16_t selected_level_index;
+    uint8_t selected_level_from_command_line;
+    DesktopSettings desktop_settings;
     GameBootstrap game;
     /* Completed source-frame endpoints retained for high-rate presentation. */
     SceneFrame source_frame;
@@ -278,6 +281,7 @@ static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
                                            &app->selected_level_index)) {
                 return 0;
             }
+            app->selected_level_from_command_line = UINT8_MAX;
         } else if (strcmp(argv[argument_index], "--gpu-smoke") == 0 && !app->gpu_smoke) {
             if (strcmp(argv[argument_index + 1], "all") == 0) {
                 app->selected_level_index = 0u;
@@ -287,10 +291,82 @@ static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
                 return 0;
             }
             app->gpu_smoke = 1;
+            app->selected_level_from_command_line = UINT8_MAX;
         } else {
             return 0;
         }
     }
+    return 1;
+}
+
+static int game_app_try_load_desktop_settings(GameApp *app, const char *path,
+                                              char *error, size_t error_size,
+                                              int *out_loaded)
+{
+    DesktopSettingsLoadResult result;
+    char parse_error[256] = {0};
+
+    result = desktop_settings_load_file(&app->desktop_settings, path, parse_error,
+                                        sizeof(parse_error));
+    if (result == DESKTOP_SETTINGS_LOAD_OK) {
+        fprintf(stdout, "[SETTINGS] Loaded %s\n", path);
+        *out_loaded = 1;
+        return 1;
+    }
+    if (result == DESKTOP_SETTINGS_LOAD_NOT_FOUND) {
+        return 1;
+    }
+    if (error && error_size > 0u) {
+        (void)snprintf(error, error_size, "%s: %s", path, parse_error);
+    }
+    return 0;
+}
+
+static int game_app_load_desktop_settings(GameApp *app, char *error, size_t error_size)
+{
+    char *base_path;
+    char ini_path[1024];
+    char template_path[1024];
+    int loaded = 0;
+
+    if (!app) {
+        return 0;
+    }
+    desktop_settings_default(&app->desktop_settings);
+    base_path = SDL_GetBasePath();
+    if (base_path && *base_path) {
+        int ini_written = snprintf(ini_path, sizeof(ini_path), "%sab3d2.ini", base_path);
+        int template_written = snprintf(template_path, sizeof(template_path), "%sab3d2.ini.template",
+                                        base_path);
+
+        if (ini_written < 0 || (size_t)ini_written >= sizeof(ini_path) ||
+            template_written < 0 || (size_t)template_written >= sizeof(template_path) ||
+            !game_app_try_load_desktop_settings(app, ini_path, error, error_size, &loaded) ||
+            (!loaded && !game_app_try_load_desktop_settings(app, template_path, error, error_size,
+                                                            &loaded))) {
+            SDL_free(base_path);
+            return 0;
+        }
+    }
+    if (base_path) {
+        SDL_free(base_path);
+    }
+    if (!loaded &&
+        (!game_app_try_load_desktop_settings(app, "ab3d2.ini", error, error_size, &loaded) ||
+         (!loaded && !game_app_try_load_desktop_settings(app, "ab3d2.ini.template", error,
+                                                          error_size, &loaded)))) {
+        return 0;
+    }
+    if (!loaded) {
+        fprintf(stdout, "[SETTINGS] No ab3d2.ini found; using documented defaults\n");
+    }
+    fprintf(stdout,
+            "[SETTINGS] start_level=%u infinite_health=%u all_weapons=%u volume=%u always_run=%u\n",
+            (unsigned)(app->desktop_settings.start_level_index + 1u),
+            app->desktop_settings.infinite_health != 0u ? 1u : 0u,
+            app->desktop_settings.all_weapons != 0u ? 1u : 0u,
+            (unsigned)app->desktop_settings.volume,
+            app->desktop_settings.always_run != 0u ? 1u : 0u);
     return 1;
 }
 
@@ -305,6 +381,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
                 argv[0]);
         return 0;
     }
+    desktop_settings_default(&app->desktop_settings);
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         fprintf(stderr, "[PLATFORM] SDL_Init failed: %s\n", SDL_GetError());
@@ -320,6 +397,17 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     app->game_initialized = 1;
+    if (!app->gpu_smoke &&
+        !game_app_load_desktop_settings(app, error, sizeof(error))) {
+        fprintf(stderr, "[SETTINGS] %s\n", error);
+        return 0;
+    }
+    if (!app->gpu_smoke) {
+        game_bootstrap_apply_desktop_settings(&app->game, &app->desktop_settings);
+        if (app->selected_level_from_command_line == 0u) {
+            app->selected_level_index = app->desktop_settings.start_level_index;
+        }
+    }
     app->audio = audio_sdl_create(app->data_root, error, sizeof(error));
     if (!app->audio) {
         fprintf(stderr, "[AUDIO] %s\n", error);
@@ -328,6 +416,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     if (!audio_sdl_is_available(app->audio)) {
         fprintf(stderr, "[AUDIO] disabled: %s\n", error);
     }
+    audio_sdl_set_volume(app->audio, app->desktop_settings.volume);
     if (!scene_frame_init(&app->source_frame, 1024u)) {
         fprintf(stderr, "[SCENE] unable to allocate frame command buffer\n");
         return 0;

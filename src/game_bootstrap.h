@@ -7,6 +7,7 @@
 #include "alien_runtime.h"
 #include "alien_dispatch.h"
 #include "asset_io.h"
+#include "desktop_settings.h"
 #include "game_controls.h"
 #include "game_audio.h"
 #include "game_input.h"
@@ -49,6 +50,8 @@ typedef struct {
     GameAudioEvents audio_events;
     GameInput input;
     GamePreferences preferences;
+    /* User-owned desktop configuration, applied without changing source data. */
+    DesktopSettings desktop_settings;
     /* macros.i:STATS_KILL's source-owned progression subset. */
     GameProgression progression;
     /* objectmove.s:Rand1 persists across campaign-level loads. */
@@ -109,6 +112,9 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
 /* game_ReadMainMenu:playgame followed by game_DoneMenu and Game_Begin. */
 int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char *data_root,
                                                 char *error, size_t error_size);
+/* Apply desktop configuration before selecting and starting a direct-play session. */
+void game_bootstrap_apply_desktop_settings(GameBootstrap *game,
+                                           const DesktopSettings *settings);
 /*
  * Single-player source order: hires.s:DOALLANIMS, plr_KeyboardControl, Plr1_Control, Plr1_Shot,
  * ObjectHandler's source ObjT dispatch (including worry-gated ItsAnAlien), DoorRoutine, LiftRoutine,

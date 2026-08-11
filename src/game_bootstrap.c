@@ -32,6 +32,31 @@ typedef struct {
     uint32_t surface_count;
 } GameBootstrapDynamicMeshGroup;
 
+static void game_bootstrap_apply_desktop_inventory_options(GameBootstrap *game)
+{
+    GameInventory *inventory;
+
+    if (!game) {
+        return;
+    }
+    inventory = &game->session.player1_inventory;
+    if (game->desktop_settings.all_weapons != 0u) {
+        uint16_t index;
+
+        /* Match the first port's all_weapons setting: every source gun owns
+         * a full legal supply of its source ammunition class. */
+        for (index = 0u; index < GAME_INVENTORY_WEAPON_COUNT; ++index) {
+            inventory->weapons[index] = UINT16_MAX;
+        }
+        for (index = 0u; index < GAME_INVENTORY_AMMUNITION_COUNT; ++index) {
+            inventory->ammunition[index] = game->inventory_limits.ammunition[index];
+        }
+    }
+    if (game->desktop_settings.infinite_health != 0u) {
+        inventory->health = game->inventory_limits.health;
+    }
+}
+
 static SceneMaterialSource game_bootstrap_floor_material_source(const GameBootstrap *game)
 {
     /* Res_LoadLevelData selects the optional asset solely by its non-null pointer. */
@@ -315,6 +340,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     game_audio_events_init(&game->audio_events);
     game_input_init(&game->input);
     game_preferences_default(&game->preferences);
+    desktop_settings_default(&game->desktop_settings);
     game_progression_init(&game->progression);
     game_random_init(&game->random);
     object_animation_runtime_init(&game->object_animation_runtime);
@@ -341,10 +367,22 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
     }
     /* game_ReadMainMenu:playgame then game_DoneMenu's Plr_ -> Plr1 copy. */
     game_session_begin_single_player(&game->session);
+    game_bootstrap_apply_desktop_inventory_options(game);
     alien_runtime_begin_single_player(&game->alien_runtime);
     game->message_time_milliseconds = 0u;
     level_index = game->session.active_level_index;
     return game_bootstrap_load_level(game, data_root, level_index, error, error_size);
+}
+
+void game_bootstrap_apply_desktop_settings(GameBootstrap *game,
+                                           const DesktopSettings *settings)
+{
+    if (!game || !settings) {
+        return;
+    }
+    game->desktop_settings = *settings;
+    /* controlloop.s custom option one is the source's run-default switch. */
+    game->preferences.always_run = settings->always_run != 0u ? UINT8_MAX : 0u;
 }
 
 int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
@@ -446,6 +484,10 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
                                                        game->shared_resources.floor_texture.size,
             error, error_size)) {
         return 0;
+    }
+    /* The first port restores this PC option after the source damage/object phase. */
+    if (game->desktop_settings.infinite_health != 0u) {
+        game->session.player1_inventory.health = game->inventory_limits.health;
     }
     /* Game_AddToInventory changes Plr1_Inventory; health drives next control tick. */
     game->player.health = game->session.player1_inventory.health;

@@ -11,6 +11,7 @@
 enum {
     AUDIO_SDL_RATE = 48000,
     AUDIO_SDL_CHANNELS = 2,
+    AUDIO_SDL_UNITY_GAIN = 1 << 15,
     /*
      * 256 @ 48 kHz is 5.3 ms.  MakeSomeNoise requests are only created on
      * the source 50 Hz VBlank, so a larger desktop callback would add a full
@@ -42,6 +43,7 @@ struct AudioSdl {
     AudioSdlSample music;
     uint32_t music_frame_index;
     AudioSdlVoice voices[GAME_AUDIO_SOURCE_VOICE_COUNT];
+    uint16_t master_gain;
     uint8_t music_enabled;
     uint8_t available;
 };
@@ -144,8 +146,10 @@ static void audio_sdl_mix_frames(AudioSdl *audio, int16_t *output, uint32_t fram
         if (audio->music_enabled != 0u && audio->music.samples && audio->music.frame_count > 0u) {
             uint32_t music_index = audio->music_frame_index * AUDIO_SDL_CHANNELS;
 
-            left += ((int32_t)audio->music.samples[music_index] * AUDIO_SDL_MUSIC_GAIN) >> 15;
-            right += ((int32_t)audio->music.samples[music_index + 1u] * AUDIO_SDL_MUSIC_GAIN) >> 15;
+            left += ((((int32_t)audio->music.samples[music_index] * AUDIO_SDL_MUSIC_GAIN) >> 15) *
+                     audio->master_gain) >> 15;
+            right += ((((int32_t)audio->music.samples[music_index + 1u] * AUDIO_SDL_MUSIC_GAIN) >> 15) *
+                      audio->master_gain) >> 15;
             ++audio->music_frame_index;
             if (audio->music_frame_index >= audio->music.frame_count) {
                 audio->music_frame_index = 0u;
@@ -161,8 +165,10 @@ static void audio_sdl_mix_frames(AudioSdl *audio, int16_t *output, uint32_t fram
             }
             {
                 uint32_t sample_index = voice->frame_index * AUDIO_SDL_CHANNELS;
-                left += ((int32_t)voice->sample->samples[sample_index] * voice->left_gain) >> 15;
-                right += ((int32_t)voice->sample->samples[sample_index + 1u] * voice->right_gain) >> 15;
+                left += ((((int32_t)voice->sample->samples[sample_index] * voice->left_gain) >> 15) *
+                         audio->master_gain) >> 15;
+                right += ((((int32_t)voice->sample->samples[sample_index + 1u] * voice->right_gain) >> 15) *
+                          audio->master_gain) >> 15;
             }
             ++voice->frame_index;
         }
@@ -238,6 +244,7 @@ AudioSdl *audio_sdl_create(const char *data_root, char *error, size_t error_size
     }
     /* Game_Begin's mt_init owns the actual start; create only preloads the WAV. */
     audio->music_enabled = 0u;
+    audio->master_gain = AUDIO_SDL_UNITY_GAIN;
     audio->available = UINT8_MAX;
 #ifndef AB3D2_AUDIO_SDL_TEST
     SDL_PauseAudioDevice(audio->device, 0);
@@ -272,6 +279,26 @@ void audio_sdl_set_music_enabled(AudioSdl *audio, uint8_t enabled)
     }
     SDL_LockAudioDevice(audio->device);
     audio->music_enabled = enabled != 0u ? UINT8_MAX : 0u;
+    SDL_UnlockAudioDevice(audio->device);
+}
+
+void audio_sdl_set_volume(AudioSdl *audio, uint8_t volume)
+{
+    uint16_t gain;
+
+    if (!audio) {
+        return;
+    }
+    if (volume > 100u) {
+        volume = 100u;
+    }
+    gain = (uint16_t)(((uint32_t)volume * AUDIO_SDL_UNITY_GAIN + 50u) / 100u);
+    if (audio->device == 0u) {
+        audio->master_gain = gain;
+        return;
+    }
+    SDL_LockAudioDevice(audio->device);
+    audio->master_gain = gain;
     SDL_UnlockAudioDevice(audio->device);
 }
 

@@ -17,6 +17,8 @@ AudioSdl *audio_sdl_create(const char *data_root, char *error, size_t error_size
 void audio_sdl_destroy(AudioSdl *audio);
 int audio_sdl_is_available(const AudioSdl *audio);
 void audio_sdl_set_music_enabled(AudioSdl *audio, uint8_t enabled);
+/* Master gain from ab3d2.ini's 0--100 volume percentage. */
+void audio_sdl_set_volume(AudioSdl *audio, uint8_t volume);
 /* Returns the number of source requests that acquired or restarted a host voice. */
 uint16_t audio_sdl_consume_events(AudioSdl *audio, const GameAudioEvents *events,
                                   const PlayerRuntime *listener, uint16_t listener_yaw);

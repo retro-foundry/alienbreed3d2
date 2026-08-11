@@ -9,6 +9,26 @@ executable as a lower-case `data/` tree. The Amiga volume path `AB3:Includes/tes
 `Game_Start` in `amiga/ab3d2_source/controlloop.s`, therefore becomes
 `data/includes/test.lnk`.
 
+## Desktop configuration
+
+The first native build seeds an editable `ab3d2.ini` beside the executable
+from `ab3d2.ini.template`; incremental builds preserve the edited file. The
+direct-play executable reads it before creating its selected single-player
+session. Supported keys are:
+
+- `start_level=1` through `start_level=16` for Levels A--P (one-indexed);
+- `infinite_health=0|1` restores the source inventory health limit after each
+  completed source update;
+- `all_weapons=0|1` grants every source gun and a full legal supply of each
+  ammunition class when the session begins;
+- `volume=0` through `volume=100` controls the master SDL mixer gain; and
+- `always_run=0|1` makes run the default controller mode. Hold Shift to walk.
+
+`run_default` is accepted as an alias for `always_run`, matching the first
+port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
+An explicit `--level A` through `--level P` command-line option overrides
+`start_level`.
+
 ## Current native slice
 
 The initial desktop target establishes the port boundary without reusing the
