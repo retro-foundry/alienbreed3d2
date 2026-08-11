@@ -81,7 +81,10 @@ gameplay-first scope.
   wall plus floor, ceiling, and water boundary is submitted as whole-level
   GPU-neutral geometry, without PVS or portal traversal. The retained scene
   refreshes its commands from the mutable graph after source door, lift, and
-  water updates;
+  water updates. Door and lift walls are a deliberate native-renderer
+  simplification: each remains one solid moving quad with its authored texture
+  mapping fixed, while the source `DoorRoutine`/`LiftRoutine` state, collision,
+  and vertical geometry continue to update;
 - defines a GPU-neutral frame command interface for cameras, lighting,
   environment, materials, geometry, and sprites. Every live source object now emits an
   unprojected bitmap/vector/glare descriptor in source slot order, with its

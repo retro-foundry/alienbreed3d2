@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "level_mechanisms.h"
 #include "level_runtime.h"
 #include "scene_frame.h"
 
@@ -13,6 +14,15 @@ typedef struct {
     uint32_t material_id;
     uint32_t source_record_offset;
     SceneTextureWindow texture_window;
+    /*
+     * GPU presentation cache for a DoorRoutine/LiftRoutine wall.  The source
+     * mutates its V offset to compensate for a software strip renderer; a
+     * native moving solid retains its authored texture mapping instead.
+     */
+    uint16_t solid_texture_u_end;
+    uint16_t solid_texture_y_offset;
+    uint8_t solid_texture_height_mask;
+    uint8_t is_mechanism_surface;
     uint16_t source_zone_index;
     uint8_t source_upper_zone;
     uint8_t point_brightness_selector;
@@ -55,7 +65,8 @@ typedef struct {
  * or level-override floortile byte range. It does not use PVS, portals, or
  * source screen clipping.
  */
-int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material_count,
+int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms *mechanisms,
+                             uint32_t wall_material_count,
                              size_t floor_texture_size,
                              LevelStaticScene *out_scene,
                              char *error, size_t error_size);

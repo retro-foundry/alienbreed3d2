@@ -505,7 +505,7 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         !object_observation_update_single_player(
             &game->object_observation, &game->object_runtime, &game->player, &game->math,
             error, error_size) ||
-        !level_static_scene_build(&game->level_runtime,
+        !level_static_scene_build(&game->level_runtime, &game->level_mechanisms,
                                   game->shared_resources.wall_texture_count,
                                   game->level_floor_override.bytes != NULL
                                       ? game->level_floor_override.size

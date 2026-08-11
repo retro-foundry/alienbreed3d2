@@ -729,6 +729,7 @@ int main(int argc, char **argv)
     uint32_t decoration_fixture_count = 0u;
     uint32_t destructible_fixture_count = 0u;
     uint32_t water_fixture_count = 0u;
+    uint32_t mechanism_surface_fixture_count = 0u;
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
@@ -3469,6 +3470,34 @@ int main(int argc, char **argv)
                 }
             }
         }
+        /*
+         * The source door/lift routines change +12 for their software
+         * renderer's texture scroll.  The GPU scene must retain the authored
+         * mapping on its single moving solid instead.
+         */
+        for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
+             ++static_wall_index) {
+            const LevelStaticWallScene *scene_wall =
+                &game.static_scene.walls[static_wall_index];
+            uint8_t *dynamic_texture_offset;
+
+            if (scene_wall->is_mechanism_surface == 0u) {
+                continue;
+            }
+            if (!level_dynamic_state_get_graphics_range(
+                    &game.dynamic_level, scene_wall->source_record_offset + 12u, 2u,
+                    &dynamic_texture_offset)) {
+                fprintf(stderr,
+                        "campaign level %u mechanism wall has no mutable texture offset\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            write_be16(dynamic_texture_offset,
+                       (uint16_t)(read_be16(dynamic_texture_offset) ^ 0x00ffu));
+            ++mechanism_surface_fixture_count;
+            break;
+        }
         if (!level_static_scene_apply_runtime(
                 &game.static_scene, &game.dynamic_level.runtime,
                 game.shared_resources.wall_texture_count,
@@ -3484,6 +3513,7 @@ int main(int argc, char **argv)
                 &game.static_scene.walls[static_wall_index];
             const uint8_t *source = game.dynamic_level.runtime.graphics_bytes +
                 scene_wall->source_record_offset;
+            const uint8_t *texture_source = source;
             LevelWorldPoint left_point;
             LevelWorldPoint right_point;
             int32_t top;
@@ -3502,6 +3532,34 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            if (scene_wall->is_mechanism_surface > 1u) {
+                fprintf(stderr, "campaign level %u static wall %u has an invalid mechanism flag\n",
+                        level_index, static_wall_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (scene_wall->is_mechanism_surface != 0u) {
+                if (scene_wall->source_record_offset > game.level_mechanisms.graphics_size ||
+                    30u > game.level_mechanisms.graphics_size -
+                              scene_wall->source_record_offset) {
+                    fprintf(stderr,
+                            "campaign level %u static mechanism wall %u has an invalid source range\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                texture_source = game.level_mechanisms.graphics_bytes +
+                    scene_wall->source_record_offset;
+                if (scene_wall->solid_texture_u_end != read_be16(texture_source + 8u) ||
+                    scene_wall->solid_texture_y_offset != read_be16(texture_source + 12u) ||
+                    scene_wall->solid_texture_height_mask != texture_source[16u]) {
+                    fprintf(stderr,
+                            "campaign level %u static mechanism wall %u has a bad solid mapping\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
             top = (int32_t)read_be32(source + 20u);
             bottom = (int32_t)read_be32(source + 24u);
             if (scene_wall->vertices[0].position.x != left_point.x ||
@@ -3516,19 +3574,20 @@ int main(int argc, char **argv)
                 scene_wall->vertices[5].position.x != left_point.x ||
                 scene_wall->vertices[5].position.y != bottom ||
                 scene_wall->vertices[5].position.z != left_point.z ||
-                scene_wall->texture_window.u_offset != (uint16_t)(read_be16(source + 10u) << 4u) ||
-                scene_wall->texture_window.u_period != (uint16_t)source[18u] + 1u ||
-                scene_wall->texture_window.v_period != (uint16_t)source[16u] + 1u ||
+                scene_wall->texture_window.u_offset !=
+                    (uint16_t)(read_be16(texture_source + 10u) << 4u) ||
+                scene_wall->texture_window.u_period != (uint16_t)texture_source[18u] + 1u ||
+                scene_wall->texture_window.v_period != (uint16_t)texture_source[16u] + 1u ||
                 scene_wall->vertices[0].texture_u != 0 ||
-                scene_wall->vertices[0].texture_v != read_be16(source + 12u) ||
-                scene_wall->vertices[1].texture_u != read_be16(source + 8u) ||
-                scene_wall->vertices[1].texture_v != read_be16(source + 12u) ||
-                scene_wall->vertices[2].texture_u != read_be16(source + 8u) ||
+                scene_wall->vertices[0].texture_v != read_be16(texture_source + 12u) ||
+                scene_wall->vertices[1].texture_u != read_be16(texture_source + 8u) ||
+                scene_wall->vertices[1].texture_v != read_be16(texture_source + 12u) ||
+                scene_wall->vertices[2].texture_u != read_be16(texture_source + 8u) ||
                 scene_wall->vertices[2].texture_v !=
-                    (int32_t)read_be16(source + 12u) + source[16u] + 1 ||
+                    (int32_t)read_be16(texture_source + 12u) + texture_source[16u] + 1 ||
                 scene_wall->vertices[5].texture_u != 0 ||
                 scene_wall->vertices[5].texture_v !=
-                    (int32_t)read_be16(source + 12u) + source[16u] + 1) {
+                    (int32_t)read_be16(texture_source + 12u) + texture_source[16u] + 1) {
                 fprintf(stderr, "campaign level %u static wall %u geometry is inconsistent\n",
                         level_index, static_wall_index);
                 game_bootstrap_destroy(&game);
@@ -3649,8 +3708,9 @@ int main(int argc, char **argv)
         }
     }
     if (decoration_fixture_count == 0u || destructible_fixture_count == 0u ||
-        water_fixture_count == 0u) {
-        fprintf(stderr, "campaign data does not contain all passive-object/water fixtures\n");
+        water_fixture_count == 0u || mechanism_surface_fixture_count == 0u) {
+        fprintf(stderr,
+                "campaign data does not contain all passive-object/water/mechanism fixtures\n");
         game_bootstrap_destroy(&game);
         return 1;
     }

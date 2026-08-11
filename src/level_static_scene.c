@@ -119,18 +119,24 @@ static int32_t level_static_scene_flat_texture_coordinate(int16_t coordinate, in
              (uint8_t)-scale);
 }
 
-static void level_static_scene_set_wall_vertices(LevelStaticWallScene *scene_wall,
-                                                 const LevelDrawWall *wall,
-                                                 const LevelWorldPoint *left_point,
-                                                 const LevelWorldPoint *right_point)
+static void level_static_scene_set_wall_texture_window(LevelStaticWallScene *scene_wall,
+                                                       const LevelDrawWall *wall)
 {
-    int32_t texture_u_end = wall->texture_u_end;
-    int32_t texture_v_top = wall->texture_y_offset;
-    int32_t texture_v_bottom = texture_v_top + (int32_t)wall->texture_height_mask + 1;
-
     scene_wall->texture_window.u_offset = (uint16_t)(wall->texture_u_tile << 4u);
     scene_wall->texture_window.u_period = (uint16_t)wall->texture_width_mask + 1u;
     scene_wall->texture_window.v_period = (uint16_t)wall->texture_height_mask + 1u;
+}
+
+static void level_static_scene_set_wall_vertices(LevelStaticWallScene *scene_wall,
+                                                 const LevelDrawWall *wall,
+                                                 const LevelWorldPoint *left_point,
+                                                 const LevelWorldPoint *right_point,
+                                                 uint16_t texture_u_end,
+                                                 uint16_t texture_y_offset,
+                                                 uint8_t texture_height_mask)
+{
+    int32_t texture_v_top = texture_y_offset;
+    int32_t texture_v_bottom = texture_v_top + (int32_t)texture_height_mask + 1;
     level_static_scene_set_vertex(&scene_wall->vertices[0], left_point->x, wall->top,
                                   left_point->z, 0, texture_v_top);
     level_static_scene_set_vertex(&scene_wall->vertices[1], right_point->x, wall->top,
@@ -143,6 +149,62 @@ static void level_static_scene_set_wall_vertices(LevelStaticWallScene *scene_wal
                                   right_point->z, texture_u_end, texture_v_bottom);
     level_static_scene_set_vertex(&scene_wall->vertices[5], left_point->x, wall->bottom,
                                   left_point->z, 0, texture_v_bottom);
+}
+
+static int level_static_scene_is_mechanism_surface(const LevelMechanisms *mechanisms,
+                                                    uint32_t source_record_offset,
+                                                    uint8_t *out_is_mechanism_surface,
+                                                    char *error, size_t error_size)
+{
+    uint16_t mechanism_index;
+
+    if (!mechanisms || !out_is_mechanism_surface) {
+        level_static_scene_set_error(error, error_size,
+                                     "static scene has no source mechanism records");
+        return 0;
+    }
+    *out_is_mechanism_surface = 0u;
+    for (mechanism_index = 0u; mechanism_index < mechanisms->door_count;
+         ++mechanism_index) {
+        LevelLiftable door;
+
+        if (!level_mechanisms_get_door(mechanisms, mechanism_index, &door, error, error_size)) {
+            return 0;
+        }
+        for (uint16_t wall_index = 0u; wall_index < door.wall_count; ++wall_index) {
+            LevelLiftableWall wall;
+
+            if (!level_mechanisms_get_door_wall(mechanisms, mechanism_index, wall_index, &wall,
+                                                error, error_size)) {
+                return 0;
+            }
+            if (wall.graphics_offset == source_record_offset) {
+                *out_is_mechanism_surface = 1u;
+                return 1;
+            }
+        }
+    }
+    for (mechanism_index = 0u; mechanism_index < mechanisms->lift_count;
+         ++mechanism_index) {
+        LevelLiftable lift;
+
+        if (!level_mechanisms_get_lift(mechanisms, mechanism_index, &lift, error, error_size)) {
+            return 0;
+        }
+        for (uint16_t wall_index = 0u; wall_index < lift.wall_count; ++wall_index) {
+            LevelLiftableWall wall;
+
+            if (!level_mechanisms_get_lift_wall(mechanisms, mechanism_index, wall_index, &wall,
+                                                error, error_size)) {
+                return 0;
+            }
+            if (wall.graphics_offset == source_record_offset) {
+                *out_is_mechanism_surface = 1u;
+                return 1;
+            }
+        }
+    }
+    return 1;
 }
 
 static int level_static_scene_flat_primitive(uint8_t draw_graph_type,
@@ -187,7 +249,8 @@ static int level_static_scene_draw_graph_type_for_primitive(
     }
 }
 
-int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material_count,
+int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms *mechanisms,
+                             uint32_t wall_material_count,
                              size_t floor_texture_size,
                              LevelStaticScene *out_scene,
                              char *error, size_t error_size)
@@ -199,7 +262,8 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
     uint32_t flat_index;
     uint16_t zone_index;
 
-    if (!runtime || !out_scene || wall_material_count == 0u || floor_texture_size == 0u) {
+    if (!runtime || !mechanisms || !out_scene || wall_material_count == 0u ||
+        floor_texture_size == 0u) {
         level_static_scene_set_error(error, error_size,
                                      "static scene received invalid source data or materials");
         return 0;
@@ -288,8 +352,21 @@ int level_static_scene_build(const LevelRuntime *runtime, uint32_t wall_material
                     scene_wall->right_point_brightness = wall.right_point_brightness;
                     scene_wall->brightness_offset = wall.brightness_offset;
                     scene_wall->other_zone = wall.other_zone;
+                    if (!level_static_scene_is_mechanism_surface(
+                            mechanisms, record.source_offset,
+                            &scene_wall->is_mechanism_surface, error, error_size)) {
+                        goto fail;
+                    }
+                    if (scene_wall->is_mechanism_surface != 0u) {
+                        scene_wall->solid_texture_u_end = wall.texture_u_end;
+                        scene_wall->solid_texture_y_offset = wall.texture_y_offset;
+                        scene_wall->solid_texture_height_mask = wall.texture_height_mask;
+                    }
+                    level_static_scene_set_wall_texture_window(scene_wall, &wall);
                     level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point,
-                                                         &right_point);
+                                                         &right_point, wall.texture_u_end,
+                                                         wall.texture_y_offset,
+                                                         wall.texture_height_mask);
                     continue;
                 }
                 if (record.type == LEVEL_DRAW_GRAPH_TYPE_FLOOR ||
@@ -436,7 +513,23 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
         scene_wall->right_point_brightness = wall.right_point_brightness;
         scene_wall->brightness_offset = wall.brightness_offset;
         scene_wall->other_zone = wall.other_zone;
-        level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point, &right_point);
+        if (scene_wall->is_mechanism_surface != 0u) {
+            /*
+             * newanims.s:DoorRoutine and LiftRoutine still own position,
+             * collision, and timing. Their changing wall V offset only
+             * serves the original software path, so the native renderer
+             * presents this as one solid quad with a stable texture.
+             */
+            level_static_scene_set_wall_vertices(
+                scene_wall, &wall, &left_point, &right_point,
+                scene_wall->solid_texture_u_end, scene_wall->solid_texture_y_offset,
+                scene_wall->solid_texture_height_mask);
+        } else {
+            level_static_scene_set_wall_texture_window(scene_wall, &wall);
+            level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point, &right_point,
+                                                 wall.texture_u_end, wall.texture_y_offset,
+                                                 wall.texture_height_mask);
+        }
     }
     for (flat_index = 0u; flat_index < scene->flat_count; ++flat_index) {
         LevelStaticFlatScene *scene_flat = &scene->flats[flat_index];
