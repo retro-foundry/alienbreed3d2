@@ -360,7 +360,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
      * hidden GPU validation path deliberately remains an ordinary bounded
      * window so it does not depend on the host display layout.
      */
-    renderer_config.fullscreen_desktop = app->gpu_smoke ? 0 : 1;
+    renderer_config.desktop_window = app->gpu_smoke ? 0 : 1;
     renderer_config.hidden_window = app->gpu_smoke;
     app->renderer = renderer_create(&renderer_config, error, sizeof(error));
     if (!app->renderer) {

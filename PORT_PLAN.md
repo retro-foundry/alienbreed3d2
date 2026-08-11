@@ -171,13 +171,13 @@ authority for all game behavior and data formats.
   Emscripten skips FetchContent, builds an `ab3d2.html` WebGL target with the
   browser-safe main loop, and preloads the lower-case `stage_media.py` asset
   tree as `/data`.
-- [x] Native direct play follows Alien Breed 3D I `src/display.c:display_init`:
-  it queries SDL's active desktop mode and display bounds, then creates a
-  borderless normal OpenGL window at those bounds. It deliberately uses no
-  `SDL_WINDOW_FULLSCREEN*` flag, so it retains the desktop display mode while
-  avoiding the title-bar-reduced client area of a decorated desktop-sized
-  window. The hidden GPU smoke path intentionally stays 1280x720 so its
-  all-level validation remains bounded and independent of monitor layout.
+- [x] Native direct play copies Alien Breed 3D I `src/display.c:display_init`:
+  it queries SDL's active desktop mode and display bounds, then creates the
+  same `SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL` normal
+  window at those bounds. It deliberately uses neither fullscreen nor
+  borderless SDL flags, so it never asks SDL to change the monitor mode. The
+  hidden GPU smoke path intentionally stays 1280x720 so its all-level
+  validation remains bounded and independent of monitor layout.
 - [x] Native presentation now relies on `renderer_opengl.c`'s requested
   `SDL_GL_SetSwapInterval(1)`/`SDL_GL_SwapWindow` boundary rather than a fixed
   16 ms `SDL_Delay`. This matches the first port's display-paced game loop:

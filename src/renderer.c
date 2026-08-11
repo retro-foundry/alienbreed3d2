@@ -37,7 +37,7 @@ Renderer *renderer_create(const RendererConfig *config, char *error, size_t erro
     case RENDERER_BACKEND_OPENGL:
         renderer->opengl = renderer_opengl_create(config->window_width, config->window_height,
                                                   config->window_title,
-                                                  config->fullscreen_desktop,
+                                                  config->desktop_window,
                                                   config->hidden_window,
                                                   error, error_size);
         break;

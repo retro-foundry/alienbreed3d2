@@ -23,12 +23,11 @@ typedef struct {
     int window_height;
     const char *window_title;
     /*
-     * Create a borderless normal window at the active desktop bounds.  Unlike
-     * SDL fullscreen, this keeps the desktop display mode untouched while the
-     * OpenGL drawable occupies the complete display surface.  This remains a
-     * presentation choice at the renderer boundary, rather than gameplay.
+     * Create the same desktop-sized, positioned normal window as the first
+     * port's display_init.  This is a presentation choice at the renderer
+     * boundary, rather than gameplay.
      */
-    int fullscreen_desktop;
+    int desktop_window;
     /* Opt-in validation path: an SDL hidden window still exercises real GL. */
     int hidden_window;
 } RendererConfig;
