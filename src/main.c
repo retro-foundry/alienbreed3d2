@@ -465,6 +465,9 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         fprintf(stderr, "[RENDER] %s\n", error);
         return 0;
     }
+    /* The normal desktop window is expanded past its frame after creation. */
+    (void)renderer_get_presentation_size(app->renderer, &app->mouse_present_width,
+                                         &app->mouse_present_height);
     /* Gameplay-first bootstrap: source session enters a selected A-P level directly. */
     if (!game_session_select_level(&app->game.session, app->selected_level_index,
                                    error, sizeof(error)) ||
@@ -584,6 +587,14 @@ static void game_app_tick(GameApp *app)
                 MOUSE_REFERENCE_WIDTH = 768,
                 MOUSE_REFERENCE_HEIGHT = 640
             };
+            /*
+             * Match Alien-Breed-3D-I's live g_renderer.present_* conversion.
+             * The desktop client may be larger than the requested mode after
+             * its border is shifted off-screen, and resizable windows can
+             * change again while running.
+             */
+            (void)renderer_get_presentation_size(
+                app->renderer, &app->mouse_present_width, &app->mouse_present_height);
             int16_t mouse_x = game_input_scale_present_mouse_delta(
                 event.motion.xrel, MOUSE_REFERENCE_WIDTH, app->mouse_present_width,
                 &app->mouse_remainder_x);

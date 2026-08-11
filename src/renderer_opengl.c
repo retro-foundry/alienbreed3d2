@@ -3727,6 +3727,24 @@ void renderer_opengl_destroy(RendererOpenGL *renderer)
     free(renderer);
 }
 
+int renderer_opengl_get_presentation_size(const RendererOpenGL *renderer,
+                                          int *out_width, int *out_height)
+{
+    int width;
+    int height;
+
+    if (!renderer || !renderer->window || !out_width || !out_height) {
+        return 0;
+    }
+    SDL_GL_GetDrawableSize(renderer->window, &width, &height);
+    if (width < 1 || height < 1) {
+        return 0;
+    }
+    *out_width = width;
+    *out_height = height;
+    return 1;
+}
+
 size_t renderer_opengl_last_view_weapon_coverage(const RendererOpenGL *renderer)
 {
     return renderer ? renderer->last_view_weapon_coverage : 0u;

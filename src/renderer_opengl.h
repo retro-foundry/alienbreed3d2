@@ -15,6 +15,8 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
                                        int hidden_window,
                                        char *error, size_t error_size);
 void renderer_opengl_destroy(RendererOpenGL *renderer);
+int renderer_opengl_get_presentation_size(const RendererOpenGL *renderer,
+                                          int *out_width, int *out_height);
 int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                             const RenderView *view, char *error, size_t error_size);
 /* Hidden-window smoke coverage for Plr1_Use's camera-space companion pass. */

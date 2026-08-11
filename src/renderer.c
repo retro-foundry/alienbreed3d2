@@ -80,6 +80,20 @@ void renderer_request_quit(Renderer *renderer)
     }
 }
 
+int renderer_get_presentation_size(const Renderer *renderer, int *out_width, int *out_height)
+{
+    if (!renderer || !out_width || !out_height) {
+        return 0;
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_OPENGL:
+        return renderer_opengl_get_presentation_size(renderer->opengl,
+                                                      out_width, out_height);
+    default:
+        return 0;
+    }
+}
+
 int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderView *view,
                      char *error, size_t error_size)
 {
