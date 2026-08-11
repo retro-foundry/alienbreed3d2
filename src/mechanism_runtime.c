@@ -373,23 +373,69 @@ void mechanism_runtime_init(MechanismRuntime *runtime)
     }
 }
 
-static void mechanism_runtime_emit_liftable_sound(GameAudioEvents *audio_events,
-                                                  int16_t one_based_sample,
-                                                  const LevelLiftable *liftable,
-                                                  uint16_t source_id)
+static int mechanism_runtime_emit_liftable_sound(
+    GameAudioEvents *audio_events, int16_t one_based_sample,
+    const LevelLiftable *liftable, const LevelDynamicState *dynamic_level,
+    const PlayerRuntime *player, const GameMath *math, uint16_t source_id,
+    uint8_t suppress_if_playing, char *error, size_t error_size)
 {
+    LevelZone zone;
+    int16_t sine;
+    int16_t cosine;
+    int16_t delta_x;
+    int16_t delta_z;
+    int32_t product;
+    int16_t relative_x;
+    int16_t relative_z;
+
     /* newanims.s subtracts one from all four ZLiftableT sound fields. */
-    game_audio_events_emit(audio_events, (int16_t)(one_based_sample - 1), 50,
-                           liftable->word9, liftable->word10, source_id,
-                           GAME_AUDIO_RESTART_SOURCE, 1u, 0u);
+    one_based_sample = (int16_t)((uint16_t)one_based_sample - UINT16_C(1));
+    if (!audio_events || one_based_sample < 0) {
+        return 1;
+    }
+    if (!liftable || !dynamic_level || !player || !math || liftable->zone_id < 0 ||
+        (uint16_t)liftable->zone_id >= dynamic_level->runtime.zone_count ||
+        !level_runtime_get_zone(&dynamic_level->runtime, (uint16_t)liftable->zone_id,
+                                &zone, error, error_size) ||
+        !game_math_sine(math, player->yaw, &sine, error, error_size) ||
+        !game_math_cosine(math, player->yaw, &cosine, error, error_size)) {
+        mechanism_runtime_set_error(error, error_size,
+                                    "source liftable sound has invalid listener or zone state");
+        return 0;
+    }
+
+    /*
+     * newanims.s:LiftRoutine/DoorRoutine write Aud_NoiseX/Z themselves.
+     * Preserve their 16-bit input subtraction, wrapped MULS/SUB.L, doubled
+     * longword, and SWAP result instead of applying host floating-point
+     * panning to the authored world point later.
+     */
+    delta_x = (int16_t)((uint16_t)liftable->word9 -
+                        (uint16_t)player_runtime_position_to_world(player->tmp_x));
+    delta_z = (int16_t)((uint16_t)liftable->word10 -
+                        (uint16_t)player_runtime_position_to_world(player->tmp_z));
+    product = (int32_t)((uint32_t)((int32_t)cosine * delta_x) -
+                        (uint32_t)((int32_t)sine * delta_z));
+    product = (int32_t)((uint32_t)product << 1u);
+    relative_x = (int16_t)(uint16_t)((uint32_t)product >> 16u);
+    product = (int32_t)((uint32_t)((int32_t)sine * delta_x) -
+                        (uint32_t)((int32_t)cosine * delta_z));
+    product = (int32_t)((uint32_t)product << 1u);
+    relative_z = (int16_t)(uint16_t)((uint32_t)product >> 16u);
+    game_audio_events_emit_relative(
+        audio_events, one_based_sample, 50, relative_x, relative_z, source_id,
+        suppress_if_playing, 1u, zone.echo);
+    return 1;
 }
 
 int mechanism_runtime_update_doors_single_player_with_audio(
     MechanismRuntime *runtime, LevelDynamicState *dynamic_level,
     const LevelMechanisms *mechanisms, const PlayerRuntime *player,
-    uint16_t frame_ticks, GameAudioEvents *audio_events, char *error, size_t error_size)
+    const GameMath *math, uint16_t frame_ticks, GameAudioEvents *audio_events,
+    char *error, size_t error_size)
 {
     if (!runtime || !dynamic_level || !mechanisms || !player ||
+        (audio_events != NULL && math == NULL) ||
         dynamic_level->runtime.graphics_bytes != dynamic_level->graphics_bytes ||
         mechanisms->door_count > LEVEL_MECHANISMS_MAX_DOORS) {
         mechanism_runtime_set_error(error, error_size,
@@ -491,16 +537,26 @@ int mechanism_runtime_update_doors_single_player_with_audio(
         if (activated != 0) {
             mechanism_runtime_write_be16(header + MECHANISM_LIFTABLE_VELOCITY_OFFSET,
                                          (uint16_t)requested_velocity);
-            mechanism_runtime_emit_liftable_sound(
-                audio_events, requested_velocity < 0 ? door.opening_sound_fx : door.closing_sound_fx,
-                &door, (uint16_t)(UINT16_C(0x1000) + door_index));
+            if (!mechanism_runtime_emit_liftable_sound(
+                    audio_events,
+                    requested_velocity < 0 ? door.opening_sound_fx : door.closing_sound_fx,
+                    &door, dynamic_level, player, math, UINT16_C(0xfffd),
+                    GAME_AUDIO_RESTART_SOURCE, error, error_size)) {
+                return 0;
+            }
         }
         if (door_closed != 0 && velocity != 0) {
-            mechanism_runtime_emit_liftable_sound(audio_events, door.closed_sound_fx, &door,
-                                                  (uint16_t)(UINT16_C(0x1000) + door_index));
+            if (!mechanism_runtime_emit_liftable_sound(
+                    audio_events, door.closed_sound_fx, &door, dynamic_level, player, math,
+                    UINT16_C(0xfffd), GAME_AUDIO_RESTART_SOURCE, error, error_size)) {
+                return 0;
+            }
         } else if (door_open != 0 && velocity != 0) {
-            mechanism_runtime_emit_liftable_sound(audio_events, door.opened_sound_fx, &door,
-                                                  (uint16_t)(UINT16_C(0x1000) + door_index));
+            if (!mechanism_runtime_emit_liftable_sound(
+                    audio_events, door.opened_sound_fx, &door, dynamic_level, player, math,
+                    UINT16_C(0xfffd), GAME_AUDIO_RESTART_SOURCE, error, error_size)) {
+                return 0;
+            }
         }
         if (door_closed != 0) {
             runtime->current_door_state &= (uint16_t)~(uint16_t)(1u << door_index);
@@ -522,15 +578,18 @@ int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
                                                  char *error, size_t error_size)
 {
     return mechanism_runtime_update_doors_single_player_with_audio(
-        runtime, dynamic_level, mechanisms, player, frame_ticks, NULL, error, error_size);
+        runtime, dynamic_level, mechanisms, player, NULL, frame_ticks, NULL,
+        error, error_size);
 }
 
 int mechanism_runtime_update_lifts_single_player_with_audio(
     MechanismRuntime *runtime, LevelDynamicState *dynamic_level,
     const LevelMechanisms *mechanisms, PlayerRuntime *player,
-    uint16_t frame_ticks, GameAudioEvents *audio_events, char *error, size_t error_size)
+    const GameMath *math, uint16_t frame_ticks, GameAudioEvents *audio_events,
+    char *error, size_t error_size)
 {
     if (!runtime || !dynamic_level || !mechanisms || !player ||
+        (audio_events != NULL && math == NULL) ||
         dynamic_level->runtime.graphics_bytes != dynamic_level->graphics_bytes ||
         mechanisms->lift_count > LEVEL_MECHANISMS_MAX_LIFTS) {
         mechanism_runtime_set_error(error, error_size,
@@ -625,16 +684,26 @@ int mechanism_runtime_update_lifts_single_player_with_audio(
         if (activated != 0) {
             mechanism_runtime_write_be16(header + MECHANISM_LIFTABLE_VELOCITY_OFFSET,
                                          (uint16_t)requested_velocity);
-            mechanism_runtime_emit_liftable_sound(
-                audio_events, requested_velocity < 0 ? lift.opening_sound_fx : lift.closing_sound_fx,
-                &lift, (uint16_t)(UINT16_C(0x2000) + lift_index));
+            if (!mechanism_runtime_emit_liftable_sound(
+                    audio_events,
+                    requested_velocity < 0 ? lift.opening_sound_fx : lift.closing_sound_fx,
+                    &lift, dynamic_level, player, math, UINT16_C(0xfffe),
+                    GAME_AUDIO_SUPPRESS_IF_PLAYING, error, error_size)) {
+                return 0;
+            }
         }
         if (lift_at_bottom != 0 && velocity != 0) {
-            mechanism_runtime_emit_liftable_sound(audio_events, lift.closed_sound_fx, &lift,
-                                                  (uint16_t)(UINT16_C(0x2000) + lift_index));
+            if (!mechanism_runtime_emit_liftable_sound(
+                    audio_events, lift.closed_sound_fx, &lift, dynamic_level, player, math,
+                    UINT16_C(0xfffd), GAME_AUDIO_RESTART_SOURCE, error, error_size)) {
+                return 0;
+            }
         } else if (lift_at_top != 0 && velocity != 0) {
-            mechanism_runtime_emit_liftable_sound(audio_events, lift.opened_sound_fx, &lift,
-                                                  (uint16_t)(UINT16_C(0x2000) + lift_index));
+            if (!mechanism_runtime_emit_liftable_sound(
+                    audio_events, lift.opened_sound_fx, &lift, dynamic_level, player, math,
+                    UINT16_C(0xfffd), GAME_AUDIO_RESTART_SOURCE, error, error_size)) {
+                return 0;
+            }
         }
     }
 
@@ -652,7 +721,8 @@ int mechanism_runtime_update_lifts_single_player(MechanismRuntime *runtime,
                                                  char *error, size_t error_size)
 {
     return mechanism_runtime_update_lifts_single_player_with_audio(
-        runtime, dynamic_level, mechanisms, player, frame_ticks, NULL, error, error_size);
+        runtime, dynamic_level, mechanisms, player, NULL, frame_ticks, NULL,
+        error, error_size);
 }
 
 int mechanism_runtime_update_water_animations(LevelDynamicState *dynamic_level,

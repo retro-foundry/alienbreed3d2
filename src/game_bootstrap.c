@@ -498,10 +498,10 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
             1u, NULL, error, error_size) ||
         !mechanism_runtime_update_doors_single_player_with_audio(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
-            &game->player, 1u, &game->audio_events, error, error_size) ||
+            &game->player, &game->math, 1u, &game->audio_events, error, error_size) ||
         !mechanism_runtime_update_lifts_single_player_with_audio(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
-            &game->player, 1u, &game->audio_events, error, error_size)) {
+            &game->player, &game->math, 1u, &game->audio_events, error, error_size)) {
         return 0;
     }
     /* newanims.s:objmoveanim advances brightanim after ObjectHandler/doors/lifts. */

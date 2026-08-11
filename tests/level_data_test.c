@@ -131,6 +131,38 @@ static int16_t source_add16(int16_t left, int16_t right)
     return (int16_t)((uint16_t)left + (uint16_t)right);
 }
 
+static int source_liftable_audio_position(const GameMath *math,
+                                          const PlayerRuntime *player,
+                                          const LevelLiftable *liftable,
+                                          int16_t *out_x, int16_t *out_z,
+                                          char *error, size_t error_size)
+{
+    int16_t sine;
+    int16_t cosine;
+    int16_t delta_x;
+    int16_t delta_z;
+    int32_t product;
+
+    if (!math || !player || !liftable || !out_x || !out_z ||
+        !game_math_sine(math, player->yaw, &sine, error, error_size) ||
+        !game_math_cosine(math, player->yaw, &cosine, error, error_size)) {
+        return 0;
+    }
+    delta_x = (int16_t)((uint16_t)liftable->word9 -
+                        (uint16_t)player_runtime_position_to_world(player->tmp_x));
+    delta_z = (int16_t)((uint16_t)liftable->word10 -
+                        (uint16_t)player_runtime_position_to_world(player->tmp_z));
+    product = (int32_t)((uint32_t)((int32_t)cosine * delta_x) -
+                        (uint32_t)((int32_t)sine * delta_z));
+    product = (int32_t)((uint32_t)product << 1u);
+    *out_x = (int16_t)(uint16_t)((uint32_t)product >> 16u);
+    product = (int32_t)((uint32_t)((int32_t)sine * delta_x) -
+                        (uint32_t)((int32_t)cosine * delta_z));
+    product = (int32_t)((uint32_t)product << 1u);
+    *out_z = (int16_t)(uint16_t)((uint32_t)product >> 16u);
+    return 1;
+}
+
 static uint32_t read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
@@ -942,6 +974,7 @@ int main(int argc, char **argv)
     uint32_t mechanism_surface_fixture_count = 0u;
     uint32_t dynamic_wall_v_scale_fixture_count = 0u;
     uint32_t lift_wall_motion_fixture_count = 0u;
+    uint8_t mechanism_audio_fixture_mask = 0u;
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
@@ -3552,6 +3585,10 @@ int main(int argc, char **argv)
             LevelZone dynamic_door_zone;
             LevelEdge dynamic_door_edge;
             uint16_t door_index = 0u;
+            GameAudioEvents door_audio;
+            int16_t door_audio_x;
+            int16_t door_audio_z;
+            int16_t door_action_sample;
 
             while (door_index < game.level_mechanisms.door_count &&
                    (!level_mechanisms_get_door(&game.level_mechanisms, door_index, &door,
@@ -3609,11 +3646,14 @@ int main(int argc, char **argv)
                 write_be16(door_header + 24u, 0u);
                 door_player.tmp_used = UINT8_MAX;
                 mechanism_runtime_init(&game.mechanism_runtime);
+                game_audio_events_init(&door_audio);
+                door_action_sample = expected_velocity < 0 ?
+                    door.opening_sound_fx : door.closing_sound_fx;
                 if (!level_dynamic_state_set_edge_flags(
                         &game.dynamic_level, (uint16_t)door_wall.edge_index, activation_flags) ||
-                    !mechanism_runtime_update_doors_single_player(
+                    !mechanism_runtime_update_doors_single_player_with_audio(
                         &game.mechanism_runtime, &game.dynamic_level, &game.level_mechanisms,
-                        &door_player, 1u, error, sizeof(error)) ||
+                        &door_player, &game.math, 1u, &door_audio, error, sizeof(error)) ||
                     (int16_t)read_be16(door_header + 22u) != door.bottom ||
                     (int16_t)read_be16(door_header + 24u) != expected_velocity ||
                     (int16_t)read_be16(door_graphics) != door.bottom ||
@@ -3627,6 +3667,35 @@ int main(int argc, char **argv)
                     observed_edge_flags != 0x8000u) {
                     fprintf(stderr, "campaign level %u DoorRoutine update is inconsistent: %s\n",
                             level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (door_action_sample > 0 && door_action_sample <= GAME_LINK_SFX_LOAD_COUNT) {
+                    const GameAudioEvent *door_event = &door_audio.events[0u];
+
+                    if (!source_liftable_audio_position(
+                            &game.math, &door_player, &door, &door_audio_x, &door_audio_z,
+                            error, sizeof(error)) ||
+                        door_audio.count != 1u ||
+                        door_event->sample_index != (uint16_t)(door_action_sample - 1) ||
+                        door_event->volume != 50u || door_event->world_x != door_audio_x ||
+                        door_event->world_z != door_audio_z ||
+                        door_event->source_id != UINT16_C(0xfffd) ||
+                        door_event->suppress_if_playing != 0u ||
+                        door_event->channel_pick != 1u ||
+                        door_event->listener_relative == 0u ||
+                        door_event->echo != dynamic_door_zone.echo) {
+                        fprintf(stderr,
+                                "campaign level %u DoorRoutine audio handoff is inconsistent: %s\n",
+                                level_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    mechanism_audio_fixture_mask |= 1u;
+                } else if (door_audio.count != 0u) {
+                    fprintf(stderr,
+                            "campaign level %u silent DoorRoutine emitted audio\n",
+                            level_index);
                     game_bootstrap_destroy(&game);
                     return 1;
                 }
@@ -3828,6 +3897,10 @@ int main(int argc, char **argv)
             uint16_t observed_edge_flags;
             uint16_t lift_index = 0u;
             int player_stood_on_lift;
+            GameAudioEvents lift_audio;
+            int16_t lift_audio_x;
+            int16_t lift_audio_z;
+            int16_t lift_action_sample;
 
             while (lift_index < game.level_mechanisms.lift_count &&
                    (!level_mechanisms_get_lift(&game.level_mechanisms, lift_index, &lift,
@@ -3878,11 +3951,14 @@ int main(int argc, char **argv)
                 write_be16(lift_header + 22u, (uint16_t)lift.bottom);
                 write_be16(lift_header + 24u, 0u);
                 mechanism_runtime_init(&game.mechanism_runtime);
+                game_audio_events_init(&lift_audio);
+                lift_action_sample = expected_velocity < 0 ?
+                    lift.opening_sound_fx : lift.closing_sound_fx;
                 if (!level_dynamic_state_set_edge_flags(
                         &game.dynamic_level, (uint16_t)lift_wall.edge_index, activation_flags) ||
-                    !mechanism_runtime_update_lifts_single_player(
+                    !mechanism_runtime_update_lifts_single_player_with_audio(
                         &game.mechanism_runtime, &game.dynamic_level, &game.level_mechanisms,
-                        &lift_player, 1u, error, sizeof(error)) ||
+                        &lift_player, &game.math, 1u, &lift_audio, error, sizeof(error)) ||
                     game.mechanism_runtime.lift_heights[lift_index] != lift.bottom ||
                     (int16_t)read_be16(lift_header + 22u) != lift.bottom ||
                     (int16_t)read_be16(lift_header + 24u) != expected_velocity ||
@@ -3897,6 +3973,35 @@ int main(int argc, char **argv)
                     observed_edge_flags != 0x8000u) {
                     fprintf(stderr, "campaign level %u LiftRoutine update is inconsistent: %s\n",
                             level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (lift_action_sample > 0 && lift_action_sample <= GAME_LINK_SFX_LOAD_COUNT) {
+                    const GameAudioEvent *lift_event = &lift_audio.events[0u];
+
+                    if (!source_liftable_audio_position(
+                            &game.math, &lift_player, &lift, &lift_audio_x, &lift_audio_z,
+                            error, sizeof(error)) ||
+                        lift_audio.count != 1u ||
+                        lift_event->sample_index != (uint16_t)(lift_action_sample - 1) ||
+                        lift_event->volume != 50u || lift_event->world_x != lift_audio_x ||
+                        lift_event->world_z != lift_audio_z ||
+                        lift_event->source_id != UINT16_C(0xfffe) ||
+                        lift_event->suppress_if_playing == 0u ||
+                        lift_event->channel_pick != 1u ||
+                        lift_event->listener_relative == 0u ||
+                        lift_event->echo != lift_zone.echo) {
+                        fprintf(stderr,
+                                "campaign level %u LiftRoutine audio handoff is inconsistent: %s\n",
+                                level_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    mechanism_audio_fixture_mask |= 2u;
+                } else if (lift_audio.count != 0u) {
+                    fprintf(stderr,
+                            "campaign level %u silent LiftRoutine emitted audio\n",
+                            level_index);
                     game_bootstrap_destroy(&game);
                     return 1;
                 }
@@ -4783,9 +4888,10 @@ int main(int argc, char **argv)
     if (decoration_fixture_count == 0u || destructible_fixture_count == 0u ||
         water_fixture_count == 0u || mechanism_surface_fixture_count == 0u ||
         dynamic_wall_v_scale_fixture_count == 0u ||
-        lift_wall_motion_fixture_count == 0u) {
+        lift_wall_motion_fixture_count == 0u || mechanism_audio_fixture_mask != 3u) {
         fprintf(stderr,
-                "campaign data does not contain all passive-object/water/mechanism fixtures\n");
+                "campaign data does not contain all passive-object/water/mechanism fixtures "
+                "(audio mask=%u)\n", mechanism_audio_fixture_mask);
         game_bootstrap_destroy(&game);
         return 1;
     }

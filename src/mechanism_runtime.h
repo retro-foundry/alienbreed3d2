@@ -37,7 +37,7 @@ int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
 int mechanism_runtime_update_doors_single_player_with_audio(
     MechanismRuntime *runtime, LevelDynamicState *dynamic_level,
     const LevelMechanisms *mechanisms, const PlayerRuntime *player,
-    uint16_t frame_ticks, GameAudioEvents *audio_events,
+    const GameMath *math, uint16_t frame_ticks, GameAudioEvents *audio_events,
     char *error, size_t error_size);
 
 /* Single-player newanims.s:LiftRoutine, including its trailing DoWaterAnims pass. */
@@ -52,7 +52,7 @@ int mechanism_runtime_update_lifts_single_player(MechanismRuntime *runtime,
 int mechanism_runtime_update_lifts_single_player_with_audio(
     MechanismRuntime *runtime, LevelDynamicState *dynamic_level,
     const LevelMechanisms *mechanisms, PlayerRuntime *player,
-    uint16_t frame_ticks, GameAudioEvents *audio_events,
+    const GameMath *math, uint16_t frame_ticks, GameAudioEvents *audio_events,
     char *error, size_t error_size);
 
 /* Standalone source DoWaterAnims pass used after LiftRoutine's 999 terminator. */
