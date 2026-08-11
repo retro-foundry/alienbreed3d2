@@ -2,8 +2,11 @@
 
 #include <stdio.h>
 
+#include "alien_perception.h"
+
 enum {
     /* defs.i ObjT/EntT/ShotT source offsets. */
+    OBJECT_SLOT_POINT_INDEX = 0u,
     OBJECT_SLOT_VERTICAL_POSITION = 4u,
     OBJECT_SLOT_GRAPHICS_WORD = 6u,
     OBJECT_SLOT_GRAPHICS_LONG = 8u,
@@ -153,14 +156,17 @@ static int object_passives_apply_animation(const GameLink *game_link,
 }
 
 int object_passives_update_slot(ObjectRuntime *objects, uint32_t slot_index,
+                                AlienRuntime *alien_runtime,
                                 const LevelRuntime *level, const GameLink *game_link,
+                                const AssetBlob *clips, const PlayerRuntime *player,
                                 const GameObjectDefinition *definition,
                                 MessageRuntime *messages, uint8_t messages_enabled,
                                 char *error, size_t error_size)
 {
     uint8_t *slot;
 
-    if (!objects || !level || !game_link || !definition || !messages ||
+    if (!objects || !alien_runtime || !level || !game_link || !clips || !player ||
+        !definition || !messages ||
         slot_index >= objects->active_slot_count ||
         objects->active_slot_count > objects->slot_count) {
         object_passives_set_error(error, error_size,
@@ -178,9 +184,26 @@ int object_passives_update_slot(ObjectRuntime *objects, uint32_t slot_index,
     }
     if (definition->behaviour == OBJECT_BEHAVIOUR_DESTRUCTIBLE) {
         if ((uint16_t)slot[OBJECT_SLOT_DAMAGE_TAKEN] < definition->hit_points) {
-            /* StillHere calls AI_LookForPlayer1; AI worry selection is not ported yet. */
+            uint8_t *point;
+            uint16_t point_index;
+
+            /* newaliencontrol.s:StillHere. */
             slot[OBJECT_SLOT_HIT_POINTS] = 1u;
-            return 1;
+            if (slot[OBJECT_SLOT_WORRY] == 0u) {
+                return 1;
+            }
+            point_index = object_passives_read_be16(slot + OBJECT_SLOT_POINT_INDEX);
+            if (!object_runtime_get_point_bytes(objects, point_index, &point)) {
+                object_passives_set_error(
+                    error, error_size,
+                    "StillHere object point is outside the owned source state");
+                return 0;
+            }
+            return alien_perception_look_for_player_one(
+                alien_runtime, objects, slot_index, level, clips, player,
+                object_passives_read_be16(slot + OBJECT_SLOT_ZONE_ID),
+                object_passives_read_be16s(point),
+                object_passives_read_be16s(point + 4u), error, error_size);
         }
         if (slot[OBJECT_SLOT_HIT_POINTS] != 0u) {
             if (!object_passives_push_destruction_message(level, slot, messages,

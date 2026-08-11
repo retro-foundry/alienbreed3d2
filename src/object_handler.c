@@ -321,8 +321,9 @@ int object_handler_update_single_player(
             return 0;
         } else if ((definition.behaviour == OBJECT_BEHAVIOUR_DESTRUCTIBLE ||
                     definition.behaviour == OBJECT_BEHAVIOUR_DECORATION) &&
-                   !object_passives_update_slot(objects, slot_index, level, game_link,
-                                                &definition, alien_context->messages,
+                   !object_passives_update_slot(objects, slot_index, alien_runtime,
+                                                level, game_link, alien_context->clips,
+                                                player, &definition, alien_context->messages,
                                                 alien_context->preferences->show_messages,
                                                 error, error_size)) {
             return 0;

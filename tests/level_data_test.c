@@ -46,6 +46,7 @@
 #include "object_handler.h"
 #include "object_heading.h"
 #include "object_movement.h"
+#include "object_passives.h"
 #include "object_projectiles.h"
 #include "object_scene.h"
 #include "object_teleport.h"
@@ -9025,6 +9026,43 @@ int main(int argc, char **argv)
                     error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        {
+            /* newaliencontrol.s:StillHere supplies the live object's point to the same helper. */
+            uint8_t point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+            GameObjectDefinition destructible_definition = {0};
+            MessageRuntime passive_messages = {0};
+
+            perception_objects.point_bytes = point_bytes;
+            perception_objects.point_count = 1u;
+            write_be16(slot_bytes + 0u, 0u);
+            write_be16(slot_bytes + 12u, perception_player.zone_index);
+            slot_bytes[16u] = 1u;
+            slot_bytes[17u] = UINT8_MAX;
+            slot_bytes[18u] = 0u;
+            slot_bytes[19u] = 0u;
+            slot_bytes[62u] = UINT8_MAX;
+            slot_bytes[63u] = 0u;
+            write_be16(point_bytes + 0u, 90u);
+            write_be16(point_bytes + 4u, 190u);
+            destructible_definition.behaviour = 2u;
+            destructible_definition.hit_points = 2u;
+            perception_player.stood_in_top = 0u;
+            if (!object_passives_update_slot(
+                    &perception_objects, 0u, &perception_alien_runtime,
+                    &game.dynamic_level.runtime, &game.game_link_catalog,
+                    &game.level_clips, &perception_player, &destructible_definition,
+                    &passive_messages, 0u, error, sizeof(error)) ||
+                slot_bytes[17u] != 1u || slot_bytes[18u] != 1u ||
+                perception_alien_runtime.motion.new_x != 90 ||
+                perception_alien_runtime.motion.new_z != 190 ||
+                perception_alien_runtime.visibility.viewer_x != 90 ||
+                perception_alien_runtime.visibility.viewer_z != 190) {
+                fprintf(stderr, "StillHere player visibility state is inconsistent: %s\n",
+                        error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
     }
     {
