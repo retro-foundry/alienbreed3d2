@@ -23,10 +23,10 @@ typedef struct {
     int window_height;
     const char *window_title;
     /*
-     * Use SDL's borderless desktop-fullscreen presentation.  It keeps the
-     * active desktop display mode and gives the OpenGL drawable the complete
-     * display surface.  This remains a presentation choice at the renderer
-     * boundary, rather than a gameplay concern.
+     * Create a borderless normal window at the active desktop bounds.  Unlike
+     * SDL fullscreen, this keeps the desktop display mode untouched while the
+     * OpenGL drawable occupies the complete display surface.  This remains a
+     * presentation choice at the renderer boundary, rather than gameplay.
      */
     int fullscreen_desktop;
     /* Opt-in validation path: an SDL hidden window still exercises real GL. */

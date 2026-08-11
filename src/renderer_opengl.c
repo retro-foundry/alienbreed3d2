@@ -24,6 +24,8 @@ enum {
     RENDERER_OPENGL_SOURCE_COLOR_ATTRIBUTE = 3,
     RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY = 64,
     RENDERER_OPENGL_WINDOW_MINIMUM_SIZE = 1,
+    /* Alien Breed 3D I src/display.c:display_init desktop-mode sanity limit. */
+    RENDERER_OPENGL_DESKTOP_MINIMUM_SIZE = 96,
     /* objdrawhires.s:predoglare selects a distinct cached vector conversion. */
     RENDERER_OPENGL_VECTOR_SOURCE_EFFECT_GLARE = 1
 };
@@ -3528,6 +3530,8 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
                                        char *error, size_t error_size)
 {
     RendererOpenGL *renderer;
+    int window_x = SDL_WINDOWPOS_CENTERED;
+    int window_y = SDL_WINDOWPOS_CENTERED;
     Uint32 window_flags;
 
     if (!window_title || window_width < RENDERER_OPENGL_WINDOW_MINIMUM_SIZE ||
@@ -3566,19 +3570,37 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
                    SDL_WINDOW_RESIZABLE;
 #if !defined(__EMSCRIPTEN__)
     if (fullscreen_desktop != 0 && hidden_window == 0) {
+        SDL_DisplayMode desktop_mode;
+        SDL_Rect desktop_bounds;
+
         /*
-         * Port the real full-display path from the first port's
-         * display_toggle_fullscreen(): SDL_WINDOW_FULLSCREEN_DESKTOP removes
-         * desktop decoration without changing the monitor display mode.  A
-         * desktop-sized normal window still has a title-bar client-area loss.
+         * Alien Breed 3D I src/display.c:display_init queries the active
+         * desktop mode and display bounds for its release desktop mode.  Keep
+         * that no-mode-switch path, but make its intended borderless surface
+         * explicit: a decorated desktop-sized window loses client pixels to
+         * the title bar.  Do not add SDL_WINDOW_FULLSCREEN* here.
          */
-        window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+        if (SDL_GetDesktopDisplayMode(0, &desktop_mode) == 0 &&
+            desktop_mode.w >= RENDERER_OPENGL_DESKTOP_MINIMUM_SIZE &&
+            desktop_mode.h >= RENDERER_OPENGL_DESKTOP_MINIMUM_SIZE) {
+            window_width = desktop_mode.w;
+            window_height = desktop_mode.h;
+        }
+        if (SDL_GetDisplayBounds(0, &desktop_bounds) == 0) {
+            window_x = desktop_bounds.x;
+            window_y = desktop_bounds.y;
+            if (desktop_bounds.w >= RENDERER_OPENGL_DESKTOP_MINIMUM_SIZE &&
+                desktop_bounds.h >= RENDERER_OPENGL_DESKTOP_MINIMUM_SIZE) {
+                window_width = desktop_bounds.w;
+                window_height = desktop_bounds.h;
+            }
+        }
+        window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_BORDERLESS;
     }
 #else
     (void)fullscreen_desktop;
 #endif
-    renderer->window = SDL_CreateWindow(window_title, SDL_WINDOWPOS_CENTERED,
-                                        SDL_WINDOWPOS_CENTERED,
+    renderer->window = SDL_CreateWindow(window_title, window_x, window_y,
                                         window_width, window_height, window_flags);
     if (!renderer->window) {
         renderer_opengl_set_sdl_error(error, error_size, "SDL OpenGL window creation failed");
