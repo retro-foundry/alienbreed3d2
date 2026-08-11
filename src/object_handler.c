@@ -56,6 +56,21 @@ static void object_handler_write_be16(uint8_t *target, uint16_t value)
     target[1] = (uint8_t)value;
 }
 
+static void object_handler_or_held_mechanism_locks(MechanismRuntime *runtime,
+                                                   const uint8_t *slot)
+{
+    uint32_t held_locks = object_handler_read_be32(
+        slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD);
+
+    /*
+     * bss/anim_bss.s deliberately aliases one longword: the high word is
+     * Anim_DoorAndLiftLocks_l and the independently addressed low word is
+     * anim_LiftOnlyLocks_w. newanims.s ORs the complete EntT long into it.
+     */
+    runtime->door_and_lift_locks |= (uint16_t)(held_locks >> 16u);
+    runtime->lift_only_locks |= (uint16_t)held_locks;
+}
+
 /*
  * newaliencontrol.s:ACTANIMOBJ, reached through Collectable:GUNHELD for
  * Player 1's ENT_NEXT_2 companion.  The display descriptor belongs to the
@@ -221,9 +236,7 @@ int object_handler_update_single_player(
         if ((int8_t)slot[OBJECT_SLOT_TYPE_ID] < (int8_t)OBJECT_TYPE_OBJECT) {
             /* newanims.s:ObjectHandler:JUMPALIEN's lock preamble. */
             if (slot[OBJECT_SLOT_ENTITY_HIT_POINTS] != 0u) {
-                mechanism_runtime->door_and_lift_locks |=
-                    (uint16_t)object_handler_read_be32(
-                        slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD);
+                object_handler_or_held_mechanism_locks(mechanism_runtime, slot);
             }
             if (slot[OBJECT_SLOT_WORRY] != 0u) {
                 if (alien_runtime->no_enemies == 0u) {
@@ -297,8 +310,7 @@ int object_handler_update_single_player(
         /* newaliencontrol.s:Collectable/Activatable/StillHere's AI_NoEnemies lock branches. */
         if (alien_runtime->no_enemies != 0u &&
             object_handler_object_holds_locks(slot, &definition)) {
-            mechanism_runtime->door_and_lift_locks |=
-                (uint16_t)object_handler_read_be32(slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD);
+            object_handler_or_held_mechanism_locks(mechanism_runtime, slot);
         }
         if (definition.behaviour == OBJECT_BEHAVIOUR_COLLECTABLE) {
             if (!object_collectables_update_slot_single_player_with_audio(

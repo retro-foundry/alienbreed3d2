@@ -7979,18 +7979,21 @@ int main(int argc, char **argv)
         write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
         slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
         slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = UINT8_MAX;
-        write_be32(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00000005u);
+        /* High word locks doors; low word independently locks lifts. */
+        write_be32(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00050009u);
         write_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
         mechanism_runtime_init(&lock_runtime);
         alien_runtime_init(&lock_alien_runtime);
         alien_runtime_begin_single_player(&lock_alien_runtime);
         lock_runtime.door_and_lift_locks = 0x0002u;
+        lock_runtime.lift_only_locks = 0x0010u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
                 &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             lock_runtime.door_and_lift_locks != 0x0007u ||
+            lock_runtime.lift_only_locks != 0x0019u ||
             read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) != 0u) {
             fprintf(stderr, "ObjectHandler alien lock preamble is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
@@ -7998,12 +8001,14 @@ int main(int argc, char **argv)
         }
         slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 0u;
         lock_runtime.door_and_lift_locks = 0u;
+        lock_runtime.lift_only_locks = 0u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
                 &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
-            lock_runtime.door_and_lift_locks != 0u) {
+            lock_runtime.door_and_lift_locks != 0u ||
+            lock_runtime.lift_only_locks != 0u) {
             fprintf(stderr, "ObjectHandler dead alien lock suppression is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
@@ -8015,6 +8020,7 @@ int main(int argc, char **argv)
         slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 62u] = UINT8_MAX;
         lock_alien_runtime.no_enemies = 0u;
         lock_runtime.door_and_lift_locks = 0u;
+        lock_runtime.lift_only_locks = 0u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
                 &game.game_link_catalog, &object_handler_context,
@@ -8024,7 +8030,8 @@ int main(int argc, char **argv)
             read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) != 0u ||
             read_be16(slot_bytes + 12u) != UINT16_MAX ||
             read_be16(slot_bytes + 26u) != 0u ||
-            lock_runtime.door_and_lift_locks != 0x0005u) {
+            lock_runtime.door_and_lift_locks != 0x0005u ||
+            lock_runtime.lift_only_locks != 0x0009u) {
             fprintf(stderr, "ItsAnAlien no-enemies gate is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
@@ -8033,13 +8040,15 @@ int main(int argc, char **argv)
         write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, UINT16_MAX);
         slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = UINT8_MAX;
         lock_runtime.door_and_lift_locks = 0u;
+        lock_runtime.lift_only_locks = 0u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &lock_alien_runtime,
                 &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) != UINT16_MAX ||
-            lock_runtime.door_and_lift_locks != 0u) {
+            lock_runtime.door_and_lift_locks != 0u ||
+            lock_runtime.lift_only_locks != 0u) {
             fprintf(stderr, "ObjectHandler negative alien-zone gate is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
@@ -8146,22 +8155,24 @@ int main(int argc, char **argv)
             slot[16u] = 1u;
         }
         slot_bytes[54u] = collectable_type;
-        write_be32(slot_bytes + 50u, 0x00000001u);
+        write_be32(slot_bytes + 50u, 0x00010008u);
         slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] = activatable_type;
-        write_be32(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00000002u);
+        write_be32(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00020010u);
         slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u] = destructible_type;
-        write_be32(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00000004u);
+        write_be32(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 50u, 0x00040020u);
         write_be16(slot_bytes + 3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
         mechanism_runtime_init(&lock_runtime);
         alien_runtime_init(&object_lock_alien_runtime);
         alien_runtime_begin_single_player(&object_lock_alien_runtime);
         lock_runtime.door_and_lift_locks = 0x0010u;
+        lock_runtime.lift_only_locks = 0x0040u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &object_lock_alien_runtime,
                 &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
             lock_runtime.door_and_lift_locks != 0x0017u ||
+            lock_runtime.lift_only_locks != 0x0078u ||
             read_be16(slot_bytes + 26u) != object_zone_index ||
             read_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) != object_zone_index ||
             read_be16(slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 26u) !=
@@ -8173,12 +8184,14 @@ int main(int argc, char **argv)
         }
         object_lock_alien_runtime.no_enemies = 0u;
         lock_runtime.door_and_lift_locks = 0x0010u;
+        lock_runtime.lift_only_locks = 0x0040u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &object_lock_alien_runtime,
                 &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
-            lock_runtime.door_and_lift_locks != 0x0010u) {
+            lock_runtime.door_and_lift_locks != 0x0010u ||
+            lock_runtime.lift_only_locks != 0x0040u) {
             fprintf(stderr, "ObjectHandler source no-enemies object lock gate is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
@@ -8191,12 +8204,14 @@ int main(int argc, char **argv)
             (uint8_t)destructible_definition.hit_points;
         slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 0u;
         lock_runtime.door_and_lift_locks = 0x0010u;
+        lock_runtime.lift_only_locks = 0x0040u;
         if (!object_handler_update_single_player(
                 &lock_objects, &game.dynamic_level, &lock_runtime, &object_lock_alien_runtime,
                 &game.game_link_catalog, &object_handler_context,
                 &game.player, &game.session.player1_inventory, &game.inventory_limits, 1u,
                 NULL, error, sizeof(error)) ||
-            lock_runtime.door_and_lift_locks != 0x0010u) {
+            lock_runtime.door_and_lift_locks != 0x0010u ||
+            lock_runtime.lift_only_locks != 0x0040u) {
             fprintf(stderr, "ObjectHandler active/dead object lock suppression is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);

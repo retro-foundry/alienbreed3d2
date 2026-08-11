@@ -14,6 +14,7 @@ typedef struct {
     uint16_t door_open_timers[LEVEL_MECHANISMS_MAX_DOORS];
     int16_t lift_heights[LEVEL_MECHANISMS_MAX_LIFTS];
     uint16_t current_door_state;
+    /* High/low words of bss/anim_bss.s:Anim_DoorAndLiftLocks_l. */
     uint16_t door_and_lift_locks;
     uint16_t lift_only_locks;
 } MechanismRuntime;
