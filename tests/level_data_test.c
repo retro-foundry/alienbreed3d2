@@ -8204,6 +8204,7 @@ int main(int argc, char **argv)
         PlayerRuntime fire_player = {0};
         AlienSetup fire_alien_setup = {0};
         AlienAttackSetup fire_attack_setup = {0};
+        GameAudioEvents fire_audio;
         ObjectApproach expected_approach = {0};
         uint8_t spawned = 0u;
         int16_t expected_vertical_divisor;
@@ -8248,10 +8249,14 @@ int main(int argc, char **argv)
         fire_player.z = player_runtime_world_to_position(-100);
         fire_alien_setup.shot_y_offset = 1234;
         fire_alien_setup.shot_offset_multiplier = 128;
+        fire_alien_setup.zone_echo = 5u;
         fire_attack_setup.shot_type = 3u;
         fire_attack_setup.shot_power = 7u;
         fire_attack_setup.shot_speed = 16u;
         fire_attack_setup.shot_shift = 4u;
+        game_audio_events_init(&fire_audio);
+        /* DOALLANIMS would have selected the attack-frame sample first. */
+        fire_audio.source_sample_index = 23;
         expected_approach.old_x = 100;
         expected_approach.old_z = 200;
         expected_approach.new_x = player_runtime_position_to_world(fire_player.x);
@@ -8311,8 +8316,15 @@ int main(int argc, char **argv)
                                             expected_vertical_divisor);
         if (!alien_attack_fire_at_player_one(
                 &fire_objects, FIRE_ALIEN_SLOT, &fire_player, &fire_alien_setup,
-                &fire_attack_setup, &spawned, error, sizeof(error)) ||
+                &fire_attack_setup, &fire_audio, &spawned, error, sizeof(error)) ||
             spawned != UINT8_MAX ||
+            fire_audio.count != 1u || fire_audio.events[0u].sample_index != 23u ||
+            fire_audio.events[0u].volume != 100u ||
+            fire_audio.events[0u].world_x != 100 || fire_audio.events[0u].world_z != 200 ||
+            fire_audio.events[0u].source_id != FIRE_ALIEN_SLOT ||
+            fire_audio.events[0u].suppress_if_playing != GAME_AUDIO_RESTART_SOURCE ||
+            fire_audio.events[0u].channel_pick != 1u ||
+            fire_audio.events[0u].echo != fire_alien_setup.zone_echo ||
             slot_bytes[FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] != 2u ||
             read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 58u) !=
                 0u ||
@@ -8353,6 +8365,7 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        game_audio_events_begin(&fire_audio);
         for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
              ++shot_index) {
             write_be16(slot_bytes + (FIRE_SHOT_FIRST_SLOT + shot_index) *
@@ -8362,8 +8375,8 @@ int main(int argc, char **argv)
         spawned = UINT8_MAX;
         if (!alien_attack_fire_at_player_one(
                 &fire_objects, FIRE_ALIEN_SLOT, &fire_player, &fire_alien_setup,
-                &fire_attack_setup, &spawned, error, sizeof(error)) ||
-            spawned != 0u) {
+                &fire_attack_setup, &fire_audio, &spawned, error, sizeof(error)) ||
+            spawned != 0u || fire_audio.count != 0u || fire_audio.source_sample_index != 23) {
             fprintf(stderr, "FireAtPlayer1 exhausted-pool path is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
@@ -8481,7 +8494,7 @@ int main(int argc, char **argv)
                 &attack_animation, &attack_lighting, &game.dynamic_level.runtime,
                 &game.level_clips, &game.game_link_catalog, &attack_progression,
                 &attack_explosion, &game.math, &attack_random, &attack_player,
-                &attack_alien_setup, &attack_state, error, sizeof(error)) ||
+                &attack_alien_setup, NULL, &attack_state, error, sizeof(error)) ||
             attack_state.setup.is_hitscan != 0u || attack_state.animation.action != UINT8_MAX ||
             attack_state.animation.finished != UINT8_MAX ||
             attack_state.projectile_spawned != UINT8_MAX ||
@@ -11774,7 +11787,8 @@ int main(int argc, char **argv)
                 &charge_lighting, &charge_dynamic, &game.level_navigation, &game.level_clips,
                 &game.game_link_catalog, &charge_progression, &charge_explosion, &game.math,
                 &charge_random, &charge_player, &charge_setup, &charge_dispatch_observation,
-                1u, &charge_dispatch_workspace, &charge_dispatch_state, error, sizeof(error)) ||
+                NULL, 1u, &charge_dispatch_workspace, &charge_dispatch_state,
+                error, sizeof(error)) ||
             charge_dispatch_state.route != ALIEN_MAIN_ROUTE_RESPONSE ||
             charge_dispatch_state.behavior != ALIEN_MAIN_BEHAVIOR_CHARGE ||
             charge_dispatch_state.charge.damaged_player != UINT8_MAX ||

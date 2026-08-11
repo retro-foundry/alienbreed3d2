@@ -242,7 +242,8 @@ int object_handler_update_single_player(
                             game_link, alien_context->progression,
                             alien_context->explosion_runtime, alien_context->math,
                             alien_context->random, player, &setup, alien_context->observation,
-                            frame_ticks, alien_context->dispatch_workspace, &dispatch,
+                            alien_context->audio_events, frame_ticks,
+                            alien_context->dispatch_workspace, &dispatch,
                             error, error_size) ||
                         (dispatch.narrative.bytes &&
                          !message_runtime_push_line(

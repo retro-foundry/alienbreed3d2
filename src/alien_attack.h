@@ -8,6 +8,7 @@
 #include "alien_animation.h"
 #include "alien_damage.h"
 #include "alien_death.h"
+#include "game_audio.h"
 #include "game_link.h"
 #include "game_progression.h"
 #include "lighting_runtime.h"
@@ -41,13 +42,14 @@ int alien_attack_setup_from_slot(const ObjectRuntime *objects, uint32_t slot_ind
 /*
  * newaliencontrol.s:FireAtPlayer1. `attack_setup` is the preceding
  * ai_AttackCommon handoff and `alien_setup` is ItsAnAlien's SHOTYOFF/
- * SHOTOFFMULT handoff. Audio writes/MakeSomeNoise remain absent with the
- * unported audio backend.
+ * SHOTOFFMULT handoff. The audio queue retains the Aud_SampleNum_w value
+ * established by the preceding DOALLANIMS attack frame.
  */
 int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_index,
                                     const PlayerRuntime *player,
                                     const AlienSetup *alien_setup,
                                     const AlienAttackSetup *attack_setup,
+                                    GameAudioEvents *audio_events,
                                     uint8_t *out_spawned,
                                     char *error, size_t error_size);
 
@@ -125,7 +127,8 @@ int alien_attack_with_projectile_update(
     const LevelRuntime *level, const AssetBlob *clips, const GameLink *game_link,
     GameProgression *progression, ObjectExplosionRuntime *explosion_runtime,
     const GameMath *math, GameRandom *random, const PlayerRuntime *player,
-    const AlienSetup *alien_setup, AlienProjectileAttackState *out_state,
+    const AlienSetup *alien_setup, GameAudioEvents *audio_events,
+    AlienProjectileAttackState *out_state,
     char *error, size_t error_size);
 
 #endif

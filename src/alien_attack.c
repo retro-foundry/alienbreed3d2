@@ -212,6 +212,7 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
                                     const PlayerRuntime *player,
                                     const AlienSetup *alien_setup,
                                     const AlienAttackSetup *attack_setup,
+                                    GameAudioEvents *audio_events,
                                     uint8_t *out_spawned,
                                     char *error, size_t error_size)
 {
@@ -276,12 +277,20 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
         return 0;
     }
 
-    /* Source audio globals and MakeSomeNoise are deliberately left to audio work. */
     shot_slot[ALIEN_ATTACK_SLOT_TYPE_ID] = ALIEN_ATTACK_OBJECT_TYPE_PROJECTILE;
     alien_attack_write_be16(shot_slot + ALIEN_ATTACK_SHOT_LIFETIME, 0u);
     shot_slot[ALIEN_ATTACK_SHOT_SIZE] = attack_setup->shot_type;
     /* The source uses MOVE.B despite ShotT_Power_w's word declaration. */
     shot_slot[ALIEN_ATTACK_SHOT_POWER] = attack_setup->shot_power;
+    /*
+     * FireAtPlayer1 does not select a sample. It reuses Aud_SampleNum_w from
+     * DOALLANIMS byte five, raises the volume, and restarts this alien's ID.
+     */
+    game_audio_events_emit_current_sample(
+        audio_events, 100, alien_attack_read_be16s(alien_point),
+        alien_attack_read_be16s(alien_point + 4u),
+        alien_attack_read_be16(alien_slot + ALIEN_ATTACK_SLOT_POINT_INDEX),
+        GAME_AUDIO_RESTART_SOURCE, 1u, alien_setup->zone_echo);
 
     approach.old_x = alien_attack_read_be16s(alien_point);
     approach.old_z = alien_attack_read_be16s(alien_point + 4u);
@@ -738,7 +747,8 @@ int alien_attack_with_projectile_update(
     const LevelRuntime *level, const AssetBlob *clips, const GameLink *game_link,
     GameProgression *progression, ObjectExplosionRuntime *explosion_runtime,
     const GameMath *math, GameRandom *random, const PlayerRuntime *player,
-    const AlienSetup *alien_setup, AlienProjectileAttackState *out_state,
+    const AlienSetup *alien_setup, GameAudioEvents *audio_events,
+    AlienProjectileAttackState *out_state,
     char *error, size_t error_size)
 {
     uint8_t *slot;
@@ -829,7 +839,8 @@ int alien_attack_with_projectile_update(
     }
     if (state.animation.action != 0u &&
         !alien_attack_fire_at_player_one(objects, slot_index, player, alien_setup, &state.setup,
-                                         &state.projectile_spawned, error, error_size)) {
+                                         audio_events, &state.projectile_spawned,
+                                         error, error_size)) {
         return 0;
     }
 

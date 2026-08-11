@@ -27,9 +27,10 @@ void game_audio_events_begin(GameAudioEvents *events)
     }
 }
 
-void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16_t volume,
-                            int16_t world_x, int16_t world_z, uint16_t source_id,
-                            uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo)
+static void game_audio_events_queue(GameAudioEvents *events, int16_t sample_index,
+                                    int16_t volume, int16_t world_x, int16_t world_z,
+                                    uint16_t source_id, uint8_t suppress_if_playing,
+                                    uint8_t channel_pick, uint8_t echo)
 {
     GameAudioEvent *event;
 
@@ -50,6 +51,30 @@ void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16
     event->suppress_if_playing = suppress_if_playing != 0u ? UINT8_MAX : 0u;
     event->channel_pick = channel_pick;
     event->echo = echo;
+}
+
+void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16_t volume,
+                            int16_t world_x, int16_t world_z, uint16_t source_id,
+                            uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo)
+{
+    if (!events) {
+        return;
+    }
+    /* Every explicit source caller writes Aud_SampleNum_w before MakeSomeNoise. */
+    events->source_sample_index = sample_index;
+    game_audio_events_queue(events, sample_index, volume, world_x, world_z, source_id,
+                            suppress_if_playing, channel_pick, echo);
+}
+
+void game_audio_events_emit_current_sample(
+    GameAudioEvents *events, int16_t volume, int16_t world_x, int16_t world_z,
+    uint16_t source_id, uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo)
+{
+    if (!events) {
+        return;
+    }
+    game_audio_events_queue(events, events->source_sample_index, volume, world_x, world_z,
+                            source_id, suppress_if_playing, channel_pick, echo);
 }
 
 void game_background_audio_runtime_init(GameBackgroundAudioRuntime *runtime)

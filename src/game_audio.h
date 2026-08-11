@@ -38,6 +38,8 @@ typedef struct {
     GameAudioEvent events[GAME_AUDIO_EVENT_CAPACITY];
     uint16_t count;
     uint16_t dropped_count;
+    /* hires.s:Aud_SampleNum_w persists between MakeSomeNoise callers. */
+    int16_t source_sample_index;
 } GameAudioEvents;
 
 /* bss/anim_bss.s state consumed by newanims.s:BACKSFX. */
@@ -53,6 +55,10 @@ void game_audio_events_begin(GameAudioEvents *events);
 void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16_t volume,
                             int16_t world_x, int16_t world_z, uint16_t source_id,
                             uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
+/* MakeSomeNoise using the last value written to hires.s:Aud_SampleNum_w. */
+void game_audio_events_emit_current_sample(
+    GameAudioEvents *events, int16_t volume, int16_t world_x, int16_t world_z,
+    uint16_t source_id, uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
 
 void game_background_audio_runtime_init(GameBackgroundAudioRuntime *runtime);
 /* Exact BACKSFX timer, alternating zone mask, random selection, and event order. */

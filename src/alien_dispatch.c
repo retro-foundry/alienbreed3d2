@@ -25,7 +25,8 @@ int alien_dispatch_update(
     const AssetBlob *clips, const GameLink *game_link, GameProgression *progression,
     ObjectExplosionRuntime *explosion_runtime, const GameMath *math,
     GameRandom *random, const PlayerRuntime *player, const AlienSetup *setup,
-    const ObjectObservation *observation, uint16_t frame_ticks,
+    const ObjectObservation *observation, GameAudioEvents *audio_events,
+    uint16_t frame_ticks,
     AlienDispatchWorkspace *workspace, AlienDispatchState *out_state,
     char *error, size_t error_size)
 {
@@ -110,8 +111,8 @@ int alien_dispatch_update(
         } else if (!alien_attack_with_projectile_update(
                        objects, slot_index, alien_runtime, animation_runtime, lighting,
                        &dynamic_level->runtime, clips, game_link, progression,
-                       explosion_runtime, math, random, player, setup, &state.projectile,
-                       error, error_size)) {
+                       explosion_runtime, math, random, player, setup, audio_events,
+                       &state.projectile, error, error_size)) {
             return 0;
         } else {
             alien_dispatch_publish_narrative(&state, &state.projectile.death);
