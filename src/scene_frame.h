@@ -103,6 +103,37 @@ typedef struct {
     uint32_t flags;
 } SceneGeometry;
 
+/* One material/geometry range inside a GPU-neutral source mesh. */
+typedef struct {
+    SceneMaterial material;
+    SceneGeometry geometry;
+} SceneMeshSurface;
+
+typedef enum {
+    /* Immutable level geometry: cache as a BLAS candidate across frames. */
+    SCENE_ACCELERATION_CLASS_STATIC,
+    /* Source-tick mutable geometry or an ObjT/ShotT source object. */
+    SCENE_ACCELERATION_CLASS_DYNAMIC
+} SceneAccelerationClass;
+
+/*
+ * GPU-neutral BLAS candidate. `source_mesh_id` identifies source topology and
+ * resources rather than an API resource. Static candidates may be cached;
+ * dynamic candidates are rebuilt from the current source frame.
+ */
+typedef struct {
+    uint32_t source_mesh_id;
+    SceneAccelerationClass acceleration_class;
+    const SceneMeshSurface *surfaces;
+    uint32_t surface_count;
+} SceneMesh;
+
+/* One TLAS-style placement of a world mesh. */
+typedef struct {
+    uint32_t source_instance_id;
+    SceneMesh mesh;
+} SceneGeometryInstance;
+
 /*
  * `hires.s:donetalking` owns these tables.  Geometry receives its sampled
  * values per vertex, while retaining the raw tables here lets a future GPU
@@ -241,6 +272,17 @@ typedef struct {
     size_t source_display_palette_byte_count;
 } SceneSprite;
 
+/*
+ * A source object is a dynamic mesh instance even when OpenGL presents it as
+ * a billboard. `source_mesh_id` identifies its source resource/BLAS candidate
+ * and `sprite.source_record_id` remains the live ObjT or ShotT/TLAS identity.
+ */
+typedef struct {
+    uint32_t source_mesh_id;
+    SceneAccelerationClass acceleration_class;
+    SceneSprite sprite;
+} SceneSpriteInstance;
+
 typedef struct {
     /* Exact source bytes; consumers must not require a trailing NUL. */
     const char *text;
@@ -254,9 +296,10 @@ typedef enum {
     SCENE_COMMAND_CAMERA,
     SCENE_COMMAND_LIGHTING,
     SCENE_COMMAND_ENVIRONMENT,
-    SCENE_COMMAND_MATERIAL,
-    SCENE_COMMAND_GEOMETRY,
-    SCENE_COMMAND_SPRITE,
+    /* One static or dynamic mesh instance, never a record-level draw. */
+    SCENE_COMMAND_GEOMETRY_INSTANCE,
+    /* One live ObjT/ShotT instance, including bitmap/vector/glare paths. */
+    SCENE_COMMAND_SPRITE_INSTANCE,
     SCENE_COMMAND_HUD_TEXT
 } SceneCommandType;
 
@@ -266,9 +309,8 @@ typedef struct {
         SceneCamera camera;
         SceneLighting lighting;
         SceneEnvironment environment;
-        SceneMaterial material;
-        SceneGeometry geometry;
-        SceneSprite sprite;
+        SceneGeometryInstance geometry_instance;
+        SceneSpriteInstance sprite_instance;
         SceneHudText hud_text;
     } data;
 } SceneCommand;
@@ -285,13 +327,25 @@ typedef struct {
     SceneVertex *owned_vertices;
     size_t owned_vertex_count;
     size_t owned_vertex_capacity;
+    /* Retained mesh-surface descriptors for snapshots and interpolation. */
+    SceneMeshSurface *owned_mesh_surfaces;
+    size_t owned_mesh_surface_count;
+    size_t owned_mesh_surface_capacity;
 } SceneFrame;
 
 int scene_frame_init(SceneFrame *frame, size_t command_capacity);
 void scene_frame_destroy(SceneFrame *frame);
 void scene_frame_begin(SceneFrame *frame);
 int scene_frame_reserve(SceneFrame *frame, size_t command_capacity);
+int scene_frame_reserve_mesh_surfaces(SceneFrame *frame, size_t surface_capacity);
 int scene_frame_submit(SceneFrame *frame, const SceneCommand *command);
+
+/*
+ * Reserve producer-owned contiguous surfaces for one SceneMesh. The caller
+ * fills every range before submitting its geometry-instance command.
+ */
+SceneMeshSurface *scene_frame_allocate_mesh_surfaces(SceneFrame *frame,
+                                                     uint32_t surface_count);
 
 /*
  * Copy a source frame into an independently retained presentation snapshot.

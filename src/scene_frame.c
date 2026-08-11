@@ -23,37 +23,76 @@ static int scene_frame_reserve_owned_vertices(SceneFrame *frame, size_t vertex_c
     return 1;
 }
 
-static int scene_frame_clone_geometry_vertices(SceneFrame *destination,
+static int scene_frame_reserve_owned_mesh_surfaces(SceneFrame *frame, size_t surface_capacity)
+{
+    SceneMeshSurface *surfaces;
+
+    if (!frame || surface_capacity <= frame->owned_mesh_surface_capacity) {
+        return frame != NULL;
+    }
+    if (surface_capacity > SIZE_MAX / sizeof(*frame->owned_mesh_surfaces)) {
+        return 0;
+    }
+    surfaces = realloc(frame->owned_mesh_surfaces,
+                       surface_capacity * sizeof(*frame->owned_mesh_surfaces));
+    if (!surfaces) {
+        return 0;
+    }
+    frame->owned_mesh_surfaces = surfaces;
+    frame->owned_mesh_surface_capacity = surface_capacity;
+    return 1;
+}
+
+static int scene_frame_clone_geometry_instance(SceneFrame *destination,
                                                SceneCommand *destination_command,
                                                const SceneCommand *source_command)
 {
-    const SceneGeometry *source_geometry;
-    SceneGeometry *destination_geometry;
-    size_t first_vertex;
+    const SceneGeometryInstance *source_instance;
+    SceneGeometryInstance *destination_instance;
+    size_t first_surface;
 
     if (!destination || !destination_command || !source_command ||
-        source_command->type != SCENE_COMMAND_GEOMETRY) {
+        source_command->type != SCENE_COMMAND_GEOMETRY_INSTANCE) {
         return 0;
     }
-    source_geometry = &source_command->data.geometry;
-    destination_geometry = &destination_command->data.geometry;
-    if (source_geometry->vertex_count == 0u) {
-        destination_geometry->vertices = NULL;
+    source_instance = &source_command->data.geometry_instance;
+    destination_instance = &destination_command->data.geometry_instance;
+    if (source_instance->mesh.surface_count == 0u) {
+        destination_instance->mesh.surfaces = NULL;
         return 1;
     }
-    if (!source_geometry->vertices ||
-        destination->owned_vertex_count > SIZE_MAX - source_geometry->vertex_count) {
+    if (!source_instance->mesh.surfaces ||
+        destination->owned_mesh_surface_count > SIZE_MAX -
+            source_instance->mesh.surface_count) {
         return 0;
     }
-    first_vertex = destination->owned_vertex_count;
-    if (!scene_frame_reserve_owned_vertices(destination,
-                                            first_vertex + source_geometry->vertex_count)) {
-        return 0;
+    first_surface = destination->owned_mesh_surface_count;
+    memcpy(destination->owned_mesh_surfaces + first_surface, source_instance->mesh.surfaces,
+           (size_t)source_instance->mesh.surface_count * sizeof(*source_instance->mesh.surfaces));
+    destination->owned_mesh_surface_count += source_instance->mesh.surface_count;
+    destination_instance->mesh.surfaces = destination->owned_mesh_surfaces + first_surface;
+    for (uint32_t surface_index = 0u;
+         surface_index < destination_instance->mesh.surface_count; ++surface_index) {
+        const SceneGeometry *source_geometry =
+            &source_instance->mesh.surfaces[surface_index].geometry;
+        SceneGeometry *destination_geometry =
+            &((SceneMeshSurface *)destination_instance->mesh.surfaces)[surface_index].geometry;
+        size_t first_vertex;
+
+        if (source_geometry->vertex_count == 0u) {
+            destination_geometry->vertices = NULL;
+            continue;
+        }
+        if (!source_geometry->vertices ||
+            destination->owned_vertex_count > SIZE_MAX - source_geometry->vertex_count) {
+            return 0;
+        }
+        first_vertex = destination->owned_vertex_count;
+        memcpy(destination->owned_vertices + first_vertex, source_geometry->vertices,
+               (size_t)source_geometry->vertex_count * sizeof(*source_geometry->vertices));
+        destination->owned_vertex_count += source_geometry->vertex_count;
+        destination_geometry->vertices = destination->owned_vertices + first_vertex;
     }
-    memcpy(destination->owned_vertices + first_vertex, source_geometry->vertices,
-           (size_t)source_geometry->vertex_count * sizeof(*source_geometry->vertices));
-    destination->owned_vertex_count += source_geometry->vertex_count;
-    destination_geometry->vertices = destination->owned_vertices + first_vertex;
     return 1;
 }
 
@@ -116,15 +155,40 @@ static int scene_frame_commands_match(const SceneCommand *previous,
     switch (current->type) {
     case SCENE_COMMAND_CAMERA:
         return 1;
-    case SCENE_COMMAND_GEOMETRY:
-        return previous->data.geometry.source_record_id ==
-                   current->data.geometry.source_record_id &&
-               previous->data.geometry.primitive == current->data.geometry.primitive &&
-               previous->data.geometry.vertex_count == current->data.geometry.vertex_count;
-    case SCENE_COMMAND_SPRITE:
-        return previous->data.sprite.source_record_id ==
-                   current->data.sprite.source_record_id &&
-               previous->data.sprite.presentation == current->data.sprite.presentation;
+    case SCENE_COMMAND_GEOMETRY_INSTANCE:
+        if (previous->data.geometry_instance.source_instance_id !=
+                current->data.geometry_instance.source_instance_id ||
+            previous->data.geometry_instance.mesh.source_mesh_id !=
+                current->data.geometry_instance.mesh.source_mesh_id ||
+            previous->data.geometry_instance.mesh.surface_count !=
+                current->data.geometry_instance.mesh.surface_count ||
+            (current->data.geometry_instance.mesh.surface_count != 0u &&
+             (!previous->data.geometry_instance.mesh.surfaces ||
+              !current->data.geometry_instance.mesh.surfaces))) {
+            return 0;
+        }
+        for (uint32_t surface_index = 0u;
+             surface_index < current->data.geometry_instance.mesh.surface_count;
+             ++surface_index) {
+            const SceneGeometry *previous_geometry =
+                &previous->data.geometry_instance.mesh.surfaces[surface_index].geometry;
+            const SceneGeometry *current_geometry =
+                &current->data.geometry_instance.mesh.surfaces[surface_index].geometry;
+
+            if (previous_geometry->source_record_id != current_geometry->source_record_id ||
+                previous_geometry->primitive != current_geometry->primitive ||
+                previous_geometry->vertex_count != current_geometry->vertex_count) {
+                return 0;
+            }
+        }
+        return 1;
+    case SCENE_COMMAND_SPRITE_INSTANCE:
+        return previous->data.sprite_instance.sprite.source_record_id ==
+                   current->data.sprite_instance.sprite.source_record_id &&
+               previous->data.sprite_instance.sprite.presentation ==
+                   current->data.sprite_instance.sprite.presentation &&
+               previous->data.sprite_instance.source_mesh_id ==
+                   current->data.sprite_instance.source_mesh_id;
     default:
         return 0;
     }
@@ -141,7 +205,7 @@ static const SceneCommand *scene_frame_find_previous_command(const SceneFrame *p
         scene_frame_commands_match(&previous->commands[current_index], current)) {
         return &previous->commands[current_index];
     }
-    if (current->type == SCENE_COMMAND_SPRITE) {
+    if (current->type == SCENE_COMMAND_SPRITE_INSTANCE) {
         for (size_t index = 0u; index < previous->count; ++index) {
             if (scene_frame_commands_match(&previous->commands[index], current)) {
                 return &previous->commands[index];
@@ -185,6 +249,9 @@ int scene_frame_init(SceneFrame *frame, size_t command_capacity)
     frame->owned_vertices = NULL;
     frame->owned_vertex_count = 0u;
     frame->owned_vertex_capacity = 0u;
+    frame->owned_mesh_surfaces = NULL;
+    frame->owned_mesh_surface_count = 0u;
+    frame->owned_mesh_surface_capacity = 0u;
     return 1;
 }
 
@@ -195,12 +262,16 @@ void scene_frame_destroy(SceneFrame *frame)
     }
     free(frame->commands);
     free(frame->owned_vertices);
+    free(frame->owned_mesh_surfaces);
     frame->commands = NULL;
     frame->count = 0;
     frame->capacity = 0;
     frame->owned_vertices = NULL;
     frame->owned_vertex_count = 0u;
     frame->owned_vertex_capacity = 0u;
+    frame->owned_mesh_surfaces = NULL;
+    frame->owned_mesh_surface_count = 0u;
+    frame->owned_mesh_surface_capacity = 0u;
 }
 
 void scene_frame_begin(SceneFrame *frame)
@@ -208,6 +279,7 @@ void scene_frame_begin(SceneFrame *frame)
     if (frame) {
         frame->count = 0;
         frame->owned_vertex_count = 0u;
+        frame->owned_mesh_surface_count = 0u;
     }
 }
 
@@ -230,6 +302,11 @@ int scene_frame_reserve(SceneFrame *frame, size_t command_capacity)
     return 1;
 }
 
+int scene_frame_reserve_mesh_surfaces(SceneFrame *frame, size_t surface_capacity)
+{
+    return scene_frame_reserve_owned_mesh_surfaces(frame, surface_capacity);
+}
+
 int scene_frame_submit(SceneFrame *frame, const SceneCommand *command)
 {
     if (!frame || !command || frame->count == frame->capacity) {
@@ -239,9 +316,27 @@ int scene_frame_submit(SceneFrame *frame, const SceneCommand *command)
     return 1;
 }
 
+SceneMeshSurface *scene_frame_allocate_mesh_surfaces(SceneFrame *frame,
+                                                     uint32_t surface_count)
+{
+    size_t first_surface;
+
+    if (!frame || surface_count == 0u ||
+        frame->owned_mesh_surface_count > SIZE_MAX - surface_count ||
+        frame->owned_mesh_surface_count + surface_count > frame->owned_mesh_surface_capacity) {
+        return NULL;
+    }
+    first_surface = frame->owned_mesh_surface_count;
+    frame->owned_mesh_surface_count += surface_count;
+    memset(frame->owned_mesh_surfaces + first_surface, 0,
+           (size_t)surface_count * sizeof(*frame->owned_mesh_surfaces));
+    return frame->owned_mesh_surfaces + first_surface;
+}
+
 int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
 {
     size_t source_vertex_count = 0u;
+    size_t source_surface_count = 0u;
 
     if (!destination || !source || destination == source ||
         !scene_frame_reserve(destination, source->count)) {
@@ -252,19 +347,35 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
     for (size_t index = 0u; index < source->count; ++index) {
         const SceneCommand *command = &source->commands[index];
 
-        if (command->type != SCENE_COMMAND_GEOMETRY) {
+        if (command->type != SCENE_COMMAND_GEOMETRY_INSTANCE) {
             continue;
         }
-        if (command->data.geometry.vertex_count != 0u &&
-            !command->data.geometry.vertices) {
+        if (command->data.geometry_instance.mesh.surface_count != 0u &&
+            !command->data.geometry_instance.mesh.surfaces) {
             return 0;
         }
-        if (source_vertex_count > SIZE_MAX - command->data.geometry.vertex_count) {
+        if (source_surface_count > SIZE_MAX -
+            command->data.geometry_instance.mesh.surface_count) {
             return 0;
         }
-        source_vertex_count += command->data.geometry.vertex_count;
+        source_surface_count += command->data.geometry_instance.mesh.surface_count;
+        for (uint32_t surface_index = 0u;
+             surface_index < command->data.geometry_instance.mesh.surface_count;
+             ++surface_index) {
+            const SceneGeometry *geometry =
+                &command->data.geometry_instance.mesh.surfaces[surface_index].geometry;
+
+            if (geometry->vertex_count != 0u && !geometry->vertices) {
+                return 0;
+            }
+            if (source_vertex_count > SIZE_MAX - geometry->vertex_count) {
+                return 0;
+            }
+            source_vertex_count += geometry->vertex_count;
+        }
     }
-    if (!scene_frame_reserve_owned_vertices(destination, source_vertex_count)) {
+    if (!scene_frame_reserve_owned_vertices(destination, source_vertex_count) ||
+        !scene_frame_reserve_owned_mesh_surfaces(destination, source_surface_count)) {
         return 0;
     }
     scene_frame_begin(destination);
@@ -272,10 +383,10 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
         SceneCommand command = source->commands[index];
 
         if (!scene_frame_submit(destination, &command) ||
-            (command.type == SCENE_COMMAND_GEOMETRY &&
-             !scene_frame_clone_geometry_vertices(destination,
-                                                 &destination->commands[destination->count - 1u],
-                                                 &source->commands[index]))) {
+            (command.type == SCENE_COMMAND_GEOMETRY_INSTANCE &&
+             !scene_frame_clone_geometry_instance(
+                 destination, &destination->commands[destination->count - 1u],
+                 &source->commands[index]))) {
             scene_frame_begin(destination);
             return 0;
         }
@@ -319,26 +430,41 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
             destination_command->data.camera.look_offset = scene_frame_interpolate_i16(
                 previous_command->data.camera.look_offset,
                 current_command->data.camera.look_offset, alpha);
-        } else if (destination_command->type == SCENE_COMMAND_GEOMETRY) {
-            const SceneGeometry *previous_geometry = &previous_command->data.geometry;
-            const SceneGeometry *current_geometry = &current_command->data.geometry;
-            SceneGeometry *destination_geometry = &destination_command->data.geometry;
+        } else if (destination_command->type == SCENE_COMMAND_GEOMETRY_INSTANCE) {
+            const SceneMesh *previous_mesh = &previous_command->data.geometry_instance.mesh;
+            const SceneMesh *current_mesh = &current_command->data.geometry_instance.mesh;
+            SceneMesh *destination_mesh = &destination_command->data.geometry_instance.mesh;
 
-            if (!previous_geometry->vertices || !current_geometry->vertices ||
-                !destination_geometry->vertices) {
-                return 0;
+            for (uint32_t surface_index = 0u; surface_index < destination_mesh->surface_count;
+                 ++surface_index) {
+                const SceneGeometry *previous_geometry =
+                    &previous_mesh->surfaces[surface_index].geometry;
+                const SceneGeometry *current_geometry =
+                    &current_mesh->surfaces[surface_index].geometry;
+                SceneGeometry *destination_geometry =
+                    &((SceneMeshSurface *)destination_mesh->surfaces)[surface_index].geometry;
+
+                if (destination_geometry->vertex_count == 0u) {
+                    continue;
+                }
+                if (!previous_geometry->vertices || !current_geometry->vertices ||
+                    !destination_geometry->vertices) {
+                    return 0;
+                }
+                for (uint32_t vertex_index = 0u;
+                     vertex_index < destination_geometry->vertex_count; ++vertex_index) {
+                    scene_frame_interpolate_vertex(
+                        (SceneVertex *)&destination_geometry->vertices[vertex_index],
+                        &previous_geometry->vertices[vertex_index],
+                        &current_geometry->vertices[vertex_index], alpha);
+                }
             }
-            for (uint32_t vertex_index = 0u;
-                 vertex_index < destination_geometry->vertex_count; ++vertex_index) {
-                scene_frame_interpolate_vertex(
-                    (SceneVertex *)&destination_geometry->vertices[vertex_index],
-                    &previous_geometry->vertices[vertex_index],
-                    &current_geometry->vertices[vertex_index], alpha);
-            }
-        } else if (destination_command->type == SCENE_COMMAND_SPRITE) {
-            SceneSprite *destination_sprite = &destination_command->data.sprite;
-            const SceneSprite *previous_sprite = &previous_command->data.sprite;
-            const SceneSprite *current_sprite = &current_command->data.sprite;
+        } else if (destination_command->type == SCENE_COMMAND_SPRITE_INSTANCE) {
+            SceneSprite *destination_sprite = &destination_command->data.sprite_instance.sprite;
+            const SceneSprite *previous_sprite =
+                &previous_command->data.sprite_instance.sprite;
+            const SceneSprite *current_sprite =
+                &current_command->data.sprite_instance.sprite;
 
             destination_sprite->position.x = scene_frame_interpolate_i32(
                 previous_sprite->position.x, current_sprite->position.x, alpha);

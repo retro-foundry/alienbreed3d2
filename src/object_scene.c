@@ -742,6 +742,12 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     return 1;
 }
 
+static uint32_t object_scene_source_mesh_id(const SceneSprite *sprite)
+{
+    /* Source class keeps bitmap/vector/glare resources in distinct BLAS keys. */
+    return ((uint32_t)sprite->source << 30u) | (sprite->source_asset_id & UINT32_C(0x3fffffff));
+}
+
 int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *game_link,
                                const GameSharedResources *resources,
                                const LevelRuntime *level,
@@ -777,10 +783,17 @@ int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *gam
              slot_index == objects->player1_slot + 2u)) {
             continue;
         }
-        command.type = SCENE_COMMAND_SPRITE;
-        if (!object_scene_build_sprite(objects, game_link, resources, level, lighting, math,
-                                       slot_index, &command.data.sprite, error, error_size) ||
-            !scene_frame_submit(frame, &command)) {
+        command.type = SCENE_COMMAND_SPRITE_INSTANCE;
+        memset(&command.data.sprite_instance, 0, sizeof(command.data.sprite_instance));
+        command.data.sprite_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
+        if (!object_scene_build_sprite(
+                objects, game_link, resources, level, lighting, math, slot_index,
+                &command.data.sprite_instance.sprite, error, error_size)) {
+            return 0;
+        }
+        command.data.sprite_instance.source_mesh_id = object_scene_source_mesh_id(
+            &command.data.sprite_instance.sprite);
+        if (!scene_frame_submit(frame, &command)) {
             return 0;
         }
     }

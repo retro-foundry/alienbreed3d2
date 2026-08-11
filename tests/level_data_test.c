@@ -248,7 +248,8 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         if ((uint16_t)point_index >= game->object_runtime.point_count ||
             command_count >= expected_count ||
             first_command + command_count >= frame->count ||
-            frame->commands[first_command + command_count].type != SCENE_COMMAND_SPRITE) {
+            frame->commands[first_command + command_count].type !=
+                SCENE_COMMAND_SPRITE_INSTANCE) {
             return 0;
         }
         if (slot[16u] == 2u) {
@@ -267,7 +268,7 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             expected_surface_attachment = definition.floor_ceiling == 0u ?
                 SCENE_SPRITE_SURFACE_FLOOR : SCENE_SPRITE_SURFACE_CEILING;
         }
-        sprite = &frame->commands[first_command + command_count].data.sprite;
+        sprite = &frame->commands[first_command + command_count].data.sprite_instance.sprite;
         if (!level_runtime_get_zone(&game->dynamic_level.runtime, sprite->source_zone_index,
                                     &source_zone, error, error_size) ||
             sprite->source_record_id != slot_index ||
@@ -394,6 +395,29 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         ++command_count;
     }
     return command_count == expected_count;
+}
+
+static int scene_frame_find_instance_layout(const SceneFrame *frame,
+                                            size_t *out_geometry_instance_count,
+                                            size_t *out_first_sprite_command)
+{
+    size_t geometry_instance_count = 0u;
+    size_t first_sprite_command = SIZE_MAX;
+
+    if (!frame || !out_geometry_instance_count || !out_first_sprite_command) {
+        return 0;
+    }
+    for (size_t command_index = 0u; command_index < frame->count; ++command_index) {
+        if (frame->commands[command_index].type == SCENE_COMMAND_GEOMETRY_INSTANCE) {
+            ++geometry_instance_count;
+        } else if (frame->commands[command_index].type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                   first_sprite_command == SIZE_MAX) {
+            first_sprite_command = command_index;
+        }
+    }
+    *out_geometry_instance_count = geometry_instance_count;
+    *out_first_sprite_command = first_sprite_command;
+    return 1;
 }
 
 static int object_observation_matches_source(const ObjectObservation *observation,
@@ -850,6 +874,8 @@ int main(int argc, char **argv)
         SceneCommand current_geometry = {0};
         SceneCommand previous_sprite = {0};
         SceneCommand current_sprite = {0};
+        SceneMeshSurface previous_surface[1] = {{0}};
+        SceneMeshSurface current_surface[1] = {{0}};
 
         previous_camera.type = SCENE_COMMAND_CAMERA;
         previous_camera.data.camera.position = (SceneWorldPoint){0, 0, 0};
@@ -859,30 +885,41 @@ int main(int argc, char **argv)
         current_camera.data.camera.position = (SceneWorldPoint){20, 40, 60};
         current_camera.data.camera.yaw = 8u;
         current_camera.data.camera.look_offset = 20;
-        previous_geometry.type = SCENE_COMMAND_GEOMETRY;
-        previous_geometry.data.geometry.vertices = previous_vertices;
-        previous_geometry.data.geometry.vertex_count = 3u;
-        previous_geometry.data.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
-        previous_geometry.data.geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_FLOOR;
-        previous_geometry.data.geometry.source_record_id = 42u;
+        previous_surface[0].geometry.vertices = previous_vertices;
+        previous_surface[0].geometry.vertex_count = 3u;
+        previous_surface[0].geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
+        previous_surface[0].geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_FLOOR;
+        previous_surface[0].geometry.source_record_id = 42u;
+        previous_geometry.type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+        previous_geometry.data.geometry_instance.source_instance_id = 42u;
+        previous_geometry.data.geometry_instance.mesh.source_mesh_id = 42u;
+        previous_geometry.data.geometry_instance.mesh.acceleration_class =
+            SCENE_ACCELERATION_CLASS_DYNAMIC;
+        previous_geometry.data.geometry_instance.mesh.surfaces = previous_surface;
+        previous_geometry.data.geometry_instance.mesh.surface_count = 1u;
         current_geometry = previous_geometry;
-        current_geometry.data.geometry.vertices = current_vertices;
-        previous_sprite.type = SCENE_COMMAND_SPRITE;
-        previous_sprite.data.sprite.source_record_id = 7u;
-        previous_sprite.data.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
-        previous_sprite.data.sprite.position = (SceneWorldPoint){0, 0, 0};
-        previous_sprite.data.sprite.yaw = 8180u;
-        previous_sprite.data.sprite.source_brightness = 100u;
-        previous_sprite.data.sprite.source_light_level = 100;
-        previous_sprite.data.sprite.source_bitmap_angle_brightness[0u] = 20;
-        previous_sprite.data.sprite.source_point_and_polygon_brightness[0u] = -20;
+        current_surface[0] = previous_surface[0];
+        current_surface[0].geometry.vertices = current_vertices;
+        current_geometry.data.geometry_instance.mesh.surfaces = current_surface;
+        previous_sprite.type = SCENE_COMMAND_SPRITE_INSTANCE;
+        previous_sprite.data.sprite_instance.source_mesh_id = 7u;
+        previous_sprite.data.sprite_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
+        previous_sprite.data.sprite_instance.sprite.source_record_id = 7u;
+        previous_sprite.data.sprite_instance.sprite.presentation =
+            SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+        previous_sprite.data.sprite_instance.sprite.position = (SceneWorldPoint){0, 0, 0};
+        previous_sprite.data.sprite_instance.sprite.yaw = 8180u;
+        previous_sprite.data.sprite_instance.sprite.source_brightness = 100u;
+        previous_sprite.data.sprite_instance.sprite.source_light_level = 100;
+        previous_sprite.data.sprite_instance.sprite.source_bitmap_angle_brightness[0u] = 20;
+        previous_sprite.data.sprite_instance.sprite.source_point_and_polygon_brightness[0u] = -20;
         current_sprite = previous_sprite;
-        current_sprite.data.sprite.position = (SceneWorldPoint){20, 40, 60};
-        current_sprite.data.sprite.yaw = 8u;
-        current_sprite.data.sprite.source_brightness = 300u;
-        current_sprite.data.sprite.source_light_level = 300;
-        current_sprite.data.sprite.source_bitmap_angle_brightness[0u] = 60;
-        current_sprite.data.sprite.source_point_and_polygon_brightness[0u] = 20;
+        current_sprite.data.sprite_instance.sprite.position = (SceneWorldPoint){20, 40, 60};
+        current_sprite.data.sprite_instance.sprite.yaw = 8u;
+        current_sprite.data.sprite_instance.sprite.source_brightness = 300u;
+        current_sprite.data.sprite_instance.sprite.source_light_level = 300;
+        current_sprite.data.sprite_instance.sprite.source_bitmap_angle_brightness[0u] = 60;
+        current_sprite.data.sprite_instance.sprite.source_point_and_polygon_brightness[0u] = 20;
 
         if (!scene_frame_init(&previous, 3u) || !scene_frame_init(&current, 3u) ||
             !scene_frame_init(&presentation, 3u) ||
@@ -899,17 +936,18 @@ int main(int argc, char **argv)
             presentation.commands[0u].data.camera.position.z != 30 ||
             presentation.commands[0u].data.camera.yaw != 8190u ||
             presentation.commands[0u].data.camera.look_offset != 0 ||
-            presentation.commands[1u].data.geometry.vertices == current_vertices ||
-            presentation.commands[1u].data.geometry.vertices[0u].position.x != 10 ||
-            presentation.commands[1u].data.geometry.vertices[0u].position.y != 10 ||
-            presentation.commands[1u].data.geometry.vertices[0u].source_light_level != 200 ||
-            presentation.commands[2u].data.sprite.position.x != 10 ||
-            presentation.commands[2u].data.sprite.position.y != 20 ||
-            presentation.commands[2u].data.sprite.yaw != 8190u ||
-            presentation.commands[2u].data.sprite.source_brightness != 200u ||
-            presentation.commands[2u].data.sprite.source_light_level != 200 ||
-            presentation.commands[2u].data.sprite.source_bitmap_angle_brightness[0u] != 40 ||
-            presentation.commands[2u].data.sprite.source_point_and_polygon_brightness[0u] != 0) {
+            presentation.commands[1u].data.geometry_instance.mesh.surfaces[0u].geometry.vertices ==
+                current_vertices ||
+            presentation.commands[1u].data.geometry_instance.mesh.surfaces[0u].geometry.vertices[0u].position.x != 10 ||
+            presentation.commands[1u].data.geometry_instance.mesh.surfaces[0u].geometry.vertices[0u].position.y != 10 ||
+            presentation.commands[1u].data.geometry_instance.mesh.surfaces[0u].geometry.vertices[0u].source_light_level != 200 ||
+            presentation.commands[2u].data.sprite_instance.sprite.position.x != 10 ||
+            presentation.commands[2u].data.sprite_instance.sprite.position.y != 20 ||
+            presentation.commands[2u].data.sprite_instance.sprite.yaw != 8190u ||
+            presentation.commands[2u].data.sprite_instance.sprite.source_brightness != 200u ||
+            presentation.commands[2u].data.sprite_instance.sprite.source_light_level != 200 ||
+            presentation.commands[2u].data.sprite_instance.sprite.source_bitmap_angle_brightness[0u] != 40 ||
+            presentation.commands[2u].data.sprite_instance.sprite.source_point_and_polygon_brightness[0u] != 0) {
             fprintf(stderr, "source scene presentation interpolation is inconsistent\n");
             scene_frame_destroy(&presentation);
             scene_frame_destroy(&current);
@@ -917,7 +955,7 @@ int main(int argc, char **argv)
             return 1;
         }
         current_vertices[0u].position.x = 999;
-        if (presentation.commands[1u].data.geometry.vertices[0u].position.x != 10) {
+        if (presentation.commands[1u].data.geometry_instance.mesh.surfaces[0u].geometry.vertices[0u].position.x != 10) {
             fprintf(stderr, "source scene interpolation did not retain its geometry endpoint\n");
             scene_frame_destroy(&presentation);
             scene_frame_destroy(&current);
@@ -2033,6 +2071,10 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        {
+        size_t geometry_instance_count = 0u;
+        size_t first_sprite_command = SIZE_MAX;
+
         if (!lighting_runtime_refresh_single_player(
                 &game.lighting_runtime, &game.dynamic_level.runtime, &game.player,
                 error, sizeof(error)) ||
@@ -2042,13 +2084,12 @@ int main(int argc, char **argv)
             !object_scene_count_active(&game.object_runtime, &active_sprite_count,
                                        error, sizeof(error)) ||
             !game_bootstrap_submit_scene_frame(&game, &frame) ||
-            frame.count != 3u +
-                ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u +
-                active_sprite_count ||
+            !scene_frame_find_instance_layout(&frame, &geometry_instance_count,
+                                              &first_sprite_command) ||
+            frame.count != 3u + geometry_instance_count + active_sprite_count ||
+            first_sprite_command == SIZE_MAX ||
             !scene_sprite_commands_match_source(
-                &frame, 3u +
-                    ((size_t)game.static_scene.wall_count + game.static_scene.flat_count) * 2u,
-                &game, active_sprite_count, error, sizeof(error)) ||
+                &frame, first_sprite_command, &game, active_sprite_count, error, sizeof(error)) ||
             frame.commands[0u].type != SCENE_COMMAND_CAMERA ||
             frame.commands[1u].type != SCENE_COMMAND_LIGHTING ||
             frame.commands[2u].type != SCENE_COMMAND_ENVIRONMENT) {
@@ -2112,21 +2153,27 @@ int main(int argc, char **argv)
             for (size_t command_index = 0u; command_index < frame.count; ++command_index) {
                 const SceneCommand *command = &frame.commands[command_index];
 
-                if (command->type != SCENE_COMMAND_GEOMETRY) {
+                if (command->type != SCENE_COMMAND_GEOMETRY_INSTANCE) {
                     continue;
                 }
-                for (uint32_t vertex_index = 0u;
-                     vertex_index < command->data.geometry.vertex_count; ++vertex_index) {
-                    int16_t source_light =
-                        command->data.geometry.vertices[vertex_index].source_light_level;
+                for (uint32_t surface_index = 0u;
+                     surface_index < command->data.geometry_instance.mesh.surface_count;
+                     ++surface_index) {
+                    const SceneGeometry *geometry =
+                        &command->data.geometry_instance.mesh.surfaces[surface_index].geometry;
 
-                    if (source_light < minimum_source_light) {
-                        minimum_source_light = source_light;
+                    for (uint32_t vertex_index = 0u; vertex_index < geometry->vertex_count;
+                         ++vertex_index) {
+                        int16_t source_light = geometry->vertices[vertex_index].source_light_level;
+
+                        if (source_light < minimum_source_light) {
+                            minimum_source_light = source_light;
+                        }
+                        if (source_light > maximum_source_light) {
+                            maximum_source_light = source_light;
+                        }
+                        ++light_vertex_count;
                     }
-                    if (source_light > maximum_source_light) {
-                        maximum_source_light = source_light;
-                    }
-                    ++light_vertex_count;
                 }
             }
             if (light_vertex_count == 0u || minimum_source_light == maximum_source_light) {
@@ -2399,19 +2446,19 @@ int main(int argc, char **argv)
                  ++command_index) {
                 const SceneCommand *weapon_command = &weapon_scene.commands[command_index];
 
-                if (weapon_command->type == SCENE_COMMAND_SPRITE &&
-                    weapon_command->data.sprite.source_record_id ==
+                if (weapon_command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                    weapon_command->data.sprite_instance.sprite.source_record_id ==
                         game.object_runtime.player1_slot + 2u) {
-                    weapon_scene_source = weapon_command->data.sprite.source;
-                    weapon_scene_presentation = weapon_command->data.sprite.presentation;
-                    weapon_scene_asset_id = weapon_command->data.sprite.source_asset_id;
-                    saw_weapon = weapon_command->data.sprite.presentation ==
+                    weapon_scene_source = weapon_command->data.sprite_instance.sprite.source;
+                    weapon_scene_presentation = weapon_command->data.sprite_instance.sprite.presentation;
+                    weapon_scene_asset_id = weapon_command->data.sprite_instance.sprite.source_asset_id;
+                    saw_weapon = weapon_command->data.sprite_instance.sprite.presentation ==
                         SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON &&
-                        weapon_command->data.sprite.source ==
+                        weapon_command->data.sprite_instance.sprite.source ==
                             SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-                        weapon_command->data.sprite.source_asset_id == weapon_source_asset_id;
+                        weapon_command->data.sprite_instance.sprite.source_asset_id == weapon_source_asset_id;
                     memcpy(weapon_source_light,
-                           weapon_command->data.sprite.source_point_and_polygon_brightness,
+                           weapon_command->data.sprite_instance.sprite.source_point_and_polygon_brightness,
                            sizeof(weapon_source_light));
                     break;
                 }
@@ -2451,12 +2498,12 @@ int main(int argc, char **argv)
                  ++command_index) {
                 const SceneCommand *weapon_command = &weapon_scene.commands[command_index];
 
-                if (weapon_command->type == SCENE_COMMAND_SPRITE &&
-                    weapon_command->data.sprite.source_record_id ==
+                if (weapon_command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                    weapon_command->data.sprite_instance.sprite.source_record_id ==
                         game.object_runtime.player1_slot + 2u) {
                     weapon_lighting_changed = memcmp(
                         weapon_source_light,
-                        weapon_command->data.sprite.source_point_and_polygon_brightness,
+                        weapon_command->data.sprite_instance.sprite.source_point_and_polygon_brightness,
                         sizeof(weapon_source_light)) != 0;
                     break;
                 }
@@ -2484,8 +2531,8 @@ int main(int argc, char **argv)
                  ++command_index) {
                 const SceneCommand *weapon_command = &weapon_scene.commands[command_index];
 
-                if (weapon_command->type == SCENE_COMMAND_SPRITE &&
-                    weapon_command->data.sprite.source_record_id ==
+                if (weapon_command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                    weapon_command->data.sprite_instance.sprite.source_record_id ==
                         game.object_runtime.player1_slot + 2u) {
                     fprintf(stderr,
                             "campaign level %u source show-weapon preference did not hide companion\n",
@@ -3790,6 +3837,7 @@ int main(int argc, char **argv)
             }
         }
     }
+        }
     if (decoration_fixture_count == 0u || destructible_fixture_count == 0u ||
         water_fixture_count == 0u || mechanism_surface_fixture_count == 0u ||
         solid_lift_motion_fixture_count == 0u) {
@@ -3798,6 +3846,8 @@ int main(int argc, char **argv)
         game_bootstrap_destroy(&game);
         return 1;
     }
+    /* Retired record-pair command assertions; mesh instances are validated below. */
+#if 0
     if (!object_scene_count_active(&game.object_runtime, &active_sprite_count,
                                    error, sizeof(error)) ||
         !level_runtime_get_zone(&game.level_runtime, game.level.player1_start_zone,
@@ -3956,6 +4006,7 @@ int main(int argc, char **argv)
         return 1;
     }
     scene_frame_destroy(&frame);
+#endif
     game_controls_default(&control_defaults);
     game_input_init(&control_input);
     controlled_player = game.player;
@@ -4614,6 +4665,105 @@ int main(int argc, char **argv)
      * not level-completion presentation.
      */
     {
+        const SceneMeshSurface *wall_surface = NULL;
+        const SceneMeshSurface *flat_surface = NULL;
+        size_t world_surface_count = 0u;
+        size_t geometry_instance_count = 0u;
+        size_t static_instance_count = 0u;
+        size_t dynamic_instance_count = 0u;
+        size_t first_sprite_command = SIZE_MAX;
+
+        if (!game_session_select_level(&game.session, 0u, error, sizeof(error)) ||
+            !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||
+            !object_scene_count_active(&game.object_runtime, &active_sprite_count,
+                                       error, sizeof(error)) ||
+            !scene_frame_init(&frame, 2u) || !game_bootstrap_submit_scene_frame(&game, &frame)) {
+            fprintf(stderr, "mesh-instance scene submission failed: %s\n", error);
+            scene_frame_destroy(&frame);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        for (size_t command_index = 0u; command_index < frame.count; ++command_index) {
+            const SceneCommand *scene_command = &frame.commands[command_index];
+
+            if (scene_command->type == SCENE_COMMAND_GEOMETRY_INSTANCE) {
+                const SceneGeometryInstance *instance =
+                    &scene_command->data.geometry_instance;
+
+                ++geometry_instance_count;
+                if (instance->mesh.acceleration_class == SCENE_ACCELERATION_CLASS_STATIC) {
+                    ++static_instance_count;
+                } else if (instance->mesh.acceleration_class == SCENE_ACCELERATION_CLASS_DYNAMIC) {
+                    ++dynamic_instance_count;
+                } else {
+                    fprintf(stderr, "scene mesh has an invalid acceleration class\n");
+                    scene_frame_destroy(&frame);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                for (uint32_t surface_index = 0u; surface_index < instance->mesh.surface_count;
+                     ++surface_index) {
+                    const SceneMeshSurface *surface = &instance->mesh.surfaces[surface_index];
+
+                    ++world_surface_count;
+                    if (surface->geometry.source_record_id ==
+                            game.static_scene.walls[0].source_record_offset &&
+                        surface->geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
+                        wall_surface = surface;
+                    }
+                    if (surface->geometry.source_record_id ==
+                            game.static_scene.flats[0].source_record_offset &&
+                        surface->geometry.primitive == game.static_scene.flats[0].primitive) {
+                        flat_surface = surface;
+                    }
+                }
+            } else if (scene_command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                       first_sprite_command == SIZE_MAX) {
+                first_sprite_command = command_index;
+            }
+        }
+        if (!level_runtime_get_zone(&game.level_runtime, game.level.player1_start_zone,
+                                    &zone, error, sizeof(error)) ||
+            game.player.x != player_runtime_world_to_position(game.level.player1_start_x) ||
+            game.player.z != player_runtime_world_to_position(game.level.player1_start_z) ||
+            game.player.y != zone.floor - 12 * 1024 ||
+            game.player.snap_x != game.player.x || game.player.snap_y != game.player.y ||
+            game.player.snap_z != game.player.z || game.player.snap_target_y != game.player.y ||
+            game.player.height != 12 * 1024 || game.player.default_enemy_flags != 0x23u ||
+            frame.count < 3u + geometry_instance_count + active_sprite_count ||
+            frame.commands[0u].type != SCENE_COMMAND_CAMERA ||
+            frame.commands[0u].data.camera.position.x !=
+                player_runtime_position_to_world(game.player.x) ||
+            frame.commands[0u].data.camera.position.y != game.player.y ||
+            frame.commands[1u].type != SCENE_COMMAND_LIGHTING ||
+            frame.commands[1u].data.lighting.current_point_brightness !=
+                &game.lighting_runtime.current_point_brightness[0][0] ||
+            frame.commands[2u].type != SCENE_COMMAND_ENVIRONMENT ||
+            frame.commands[2u].data.environment.backdrop_byte_count != 648u * 240u ||
+            frame.commands[2u].data.environment.water_byte_count != 256u * 256u ||
+            geometry_instance_count == 0u || static_instance_count != 1u ||
+            dynamic_instance_count == 0u ||
+            world_surface_count != (size_t)game.static_scene.wall_count +
+                game.static_scene.flat_count ||
+            !wall_surface || !flat_surface ||
+            wall_surface->geometry.vertices != game.static_scene.walls[0].vertices ||
+            wall_surface->geometry.vertex_count != 6u ||
+            wall_surface->material.source_asset_id != game.static_scene.walls[0].material_id ||
+            wall_surface->material.source_palette_byte_count != 64u * 32u ||
+            flat_surface->geometry.vertices != game.static_scene.flats[0].vertices ||
+            flat_surface->geometry.vertex_count != game.static_scene.flats[0].vertex_count ||
+            flat_surface->material.source_asset_id != game.static_scene.flats[0].material_id ||
+            flat_surface->material.source_palette_bytes != game.shared_resources.texture_palette.bytes ||
+            first_sprite_command == SIZE_MAX ||
+            !scene_sprite_commands_match_source(&frame, first_sprite_command, &game,
+                                                active_sprite_count, error, sizeof(error))) {
+            fprintf(stderr, "mesh-instance scene handoff is inconsistent: %s\n", error);
+            scene_frame_destroy(&frame);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         static const uint16_t movement_bindings[] = {
             GAME_CONTROL_FORWARDS,
             GAME_CONTROL_BACKWARDS,
@@ -4727,17 +4877,17 @@ int main(int argc, char **argv)
         for (size_t command_index = 0u; command_index < effects_frame.count; ++command_index) {
             const SceneCommand *command = &effects_frame.commands[command_index];
 
-            if (command->type == SCENE_COMMAND_SPRITE &&
-                command->data.sprite.source_record_id >=
+            if (command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                command->data.sprite_instance.sprite.source_record_id >=
                     effects_game.object_runtime.player_shot_first_slot &&
-                command->data.sprite.source_record_id <
+                command->data.sprite_instance.sprite.source_record_id <
                     effects_game.object_runtime.player_shot_first_slot +
                         OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT &&
-                (command->data.sprite.flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
-                if (command->data.sprite.source_aux_offset_x != 0 ||
-                    command->data.sprite.source_aux_offset_y != 0 ||
-                    command->data.sprite.source_width == 0u ||
-                    command->data.sprite.source_height == 0u) {
+                (command->data.sprite_instance.sprite.flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
+                if (command->data.sprite_instance.sprite.source_aux_offset_x != 0 ||
+                    command->data.sprite_instance.sprite.source_aux_offset_y != 0 ||
+                    command->data.sprite_instance.sprite.source_width == 0u ||
+                    command->data.sprite_instance.sprite.source_height == 0u) {
                     fprintf(stderr,
                             "Plr1_Shot leaked ShotT physics bytes into its bitmap placement\n");
                     scene_frame_destroy(&effects_frame);
@@ -5276,9 +5426,12 @@ int main(int argc, char **argv)
 
             for (size_t command_index = 0u; command_index < projectile_scene.count;
                  ++command_index) {
-                if (projectile_scene.commands[command_index].type == SCENE_COMMAND_SPRITE &&
-                    projectile_scene.commands[command_index].data.sprite.source_record_id == 0u) {
-                    projectile_sprite = &projectile_scene.commands[command_index].data.sprite;
+                if (projectile_scene.commands[command_index].type ==
+                        SCENE_COMMAND_SPRITE_INSTANCE &&
+                    projectile_scene.commands[command_index].data.sprite_instance.sprite.source_record_id ==
+                        0u) {
+                    projectile_sprite =
+                        &projectile_scene.commands[command_index].data.sprite_instance.sprite;
                     break;
                 }
             }

@@ -163,6 +163,7 @@ static void level_static_scene_set_wall_vertices(LevelStaticWallScene *scene_wal
 
 typedef struct {
     uint8_t kind;
+    uint16_t index;
     uint32_t canonical_wall_source_offset;
     uint32_t lift_graphics_offset;
 } LevelStaticWallMechanism;
@@ -195,7 +196,7 @@ static int level_static_scene_wall_matches_edge(const LevelRuntime *runtime,
 }
 
 static int level_static_scene_add_wall_mechanism_match(
-    LevelStaticWallMechanism *mechanism, uint8_t kind,
+    LevelStaticWallMechanism *mechanism, uint8_t kind, uint16_t index,
     uint32_t canonical_wall_source_offset, uint32_t lift_graphics_offset,
     char *error, size_t error_size)
 {
@@ -212,6 +213,7 @@ static int level_static_scene_add_wall_mechanism_match(
     (void)error;
     (void)error_size;
     mechanism->kind = kind;
+    mechanism->index = index;
     mechanism->canonical_wall_source_offset = canonical_wall_source_offset;
     mechanism->lift_graphics_offset = lift_graphics_offset;
     return 1;
@@ -252,6 +254,7 @@ static int level_static_scene_find_wall_mechanism(
             if (wall.graphics_offset == source_record_offset || edge_matches != 0) {
                 if (!level_static_scene_add_wall_mechanism_match(
                         &mechanism, LEVEL_STATIC_WALL_MECHANISM_DOOR,
+                        mechanism_index,
                         wall.graphics_offset, 0u, error, error_size)) {
                     return 0;
                 }
@@ -279,6 +282,7 @@ static int level_static_scene_find_wall_mechanism(
             if (wall.graphics_offset == source_record_offset || edge_matches != 0) {
                 if (!level_static_scene_add_wall_mechanism_match(
                         &mechanism, LEVEL_STATIC_WALL_MECHANISM_LIFT,
+                        mechanism_index,
                         wall.graphics_offset, lift.graphics_offset, error, error_size)) {
                     return 0;
                 }
@@ -312,6 +316,58 @@ static int level_static_scene_lift_height(const LevelRuntime *runtime,
         return 0;
     }
     *out_height = (int32_t)level_static_scene_read_be16s(source + 2u) * 64;
+    return 1;
+}
+
+/*
+ * A mutable Draw_Flats record belongs to one native dynamic mesh.  The source
+ * mutation still happens in LiftRoutine/DoWaterAnims; this only retains its
+ * controller identity so the presentation boundary can build a matching
+ * dynamic BLAS/TLAS instance instead of treating each polygon as an object.
+ */
+static int level_static_scene_find_flat_dynamic_surface(
+    const LevelMechanisms *mechanisms, uint32_t source_record_offset,
+    uint8_t *out_kind, uint16_t *out_index, char *error, size_t error_size)
+{
+    if (!mechanisms || !out_kind || !out_index) {
+        level_static_scene_set_error(error, error_size,
+                                     "flat dynamic-surface lookup received invalid state");
+        return 0;
+    }
+    *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_NONE;
+    *out_index = 0u;
+    for (uint16_t lift_index = 0u; lift_index < mechanisms->lift_count; ++lift_index) {
+        LevelLiftable lift;
+
+        if (!level_mechanisms_get_lift(mechanisms, lift_index, &lift, error, error_size)) {
+            return 0;
+        }
+        if (lift.graphics_offset == source_record_offset) {
+            *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_LIFT;
+            *out_index = lift_index;
+        }
+    }
+    for (uint16_t animation_index = 0u;
+         animation_index < mechanisms->water_animation_count; ++animation_index) {
+        LevelWaterAnimation animation;
+
+        if (!level_mechanisms_get_water_animation(mechanisms, animation_index, &animation,
+                                                  error, error_size)) {
+            return 0;
+        }
+        for (uint16_t target_index = 0u; target_index < animation.target_count; ++target_index) {
+            LevelWaterAnimationTarget target;
+
+            if (!level_mechanisms_get_water_animation_target(
+                    mechanisms, animation_index, target_index, &target, error, error_size)) {
+                return 0;
+            }
+            if (target.graphics_offset == source_record_offset) {
+                *out_kind = LEVEL_STATIC_DYNAMIC_SURFACE_WATER;
+                *out_index = animation_index;
+            }
+        }
+    }
     return 1;
 }
 
@@ -481,6 +537,7 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                         goto fail;
                     }
                     scene_wall->mechanism_kind = wall_mechanism.kind;
+                    scene_wall->mechanism_index = wall_mechanism.index;
                     scene_wall->is_mechanism_surface =
                         wall_mechanism.kind != LEVEL_STATIC_WALL_MECHANISM_NONE ? 1u : 0u;
                     scene_wall->mechanism_wall_source_offset =
@@ -556,6 +613,12 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                     scene_flat->brightness_offset = flat.brightness_offset;
                     scene_flat->source_zone_index = zone_index;
                     scene_flat->source_upper_zone = upper_stream;
+                    if (!level_static_scene_find_flat_dynamic_surface(
+                            mechanisms, record.source_offset,
+                            &scene_flat->dynamic_surface_kind,
+                            &scene_flat->dynamic_surface_index, error, error_size)) {
+                        goto fail;
+                    }
                     if (!level_static_scene_flat_source_scale(scene_flat->primitive,
                                                                flat.texture_scale,
                                                                &source_scale)) {

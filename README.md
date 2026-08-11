@@ -78,23 +78,31 @@ gameplay-first scope.
   source 100x100 navigation maps plus the static door/lift/switch records are
   also decoded, along with each static object's documented type/animation
   selector bytes, without yet running AI or mechanism animation. Every source
-  wall plus floor, ceiling, and water boundary is submitted as whole-level
-  GPU-neutral geometry, without PVS or portal traversal. The retained scene
-  refreshes its commands from the mutable graph after source door, lift, and
-  water updates. Doors and lifts are a deliberate native-renderer
+  wall plus floor, ceiling, and water boundary is submitted through
+  GPU-neutral mesh instances, without PVS or portal traversal. The immutable
+  world mesh is one static BLAS candidate; each source-controlled door, lift,
+  and water controller is a separate dynamic candidate with a stable
+  TLAS-style instance identity. Every live ObjT/ShotT bitmap, vector, and
+  glare object likewise submits as one dynamic instance keyed by its selected
+  source resource and source slot. OpenGL consumes the same instances with
+  material subranges, while a future DXR backend can cache static BLASes and
+  rebuild only dynamic BLASes without a producer-interface change. The
+  retained scene refreshes its commands from the mutable graph after source
+  door, lift, and water updates. Doors and lifts are a deliberate native-renderer
   simplification: every `Draw_Wall` record on a controlled `EdgeT` follows its
   canonical source mechanism record, and a lift's wall sides move rigidly from
   the live `Draw_Flats` plane. This produces a closed moving solid with fixed
   authored texture mapping, while `DoorRoutine`/`LiftRoutine` state, collision,
   and timing continue to update;
 - defines a GPU-neutral frame command interface for cameras, lighting,
-  environment, materials, geometry, and sprites. Every live source object now emits an
+  environment, static/dynamic mesh instances, and source-object instances.
+  Every live source object now emits an
   unprojected bitmap/vector/glare descriptor in source slot order, with its
   selected raw WAD/PTR/vector asset bytes, palette, frame data, source draw
   controls, role (world or Player 1's `ENT_NEXT_2` weapon), and live light.
   Lighting commands retain the source current-point and zone tables;
   environment commands retain backdrop, water frame, scroll, and palette data.
-  Material commands retain the source asset
+  Mesh surfaces retain the source asset
   class and select shared versus per-level floor/wall overrides exactly as
   `modules/res.s:Res_LoadLevelData` does, carrying the selected source bytes
   and source palette bytes for later backend-owned conversion/upload. Wall

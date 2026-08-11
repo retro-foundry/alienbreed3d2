@@ -17,9 +17,10 @@ authority for all game behavior and data formats.
   packed-asset reference only. Do not import its gameplay, level assumptions,
   procedural test data, or software renderer.
 - Keep rendering behind `src/scene_frame.h`. Producers submit cameras,
-  lighting, environment, materials, geometry, and sprites; gameplay messages
-  stay simulated but are not submitted as HUD. No producer may depend on Amiga
-  framebuffers, copper lists, C2P, or a specific modern graphics API.
+  lighting, environment, static/dynamic mesh instances, and source-object
+  instances; gameplay messages stay simulated but are not submitted as HUD.
+  No producer may depend on Amiga framebuffers, copper lists, C2P, or a
+  specific modern graphics API.
 - `src/renderer.h` is the presentation interface. `renderer_opengl.c` is one
   backend; neither the entry point nor scene producers include OpenGL, so a
   later DirectX backend can consume the same `SceneFrame` and `RenderView`.
@@ -51,6 +52,16 @@ authority for all game behavior and data formats.
   culling, so complete-level submission cannot overwrite a wall with an
   opposite-zone draw-graph record. It emits no HUD commands because UI is
   outside this scope.
+- [x] `SceneMesh`/`SceneGeometryInstance` define the API-neutral acceleration
+  boundary. The complete immutable level is one static BLAS candidate; source
+  `DoorRoutine`, `LiftRoutine`, and `DoWaterAnims` controllers own separate
+  dynamic candidates, each with a stable TLAS-style instance ID. `ObjT` and
+  `ShotT` bitmap, vector, glare, projectile, and companion-weapon descriptors
+  are dynamic source-object instances keyed by their selected source resource
+  and record. OpenGL 2.1/GLES2 consumes a mesh instance through authored
+  material subranges because it has no bindless material table; a future DXR
+  backend can cache the static BLAS and rebuild/update only dynamic BLAS/TLAS
+  data without changing scene producers or source simulation.
 - [x] `SceneMaterial`, `SceneSprite`, `SceneLighting`, and `SceneEnvironment`
   retain the exact shared `256pal`, source brightness tables, backdrop, and
   water-frame state. The backend converts the source wall palette prefix and

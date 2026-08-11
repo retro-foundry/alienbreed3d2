@@ -16,6 +16,22 @@
 /* hireswall.s:Draw_Wall assigns Draw_ChunkPtr_l = Draw_PalettePtr_l + 64*32. */
 #define AB3D2_WALL_PALETTE_BYTE_COUNT (64u * 32u)
 
+enum {
+    /* One immutable complete-level BLAS candidate. */
+    GAME_BOOTSTRAP_STATIC_WORLD_MESH_ID = 1u,
+    /* Controller groups are emitted as independent dynamic BLAS candidates. */
+    GAME_BOOTSTRAP_DYNAMIC_MESH_ID_BASE = UINT32_C(0x40000000),
+    GAME_BOOTSTRAP_DYNAMIC_MESH_GROUP_CAPACITY =
+        LEVEL_MECHANISMS_MAX_DOORS + LEVEL_MECHANISMS_MAX_LIFTS +
+        LEVEL_MECHANISMS_WATER_ANIMATION_COUNT
+};
+
+typedef struct {
+    uint8_t kind;
+    uint16_t index;
+    uint32_t surface_count;
+} GameBootstrapDynamicMeshGroup;
+
 static SceneMaterialSource game_bootstrap_floor_material_source(const GameBootstrap *game)
 {
     /* Res_LoadLevelData selects the optional asset solely by its non-null pointer. */
@@ -49,6 +65,111 @@ static const AssetBlob *game_bootstrap_wall_material_asset(const GameBootstrap *
     return game->level_wall_overrides[wall_texture_index].bytes != NULL ?
         &game->level_wall_overrides[wall_texture_index] :
         &game->shared_resources.wall_textures[wall_texture_index];
+}
+
+static uint32_t game_bootstrap_dynamic_mesh_id(uint8_t kind, uint16_t index)
+{
+    return GAME_BOOTSTRAP_DYNAMIC_MESH_ID_BASE |
+        ((uint32_t)kind << 16u) | (uint32_t)index;
+}
+
+static int game_bootstrap_make_wall_surface(const GameBootstrap *game,
+                                            const LevelStaticWallScene *wall,
+                                            SceneMeshSurface *out_surface)
+{
+    const AssetBlob *material_asset;
+
+    if (!game || !wall || !out_surface) {
+        return 0;
+    }
+    material_asset = game_bootstrap_wall_material_asset(game, wall->material_id);
+    if (!material_asset || !material_asset->bytes ||
+        material_asset->size < AB3D2_WALL_PALETTE_BYTE_COUNT ||
+        !game->shared_resources.main_palette.bytes) {
+        return 0;
+    }
+    memset(out_surface, 0, sizeof(*out_surface));
+    out_surface->material.source = game_bootstrap_wall_material_source(game, wall->material_id);
+    out_surface->material.source_asset_id = wall->material_id;
+    out_surface->material.source_bytes = material_asset->bytes;
+    out_surface->material.source_byte_count = material_asset->size;
+    out_surface->material.source_palette_bytes = material_asset->bytes;
+    out_surface->material.source_palette_byte_count = AB3D2_WALL_PALETTE_BYTE_COUNT;
+    out_surface->material.source_display_palette_bytes = game->shared_resources.main_palette.bytes;
+    out_surface->material.source_display_palette_byte_count =
+        game->shared_resources.main_palette.size;
+    out_surface->geometry.vertices = wall->vertices;
+    out_surface->geometry.vertex_count = 6u;
+    out_surface->geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
+    out_surface->geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_WALL;
+    out_surface->geometry.material_id = wall->material_id;
+    out_surface->geometry.source_record_id = wall->source_record_offset;
+    out_surface->geometry.texture_window = wall->texture_window;
+    out_surface->geometry.source_zone_index = wall->source_zone_index;
+    out_surface->geometry.source_upper_zone = wall->source_upper_zone;
+    return 1;
+}
+
+static int game_bootstrap_make_flat_surface(const GameBootstrap *game,
+                                            const LevelStaticFlatScene *flat,
+                                            SceneMeshSurface *out_surface)
+{
+    const AssetBlob *material_asset;
+
+    if (!game || !flat || !out_surface) {
+        return 0;
+    }
+    material_asset = game_bootstrap_floor_material_asset(game);
+    if (!material_asset || !material_asset->bytes ||
+        !game->shared_resources.texture_palette.bytes ||
+        !game->shared_resources.main_palette.bytes) {
+        return 0;
+    }
+    memset(out_surface, 0, sizeof(*out_surface));
+    out_surface->material.source = game_bootstrap_floor_material_source(game);
+    out_surface->material.source_asset_id = flat->material_id;
+    out_surface->material.source_bytes = material_asset->bytes;
+    out_surface->material.source_byte_count = material_asset->size;
+    out_surface->material.source_palette_bytes = game->shared_resources.texture_palette.bytes;
+    out_surface->material.source_palette_byte_count = game->shared_resources.texture_palette.size;
+    out_surface->material.source_display_palette_bytes = game->shared_resources.main_palette.bytes;
+    out_surface->material.source_display_palette_byte_count =
+        game->shared_resources.main_palette.size;
+    out_surface->geometry.vertices = flat->vertices;
+    out_surface->geometry.vertex_count = flat->vertex_count;
+    out_surface->geometry.topology = SCENE_GEOMETRY_TOPOLOGY_POLYGON_BOUNDARY;
+    out_surface->geometry.primitive = flat->primitive;
+    out_surface->geometry.material_id = flat->material_id;
+    out_surface->geometry.source_record_id = flat->source_record_offset;
+    out_surface->geometry.source_zone_index = flat->source_zone_index;
+    out_surface->geometry.source_upper_zone = flat->source_upper_zone;
+    return 1;
+}
+
+static int game_bootstrap_add_dynamic_mesh_group(
+    GameBootstrapDynamicMeshGroup *groups, uint32_t *group_count,
+    uint8_t kind, uint16_t index)
+{
+    if (!groups || !group_count || kind == LEVEL_STATIC_DYNAMIC_SURFACE_NONE) {
+        return 0;
+    }
+    for (uint32_t group_index = 0u; group_index < *group_count; ++group_index) {
+        if (groups[group_index].kind == kind && groups[group_index].index == index) {
+            if (groups[group_index].surface_count == UINT32_MAX) {
+                return 0;
+            }
+            ++groups[group_index].surface_count;
+            return 1;
+        }
+    }
+    if (*group_count >= GAME_BOOTSTRAP_DYNAMIC_MESH_GROUP_CAPACITY) {
+        return 0;
+    }
+    groups[*group_count].kind = kind;
+    groups[*group_count].index = index;
+    groups[*group_count].surface_count = 1u;
+    ++*group_count;
+    return 1;
 }
 
 static void game_bootstrap_release_level(GameBootstrap *game)
@@ -732,6 +853,10 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
     uint32_t sprite_count;
     size_t required_commands;
     int32_t scene_camera_y;
+    size_t static_surface_count = 0u;
+    GameBootstrapDynamicMeshGroup dynamic_groups[
+        GAME_BOOTSTRAP_DYNAMIC_MESH_GROUP_CAPACITY] = {{0}};
+    uint32_t dynamic_group_count = 0u;
 
     if (!game || !frame || game->game_link.size == 0 || game->story_text.size == 0) {
         return 0;
@@ -750,6 +875,34 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         return 0;
     }
     if (game->level_data.size != 0) {
+        for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count;
+             ++wall_index) {
+            const LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
+
+            if (wall->mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_NONE) {
+                ++static_surface_count;
+            } else if (!game_bootstrap_add_dynamic_mesh_group(
+                           dynamic_groups, &dynamic_group_count, wall->mechanism_kind,
+                           wall->mechanism_index)) {
+                return 0;
+            }
+        }
+        for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count;
+             ++flat_index) {
+            const LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
+
+            if (flat->dynamic_surface_kind == LEVEL_STATIC_DYNAMIC_SURFACE_NONE) {
+                ++static_surface_count;
+            } else if (!game_bootstrap_add_dynamic_mesh_group(
+                           dynamic_groups, &dynamic_group_count, flat->dynamic_surface_kind,
+                           flat->dynamic_surface_index)) {
+                return 0;
+            }
+        }
+        if (static_surface_count > UINT32_MAX ||
+            !scene_frame_reserve_mesh_surfaces(frame, primitive_count)) {
+            return 0;
+        }
         if (!game_bootstrap_refresh_scene_lighting(game) ||
             !game_bootstrap_scene_camera_y(game, &scene_camera_y)) {
             return 0;
@@ -789,89 +942,86 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         if (!scene_frame_submit(frame, &command)) {
             return 0;
         }
-        for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count;
-             ++wall_index) {
-            const LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
-            const AssetBlob *material_asset =
-                game_bootstrap_wall_material_asset(game, wall->material_id);
+        if (static_surface_count != 0u) {
+            SceneMeshSurface *surfaces = scene_frame_allocate_mesh_surfaces(
+                frame, (uint32_t)static_surface_count);
+            uint32_t surface_index = 0u;
 
-            if (!material_asset || !material_asset->bytes ||
-                material_asset->size < AB3D2_WALL_PALETTE_BYTE_COUNT ||
-                !game->shared_resources.main_palette.bytes) {
+            if (!surfaces) {
                 return 0;
             }
+            for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count;
+                 ++wall_index) {
+                const LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
 
-            command.type = SCENE_COMMAND_MATERIAL;
-            command.data.material.source =
-                game_bootstrap_wall_material_source(game, wall->material_id);
-            command.data.material.source_asset_id = wall->material_id;
-            command.data.material.source_bytes = material_asset->bytes;
-            command.data.material.source_byte_count = material_asset->size;
-            command.data.material.source_palette_bytes = material_asset->bytes;
-            command.data.material.source_palette_byte_count = AB3D2_WALL_PALETTE_BYTE_COUNT;
-            command.data.material.source_display_palette_bytes =
-                game->shared_resources.main_palette.bytes;
-            command.data.material.source_display_palette_byte_count =
-                game->shared_resources.main_palette.size;
-            if (!scene_frame_submit(frame, &command)) {
+                if (wall->mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_NONE &&
+                    !game_bootstrap_make_wall_surface(game, wall, &surfaces[surface_index++])) {
+                    return 0;
+                }
+            }
+            for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count;
+                 ++flat_index) {
+                const LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
+
+                if (flat->dynamic_surface_kind == LEVEL_STATIC_DYNAMIC_SURFACE_NONE &&
+                    !game_bootstrap_make_flat_surface(game, flat, &surfaces[surface_index++])) {
+                    return 0;
+                }
+            }
+            if (surface_index != static_surface_count) {
                 return 0;
             }
-            command.type = SCENE_COMMAND_GEOMETRY;
-            command.data.geometry.vertices = wall->vertices;
-            command.data.geometry.vertex_count = 6u;
-            command.data.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
-            command.data.geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_WALL;
-            command.data.geometry.material_id = wall->material_id;
-            command.data.geometry.source_record_id = wall->source_record_offset;
-            command.data.geometry.texture_window = wall->texture_window;
-            command.data.geometry.source_zone_index = wall->source_zone_index;
-            command.data.geometry.source_upper_zone = wall->source_upper_zone;
-            command.data.geometry.reserved = 0u;
-            command.data.geometry.flags = 0u;
+            memset(&command, 0, sizeof(command));
+            command.type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+            command.data.geometry_instance.source_instance_id = GAME_BOOTSTRAP_STATIC_WORLD_MESH_ID;
+            command.data.geometry_instance.mesh.source_mesh_id = GAME_BOOTSTRAP_STATIC_WORLD_MESH_ID;
+            command.data.geometry_instance.mesh.acceleration_class = SCENE_ACCELERATION_CLASS_STATIC;
+            command.data.geometry_instance.mesh.surfaces = surfaces;
+            command.data.geometry_instance.mesh.surface_count = surface_index;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
         }
-        for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count;
-             ++flat_index) {
-            const LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
-            const AssetBlob *material_asset = game_bootstrap_floor_material_asset(game);
+        for (uint32_t group_index = 0u; group_index < dynamic_group_count; ++group_index) {
+            const GameBootstrapDynamicMeshGroup *group = &dynamic_groups[group_index];
+            SceneMeshSurface *surfaces = scene_frame_allocate_mesh_surfaces(
+                frame, group->surface_count);
+            uint32_t surface_index = 0u;
+            uint32_t source_mesh_id = game_bootstrap_dynamic_mesh_id(group->kind, group->index);
 
-            if (!material_asset || !material_asset->bytes ||
-                !game->shared_resources.texture_palette.bytes ||
-                !game->shared_resources.main_palette.bytes) {
+            if (!surfaces) {
                 return 0;
             }
+            for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count;
+                 ++wall_index) {
+                const LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
 
-            command.type = SCENE_COMMAND_MATERIAL;
-            command.data.material.source = game_bootstrap_floor_material_source(game);
-            command.data.material.source_asset_id = flat->material_id;
-            command.data.material.source_bytes = material_asset->bytes;
-            command.data.material.source_byte_count = material_asset->size;
-            /* Res_LoadFloorsAndTextures loads this .pal once for all floor overrides. */
-            command.data.material.source_palette_bytes = game->shared_resources.texture_palette.bytes;
-            command.data.material.source_palette_byte_count =
-                game->shared_resources.texture_palette.size;
-            command.data.material.source_display_palette_bytes =
-                game->shared_resources.main_palette.bytes;
-            command.data.material.source_display_palette_byte_count =
-                game->shared_resources.main_palette.size;
-            if (!scene_frame_submit(frame, &command)) {
+                if (wall->mechanism_kind == group->kind &&
+                    wall->mechanism_index == group->index &&
+                    !game_bootstrap_make_wall_surface(game, wall, &surfaces[surface_index++])) {
+                    return 0;
+                }
+            }
+            for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count;
+                 ++flat_index) {
+                const LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
+
+                if (flat->dynamic_surface_kind == group->kind &&
+                    flat->dynamic_surface_index == group->index &&
+                    !game_bootstrap_make_flat_surface(game, flat, &surfaces[surface_index++])) {
+                    return 0;
+                }
+            }
+            if (surface_index != group->surface_count) {
                 return 0;
             }
-            command.type = SCENE_COMMAND_GEOMETRY;
-            command.data.geometry.vertices = flat->vertices;
-            command.data.geometry.vertex_count = flat->vertex_count;
-            command.data.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_POLYGON_BOUNDARY;
-            command.data.geometry.primitive = flat->primitive;
-            command.data.geometry.material_id = flat->material_id;
-            command.data.geometry.source_record_id = flat->source_record_offset;
-            memset(&command.data.geometry.texture_window, 0,
-                   sizeof(command.data.geometry.texture_window));
-            command.data.geometry.source_zone_index = flat->source_zone_index;
-            command.data.geometry.source_upper_zone = flat->source_upper_zone;
-            command.data.geometry.reserved = 0u;
-            command.data.geometry.flags = 0u;
+            memset(&command, 0, sizeof(command));
+            command.type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+            command.data.geometry_instance.source_instance_id = source_mesh_id;
+            command.data.geometry_instance.mesh.source_mesh_id = source_mesh_id;
+            command.data.geometry_instance.mesh.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
+            command.data.geometry_instance.mesh.surfaces = surfaces;
+            command.data.geometry_instance.mesh.surface_count = surface_index;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }

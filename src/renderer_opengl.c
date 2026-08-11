@@ -2329,6 +2329,36 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
     return result;
 }
 
+/*
+ * Consume one GPU-neutral BLAS/TLAS mesh instance. OpenGL 2.1 has no bindless
+ * material table, so its implementation walks the authored material ranges;
+ * the scene boundary remains one mesh instance, which a DXR backend can map
+ * directly to one BLAS candidate and one TLAS entry.
+ */
+static int renderer_opengl_draw_geometry_instance(
+    RendererOpenGL *renderer, const SceneGeometryInstance *instance,
+    const SceneEnvironment *environment, const SceneCamera *camera,
+    char *error, size_t error_size)
+{
+    if (!instance ||
+        (instance->mesh.acceleration_class != SCENE_ACCELERATION_CLASS_STATIC &&
+         instance->mesh.acceleration_class != SCENE_ACCELERATION_CLASS_DYNAMIC) ||
+        instance->mesh.surface_count == 0u || !instance->mesh.surfaces) {
+        renderer_opengl_set_error(error, error_size, "scene mesh instance is invalid");
+        return 0;
+    }
+    for (uint32_t surface_index = 0u; surface_index < instance->mesh.surface_count;
+         ++surface_index) {
+        const SceneMeshSurface *surface = &instance->mesh.surfaces[surface_index];
+
+        if (!renderer_opengl_draw_geometry(renderer, &surface->material, &surface->geometry,
+                                           environment, camera, error, error_size)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSprite *sprite,
                                        const SceneCamera *camera, char *error,
                                        size_t error_size)
@@ -3670,7 +3700,6 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
 {
     const SceneCamera *camera = NULL;
     const SceneEnvironment *environment = NULL;
-    const SceneMaterial *active_material = NULL;
     RendererOpenGLSpriteOrder *additive_sprites = NULL;
     size_t additive_count = 0u;
     float view_projection[16];
@@ -3719,11 +3748,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
     for (size_t index = 0u; index < frame->count; ++index) {
         const SceneCommand *command = &frame->commands[index];
 
-        if (command->type == SCENE_COMMAND_MATERIAL) {
-            active_material = &command->data.material;
-        } else if (command->type == SCENE_COMMAND_GEOMETRY) {
-            if (!renderer_opengl_draw_geometry(renderer, active_material, &command->data.geometry,
-                                               environment, camera, error, error_size)) {
+        if (command->type == SCENE_COMMAND_GEOMETRY_INSTANCE) {
+            if (!renderer_opengl_draw_geometry_instance(
+                    renderer, &command->data.geometry_instance, environment, camera,
+                    error, error_size)) {
                 return 0;
             }
         }
@@ -3736,8 +3764,16 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
     for (size_t index = 0u; index < frame->count; ++index) {
         const SceneCommand *command = &frame->commands[index];
 
-        if (command->type == SCENE_COMMAND_SPRITE) {
-            const SceneSprite *sprite = &command->data.sprite;
+        if (command->type == SCENE_COMMAND_SPRITE_INSTANCE) {
+            const SceneSpriteInstance *instance = &command->data.sprite_instance;
+            const SceneSprite *sprite = &instance->sprite;
+
+            if (instance->acceleration_class != SCENE_ACCELERATION_CLASS_DYNAMIC) {
+                free(additive_sprites);
+                renderer_opengl_set_error(error, error_size,
+                                          "source object instance is not dynamic");
+                return 0;
+            }
 
             if (sprite->presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
                 continue;
@@ -3790,8 +3826,9 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
     for (size_t index = 0u; index < frame->count; ++index) {
         const SceneCommand *command = &frame->commands[index];
 
-        if (command->type == SCENE_COMMAND_SPRITE &&
-            command->data.sprite.presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
+        if (command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
+            command->data.sprite_instance.sprite.presentation ==
+                SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
             uint8_t *before_pixels = NULL;
             size_t pixel_byte_count = 0u;
 
@@ -3826,8 +3863,9 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
              * per-fragment self-occlusion for the modern 3D presentation.
              */
             glClear(GL_DEPTH_BUFFER_BIT);
-            if (command->data.sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
-                !renderer_opengl_draw_vector_sprite(renderer, &command->data.sprite, camera, view,
+            if (command->data.sprite_instance.sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
+                !renderer_opengl_draw_vector_sprite(
+                    renderer, &command->data.sprite_instance.sprite, camera, view,
                                                    view_projection, error, error_size)) {
                 free(before_pixels);
                 return 0;

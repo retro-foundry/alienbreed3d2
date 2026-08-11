@@ -14,6 +14,13 @@ enum {
     LEVEL_STATIC_WALL_MECHANISM_LIFT = 2u
 };
 
+enum {
+    LEVEL_STATIC_DYNAMIC_SURFACE_NONE = 0u,
+    LEVEL_STATIC_DYNAMIC_SURFACE_DOOR = 1u,
+    LEVEL_STATIC_DYNAMIC_SURFACE_LIFT = 2u,
+    LEVEL_STATIC_DYNAMIC_SURFACE_WATER = 3u
+};
+
 /* One source Draw_Wall quad expanded to a GPU-neutral triangle list. */
 typedef struct {
     SceneVertex vertices[6];
@@ -32,6 +39,8 @@ typedef struct {
     /* The canonical wall record and lift flat selected by newanims.s. */
     uint8_t mechanism_kind;
     uint8_t reserved0;
+    /* DoorRoutine/LiftRoutine table index; groups all rigid source surfaces. */
+    uint16_t mechanism_index;
     uint32_t mechanism_wall_source_offset;
     uint32_t lift_graphics_offset;
     /* Native rigid-lift side bounds, all in scene Y units. */
@@ -64,6 +73,9 @@ typedef struct {
     int16_t brightness_offset;
     uint16_t source_zone_index;
     uint8_t source_upper_zone;
+    /* LiftRoutine/DoWaterAnims owner, if this flat is source-tick mutable. */
+    uint8_t dynamic_surface_kind;
+    uint16_t dynamic_surface_index;
 } LevelStaticFlatScene;
 
 typedef struct {

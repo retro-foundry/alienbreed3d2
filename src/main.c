@@ -573,54 +573,58 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
                 animation.word_2 >> 8u == 0u || (uint8_t)animation.word_2 == 0u) {
                 continue;
             }
-            command.type = SCENE_COMMAND_SPRITE;
-            command.data.sprite.position = camera->position;
+            command.type = SCENE_COMMAND_SPRITE_INSTANCE;
+            command.data.sprite_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
+            command.data.sprite_instance.sprite.position = camera->position;
             /*
              * Keep the exact ItsABullet descriptor comfortably beyond the
              * presentation-only contact bias.  This drives the same
              * projectile path that draws a live wall impact rather than
              * testing an unflagged synthetic billboard.
              */
-            command.data.sprite.position.x += sine / 256;
-            command.data.sprite.position.z += cosine / 256;
-            command.data.sprite.source = glare != 0 ? SCENE_SPRITE_SOURCE_GLARE_BITMAP :
+            command.data.sprite_instance.sprite.position.x += sine / 256;
+            command.data.sprite_instance.sprite.position.z += cosine / 256;
+            command.data.sprite_instance.sprite.source = glare != 0 ? SCENE_SPRITE_SOURCE_GLARE_BITMAP :
                                                        SCENE_SPRITE_SOURCE_OBJECT_BITMAP;
-            command.data.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
-            command.data.sprite.source_asset_id = asset_index;
-            command.data.sprite.source_record_id = UINT32_MAX - (uint32_t)glare;
-            command.data.sprite.frame_index = frame_index;
-            command.data.sprite.source_clip_top_y = camera->position.y - 65536;
-            command.data.sprite.source_clip_bottom_y = camera->position.y + 65536;
-            command.data.sprite.source_width = (uint8_t)(animation.word_2 >> 8u);
-            command.data.sprite.source_height = (uint8_t)animation.word_2;
-            command.data.sprite.flags = (uint8_t)(SCENE_SPRITE_FLAG_PROJECTILE |
+            command.data.sprite_instance.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+            command.data.sprite_instance.sprite.source_asset_id = asset_index;
+            command.data.sprite_instance.sprite.source_record_id = UINT32_MAX - (uint32_t)glare;
+            command.data.sprite_instance.sprite.frame_index = frame_index;
+            command.data.sprite_instance.sprite.source_clip_top_y = camera->position.y - 65536;
+            command.data.sprite_instance.sprite.source_clip_bottom_y = camera->position.y + 65536;
+            command.data.sprite_instance.sprite.source_width = (uint8_t)(animation.word_2 >> 8u);
+            command.data.sprite_instance.sprite.source_height = (uint8_t)animation.word_2;
+            command.data.sprite_instance.sprite.flags = (uint8_t)(SCENE_SPRITE_FLAG_PROJECTILE |
                 (glare != 0 ? 0u : SCENE_SPRITE_FLAG_ADDITIVE));
-            command.data.sprite.source_effect = glare != 0 ? 0u : 6u;
-            command.data.sprite.frame_metrics.pointer_table_index = frame_data.pointer_table_index;
-            command.data.sprite.frame_metrics.down_strip = frame_data.down_strip;
-            command.data.sprite.frame_metrics.strip_count = frame_data.strip_count;
-            command.data.sprite.frame_metrics.line_count = frame_data.line_count;
-            command.data.sprite.source_bytes =
+            command.data.sprite_instance.sprite.source_effect = glare != 0 ? 0u : 6u;
+            command.data.sprite_instance.sprite.frame_metrics.pointer_table_index = frame_data.pointer_table_index;
+            command.data.sprite_instance.sprite.frame_metrics.down_strip = frame_data.down_strip;
+            command.data.sprite_instance.sprite.frame_metrics.strip_count = frame_data.strip_count;
+            command.data.sprite_instance.sprite.frame_metrics.line_count = frame_data.line_count;
+            command.data.sprite_instance.sprite.source_bytes =
                 app->game.shared_resources.object_wads[asset_index].bytes;
-            command.data.sprite.source_byte_count =
+            command.data.sprite_instance.sprite.source_byte_count =
                 app->game.shared_resources.object_wads[asset_index].size;
-            command.data.sprite.source_aux_bytes =
+            command.data.sprite_instance.sprite.source_aux_bytes =
                 app->game.shared_resources.object_ptrs[asset_index].bytes;
-            command.data.sprite.source_aux_byte_count =
+            command.data.sprite_instance.sprite.source_aux_byte_count =
                 app->game.shared_resources.object_ptrs[asset_index].size;
-            command.data.sprite.source_palette_bytes = glare != 0 ?
+            command.data.sprite_instance.sprite.source_palette_bytes = glare != 0 ?
                 app->game.shared_resources.texture_palette.bytes :
                 app->game.shared_resources.object_palettes[asset_index].bytes;
-            command.data.sprite.source_palette_byte_count = glare != 0 ?
+            command.data.sprite_instance.sprite.source_palette_byte_count = glare != 0 ?
                 app->game.shared_resources.texture_palette.size :
                 app->game.shared_resources.object_palettes[asset_index].size;
-            command.data.sprite.source_display_palette_bytes =
+            command.data.sprite_instance.sprite.source_display_palette_bytes =
                 app->game.shared_resources.main_palette.bytes;
-            command.data.sprite.source_display_palette_byte_count =
+            command.data.sprite_instance.sprite.source_display_palette_byte_count =
                 app->game.shared_resources.main_palette.size;
-            if (!command.data.sprite.source_bytes || !command.data.sprite.source_aux_bytes ||
-                !command.data.sprite.source_palette_bytes ||
-                !command.data.sprite.source_display_palette_bytes ||
+            command.data.sprite_instance.source_mesh_id =
+                ((uint32_t)command.data.sprite_instance.sprite.source << 30u) | asset_index;
+            if (!command.data.sprite_instance.sprite.source_bytes ||
+                !command.data.sprite_instance.sprite.source_aux_bytes ||
+                !command.data.sprite_instance.sprite.source_palette_bytes ||
+                !command.data.sprite_instance.sprite.source_display_palette_bytes ||
                 !scene_frame_reserve(&app->frame, app->frame.count + 1u) ||
                 !scene_frame_submit(&app->frame, &command)) {
                 return 0;
@@ -656,43 +660,47 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
                 animation.word_2 >> 8u == 0u || (uint8_t)animation.word_2 == 0u) {
                 continue;
             }
-            command.type = SCENE_COMMAND_SPRITE;
-            command.data.sprite.position = camera->position;
-            command.data.sprite.position.x += sine / 256;
-            command.data.sprite.position.z += cosine / 256;
-            command.data.sprite.source = SCENE_SPRITE_SOURCE_GLARE_BITMAP;
-            command.data.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
-            command.data.sprite.source_asset_id = asset_index;
-            command.data.sprite.source_record_id = UINT32_MAX - 1u;
-            command.data.sprite.frame_index = frame_index;
-            command.data.sprite.source_clip_top_y = camera->position.y - 65536;
-            command.data.sprite.source_clip_bottom_y = camera->position.y + 65536;
-            command.data.sprite.source_width = (uint8_t)(animation.word_2 >> 8u);
-            command.data.sprite.source_height = (uint8_t)animation.word_2;
-            command.data.sprite.flags = SCENE_SPRITE_FLAG_PROJECTILE;
-            command.data.sprite.frame_metrics.pointer_table_index = frame_data.pointer_table_index;
-            command.data.sprite.frame_metrics.down_strip = frame_data.down_strip;
-            command.data.sprite.frame_metrics.strip_count = frame_data.strip_count;
-            command.data.sprite.frame_metrics.line_count = frame_data.line_count;
-            command.data.sprite.source_bytes =
+            command.type = SCENE_COMMAND_SPRITE_INSTANCE;
+            command.data.sprite_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
+            command.data.sprite_instance.sprite.position = camera->position;
+            command.data.sprite_instance.sprite.position.x += sine / 256;
+            command.data.sprite_instance.sprite.position.z += cosine / 256;
+            command.data.sprite_instance.sprite.source = SCENE_SPRITE_SOURCE_GLARE_BITMAP;
+            command.data.sprite_instance.sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+            command.data.sprite_instance.sprite.source_asset_id = asset_index;
+            command.data.sprite_instance.sprite.source_record_id = UINT32_MAX - 1u;
+            command.data.sprite_instance.sprite.frame_index = frame_index;
+            command.data.sprite_instance.sprite.source_clip_top_y = camera->position.y - 65536;
+            command.data.sprite_instance.sprite.source_clip_bottom_y = camera->position.y + 65536;
+            command.data.sprite_instance.sprite.source_width = (uint8_t)(animation.word_2 >> 8u);
+            command.data.sprite_instance.sprite.source_height = (uint8_t)animation.word_2;
+            command.data.sprite_instance.sprite.flags = SCENE_SPRITE_FLAG_PROJECTILE;
+            command.data.sprite_instance.sprite.frame_metrics.pointer_table_index = frame_data.pointer_table_index;
+            command.data.sprite_instance.sprite.frame_metrics.down_strip = frame_data.down_strip;
+            command.data.sprite_instance.sprite.frame_metrics.strip_count = frame_data.strip_count;
+            command.data.sprite_instance.sprite.frame_metrics.line_count = frame_data.line_count;
+            command.data.sprite_instance.sprite.source_bytes =
                 app->game.shared_resources.object_wads[asset_index].bytes;
-            command.data.sprite.source_byte_count =
+            command.data.sprite_instance.sprite.source_byte_count =
                 app->game.shared_resources.object_wads[asset_index].size;
-            command.data.sprite.source_aux_bytes =
+            command.data.sprite_instance.sprite.source_aux_bytes =
                 app->game.shared_resources.object_ptrs[asset_index].bytes;
-            command.data.sprite.source_aux_byte_count =
+            command.data.sprite_instance.sprite.source_aux_byte_count =
                 app->game.shared_resources.object_ptrs[asset_index].size;
-            command.data.sprite.source_palette_bytes =
+            command.data.sprite_instance.sprite.source_palette_bytes =
                 app->game.shared_resources.texture_palette.bytes;
-            command.data.sprite.source_palette_byte_count =
+            command.data.sprite_instance.sprite.source_palette_byte_count =
                 app->game.shared_resources.texture_palette.size;
-            command.data.sprite.source_display_palette_bytes =
+            command.data.sprite_instance.sprite.source_display_palette_bytes =
                 app->game.shared_resources.main_palette.bytes;
-            command.data.sprite.source_display_palette_byte_count =
+            command.data.sprite_instance.sprite.source_display_palette_byte_count =
                 app->game.shared_resources.main_palette.size;
-            if (!command.data.sprite.source_bytes || !command.data.sprite.source_aux_bytes ||
-                !command.data.sprite.source_palette_bytes ||
-                !command.data.sprite.source_display_palette_bytes ||
+            command.data.sprite_instance.source_mesh_id =
+                ((uint32_t)SCENE_SPRITE_SOURCE_GLARE_BITMAP << 30u) | asset_index;
+            if (!command.data.sprite_instance.sprite.source_bytes ||
+                !command.data.sprite_instance.sprite.source_aux_bytes ||
+                !command.data.sprite_instance.sprite.source_palette_bytes ||
+                !command.data.sprite_instance.sprite.source_display_palette_bytes ||
                 !scene_frame_reserve(&app->frame, app->frame.count + 1u) ||
                 !scene_frame_submit(&app->frame, &command)) {
                 return 0;
