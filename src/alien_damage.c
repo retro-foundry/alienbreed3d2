@@ -237,6 +237,7 @@ int alien_damage_update_reaction(
     if (!object_heading_towards_angle(math, &heading, error, error_size)) {
         return 0;
     }
+    state.heading = heading;
     alien_damage_write_be16(slot + ALIEN_DAMAGE_SLOT_CURRENT_ANGLE,
                             (uint16_t)(heading.angle + state.animation.facing));
     state.got_out = 0u;

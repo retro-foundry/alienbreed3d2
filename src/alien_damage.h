@@ -11,6 +11,7 @@
 #include "game_random.h"
 #include "lighting_runtime.h"
 #include "object_animation.h"
+#include "object_heading.h"
 #include "object_runtime.h"
 #include "player_runtime.h"
 
@@ -41,6 +42,8 @@ int alien_damage_take(ObjectRuntime *objects, uint32_t slot_index,
 /* modules/ai.s:ai_DoTakeDamage's complete nonfatal damage-animation branch. */
 typedef struct {
     AlienAnimationState animation;
+    /* objectmove.s:newx/newz after ai_DoTakeDamage's HeadTowardsAng call. */
+    ObjectHeading heading;
     uint8_t got_out;
 } AlienDamageReactionState;
 

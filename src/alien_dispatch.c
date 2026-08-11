@@ -159,10 +159,13 @@ int alien_dispatch_update(
         if (!alien_damage_update_reaction(
                 objects, slot_index, animation_runtime, game_link, math,
                 &dynamic_level->runtime, lighting, player, setup,
-                workspace->damage_torch_x, workspace->damage_torch_z,
+                alien_runtime->motion.new_x, alien_runtime->motion.new_z,
                 &state.damage_reaction, error, error_size)) {
             return 0;
         }
+        /* HeadTowardsAng leaves its accepted target step in shared newx/newz. */
+        alien_runtime->motion.new_x = state.damage_reaction.heading.new_x;
+        alien_runtime->motion.new_z = state.damage_reaction.heading.new_z;
         break;
     }
     *out_state = state;

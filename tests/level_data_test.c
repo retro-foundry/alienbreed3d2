@@ -11419,6 +11419,140 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+
+            {
+                AlienDispatchWorkspace damage_workspace = {0};
+                AlienDispatchState damage_dispatch;
+                ObjectObservation damage_observation;
+                LightingRuntime expected_damage_lighting;
+                LightingRuntime zero_origin_lighting;
+                AlienSetup damage_setup = pause_setup;
+                LevelPotentialVisibility damage_visible_zone;
+                LevelZone damage_room;
+                LevelWorldPoint damage_point;
+                int16_t damage_point_index = -1;
+                uint16_t damage_marker_index = UINT16_MAX;
+
+                memset(slot_bytes, 0, sizeof(slot_bytes));
+                object_animation_runtime_init(&pause_animation);
+                alien_runtime_init(&pause_runtime);
+                lighting_runtime_init(&pause_lighting);
+                lighting_runtime_init(&expected_damage_lighting);
+                lighting_runtime_init(&zero_origin_lighting);
+                object_explosion_runtime_init(&pause_explosion);
+                game_progression_init(&pause_progression);
+                game_random_init(&pause_random);
+                object_observation_init(&damage_observation);
+                write_be16(slot_bytes + 0u, UINT16_MAX);
+                write_be16(slot_bytes + 12u, pause_player.zone_index);
+                write_be16(slot_bytes + 26u, pause_player.zone_index);
+                write_be16(slot_bytes + 64u + 0u, 0u);
+                write_be16(slot_bytes + 64u + 4u, 22u);
+                write_be16(slot_bytes + 64u + 12u, pause_player.zone_index);
+                write_be16(slot_bytes + 64u + 26u, pause_player.zone_index);
+                write_be16(slot_bytes + 64u + 30u, 0u);
+                write_be16(slot_bytes + 64u + 40u, pause_frame_index);
+                slot_bytes[64u + 20u] = 4u;
+                slot_bytes[64u + 54u] = (uint8_t)pause_alien;
+                slot_bytes[64u + 55u] = 7u;
+                slot_bytes[64u + 63u] = pause_player.stood_in_top;
+                write_be16(point_bytes + 0u, 100u);
+                write_be16(point_bytes + 4u, 200u);
+                pause_animation.workspace[1u][1u] = (uint8_t)pause_frame_index;
+                pause_animation.workspace[1u][2u] = (uint8_t)pause_option;
+                pause_animation.workspace[1u][3u] = UINT8_MAX;
+                if (!level_runtime_get_zone_potential_visibility(
+                        &game.dynamic_level.runtime, pause_player.zone_index, 0u,
+                        &damage_visible_zone, error, sizeof(error)) ||
+                    damage_visible_zone.zone_index < 0 ||
+                    !level_runtime_get_zone(
+                        &game.dynamic_level.runtime,
+                        (uint16_t)damage_visible_zone.zone_index, &damage_room,
+                        error, sizeof(error))) {
+                    fprintf(stderr,
+                            "ai_DoTakeDamage shared motion PVST fixture is unavailable: %s\n",
+                            error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                write_be16(slot_bytes + 64u + 4u,
+                           (uint16_t)(int16_t)(damage_room.floor / 128));
+                for (uint16_t marker_index = 0u;
+                     marker_index < LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT; ++marker_index) {
+                    if (!level_runtime_get_zone_border_point(
+                            &game.dynamic_level.runtime,
+                            (uint16_t)damage_visible_zone.zone_index, marker_index,
+                            &damage_point_index, error, sizeof(error))) {
+                        fprintf(stderr,
+                                "ai_DoTakeDamage shared motion marker fixture is invalid: %s\n",
+                                error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    if (damage_point_index >= 0) {
+                        damage_marker_index = marker_index;
+                        break;
+                    }
+                }
+                if (damage_marker_index == UINT16_MAX ||
+                    !level_runtime_get_world_point(
+                        &game.dynamic_level.runtime, (uint16_t)damage_point_index,
+                        &damage_point, error, sizeof(error))) {
+                    fprintf(stderr,
+                            "ai_DoTakeDamage shared motion point fixture is unavailable: %s\n",
+                            error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                pause_runtime.motion.new_x = damage_point.x;
+                pause_runtime.motion.new_z = source_add16(damage_point.z, -1);
+                expected_damage_lighting.current_point_brightness
+                    [(uint16_t)damage_visible_zone.zone_index]
+                    [(size_t)damage_marker_index * 4u] = 1000;
+                zero_origin_lighting.current_point_brightness
+                    [(uint16_t)damage_visible_zone.zone_index]
+                    [(size_t)damage_marker_index * 4u] = 1000;
+                pause_lighting.current_point_brightness
+                    [(uint16_t)damage_visible_zone.zone_index]
+                    [(size_t)damage_marker_index * 4u] = 1000;
+                damage_setup.brightness = -200;
+                damage_setup.default_mode = 1;
+                if (!alien_torch_apply(
+                        &expected_damage_lighting, &game.dynamic_level.runtime,
+                        &game.math, &pause_objects, 1u, &damage_setup,
+                        pause_runtime.motion.new_x, pause_runtime.motion.new_z,
+                        error, sizeof(error)) ||
+                    !alien_torch_apply(
+                        &zero_origin_lighting, &game.dynamic_level.runtime,
+                        &game.math, &pause_objects, 1u, &damage_setup, 0, 0,
+                        error, sizeof(error)) ||
+                    memcmp(&expected_damage_lighting, &zero_origin_lighting,
+                           sizeof(expected_damage_lighting)) == 0) {
+                    fprintf(stderr,
+                            "ai_DoTakeDamage shared motion fixture is not discriminating: %s\n",
+                            error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (!alien_dispatch_update(
+                        &pause_objects, 1u, &pause_runtime, &pause_animation,
+                        &pause_lighting, &game.dynamic_level, &game.level_navigation,
+                        &game.level_clips, &game.game_link_catalog, &pause_progression,
+                        &pause_explosion, &game.math, &pause_random, &pause_player,
+                        &damage_setup, &damage_observation, NULL, 1u,
+                        &damage_workspace, &damage_dispatch, error, sizeof(error)) ||
+                    damage_dispatch.behavior != ALIEN_MAIN_BEHAVIOR_TAKE_DAMAGE ||
+                    memcmp(&pause_lighting, &expected_damage_lighting,
+                           sizeof(pause_lighting)) != 0 ||
+                    pause_runtime.motion.new_x != damage_dispatch.damage_reaction.heading.new_x ||
+                    pause_runtime.motion.new_z != damage_dispatch.damage_reaction.heading.new_z) {
+                    fprintf(stderr,
+                            "ai_DoTakeDamage did not consume shared objectmove motion: %s\n",
+                            error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
         }
     }
     {

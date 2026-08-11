@@ -11,14 +11,13 @@
 #include "alien_prowl.h"
 
 /*
- * Caller-owned source globals which AI_MainRoutine's selected routes consume.
- * ai_DoTakeDamage alone requires the retained newx/newz pair for ai_DoTorch;
- * the charge/approach paths also consume shared collision/teleport workspace.
+ * Caller-owned source globals which AI_MainRoutine's charge/approach routes
+ * consume. objectmove.s:newx/newz remain process-global in
+ * AlienRuntime.motion; keeping a second pair here would break the source
+ * handoff into ai_DoTakeDamage's early ai_DoTorch call.
  */
 typedef struct {
     AlienChargeWorkspace movement;
-    int16_t damage_torch_x;
-    int16_t damage_torch_z;
 } AlienDispatchWorkspace;
 
 typedef struct {
