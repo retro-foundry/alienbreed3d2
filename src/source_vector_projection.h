@@ -23,6 +23,7 @@ int source_vector_transform_view_weapon_point(
  * actual desktop aspect ratio, avoiding widescreen stretching.
  */
 int source_vector_make_view_weapon_matrix(
-    const SceneViewWeaponProjection *projection, float out_matrix[16]);
+    const SceneViewWeaponProjection *projection, float drawable_aspect,
+    float out_matrix[16]);
 
 #endif

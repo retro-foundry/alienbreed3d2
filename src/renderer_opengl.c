@@ -3231,6 +3231,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                               const SceneCamera *camera,
                                               const RenderView *view,
                                               const float view_projection[16],
+                                              float drawable_aspect,
                                               char *error, size_t error_size)
 {
     const uint8_t *bytes;
@@ -3304,7 +3305,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     }
     if (camera_space != 0) {
         if (!source_vector_make_view_weapon_matrix(
-                &sprite->view_weapon_projection, view_weapon_projection)) {
+                &sprite->view_weapon_projection, drawable_aspect,
+                view_weapon_projection)) {
             renderer_opengl_set_error(error, error_size,
                                       "source view weapon projection is invalid");
             return 0;
@@ -3857,6 +3859,8 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             } else if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
                                                            view_projection,
+                                                           (float)drawable_width /
+                                                               (float)drawable_height,
                                                            error, error_size)) ||
                        (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
@@ -3875,6 +3879,8 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
                                                 view_projection,
+                                                (float)drawable_width /
+                                                    (float)drawable_height,
                                                 error, error_size)) ||
             (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
@@ -3929,6 +3935,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                 !renderer_opengl_draw_vector_sprite(
                     renderer, &command->data.sprite_instance.sprite, camera, view,
                     view_projection,
+                    (float)drawable_width / (float)drawable_height,
                     error, error_size)) {
                 free(before_pixels);
                 return 0;

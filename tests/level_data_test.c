@@ -2889,6 +2889,33 @@ int main(int argc, char **argv)
                     return 1;
                 }
             }
+            if (weapon_source_asset_id == 4u && weapon_projection.depth_bias == 3) {
+                SourceVectorEyePoint muzzle;
+                SourceVectorEyePoint breech;
+
+                /*
+                 * Connect the live Plr1_Use scene command to the compiled
+                 * shotgun direction oracle below.  The old test supplied a
+                 * synthetic projection and therefore missed a sideways live
+                 * companion transform.
+                 */
+                if (!source_vector_transform_view_weapon_point(
+                        &weapon_projection, -353, 0, 0, &muzzle) ||
+                    !source_vector_transform_view_weapon_point(
+                        &weapon_projection, -35, 0, 0, &breech) ||
+                    -muzzle.z <= -breech.z || muzzle.x != 0.0f || breech.x != 0.0f) {
+                    fprintf(stderr,
+                            "campaign level %u live shotgun companion faces the wrong direction "
+                            "(weapon yaw=%u view yaw=%u sine=%d cosine=%d muzzle=%g,%g,%g "
+                            "breech=%g,%g,%g)\n",
+                            level_index, weapon_scene_yaw, game.player.yaw,
+                            weapon_projection.sine, weapon_projection.cosine,
+                            muzzle.x, muzzle.y, muzzle.z, breech.x, breech.y, breech.z);
+                    scene_frame_destroy(&weapon_scene);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
             /*
              * objdrawhires.s:draw_CalcBrightRings must reach the camera-space
              * ENT_NEXT_2 companion: changing its live source-zone samples
@@ -5692,9 +5719,10 @@ int main(int argc, char **argv)
                 &projection, -353, 0, 0, &muzzle) ||
             !source_vector_transform_view_weapon_point(
                 &projection, -35, 0, 0, &breech) ||
-            !source_vector_make_view_weapon_matrix(&projection, matrix) ||
+            !source_vector_make_view_weapon_matrix(
+                &projection, 16.0f / 9.0f, matrix) ||
             -muzzle.z <= -breech.z || muzzle.x != 0.0f || breech.x != 0.0f ||
-            matrix[0] < 0.01041f || matrix[0] > 0.01042f ||
+            matrix[0] < 0.00780f || matrix[0] > 0.00782f ||
             matrix[5] < 0.01388f || matrix[5] > 0.01390f) {
             fprintf(stderr, "source shotgun view projection faces the wrong direction\n");
             game_bootstrap_destroy(&game);
