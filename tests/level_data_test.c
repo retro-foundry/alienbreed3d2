@@ -6227,9 +6227,20 @@ int main(int argc, char **argv)
         if (!game_session_select_level(&game.session, 0u, error, sizeof(error)) ||
             !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||
             !object_scene_count_active(&game.object_runtime, &active_sprite_count,
-                                       error, sizeof(error)) ||
-            !scene_frame_init(&frame, 2u) || !game_bootstrap_submit_scene_frame(&game, &frame)) {
+                                       error, sizeof(error))) {
             fprintf(stderr, "mesh-instance scene submission failed: %s\n", error);
+            scene_frame_destroy(&frame);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* Exercise the post-MoveObject fraction that the renderer must retain. */
+        game.player.x = (int32_t)((uint32_t)game.player.x | UINT32_C(0x1234));
+        game.player.z = (int32_t)((uint32_t)game.player.z | UINT32_C(0x5678));
+        game.player.snap_x = game.player.x;
+        game.player.snap_z = game.player.z;
+        if (!scene_frame_init(&frame, 2u) ||
+            !game_bootstrap_submit_scene_frame(&game, &frame)) {
+            fprintf(stderr, "mesh-instance scene submission failed\n");
             scene_frame_destroy(&frame);
             game_bootstrap_destroy(&game);
             return 1;
@@ -6275,8 +6286,10 @@ int main(int argc, char **argv)
         }
         if (!level_runtime_get_zone(&game.level_runtime, game.level.player1_start_zone,
                                     &zone, error, sizeof(error)) ||
-            game.player.x != player_runtime_world_to_position(game.level.player1_start_x) ||
-            game.player.z != player_runtime_world_to_position(game.level.player1_start_z) ||
+            player_runtime_position_to_world(game.player.x) != game.level.player1_start_x ||
+            player_runtime_position_to_world(game.player.z) != game.level.player1_start_z ||
+            ((uint32_t)game.player.x & UINT32_C(0xffff)) != UINT32_C(0x1234) ||
+            ((uint32_t)game.player.z & UINT32_C(0xffff)) != UINT32_C(0x5678) ||
             game.player.y != zone.floor - 12 * 1024 ||
             game.player.snap_x != game.player.x || game.player.snap_y != game.player.y ||
             game.player.snap_z != game.player.z || game.player.snap_target_y != game.player.y ||
@@ -6286,12 +6299,8 @@ int main(int argc, char **argv)
             frame.commands[0u].data.camera.position.x !=
                 player_runtime_position_to_world(game.player.x) ||
             frame.commands[0u].data.camera.position.y != game.player.y ||
-            frame.commands[0u].data.camera.source_position_x_16_16 !=
-                player_runtime_world_to_position(
-                    player_runtime_position_to_world(game.player.x)) ||
-            frame.commands[0u].data.camera.source_position_z_16_16 !=
-                player_runtime_world_to_position(
-                    player_runtime_position_to_world(game.player.z)) ||
+            frame.commands[0u].data.camera.source_position_x_16_16 != game.player.x ||
+            frame.commands[0u].data.camera.source_position_z_16_16 != game.player.z ||
             frame.commands[0u].data.camera.has_source_position_16_16 == 0u ||
             frame.commands[1u].type != SCENE_COMMAND_LIGHTING ||
             frame.commands[1u].data.lighting.current_point_brightness !=

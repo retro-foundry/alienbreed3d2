@@ -995,14 +995,13 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         command.data.camera.position.y = scene_camera_y;
         command.data.camera.position.z = player_runtime_position_to_world(game->player.z);
         /*
-         * The source camera transform consumes the collision-accepted high
-         * words.  Promote those endpoints for host interpolation; fractional
-         * Snap accumulation must not move the camera ahead of MoveObject.
+         * hires.s:Plr1_Control replaces only the integer position word after
+         * MoveObject and retains the accepted 16.16 fraction in Plr1_XOff_l /
+         * Plr1_ZOff_l.  Use that post-collision state directly so host-rate
+         * interpolation does not quantise camera motion back to world units.
          */
-        command.data.camera.source_position_x_16_16 =
-            player_runtime_world_to_position((int16_t)command.data.camera.position.x);
-        command.data.camera.source_position_z_16_16 =
-            player_runtime_world_to_position((int16_t)command.data.camera.position.z);
+        command.data.camera.source_position_x_16_16 = game->player.x;
+        command.data.camera.source_position_z_16_16 = game->player.z;
         command.data.camera.yaw = game->player.yaw;
         command.data.camera.look_offset = game->player.look_offset;
         command.data.camera.has_source_position_16_16 = UINT8_MAX;
