@@ -32,9 +32,10 @@ authority for all game behavior and data formats.
 - Native real mouse-look is explicitly requested presentation behavior: source
   mouse X still owns source yaw and input state. `RenderView` mirrors its raw
   X delta immediately for host-rate display yaw, reconciles the completed
-  source tick without double-applying that delta, and owns a clamped pitch from
-  mouse Y. It must not rewrite source player aiming or replace the retained
-  small-screen look state.
+  source tick without double-applying that delta, and derives camera pitch from
+  the live `PlrT_AimSpeed_l` slope used by `newplayershoot.s`. Mouse Y updates
+  that mirrored source state immediately between ticks. It must not rewrite
+  source player aiming or replace the retained small-screen look state.
 
 ## Current OpenGL/WebGL presentation milestone
 
@@ -149,8 +150,11 @@ authority for all game behavior and data formats.
   source texel coordinates for floor, ceiling, and water geometry.
 - [x] Native `src/render_view.*` receives mouse-Y motion in parallel with the
   maintained `modules/player.s:plr_MouseControl` input, preserving source
-  simulation while adding a clamped real 3D pitch. Its focused regression
-  covers normal, inverted, and clamp behavior.
+  simulation while adding real 3D pitch. The camera uses the source projectile
+  slope `-PlrT_AimSpeed_l / 8192`, which follows directly from `firefive`'s
+  `ASL.L BulT_Speed_l` horizontal velocity and `(8-BulT_Speed_l)` vertical
+  shift. Its focused regression covers normal, inverted, clamp, and committed
+  source-state reconciliation behavior.
 - [x] The host presentation cadence now follows the first port's 50 Hz update
   scheme: `hires.s:VBlankInterrupt`-paced simulation retains its existing
   input, player, collision, weapon, and object ordering; the scene boundary
@@ -166,7 +170,10 @@ authority for all game behavior and data formats.
   Spawned/removed source records remain discrete.
   Raw mouse-X display yaw is applied at host cadence and reconciled after the
   source `c/system.c:Sys_ReadMouse`/`modules/player.s:plr_MouseControl` tick,
-  so mouse look is not limited to 50 Hz or applied twice.
+  so mouse look is not limited to 50 Hz or applied twice. The companion weapon
+  likewise retains `Plr1_Use`/`draw_PolygonModel`'s constant relative angle of
+  +2048 instead of lagging behind that host-rate view with an interpolated
+  ObjT angle.
 - [x] Native CMake links OpenGL and preserves the first port's SDL setup.
   Emscripten skips FetchContent, builds an `ab3d2.html` WebGL target with the
   browser-safe main loop, and preloads the lower-case `stage_media.py` asset

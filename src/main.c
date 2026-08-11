@@ -470,6 +470,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     audio_sdl_set_music_enabled(app->audio, app->game.preferences.play_music);
     render_view_init(&app->view);
     render_view_set_source_yaw(&app->view, app->game.player.yaw);
+    render_view_set_source_look(&app->view, app->game.player.aim_speed,
+                                app->game.player.look_offset);
     scene_frame_begin(&app->source_frame);
     if (!game_bootstrap_submit_scene_frame(&app->game, &app->source_frame) ||
         !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
@@ -553,9 +555,9 @@ static void game_app_tick(GameApp *app)
             /* Native real look is presentation state; source mouse input stays intact. */
             if (app->game.player.mouse_active != 0u) {
                 render_view_add_mouse_yaw(&app->view, event.motion.xrel);
+                render_view_add_mouse_motion(&app->view, event.motion.yrel,
+                                             app->game.player.invert_mouse);
             }
-            render_view_add_mouse_motion(&app->view, event.motion.yrel,
-                                         app->game.player.invert_mouse);
         }
         if (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP) {
             if (!set_mouse_button_source_key(&app->game, event.button.button,
@@ -600,6 +602,8 @@ static void game_app_tick(GameApp *app)
         }
         render_view_reconcile_source_yaw(&app->view, previous_source_yaw,
                                          app->game.player.yaw, consumed_mouse_x);
+        render_view_set_source_look(&app->view, app->game.player.aim_speed,
+                                    app->game.player.look_offset);
         audio_sdl_consume_events(app->audio, &app->game.audio_events, &app->game.player,
                                  render_view_yaw(&app->view));
         if (!game_app_capture_source_frame(app)) {
