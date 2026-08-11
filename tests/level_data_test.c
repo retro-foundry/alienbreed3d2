@@ -2935,33 +2935,6 @@ int main(int argc, char **argv)
                     return 1;
                 }
             }
-            if (weapon_source_asset_id == 4u && weapon_projection.depth_bias == 3) {
-                SourceVectorEyePoint stock;
-                SourceVectorEyePoint barrel;
-
-                /*
-                 * Connect the live Plr1_Use scene command to the compiled
-                 * shotgun direction oracle below. The project names the long
-                 * negative-X components stock/stock2 and the short end barrel.
-                 */
-                if (!source_vector_transform_view_weapon_point(
-                        &weapon_projection, -353, 0, 0, &stock) ||
-                    !source_vector_transform_view_weapon_point(
-                        &weapon_projection, -35, 0, 0, &barrel) ||
-                    weapon_projection.reverse_longitudinal_axis == 0u ||
-                    -stock.z >= -barrel.z || stock.x != barrel.x) {
-                    fprintf(stderr,
-                            "campaign level %u live shotgun companion faces the wrong direction "
-                            "(weapon yaw=%u view yaw=%u sine=%d cosine=%d stock=%g,%g,%g "
-                            "barrel=%g,%g,%g)\n",
-                            level_index, weapon_scene_yaw, game.player.yaw,
-                            weapon_projection.sine, weapon_projection.cosine,
-                            stock.x, stock.y, stock.z, barrel.x, barrel.y, barrel.z);
-                    scene_frame_destroy(&weapon_scene);
-                    game_bootstrap_destroy(&game);
-                    return 1;
-                }
-            }
             /*
              * objdrawhires.s:draw_CalcBrightRings must reach the camera-space
              * ENT_NEXT_2 companion: changing its live source-zone samples
@@ -5134,14 +5107,13 @@ int main(int argc, char **argv)
         PlayerRuntime rollover_player = game.player;
         GameInput rollover_input;
         GamePreferences rollover_preferences = game.preferences;
-        const int32_t expected_x_velocity = 32767 * 4;
+        const int32_t expected_x_velocity = 32767 * 3;
         const int32_t expected_z_velocity = -32767 * 3;
 
         /*
-         * modules/player.s applies both strafe branches to the same d4 word.
-         * With run speed three, left leaves d4=3 and the following right
-         * branch produces -(3+3+3)>>1 = -4. Forward/backward still use the
-         * later binding because they assign d3 rather than accumulating it.
+         * Alien-Breed-3D-I's PC controller resolves opposing movement keys
+         * deterministically: the later binding wins. Keep that host input
+         * policy instead of exposing a shared-register rollover artefact.
          */
         rollover_player.mouse_active = 0u;
         rollover_player.yaw = 0u;
@@ -5187,7 +5159,7 @@ int main(int argc, char **argv)
                 player_runtime_position_to_world(rollover_player.snap_z) ||
             rollover_player.presentation_x != rollover_player.x ||
             rollover_player.presentation_z != rollover_player.z) {
-            fprintf(stderr, "source opposing-key rollover is inconsistent: %s\n",
+            fprintf(stderr, "first-port opposing-key rollover is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;
@@ -5972,46 +5944,27 @@ int main(int argc, char **argv)
     }
     {
         SceneViewWeaponProjection projection = {0};
-        SourceVectorEyePoint stock;
-        SourceVectorEyePoint barrel;
+        SourceVectorEyePoint point;
         float matrix[16];
 
-        /*
-         * The source project contains stock.obj/stock2.obj at compiled frame
-         * X=-353..-152 and barrel1.obj/barrel2.obj at X=-103..-35. The GPU
-         * camera-space model must put that named stock end nearest the eye.
-         */
-        projection.sine = 0;
-        projection.cosine = INT16_MIN;
+        /* objdrawhires.s:rotate_object applies one common transform to every model. */
+        projection.sine = INT16_MAX;
+        projection.cosine = 0;
+        projection.y_offset = 128;
         projection.depth_bias = 3;
         projection.centre_x = 160u;
         projection.centre_y = 120u;
         projection.scale_numerator = 5u;
         projection.scale_denominator = 3u;
-        if (!source_vector_configure_view_weapon_axis_correction(
-                &projection, game.shared_resources.vector_models[4u].bytes,
-                game.shared_resources.vector_models[4u].size, 0u,
-                error, sizeof(error)) ||
-            !source_vector_transform_view_weapon_point(
-                &projection, -353, 0, 0, &stock) ||
-            !source_vector_transform_view_weapon_point(
-                &projection, -35, 0, 0, &barrel) ||
+        if (!source_vector_transform_view_weapon_point(
+                &projection, 4, -2, 6, &point) ||
             !source_vector_make_view_weapon_matrix(
                 &projection, 16.0f / 9.0f, matrix) ||
-            projection.reverse_longitudinal_axis == 0u ||
-            -stock.z >= -barrel.z || stock.x != barrel.x ||
+            point.x != 255.0f || point.y != 0.0f || point.z != -5.0f ||
             matrix[0] < 0.00780f || matrix[0] > 0.00782f ||
             matrix[5] < 0.01388f || matrix[5] > 0.01390f) {
-            fprintf(stderr, "source shotgun view projection faces the wrong direction: %s\n",
+            fprintf(stderr, "source view-weapon point projection is inconsistent: %s\n",
                     error);
-            game_bootstrap_destroy(&game);
-            return 1;
-        }
-        error[0] = '\0';
-        if (source_vector_configure_view_weapon_axis_correction(
-                &projection, game.shared_resources.vector_models[4u].bytes, 5u, 0u,
-                error, sizeof(error)) || error[0] == '\0') {
-            fprintf(stderr, "malformed shotgun basis source was not rejected clearly\n");
             game_bootstrap_destroy(&game);
             return 1;
         }

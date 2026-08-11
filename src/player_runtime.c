@@ -1063,18 +1063,11 @@ static int player_runtime_update_keyboard_motion(PlayerRuntime *player, const Ga
 
     strafe = 0;
     if (strafe_left_down) {
-        /*
-         * modules/player.s:.skip_step_left adds d2 twice to the shared d4
-         * word and then ASR.Ws it once. Preserve that exact state transition
-         * because the following right-key branch deliberately reuses d4.
-         */
-        strafe = player_runtime_asr16(
-            player_runtime_add16(player_runtime_add16(strafe, move_speed), move_speed), 1u);
+        strafe = move_speed;
     }
     if (strafe_right_down) {
-        strafe = player_runtime_asr16(
-            player_runtime_add16(player_runtime_add16(strafe, move_speed), move_speed), 1u);
-        strafe = (int16_t)(UINT16_C(0) - (uint16_t)strafe);
+        /* First-port PC policy: the later binding wins during key rollover. */
+        strafe = (int16_t)(UINT16_C(0) - (uint16_t)move_speed);
     }
     forward = 0;
     if (game_input_is_control_down(input, controls, GAME_CONTROL_FORWARDS)) {
