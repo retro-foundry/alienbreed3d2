@@ -404,7 +404,7 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
         return 0;
     }
     /* endlevel returns through controlloop only once per successful level. */
-    if (game->session.level_finished != 0u) {
+    if (game->session.level_ended != 0u) {
         return 1;
     }
     game->message_time_milliseconds = message_time_milliseconds;
@@ -534,6 +534,9 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     if (game->dynamic_level.runtime.exit_zone_id >= 0 &&
         player_zone.id == (uint16_t)game->dynamic_level.runtime.exit_zone_id) {
         game_session_finish_single_player(&game->session, 1);
+    } else if ((int16_t)game->player.health <= 0) {
+        /* hires.s checks Player 1 death immediately after the exit-zone win. */
+        game_session_finish_single_player(&game->session, 0);
     }
     /* hires.s:VBlankInterrupt advances water pointer/scroll once per source frame. */
     game->presentation_frame += 1u;

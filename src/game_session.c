@@ -133,6 +133,7 @@ void game_session_begin_single_player(GameSession *session)
     /* game_DoneMenu copies Plr_ inventory into Plr1 before Game_Begin. */
     session->player1_inventory = session->campaign_inventory;
     session->active_level_index = session->menu_level_index;
+    session->level_ended = 0;
     session->level_finished = 0;
 }
 
@@ -141,6 +142,7 @@ void game_session_finish_single_player(GameSession *session, int level_finished)
     if (!session) {
         return;
     }
+    session->level_ended = 1u;
     session->level_finished = level_finished ? 1u : 0u;
     /* game_DoneMenu only copies Plr1 inventory back when Game_FinishedLevel_b is set. */
     if (session->level_finished) {

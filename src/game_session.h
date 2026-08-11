@@ -18,6 +18,8 @@
 typedef struct {
     uint16_t menu_level_index;
     uint16_t active_level_index;
+    /* hires.s:endlevel returns for both death and successful completion. */
+    uint8_t level_ended;
     uint8_t level_finished;
     GameInventory campaign_inventory;
     GameInventory player1_inventory;

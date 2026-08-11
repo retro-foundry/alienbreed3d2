@@ -659,13 +659,14 @@ static void game_app_tick(GameApp *app)
             renderer_request_quit(app->renderer);
             return;
         }
-        if (app->game.session.level_finished != 0u) {
+        if (app->game.session.level_ended != 0u) {
             break;
         }
     }
-    if (app->game.session.level_finished != 0u) {
-        fprintf(stdout, "[GAME] Level %c complete; direct session is ending\n",
-                (char)('A' + app->game.active_level_index));
+    if (app->game.session.level_ended != 0u) {
+        fprintf(stdout, "[GAME] Level %c %s; direct session is ending\n",
+                (char)('A' + app->game.active_level_index),
+                app->game.session.level_finished != 0u ? "complete" : "failed");
         /* The source returns to its menu after endlevel; direct mode exits instead. */
         renderer_request_quit(app->renderer);
         return;

@@ -6014,13 +6014,15 @@ int main(int argc, char **argv)
     }
     game.session.player1_inventory.health = 199u;
     game_session_finish_single_player(&game.session, 0);
-    if (game.session.campaign_inventory.health != 200u) {
+    if (game.session.level_ended == 0u || game.session.level_finished != 0u ||
+        game.session.campaign_inventory.health != 200u) {
         fprintf(stderr, "unfinished level unexpectedly changed campaign inventory\n");
         game_bootstrap_destroy(&game);
         return 1;
     }
     game_session_finish_single_player(&game.session, 1);
-    if (game.session.campaign_inventory.health != 199u) {
+    if (game.session.level_ended == 0u || game.session.level_finished == 0u ||
+        game.session.campaign_inventory.health != 199u) {
         fprintf(stderr, "finished level did not preserve player-one inventory\n");
         game_bootstrap_destroy(&game);
         return 1;
@@ -6736,6 +6738,39 @@ int main(int argc, char **argv)
             return 1;
         }
         game.dynamic_level.runtime.exit_zone_id = authored_exit_zone_id;
+    }
+    {
+        GameInventory campaign_before_death;
+        uint64_t ended_time;
+
+        if (!game_session_default(&game.session, &game.game_link_catalog,
+                                  error, sizeof(error)) ||
+            !game_bootstrap_start_selected_single_player(
+                &game, argv[1], error, sizeof(error))) {
+            fprintf(stderr, "could not load source death/endlevel fixture: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game.dynamic_level.runtime.exit_zone_id = -1;
+        campaign_before_death = game.session.campaign_inventory;
+        game.session.player1_inventory.health = 0u;
+        game.player.health = 0u;
+        if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
+            game.session.level_ended == 0u || game.session.level_finished != 0u ||
+            memcmp(&game.session.campaign_inventory, &campaign_before_death,
+                   sizeof(campaign_before_death)) != 0) {
+            fprintf(stderr, "source player-death endlevel handoff is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        ended_time = game.message_time_milliseconds;
+        if (!game_bootstrap_update_single_player(&game, error, sizeof(error)) ||
+            game.message_time_milliseconds != ended_time) {
+            fprintf(stderr, "ended source level continued simulating: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     {
         uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
