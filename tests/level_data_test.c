@@ -11071,6 +11071,7 @@ int main(int argc, char **argv)
         ObjectRuntime death_objects = {0};
         ObjectAnimationRuntime death_animation;
         ObjectExplosionRuntime death_explosion;
+        AlienRuntime death_runtime;
         GameProgression death_progression;
         GameRandom death_random;
         LevelRuntime death_level = {0};
@@ -11141,10 +11142,11 @@ int main(int argc, char **argv)
         }
         object_animation_runtime_init(&death_animation);
         object_explosion_runtime_init(&death_explosion);
+        alien_runtime_init(&death_runtime);
         game_progression_init(&death_progression);
         game_random_init(&death_random);
         if (!alien_death_just_died(
-                &death_objects, 0u, &death_level, &death_link, &death_progression,
+                &death_objects, 0u, &death_runtime, &death_level, &death_link, &death_progression,
                 &death_animation, &death_explosion, &game.math, &death_random, &death_state,
                 error, sizeof(error)) ||
             death_state.narrative.bytes != NULL || death_state.splat_type != bullet_splat_type ||
@@ -11153,7 +11155,8 @@ int main(int argc, char **argv)
             slot_bytes[18u] != 0u || slot_bytes[20u] != 5u || slot_bytes[55u] != 3u ||
             read_be16(slot_bytes + 40u) != 0u || death_animation.workspace[0u][1u] != UINT8_MAX ||
             death_progression.alien_kills[bullet_parent_type] != 1u ||
-            death_progression.signal != 1u) {
+            death_progression.signal != 1u || death_runtime.motion.new_x != 300 ||
+            death_runtime.motion.new_z != -400) {
             fprintf(stderr, "ai_JustDied bullet-splat state is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;
@@ -11182,10 +11185,11 @@ int main(int argc, char **argv)
         }
         object_animation_runtime_init(&death_animation);
         object_explosion_runtime_init(&death_explosion);
+        alien_runtime_init(&death_runtime);
         game_progression_init(&death_progression);
         game_random_init(&death_random);
         if (!alien_death_just_died(
-                &death_objects, 0u, &death_level, &death_link, &death_progression,
+                &death_objects, 0u, &death_runtime, &death_level, &death_link, &death_progression,
                 &death_animation, &death_explosion, &game.math, &death_random, &death_state,
                 error, sizeof(error)) ||
             death_state.narrative.bytes != narrative_bytes ||
@@ -11196,7 +11200,8 @@ int main(int argc, char **argv)
             slot_bytes[18u] != 0u || slot_bytes[20u] != 5u || slot_bytes[55u] != 3u ||
             read_be16(slot_bytes + 40u) != 0u || death_animation.workspace[0u][1u] != UINT8_MAX ||
             death_progression.alien_kills[child_parent_type] != 1u ||
-            death_progression.signal != 1u) {
+            death_progression.signal != 1u || death_runtime.motion.new_x != 17 ||
+            death_runtime.motion.new_z != 17493) {
             fprintf(stderr, "ai_JustDied child-splat state is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;

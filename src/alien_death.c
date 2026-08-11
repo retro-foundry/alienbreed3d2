@@ -108,6 +108,7 @@ int alien_death_update(ObjectRuntime *objects, uint32_t slot_index,
 }
 
 int alien_death_just_died(ObjectRuntime *objects, uint32_t slot_index,
+                          AlienRuntime *alien_runtime,
                           const LevelRuntime *level, const GameLink *game_link,
                           GameProgression *progression,
                           ObjectAnimationRuntime *animation_runtime,
@@ -125,7 +126,7 @@ int alien_death_just_died(ObjectRuntime *objects, uint32_t slot_index,
     GameAlienDefinition definition;
     AlienJustDiedState state;
 
-    if (!objects || !level || !game_link || !progression || !animation_runtime ||
+    if (!objects || !alien_runtime || !level || !game_link || !progression || !animation_runtime ||
         !explosion_runtime || !math || !random || !out_state ||
         slot_index >= objects->active_slot_count ||
         !object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
@@ -164,6 +165,10 @@ int alien_death_just_died(ObjectRuntime *objects, uint32_t slot_index,
         alien_death_set_error(error, error_size, "ai_JustDied alien point is outside source state");
         return 0;
     }
+    /* ai_JustDied publishes the splat origin through objectmove.s:newx/newz. */
+    object_motion_runtime_set_new_words(
+        &alien_runtime->motion, alien_death_read_be16s(point),
+        alien_death_read_be16s(point + 4u));
     alien_type = slot[ALIEN_DEATH_SLOT_ENTITY_TYPE];
     if (!game_progression_record_alien_kill(progression, alien_type, error, error_size) ||
         !game_link_get_alien_definition(game_link, alien_type, &definition, error, error_size)) {

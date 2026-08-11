@@ -625,9 +625,10 @@ int alien_attack_with_hitscan_update(
             return 0;
         }
         if (state.damage.route == ALIEN_DAMAGE_ROUTE_JUST_DIED) {
-            if (!alien_death_just_died(objects, slot_index, level, game_link, progression,
-                                       animation_runtime, explosion_runtime, math, random,
-                                       &state.death, error, error_size)) {
+            if (!alien_death_just_died(
+                    objects, slot_index, alien_runtime, level, game_link, progression,
+                    animation_runtime, explosion_runtime, math, random, &state.death,
+                    error, error_size)) {
                 return 0;
             }
             state.got_out = state.death.got_out;
@@ -801,9 +802,10 @@ int alien_attack_with_projectile_update(
             return 0;
         }
         if (state.damage.route == ALIEN_DAMAGE_ROUTE_JUST_DIED) {
-            if (!alien_death_just_died(objects, slot_index, level, game_link, progression,
-                                       animation_runtime, explosion_runtime, math, random,
-                                       &state.death, error, error_size)) {
+            if (!alien_death_just_died(
+                    objects, slot_index, alien_runtime, level, game_link, progression,
+                    animation_runtime, explosion_runtime, math, random, &state.death,
+                    error, error_size)) {
                 return 0;
             }
             state.got_out = state.death.got_out;

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "alien_animation.h"
+#include "alien_runtime.h"
 #include "alien_setup.h"
 #include "game_progression.h"
 #include "level_runtime.h"
@@ -48,6 +49,7 @@ typedef struct {
  * ObjectHandler, which hands it to the GPU-neutral message ring.
  */
 int alien_death_just_died(ObjectRuntime *objects, uint32_t slot_index,
+                          AlienRuntime *alien_runtime,
                           const LevelRuntime *level, const GameLink *game_link,
                           GameProgression *progression,
                           ObjectAnimationRuntime *animation_runtime,
