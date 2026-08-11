@@ -230,6 +230,15 @@ typedef struct {
     uint16_t centre_y;
     uint16_t scale_numerator;
     uint16_t scale_denominator;
+    /*
+     * A source weapon can use a longitudinal model basis intended for the
+     * software near-plane path. The scene producer can request the
+     * equivalent half turn about this frame-local depth centre so every GPU
+     * backend receives the same physically oriented camera-space model.
+     */
+    uint8_t reverse_longitudinal_axis;
+    uint8_t reserved[3];
+    int32_t depth_reflection_sum;
 } SceneViewWeaponProjection;
 
 /*

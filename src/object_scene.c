@@ -1,6 +1,7 @@
 #include "object_scene.h"
 
 #include "object_heading.h"
+#include "source_vector_projection.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -684,6 +685,20 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
             sprite.view_weapon_projection.centre_y = 120u;
             sprite.view_weapon_projection.scale_numerator = 5u;
             sprite.view_weapon_projection.scale_denominator = 3u;
+            /*
+             * media/vectobj/shotgun.prj authors vector slot 4 from stock to
+             * barrel along negative X. The old near-plane software path
+             * consumes that basis facing the viewer; a physical 3D camera
+             * needs the equivalent frame-centred half turn. Keep this in the
+             * scene projection so OpenGL and a future DXR backend agree.
+             */
+            if (asset_index == 4u &&
+                !source_vector_configure_view_weapon_axis_correction(
+                    &sprite.view_weapon_projection, sprite.source_bytes,
+                    sprite.source_byte_count, sprite.frame_index,
+                    error, error_size)) {
+                return 0;
+            }
         }
     } else if (graphics_type < 0) {
         asset_index = (uint16_t)(0u - (uint16_t)graphics_type);
