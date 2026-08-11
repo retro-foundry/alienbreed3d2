@@ -180,7 +180,7 @@ int object_collectables_collect_item_single_player(
     }
     game_inventory_apply_grant(inventory, &grant, limits);
     /* Plr1_CollectItem copies the camera-relative ObjRotated point. */
-    if (audio_events) {
+    if (audio_events && definition->sound_effect >= 0) {
         if (!observation || point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT) {
             object_collectables_set_error(
                 error, error_size,

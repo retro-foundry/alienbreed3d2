@@ -3212,6 +3212,8 @@ int main(int argc, char **argv)
                 write_be32(activatable_collection_slot + 50u, 1u);
                 activatable_expected_inventory = activatable_inventory;
                 game_audio_events_init(&activatable_audio);
+                activatable_audio.source_sample_index = 23;
+                activatable_audio.source_id_register = UINT16_C(0x4567);
                 activatable_messages.redraw_count = 0u;
                 if (!game_link_get_object_inventory_grant(
                         &game.game_link_catalog, activatable_slot[54u],
@@ -3237,11 +3239,11 @@ int main(int argc, char **argv)
                     memcmp(&activatable_inventory, &activatable_expected_inventory,
                            sizeof(activatable_inventory)) != 0 ||
                     activatable_messages.redraw_count == 0u ||
-                    activatable_audio.source_sample_index !=
-                        activatable_definition.sound_effect ||
-                    activatable_audio.source_id_register != activatable_point_index ||
                     (activatable_definition.sound_effect >= 0 &&
-                     (activatable_audio.count != 1u ||
+                     (activatable_audio.source_sample_index !=
+                          activatable_definition.sound_effect ||
+                      activatable_audio.source_id_register != activatable_point_index ||
+                      activatable_audio.count != 1u ||
                       activatable_audio.events[0].sample_index !=
                           (uint16_t)activatable_definition.sound_effect ||
                       activatable_audio.events[0].volume != 80u ||
@@ -3253,7 +3255,9 @@ int main(int argc, char **argv)
                       activatable_audio.events[0].source_id !=
                           activatable_point_index)) ||
                     (activatable_definition.sound_effect < 0 &&
-                     activatable_audio.count != 0u)) {
+                     (activatable_audio.count != 0u ||
+                      activatable_audio.source_sample_index != 23 ||
+                      activatable_audio.source_id_register != UINT16_C(0x4567)))) {
                     fprintf(stderr,
                             "campaign level %u activatable collection side effects are inconsistent\n",
                             level_index);
