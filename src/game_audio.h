@@ -78,6 +78,10 @@ void game_audio_events_emit_relative_with_source_id_high_byte(
 void game_audio_events_emit_current_sample(
     GameAudioEvents *events, int16_t volume, int16_t world_x, int16_t world_z,
     uint16_t source_id, uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
+/* Reuse Aud_SampleNum_w when the caller copied an ObjRotated point. */
+void game_audio_events_emit_current_sample_relative(
+    GameAudioEvents *events, int16_t volume, int16_t relative_x, int16_t relative_z,
+    uint16_t source_id, uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
 
 void game_background_audio_runtime_init(GameBackgroundAudioRuntime *runtime);
 /* Exact BACKSFX timer, alternating zone mask, random selection, and event order. */

@@ -127,6 +127,19 @@ void game_audio_events_emit_current_sample(
                             source_id, suppress_if_playing, channel_pick, echo, 0u);
 }
 
+void game_audio_events_emit_current_sample_relative(
+    GameAudioEvents *events, int16_t volume, int16_t relative_x, int16_t relative_z,
+    uint16_t source_id, uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo)
+{
+    if (!events) {
+        return;
+    }
+    events->source_id_register = source_id;
+    game_audio_events_queue(events, events->source_sample_index, volume,
+                            relative_x, relative_z, source_id,
+                            suppress_if_playing, channel_pick, echo, UINT8_MAX);
+}
+
 void game_background_audio_runtime_init(GameBackgroundAudioRuntime *runtime)
 {
     if (runtime) {

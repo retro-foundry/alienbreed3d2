@@ -8573,6 +8573,7 @@ int main(int argc, char **argv)
         PlayerRuntime fire_player = {0};
         AlienSetup fire_alien_setup = {0};
         AlienAttackSetup fire_attack_setup = {0};
+        ObjectObservation fire_observation;
         GameAudioEvents fire_audio;
         ObjectApproach expected_approach = {0};
         uint8_t spawned = 0u;
@@ -8623,6 +8624,9 @@ int main(int argc, char **argv)
         fire_attack_setup.shot_power = 7u;
         fire_attack_setup.shot_speed = 16u;
         fire_attack_setup.shot_shift = 4u;
+        object_observation_init(&fire_observation);
+        fire_observation.rotated_x[FIRE_ALIEN_SLOT] = 37;
+        fire_observation.rotated_z[FIRE_ALIEN_SLOT] = -29;
         game_audio_events_init(&fire_audio);
         /* DOALLANIMS would have selected the attack-frame sample first. */
         fire_audio.source_sample_index = 23;
@@ -8685,11 +8689,13 @@ int main(int argc, char **argv)
                                             expected_vertical_divisor);
         if (!alien_attack_fire_at_player_one(
                 &fire_objects, FIRE_ALIEN_SLOT, &fire_player, &fire_alien_setup,
-                &fire_attack_setup, &fire_audio, &spawned, error, sizeof(error)) ||
+                &fire_attack_setup, &fire_observation, &fire_audio,
+                &spawned, error, sizeof(error)) ||
             spawned != UINT8_MAX ||
             fire_audio.count != 1u || fire_audio.events[0u].sample_index != 23u ||
             fire_audio.events[0u].volume != 100u ||
-            fire_audio.events[0u].world_x != 100 || fire_audio.events[0u].world_z != 200 ||
+            fire_audio.events[0u].world_x != 37 || fire_audio.events[0u].world_z != -29 ||
+            fire_audio.events[0u].listener_relative == 0u ||
             fire_audio.events[0u].source_id != FIRE_ALIEN_SLOT ||
             fire_audio.events[0u].suppress_if_playing != GAME_AUDIO_RESTART_SOURCE ||
             fire_audio.events[0u].channel_pick != 1u ||
@@ -8744,7 +8750,8 @@ int main(int argc, char **argv)
         spawned = UINT8_MAX;
         if (!alien_attack_fire_at_player_one(
                 &fire_objects, FIRE_ALIEN_SLOT, &fire_player, &fire_alien_setup,
-                &fire_attack_setup, &fire_audio, &spawned, error, sizeof(error)) ||
+                &fire_attack_setup, &fire_observation, &fire_audio,
+                &spawned, error, sizeof(error)) ||
             spawned != 0u || fire_audio.count != 0u || fire_audio.source_sample_index != 23) {
             fprintf(stderr, "FireAtPlayer1 exhausted-pool path is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
@@ -8863,7 +8870,7 @@ int main(int argc, char **argv)
                 &attack_animation, &attack_lighting, &game.dynamic_level.runtime,
                 &game.level_clips, &game.game_link_catalog, &attack_progression,
                 &attack_explosion, &game.math, &attack_random, &attack_player,
-                &attack_alien_setup, NULL, &attack_state, error, sizeof(error)) ||
+                &attack_alien_setup, NULL, NULL, &attack_state, error, sizeof(error)) ||
             attack_state.setup.is_hitscan != 0u || attack_state.animation.action != UINT8_MAX ||
             attack_state.animation.finished != UINT8_MAX ||
             attack_state.projectile_spawned != UINT8_MAX ||

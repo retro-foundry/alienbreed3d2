@@ -49,6 +49,7 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
                                     const PlayerRuntime *player,
                                     const AlienSetup *alien_setup,
                                     const AlienAttackSetup *attack_setup,
+                                    const ObjectObservation *observation,
                                     GameAudioEvents *audio_events,
                                     uint8_t *out_spawned,
                                     char *error, size_t error_size);
@@ -127,7 +128,8 @@ int alien_attack_with_projectile_update(
     const LevelRuntime *level, const AssetBlob *clips, const GameLink *game_link,
     GameProgression *progression, ObjectExplosionRuntime *explosion_runtime,
     const GameMath *math, GameRandom *random, const PlayerRuntime *player,
-    const AlienSetup *alien_setup, GameAudioEvents *audio_events,
+    const AlienSetup *alien_setup, const ObjectObservation *observation,
+    GameAudioEvents *audio_events,
     AlienProjectileAttackState *out_state,
     char *error, size_t error_size);
 

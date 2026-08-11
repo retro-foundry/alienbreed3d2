@@ -212,6 +212,7 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
                                     const PlayerRuntime *player,
                                     const AlienSetup *alien_setup,
                                     const AlienAttackSetup *attack_setup,
+                                    const ObjectObservation *observation,
                                     GameAudioEvents *audio_events,
                                     uint8_t *out_spawned,
                                     char *error, size_t error_size)
@@ -286,11 +287,20 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
      * FireAtPlayer1 does not select a sample. It reuses Aud_SampleNum_w from
      * DOALLANIMS byte five, raises the volume, and restarts this alien's ID.
      */
-    game_audio_events_emit_current_sample(
-        audio_events, 100, alien_attack_read_be16s(alien_point),
-        alien_attack_read_be16s(alien_point + 4u),
-        alien_attack_read_be16(alien_slot + ALIEN_ATTACK_SLOT_POINT_INDEX),
-        GAME_AUDIO_RESTART_SOURCE, 1u, alien_setup->zone_echo);
+    if (audio_events) {
+        uint16_t alien_point_index = alien_attack_read_be16(
+            alien_slot + ALIEN_ATTACK_SLOT_POINT_INDEX);
+
+        if (!observation || alien_point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT) {
+            alien_attack_set_error(error, error_size,
+                                   "FireAtPlayer1 audio point is outside ObjRotated state");
+            return 0;
+        }
+        game_audio_events_emit_current_sample_relative(
+            audio_events, 100, observation->rotated_x[alien_point_index],
+            observation->rotated_z[alien_point_index], alien_point_index,
+            GAME_AUDIO_RESTART_SOURCE, 1u, alien_setup->zone_echo);
+    }
 
     approach.old_x = alien_attack_read_be16s(alien_point);
     approach.old_z = alien_attack_read_be16s(alien_point + 4u);
@@ -750,7 +760,8 @@ int alien_attack_with_projectile_update(
     const LevelRuntime *level, const AssetBlob *clips, const GameLink *game_link,
     GameProgression *progression, ObjectExplosionRuntime *explosion_runtime,
     const GameMath *math, GameRandom *random, const PlayerRuntime *player,
-    const AlienSetup *alien_setup, GameAudioEvents *audio_events,
+    const AlienSetup *alien_setup, const ObjectObservation *observation,
+    GameAudioEvents *audio_events,
     AlienProjectileAttackState *out_state,
     char *error, size_t error_size)
 {
@@ -843,7 +854,7 @@ int alien_attack_with_projectile_update(
     }
     if (state.animation.action != 0u &&
         !alien_attack_fire_at_player_one(objects, slot_index, player, alien_setup, &state.setup,
-                                         audio_events, &state.projectile_spawned,
+                                         observation, audio_events, &state.projectile_spawned,
                                          error, error_size)) {
         return 0;
     }

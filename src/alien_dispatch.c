@@ -111,7 +111,8 @@ int alien_dispatch_update(
         } else if (!alien_attack_with_projectile_update(
                        objects, slot_index, alien_runtime, animation_runtime, lighting,
                        &dynamic_level->runtime, clips, game_link, progression,
-                       explosion_runtime, math, random, player, setup, audio_events,
+                       explosion_runtime, math, random, player, setup, observation,
+                       audio_events,
                        &state.projectile, error, error_size)) {
             return 0;
         } else {
