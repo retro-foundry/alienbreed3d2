@@ -50,10 +50,10 @@ state. The renderer blends completed source-frame scene snapshots using the
 50 Hz VBlank remainder. This uses SDL's high-resolution performance counter,
 so the source companion weapon/action sequence advances only at its fixed PAL
 cadence while camera, mutable world geometry, sprites, and source light
-samples present smoothly at the host frame rate. Native direct play follows the
-first port's fullscreen-desktop startup mode: it places a desktop-sized OpenGL
-window at the active display bounds without changing the monitor mode, then
-renders directly to the full SDL drawable. Its main
+samples present smoothly at the host frame rate. Native direct play uses SDL's
+borderless desktop-fullscreen mode—the full-display transition from the first
+port's `display_toggle_fullscreen`—without changing the monitor mode, then
+renders directly to the complete SDL drawable. Its main
 loop relies on the requested OpenGL swap interval rather than a fixed 16 ms
 sleep, so a supported 120 Hz-or-higher display can present the interpolated
 scene at its native refresh rate. The hidden GPU smoke test retains its
