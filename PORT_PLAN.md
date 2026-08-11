@@ -178,6 +178,10 @@ authority for all game behavior and data formats.
   borderless SDL flags, so it never asks SDL to change the monitor mode. Its
   MSVC target also carries Alien Breed 3D I's `VS_DPI_AWARE OFF` manifest
   setting so Windows uses the matching desktop/non-client coordinate space.
+  The desktop presenter uses SDL's measured normal-window borders to shift the
+  frame past the top/left bounds and grow the client by that same inset,
+  preserving bottom/right overscan and taskbar coverage without changing the
+  window style or monitor mode.
   The hidden GPU smoke path intentionally stays 1280x720 so its all-level
   validation remains bounded and independent of monitor layout.
 - [x] Native presentation now relies on `renderer_opengl.c`'s requested

@@ -183,6 +183,51 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
 }
 
 /*
+ * display_init in the first port requests a desktop-sized normal window.  On
+ * a framed desktop window, its top/left non-client pixels remain visible at
+ * the display origin.  Shift that frame out of view and add the same measured
+ * inset to the client size, preserving the original lower/right overscan so
+ * the taskbar remains covered.  No window mode or style is changed.
+ */
+static int renderer_opengl_expand_desktop_client_window(SDL_Window *window,
+                                                        int desktop_x, int desktop_y,
+                                                        char *error, size_t error_size)
+{
+    int top = 0;
+    int left = 0;
+    int bottom = 0;
+    int right = 0;
+    int client_width = 0;
+    int client_height = 0;
+
+    if (!window) {
+        renderer_opengl_set_error(error, error_size,
+                                  "desktop client expansion received no SDL window");
+        return 0;
+    }
+    if (SDL_GetWindowBordersSize(window, &top, &left, &bottom, &right) != 0) {
+        renderer_opengl_set_sdl_error(error, error_size,
+                                      "SDL desktop window border measurement failed");
+        return 0;
+    }
+    if (top < 0 || left < 0 || bottom < 0 || right < 0) {
+        renderer_opengl_set_error(error, error_size,
+                                  "SDL desktop window reported invalid border dimensions");
+        return 0;
+    }
+    SDL_GetWindowSize(window, &client_width, &client_height);
+    if (client_width < 1 || client_height < 1 || client_width > INT_MAX - left ||
+        client_height > INT_MAX - top) {
+        renderer_opengl_set_error(error, error_size,
+                                  "SDL desktop window client dimensions are invalid");
+        return 0;
+    }
+    SDL_SetWindowSize(window, client_width + left, client_height + top);
+    SDL_SetWindowPosition(window, desktop_x - left, desktop_y - top);
+    return 1;
+}
+
+/*
  * objdrawhires.s:draw_Bitmap adds ObjT_Brightness to the signed rotated
  * depth after ASR.W #6.  draw_bitmap_lighted uses that same value as
  * draw_BrightToAdd_w, while normal bitmaps use it to select a direct
@@ -3601,6 +3646,15 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
         free(renderer);
         return NULL;
     }
+#if !defined(__EMSCRIPTEN__)
+    if (desktop_window != 0 && hidden_window == 0 &&
+        !renderer_opengl_expand_desktop_client_window(renderer->window, window_x, window_y,
+                                                       error, error_size)) {
+        SDL_DestroyWindow(renderer->window);
+        free(renderer);
+        return NULL;
+    }
+#endif
     renderer->context = SDL_GL_CreateContext(renderer->window);
     if (!renderer->context) {
         renderer_opengl_set_sdl_error(error, error_size, "SDL OpenGL context creation failed");
