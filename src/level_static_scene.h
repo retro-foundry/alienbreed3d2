@@ -8,6 +8,12 @@
 #include "level_runtime.h"
 #include "scene_frame.h"
 
+enum {
+    LEVEL_STATIC_WALL_MECHANISM_NONE = 0u,
+    LEVEL_STATIC_WALL_MECHANISM_DOOR = 1u,
+    LEVEL_STATIC_WALL_MECHANISM_LIFT = 2u
+};
+
 /* One source Draw_Wall quad expanded to a GPU-neutral triangle list. */
 typedef struct {
     SceneVertex vertices[6];
@@ -23,6 +29,14 @@ typedef struct {
     uint16_t solid_texture_y_offset;
     uint8_t solid_texture_height_mask;
     uint8_t is_mechanism_surface;
+    /* The canonical wall record and lift flat selected by newanims.s. */
+    uint8_t mechanism_kind;
+    uint8_t reserved0;
+    uint32_t mechanism_wall_source_offset;
+    uint32_t lift_graphics_offset;
+    /* Native rigid-lift side bounds, all in scene Y units. */
+    int32_t solid_initial_top;
+    int32_t solid_initial_bottom;
     uint16_t source_zone_index;
     uint8_t source_upper_zone;
     uint8_t point_brightness_selector;

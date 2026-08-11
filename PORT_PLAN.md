@@ -536,10 +536,13 @@ multiplayer work is planned.
   while `level_static_scene_apply_runtime` refreshes its geometry and material
   IDs from the mutable source draw graph after door, lift, and water updates;
   it rejects a source topology change rather than silently substituting native
-  geometry. By request, `newanims.s:DoorRoutine` and `LiftRoutine` wall
-  records are presented as one solid native quad with a fixed authored texture
-  mapping: their source V-scroll remains in the mutable source state for game
-  behavior, but does not create scrolling or segmented GPU geometry.
+  geometry. By request, `newanims.s:DoorRoutine` and `LiftRoutine` source
+  wall records are presented as closed native solids: all `Draw_Wall` records
+  on each controlled `EdgeT` follow the canonical source mechanism wall, and
+  lift sides retain their original depth while translating from the live
+  `Draw_Flats` plane. Their source V-scroll remains in mutable state for game
+  behavior, but does not create scrolling, separated counterpart surfaces, or
+  segmented GPU geometry.
   Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its

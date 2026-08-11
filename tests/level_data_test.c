@@ -730,6 +730,7 @@ int main(int argc, char **argv)
     uint32_t destructible_fixture_count = 0u;
     uint32_t water_fixture_count = 0u;
     uint32_t mechanism_surface_fixture_count = 0u;
+    uint32_t solid_lift_motion_fixture_count = 0u;
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
@@ -3498,6 +3499,28 @@ int main(int argc, char **argv)
             ++mechanism_surface_fixture_count;
             break;
         }
+        for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
+             ++static_wall_index) {
+            const LevelStaticWallScene *scene_wall =
+                &game.static_scene.walls[static_wall_index];
+            uint8_t *dynamic_lift_height;
+
+            if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_LIFT) {
+                continue;
+            }
+            if (!level_dynamic_state_get_graphics_range(
+                    &game.dynamic_level, scene_wall->lift_graphics_offset + 2u, 2u,
+                    &dynamic_lift_height)) {
+                fprintf(stderr, "campaign level %u lift has no mutable Draw_Flats height\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            write_be16(dynamic_lift_height,
+                       (uint16_t)(read_be16(dynamic_lift_height) + 4u));
+            ++solid_lift_motion_fixture_count;
+            break;
+        }
         if (!level_static_scene_apply_runtime(
                 &game.static_scene, &game.dynamic_level.runtime,
                 game.shared_resources.wall_texture_count,
@@ -3514,6 +3537,7 @@ int main(int argc, char **argv)
             const uint8_t *source = game.dynamic_level.runtime.graphics_bytes +
                 scene_wall->source_record_offset;
             const uint8_t *texture_source = source;
+            const uint8_t *mechanism_source;
             LevelWorldPoint left_point;
             LevelWorldPoint right_point;
             int32_t top;
@@ -3532,8 +3556,11 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
-            if (scene_wall->is_mechanism_surface > 1u) {
-                fprintf(stderr, "campaign level %u static wall %u has an invalid mechanism flag\n",
+            if (scene_wall->is_mechanism_surface > 1u ||
+                scene_wall->mechanism_kind > LEVEL_STATIC_WALL_MECHANISM_LIFT ||
+                scene_wall->is_mechanism_surface !=
+                    (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE ? 1u : 0u)) {
+                fprintf(stderr, "campaign level %u static wall %u has invalid mechanism metadata\n",
                         level_index, static_wall_index);
                 game_bootstrap_destroy(&game);
                 return 1;
@@ -3560,8 +3587,64 @@ int main(int argc, char **argv)
                     return 1;
                 }
             }
-            top = (int32_t)read_be32(source + 20u);
-            bottom = (int32_t)read_be32(source + 24u);
+            switch (scene_wall->mechanism_kind) {
+            case LEVEL_STATIC_WALL_MECHANISM_NONE:
+                top = (int32_t)read_be32(source + 20u);
+                bottom = (int32_t)read_be32(source + 24u);
+                break;
+            case LEVEL_STATIC_WALL_MECHANISM_DOOR:
+                if (scene_wall->mechanism_wall_source_offset >
+                        game.dynamic_level.runtime.graphics_size ||
+                    30u > game.dynamic_level.runtime.graphics_size -
+                               scene_wall->mechanism_wall_source_offset) {
+                    fprintf(stderr,
+                            "campaign level %u door wall %u has no canonical source record\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                mechanism_source = game.dynamic_level.runtime.graphics_bytes +
+                    scene_wall->mechanism_wall_source_offset;
+                if ((uint8_t)read_be16(mechanism_source) != LEVEL_DRAW_GRAPH_TYPE_WALL) {
+                    fprintf(stderr,
+                            "campaign level %u door wall %u canonical source is not Draw_Wall\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                top = (int32_t)read_be32(mechanism_source + 20u);
+                bottom = (int32_t)read_be32(mechanism_source + 24u);
+                break;
+            case LEVEL_STATIC_WALL_MECHANISM_LIFT:
+                if (scene_wall->lift_graphics_offset > game.dynamic_level.runtime.graphics_size ||
+                    6u > game.dynamic_level.runtime.graphics_size -
+                              scene_wall->lift_graphics_offset) {
+                    fprintf(stderr,
+                            "campaign level %u lift wall %u has no Draw_Flats anchor\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                mechanism_source = game.dynamic_level.runtime.graphics_bytes +
+                    scene_wall->lift_graphics_offset;
+                if (mechanism_source[1u] != LEVEL_DRAW_GRAPH_TYPE_FLOOR &&
+                    mechanism_source[1u] != LEVEL_DRAW_GRAPH_TYPE_CEILING) {
+                    fprintf(stderr,
+                            "campaign level %u lift wall %u anchor is not Draw_Flats\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                top = (int32_t)(int16_t)read_be16(mechanism_source + 2u) * 64;
+                bottom = top + (scene_wall->solid_initial_bottom -
+                                scene_wall->solid_initial_top);
+                break;
+            default:
+                fprintf(stderr, "campaign level %u static wall %u has an unknown mechanism type\n",
+                        level_index, static_wall_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
             if (scene_wall->vertices[0].position.x != left_point.x ||
                 scene_wall->vertices[0].position.y != top ||
                 scene_wall->vertices[0].position.z != left_point.z ||
@@ -3708,7 +3791,8 @@ int main(int argc, char **argv)
         }
     }
     if (decoration_fixture_count == 0u || destructible_fixture_count == 0u ||
-        water_fixture_count == 0u || mechanism_surface_fixture_count == 0u) {
+        water_fixture_count == 0u || mechanism_surface_fixture_count == 0u ||
+        solid_lift_motion_fixture_count == 0u) {
         fprintf(stderr,
                 "campaign data does not contain all passive-object/water/mechanism fixtures\n");
         game_bootstrap_destroy(&game);
