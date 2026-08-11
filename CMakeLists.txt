@@ -173,6 +173,9 @@ else()
             --destination "$<TARGET_FILE_DIR:ab3d2>/data"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
             "$<TARGET_FILE_DIR:ab3d2>/data/audio"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/README.txt"
+            "$<TARGET_FILE_DIR:ab3d2>/README.txt"
     COMMAND ${CMAKE_COMMAND}
             -DDEST_DIR="$<TARGET_FILE_DIR:ab3d2>"
             -DSRC_FILE="${CMAKE_CURRENT_SOURCE_DIR}/ab3d2.ini.template"

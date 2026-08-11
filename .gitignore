@@ -10,6 +10,7 @@ ab3d2_source/listing.txt
 
 # Local generated conversion output.
 /build/
+/dist/
 /tools/__pycache__/
 /sb_decompress.obj
 
