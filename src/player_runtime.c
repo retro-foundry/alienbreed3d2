@@ -18,6 +18,12 @@ enum {
     PLAYER_SMALL_STEP_UP = 10 * 256,
     PLAYER_STEP_DOWN = 0x1000000,
     PLAYER_CEILING_CLEARANCE = 10 * 256,
+    /* modules/player.s:plr_Fall. */
+    PLAYER_FALL_ACCELERATION = 64,
+    PLAYER_FALL_NEAR_GROUND_DISTANCE = 16 * 64,
+    PLAYER_FALL_WATER_TERMINAL_VELOCITY = 512,
+    PLAYER_JUMP_SPEED_DRY = -1024,
+    PLAYER_JUMP_SPEED_WATER = -512,
     PLAYER_MAX_ZONE_TRANSITIONS = 50,
     /* hires.s:SMALL_HEIGHT and its non-fullscreen View_* setup. */
     PLAYER_SMALL_VIEW_KEY_LOOK = 4,
@@ -737,26 +743,45 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
         /* LiftRoutine's signed word speed is applied as a 32-bit << 6 here. */
         velocity = (int32_t)player->floor_speed * 64;
         player->decelerate = UINT8_MAX;
+        /* plr_Fall consumes and then clears the previous airborne accumulation. */
+        player->fall_damage = 0;
         player->bobble = game_math_wrap_angle_address(
             (uint16_t)((uint32_t)player->bobble + (uint16_t)player->add_to_bobble));
         if (game_input_is_control_down(input, controls, GAME_CONTROL_JUMP) &&
             player->health != 0u) {
-            velocity = -1024;
+            /* ZoneT_Water_l selects plr_Fall's shallow-water jump speed. */
+            velocity = y >= zone.water ? PLAYER_JUMP_SPEED_WATER : PLAYER_JUMP_SPEED_DRY;
         }
         if (velocity > 0) {
             velocity = 0;
         }
         y = player_runtime_add32(y, velocity);
     } else {
-        player->decelerate = player_runtime_sub32(target_y, y) <= 16 * 64 ? UINT8_MAX : 0u;
+        /* modules/player.s:plr_Fall .above_ground through .still_above. */
+        player->decelerate = player_runtime_sub32(target_y, y) <=
+                PLAYER_FALL_NEAR_GROUND_DISTANCE ?
+            UINT8_MAX : 0u;
         y = player_runtime_add32(y, velocity);
         if (target_y > y) {
-            velocity = player_runtime_add32(velocity, 64);
-            if (velocity >= 512) {
-                velocity = 512;
+            velocity = player_runtime_add32(velocity, PLAYER_FALL_ACCELERATION);
+            player->fall_damage = player_runtime_add16(player->fall_damage, 1);
+
+            /*
+             * The source applies its 512 terminal cap only once the player
+             * reaches ZoneT_Water_l.  Dry falls deliberately retain their
+             * accumulated 8.8 fixed-point velocity.
+             */
+            if (y >= zone.water) {
+                player->decelerate = UINT8_MAX;
+                player->fall_damage = 0;
+                if (velocity >= PLAYER_FALL_WATER_TERMINAL_VELOCITY) {
+                    velocity = PLAYER_FALL_WATER_TERMINAL_VELOCITY;
+                }
             }
         } else {
-            velocity = 0;
+            /* plr_Fall retains the crossed target Y and hands off FloorSpd. */
+            player->fall_damage = 0;
+            velocity = (int32_t)player->floor_speed * 64;
         }
     }
     ceiling = player->stood_in_top != 0u ? zone.upper_roof : zone.roof;

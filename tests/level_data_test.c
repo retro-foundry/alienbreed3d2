@@ -10950,6 +10950,134 @@ int main(int argc, char **argv)
             return 1;
         }
         {
+            /* modules/player.s:plr_Fall source gravity/water/lift handoff. */
+            PlayerRuntime fall_player = {0};
+            GameInput fall_input;
+            const int32_t fall_floor = 20000;
+            const int32_t fall_roof = -50000;
+            const int32_t fall_target = fall_floor - 12 * 1024;
+
+            write_be32(movement_state.level_bytes + 2u, (uint32_t)fall_floor);
+            write_be32(movement_state.level_bytes + 6u, (uint32_t)fall_roof);
+            write_be32(movement_state.level_bytes + 18u, (uint32_t)fall_floor);
+            game_input_init(&fall_input);
+            fall_player.x = player_runtime_world_to_position(8);
+            fall_player.z = player_runtime_world_to_position(10);
+            fall_player.snap_x = fall_player.x;
+            fall_player.snap_z = fall_player.z;
+            fall_player.y = fall_target - 2712;
+            fall_player.snap_y = fall_player.y;
+            fall_player.snap_target_y = fall_target;
+            fall_player.snap_y_velocity = 511;
+            fall_player.height = 12 * 1024;
+            fall_player.snap_height = fall_player.height;
+            fall_player.snap_target_height = fall_player.height;
+            fall_player.snap_squished_height = fall_player.height;
+            fall_player.zone_index = 0u;
+            fall_player.health = 200u;
+            if (!player_runtime_update_spatial(
+                    &fall_player, &fall_input, &control_defaults, &game.preferences,
+                    &game.math, &movement_state.runtime, &movement_state, error,
+                    sizeof(error)) ||
+                fall_player.snap_y != fall_target - 2201 ||
+                fall_player.snap_y_velocity != 575 || fall_player.fall_damage != 1 ||
+                fall_player.decelerate != 0u) {
+                fprintf(stderr, "plr_Fall dry source acceleration is inconsistent: y=%d "
+                                "velocity=%d damage=%d decelerate=%u: %s\n",
+                        fall_player.snap_y, fall_player.snap_y_velocity,
+                        fall_player.fall_damage, fall_player.decelerate, error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+
+            write_be32(movement_state.level_bytes + 18u, 0u);
+            fall_player.snap_y = fall_target - 2712;
+            fall_player.snap_target_y = fall_target;
+            fall_player.snap_y_velocity = 511;
+            fall_player.fall_damage = 9;
+            fall_player.decelerate = 0u;
+            if (!player_runtime_update_spatial(
+                    &fall_player, &fall_input, &control_defaults, &game.preferences,
+                    &game.math, &movement_state.runtime, &movement_state, error,
+                    sizeof(error)) ||
+                fall_player.snap_y_velocity != 512 || fall_player.fall_damage != 0 ||
+                fall_player.decelerate == 0u) {
+                fprintf(stderr, "plr_Fall water terminal velocity is inconsistent: velocity=%d "
+                                "damage=%d decelerate=%u: %s\n",
+                        fall_player.snap_y_velocity, fall_player.fall_damage,
+                        fall_player.decelerate, error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+
+            write_be32(movement_state.level_bytes + 18u, (uint32_t)fall_floor);
+            fall_player.snap_y = fall_target - 100;
+            fall_player.snap_target_y = fall_target;
+            fall_player.snap_y_velocity = 128;
+            fall_player.floor_speed = -7;
+            fall_player.fall_damage = 23;
+            if (!player_runtime_update_spatial(
+                    &fall_player, &fall_input, &control_defaults, &game.preferences,
+                    &game.math, &movement_state.runtime, &movement_state, error,
+                    sizeof(error)) ||
+                fall_player.snap_y != fall_target + 28 ||
+                fall_player.snap_y_velocity != -7 * 64 || fall_player.fall_damage != 0) {
+                fprintf(stderr, "plr_Fall landing FloorSpd handoff is inconsistent: y=%d "
+                                "velocity=%d damage=%d: %s\n",
+                        fall_player.snap_y, fall_player.snap_y_velocity,
+                        fall_player.fall_damage, error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (!player_runtime_update_spatial(
+                    &fall_player, &fall_input, &control_defaults, &game.preferences,
+                    &game.math, &movement_state.runtime, &movement_state, error,
+                    sizeof(error)) ||
+                fall_player.snap_y != fall_target ||
+                fall_player.snap_y_velocity != -7 * 64) {
+                fprintf(stderr, "plr_Fall bounded below-floor correction is inconsistent: "
+                                "y=%d velocity=%d: %s\n",
+                        fall_player.snap_y, fall_player.snap_y_velocity, error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+
+            write_be32(movement_state.level_bytes + 18u, (uint32_t)fall_target);
+            game_input_init(&fall_input);
+            if (!game_input_set_raw_key(
+                    &fall_input,
+                    control_defaults.assigned_raw_keys[GAME_CONTROL_JUMP], 1,
+                    error, sizeof(error))) {
+                fprintf(stderr, "could not prepare plr_Fall water jump fixture: %s\n", error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            fall_player.snap_y = fall_target;
+            fall_player.snap_target_y = fall_target;
+            fall_player.snap_y_velocity = 0;
+            fall_player.floor_speed = 0;
+            if (!player_runtime_update_spatial(
+                    &fall_player, &fall_input, &control_defaults, &game.preferences,
+                    &game.math, &movement_state.runtime, &movement_state, error,
+                    sizeof(error)) ||
+                fall_player.snap_y != fall_target - 512 ||
+                fall_player.snap_y_velocity != -512) {
+                fprintf(stderr, "plr_Fall water jump speed is inconsistent: y=%d velocity=%d: %s\n",
+                        fall_player.snap_y, fall_player.snap_y_velocity, error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            write_be32(movement_state.level_bytes + 2u, 0u);
+            write_be32(movement_state.level_bytes + 6u, 0u);
+            write_be32(movement_state.level_bytes + 18u, 0u);
+        }
+        {
             uint8_t miss_slot_bytes[OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT *
                                     OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
             uint8_t miss_point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};

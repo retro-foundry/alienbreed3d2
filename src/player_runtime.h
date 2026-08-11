@@ -34,6 +34,8 @@ typedef struct {
     int32_t snap_x_speed;
     int32_t snap_y_velocity;
     int32_t snap_z_speed;
+    /* modules/player.s:plr_Fall's single-player plr_FallDamage_w accumulator. */
+    int16_t fall_damage;
     /* hires.s:plr1_BobbleY_l, calculated by Plr1_Control. */
     int32_t bobble_y;
     /* hires.s game_main_loop snapshots these before Plr1_Control. */

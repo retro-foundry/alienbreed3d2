@@ -579,6 +579,10 @@ multiplayer work is planned.
   operate, crouch, fire, forward/back, turn, run, force-sidestep, sidestep,
   jump, and keyboard look/centre-view now feed the same snap-state order used by
   `modules/player.s:plr_KeyboardControl` and `plr1control.s:Plr1_Fall`.
+  `modules/player.s:plr_Fall` now retains its source 8.8 vertical state exactly:
+  dry-air acceleration is uncapped, `ZoneT_Water_l` alone enables the 512
+  terminal speed/reset and shallow-water jump, and a crossed floor carries the
+  signed `FloorSpd_w << 6` lift handoff without snapping the source position.
   `hires.s:Plr1_Control` commits that state through source fixed-point
   arithmetic, teleports, floor/roof transitions, and the primary plus extended
   static `EdgeT` sequences through the shared direct
