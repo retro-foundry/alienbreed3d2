@@ -392,10 +392,9 @@ int player_shoot_update_single_player_with_motion_and_audio(
                         NULL, error, error_size)) {
                     return 0;
                 }
-            } else if (!player_shoot_apply_hitscan_miss_with_motion(
-                           objects, dynamic_level, player, math, motion_runtime, random,
-                           shoot.bullet_type,
-                           NULL, error, error_size)) {
+            } else if (!player_shoot_apply_hitscan_target_miss_with_motion(
+                           objects, dynamic_level, player, &target, math, motion_runtime,
+                           random, shoot.bullet_type, NULL, error, error_size)) {
                 return 0;
             }
             remaining = (int16_t)((uint16_t)remaining - 1u);
@@ -521,16 +520,15 @@ int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
     return 1;
 }
 
-int player_shoot_apply_hitscan_miss_with_motion(
+static int player_shoot_apply_hitscan_miss_internal(
     ObjectRuntime *objects, LevelDynamicState *dynamic_level,
-    const PlayerRuntime *player, const GameMath *math,
+    const PlayerRuntime *player, const PlayerShotTarget *target, const GameMath *math,
     ObjectMotionRuntime *motion_runtime, GameRandom *random, uint16_t bullet_type,
     uint8_t *out_impact_spawned, char *error, size_t error_size)
 {
     ObjectMovementTrace trace = {0};
     int16_t sine;
     int16_t cosine;
-    uint16_t random_value;
 
     if (!objects || !dynamic_level || !player || !math || !random ||
         !objects->slot_bytes || !objects->point_bytes ||
@@ -542,19 +540,56 @@ int player_shoot_apply_hitscan_miss_with_motion(
     if (out_impact_spawned) {
         *out_impact_spawned = 0u;
     }
-    if (!game_math_sine(math, player->yaw, &sine, error, error_size) ||
-        !game_math_cosine(math, player->yaw, &cosine, error, error_size)) {
-        return 0;
-    }
     trace.zone_index = player->zone_index;
     trace.old_x = player_runtime_position_to_world(player->x);
     trace.old_z = player_runtime_position_to_world(player->z);
-    trace.new_x = player_shoot_add16(trace.old_x, player_shoot_asr16_count(sine, 7u));
-    trace.new_z = player_shoot_add16(trace.old_z, player_shoot_asr16_count(cosine, 7u));
     trace.old_y = player_shoot_add32(player->y, 10 * 128);
-    random_value = game_random_next(random);
-    trace.new_y = player_shoot_add32(
-        trace.old_y, (int32_t)((int32_t)(random_value & 0x0fffu) - 0x0800));
+    if (target && target->found != 0u) {
+        uint8_t *target_point;
+        uint8_t *terminal_slot;
+        int16_t target_x;
+        int16_t target_z;
+
+        if (target->slot_index >= objects->active_slot_count ||
+            target->point_index >= objects->point_count ||
+            objects->active_slot_count >= objects->slot_count ||
+            !object_runtime_get_point_bytes(objects, target->point_index, &target_point) ||
+            !object_runtime_get_slot_bytes(objects, objects->active_slot_count,
+                                           &terminal_slot)) {
+            player_shoot_set_error(error, error_size,
+                                   "plr1_HitscanFailed target miss has invalid source state");
+            return 0;
+        }
+        /*
+         * Plr1_Shot retains a4 as the selected ObjT while a0 remains on the
+         * first-word -1 terminator.  plr1_HitscanFailed traces to the target
+         * midpoint and takes newy from that terminator's vertical word.
+         */
+        target_x = player_shoot_read_be16s(target_point + 0u);
+        target_z = player_shoot_read_be16s(target_point + 4u);
+        trace.new_x = player_shoot_add16(
+            trace.old_x,
+            player_shoot_asr16_count(
+                player_shoot_add16(target_x, (int16_t)-trace.old_x), 1u));
+        trace.new_z = player_shoot_add16(
+            trace.old_z,
+            player_shoot_asr16_count(
+                player_shoot_add16(target_z, (int16_t)-trace.old_z), 1u));
+        trace.new_y = (int32_t)player_shoot_read_be16s(
+            terminal_slot + PLAYER_SHOOT_VERTICAL_POSITION) * 128;
+    } else {
+        uint16_t random_value;
+
+        if (!game_math_sine(math, player->yaw, &sine, error, error_size) ||
+            !game_math_cosine(math, player->yaw, &cosine, error, error_size)) {
+            return 0;
+        }
+        trace.new_x = player_shoot_add16(trace.old_x, player_shoot_asr16_count(sine, 7u));
+        trace.new_z = player_shoot_add16(trace.old_z, player_shoot_asr16_count(cosine, 7u));
+        random_value = game_random_next(random);
+        trace.new_y = player_shoot_add32(
+            trace.old_y, (int32_t)((int32_t)(random_value & 0x0fffu) - 0x0800));
+    }
     trace.wall_flags = 0x0400u;
     trace.away_from_wall = -1;
     trace.exit_first = UINT8_MAX;
@@ -632,6 +667,28 @@ int player_shoot_apply_hitscan_miss_with_motion(
     }
     /* The source returns unchanged when all NUM_PLR_SHOT_DATA records are live. */
     return 1;
+}
+
+int player_shoot_apply_hitscan_miss_with_motion(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const PlayerRuntime *player, const GameMath *math,
+    ObjectMotionRuntime *motion_runtime, GameRandom *random, uint16_t bullet_type,
+    uint8_t *out_impact_spawned, char *error, size_t error_size)
+{
+    return player_shoot_apply_hitscan_miss_internal(
+        objects, dynamic_level, player, NULL, math, motion_runtime, random, bullet_type,
+        out_impact_spawned, error, error_size);
+}
+
+int player_shoot_apply_hitscan_target_miss_with_motion(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const PlayerRuntime *player, const PlayerShotTarget *target, const GameMath *math,
+    ObjectMotionRuntime *motion_runtime, GameRandom *random, uint16_t bullet_type,
+    uint8_t *out_impact_spawned, char *error, size_t error_size)
+{
+    return player_shoot_apply_hitscan_miss_internal(
+        objects, dynamic_level, player, target, math, motion_runtime, random, bullet_type,
+        out_impact_spawned, error, error_size);
 }
 
 int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,

@@ -11287,11 +11287,12 @@ int main(int argc, char **argv)
             write_be32(movement_state.level_bytes + 18u, 0u);
         }
         {
-            uint8_t miss_slot_bytes[OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT *
+            uint8_t miss_slot_bytes[(OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT + 2u) *
                                     OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
-            uint8_t miss_point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+            uint8_t miss_point_bytes[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
             ObjectRuntime miss_objects = {0};
             PlayerRuntime miss_player = {0};
+            PlayerShotTarget target_miss = {0};
             GameRandom miss_random;
             GameRandom expected_random;
             ObjectMotionRuntime miss_motion;
@@ -11327,11 +11328,11 @@ int main(int argc, char **argv)
                 return 1;
             }
             miss_objects.slot_bytes = miss_slot_bytes;
-            miss_objects.slot_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
-            miss_objects.active_slot_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+            miss_objects.slot_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT + 2u;
+            miss_objects.active_slot_count = OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT + 1u;
             miss_objects.player_shot_first_slot = 0u;
             miss_objects.point_bytes = miss_point_bytes;
-            miss_objects.point_count = 1u;
+            miss_objects.point_count = 2u;
             write_be16(miss_slot_bytes + 0u, 0u);
             write_be16(miss_slot_bytes + 12u, UINT16_MAX);
             miss_slot_bytes[16u] = 0x7eu;
@@ -11371,6 +11372,42 @@ int main(int argc, char **argv)
                 edge_flags != 0x0400u) {
                 fprintf(stderr, "plr1_HitscanFailed source miss state is inconsistent: %s\n",
                         error);
+                level_dynamic_state_destroy(&movement_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            /*
+             * A selected-target miss has already consumed its hit roll.  The
+             * source traces halfway to a4's point, using the terminal ObjT
+             * record at a0 for its initial height, without another GetRand.
+             */
+            write_be16(miss_slot_bytes + 12u, UINT16_MAX);
+            write_be16(miss_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 1u);
+            write_be16(miss_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+            write_be32(miss_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u, 0u);
+            write_be32(miss_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                       UINT32_C(30) << 16u);
+            write_be16(miss_slot_bytes +
+                           (OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT + 1u) *
+                               OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                           4u,
+                       7u);
+            target_miss.found = UINT8_MAX;
+            target_miss.slot_index = 1u;
+            target_miss.point_index = 1u;
+            miss_spawned = 0u;
+            object_motion_runtime_init(&miss_motion);
+            if (!player_shoot_apply_hitscan_target_miss_with_motion(
+                    &miss_objects, &movement_state, &miss_player, &target_miss,
+                    &game.math, &miss_motion, &miss_random, 7u, &miss_spawned,
+                    error, sizeof(error)) ||
+                miss_spawned != UINT8_MAX || miss_random.state != expected_random.state ||
+                read_be32(miss_slot_bytes + 44u) != 896u ||
+                read_be16(miss_slot_bytes + 4u) != 7u ||
+                read_be32(miss_point_bytes + 0u) != UINT32_C(0x00005678) ||
+                read_be32(miss_point_bytes + 4u) != UINT32_C(0x0014def0) ||
+                miss_motion.new_x != 0 || miss_motion.new_z != 20) {
+                fprintf(stderr, "Plr1_Shot selected-target miss is inconsistent: %s\n", error);
                 level_dynamic_state_destroy(&movement_state);
                 game_bootstrap_destroy(&game);
                 return 1;

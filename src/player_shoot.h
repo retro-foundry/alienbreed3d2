@@ -98,10 +98,11 @@ int player_shoot_apply_hitscan_success(ObjectRuntime *objects,
                                        char *error, size_t error_size);
 
 /*
- * newplayershoot.s:plr1_HitscanFailed. Casts the source one-word forward
- * ray repeatedly through MoveObject's zero-extension path, then creates the
- * stationary source miss effect in the first free player-shot ObjT slot.
- * This routine owns its one GetRand vertical-spread advance; hit probability,
+ * newplayershoot.s:Plr1_Shot:.nothing_to_shoot followed by
+ * plr1_HitscanFailed. Casts the source one-word forward ray repeatedly
+ * through MoveObject's zero-extension path, then creates the stationary
+ * source miss effect in the first free player-shot ObjT slot. This routine
+ * owns its one GetRand vertical-spread advance; hit probability,
  * cooldown/ammunition, input wiring, and its later ItsABullet dispatch remain
  * in the parent Plr1_Shot path.
  */
@@ -112,10 +113,22 @@ int player_shoot_apply_hitscan_miss(ObjectRuntime *objects,
                                     uint8_t *out_impact_spawned,
                                     char *error, size_t error_size);
 
-/* Same plr1_HitscanFailed path with source newx/newz publication retained. */
+/* Same no-target plr1_HitscanFailed path with source newx/newz publication retained. */
 int player_shoot_apply_hitscan_miss_with_motion(
     ObjectRuntime *objects, LevelDynamicState *dynamic_level,
     const PlayerRuntime *player, const GameMath *math,
+    ObjectMotionRuntime *motion_runtime, GameRandom *random, uint16_t bullet_type,
+    uint8_t *out_impact_spawned, char *error, size_t error_size);
+
+/*
+ * Plr1_Shot:.fire_hitscanned_bullets miss followed by plr1_HitscanFailed.
+ * This distinct source branch traces halfway toward an acquired target and
+ * inherits the terminating ObjT record's height; its prior hit roll has
+ * already consumed GetRand, so it takes no vertical-spread random draw.
+ */
+int player_shoot_apply_hitscan_target_miss_with_motion(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const PlayerRuntime *player, const PlayerShotTarget *target, const GameMath *math,
     ObjectMotionRuntime *motion_runtime, GameRandom *random, uint16_t bullet_type,
     uint8_t *out_impact_spawned, char *error, size_t error_size);
 
