@@ -90,12 +90,12 @@ gameplay-first scope.
   retained scene refreshes its commands from the mutable graph after source
   door, lift, and water updates. Doors and lifts are a deliberate native-renderer
   simplification: every exact source `ZDoorWall.graphics_offset` keeps its own
-  live `Draw_Wall` material, lighting, V-origin, texture window, and moving
-  edge written by `DoorRoutine`/`LiftRoutine`; only a renderer-added
+  live `Draw_Wall` material, lighting, V-origin, texture window, source-8.8
+  V density, and moving edge written by `DoorRoutine`/`LiftRoutine`; only a renderer-added
   same-`EdgeT` counterpart uses its controller association. Lift wall sides
   move rigidly from the live `Draw_Flats` plane. This produces a closed moving
   solid while preserving each authored panel's texture motion without
-  stretching a shrinking panel texture;
+  per-face height normalization or stretching;
 - defines a GPU-neutral frame command interface for cameras, lighting,
   environment, static/dynamic mesh instances, and source-object instances.
   Every live source object now emits an

@@ -3813,25 +3813,13 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
-            if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE) {
-                int64_t live_height = (int64_t)bottom - top;
-                int64_t authored_height = (int64_t)scene_wall->texture_initial_bottom -
-                    scene_wall->texture_initial_top;
+            {
+                int64_t source_y_span = (int64_t)bottom - top;
 
-                if (live_height < 0) {
-                    live_height = -live_height;
+                if (source_y_span < 0) {
+                    source_y_span = -source_y_span;
                 }
-                if (authored_height < 0) {
-                    authored_height = -authored_height;
-                }
-                live_height >>= 8u;
-                authored_height >>= 8u;
-                texture_v_span = scene_wall->source_record_offset !=
-                    scene_wall->mechanism_wall_source_offset ?
-                    (int32_t)texture_source[16u] + 1 : live_height == 0 ? 0 :
-                    authored_height == 0 ? (int32_t)live_height : (int32_t)(
-                        (live_height * ((int64_t)texture_source[16u] + 1) +
-                         authored_height / 2) / authored_height);
+                texture_v_span = (int32_t)(source_y_span >> 8u);
             }
             if (scene_wall->material_id != read_be16(texture_source + 14u) ||
                 scene_wall->point_brightness_selector != texture_source[19u] ||

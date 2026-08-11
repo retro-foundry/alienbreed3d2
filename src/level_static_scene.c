@@ -183,76 +183,35 @@ static void level_static_scene_set_wall_vertices(LevelStaticWallScene *scene_wal
 }
 
 /*
- * hireswall.s:Draw_Wall uses its live top/bottom projection span together
- * with the record's wrapped V origin. DoorRoutine and LiftRoutine mutate one
- * vertical edge and that origin together. Keep the texture density of the
- * authored panel as the source wall contracts or expands instead of mapping a
- * complete texture period over every live height.
+ * hires.s:DrawDisplay maps wall V from the source 8.8 world Y coordinate
+ * (`Plr_YOff_l >> 8`), before hireswall.s:Draw_Wall applies its wrapped
+ * per-wall phase.  DoorRoutine writes its moving +24 edge as that same
+ * coordinate times 256 and offsets +12 by the inverse texel displacement.
+ * Therefore V density is always one texel per 256 source Y units: it must not
+ * be re-fit to the authored height of an individual face.
  */
-static int level_static_scene_mechanism_texture_v_span(
-    const LevelStaticWallScene *scene_wall, const LevelDrawWall *live_wall,
-    const LevelDrawWall *texture_wall, int32_t *out_span, char *error, size_t error_size)
+static int level_static_scene_wall_texture_v_span(const LevelDrawWall *wall,
+                                                  int32_t *out_span,
+                                                  char *error, size_t error_size)
 {
-    int64_t live_height;
-    int64_t authored_height;
-    int64_t period;
-    int64_t span;
+    int64_t height;
 
-    if (!scene_wall || !live_wall || !texture_wall || !out_span) {
+    if (!wall || !out_span) {
         level_static_scene_set_error(error, error_size,
-                                     "controlled wall texture scale received invalid state");
+                                     "wall texture V span received invalid source state");
         return 0;
     }
-    /*
-     * A controller can share an EdgeT with graph duplicates. Only its listed
-     * Draw_Wall receives the source vertical-bound mutation; the duplicates
-     * retain the closed-solid presentation mapping.
-     */
-    if (scene_wall->source_record_offset != scene_wall->mechanism_wall_source_offset) {
-        *out_span = (int32_t)texture_wall->texture_height_mask + 1;
-        return 1;
+    height = (int64_t)wall->bottom - wall->top;
+    if (height < 0) {
+        height = -height;
     }
-    /* Draw_Wall's vertical coordinates are 8.8 fixed point. */
-    live_height = (int64_t)live_wall->bottom - live_wall->top;
-    authored_height = (int64_t)scene_wall->texture_initial_bottom -
-        scene_wall->texture_initial_top;
-    period = (int64_t)texture_wall->texture_height_mask + 1;
-    if (authored_height < 0) {
-        authored_height = -authored_height;
-    }
-    if (live_height < 0) {
-        live_height = -live_height;
-    }
-    live_height >>= 8u;
-    authored_height >>= 8u;
-    if (period <= 0) {
+    height >>= 8u;
+    if (height > INT32_MAX) {
         level_static_scene_set_error(error, error_size,
-                                     "controlled wall has an invalid source vertical span");
+                                     "wall texture V span is outside scene range");
         return 0;
     }
-    /* Draw_Wall rejects a zero-height panel; retain its degenerate mesh range. */
-    if (live_height == 0) {
-        *out_span = 0;
-        return 1;
-    }
-    /* No authored fraction exists for a source wall initially at zero height. */
-    if (authored_height == 0) {
-        if (live_height > INT32_MAX) {
-            level_static_scene_set_error(error, error_size,
-                                         "controlled wall texture scale is outside scene range");
-            return 0;
-        }
-        *out_span = (int32_t)live_height;
-        return 1;
-    }
-    /* Round exactly once at the source texture-row boundary. */
-    span = (live_height * period + authored_height / 2) / authored_height;
-    if (span <= 0 || span > INT32_MAX) {
-        level_static_scene_set_error(error, error_size,
-                                     "controlled wall texture scale is outside scene range");
-        return 0;
-    }
-    *out_span = (int32_t)span;
+    *out_span = (int32_t)height;
     return 1;
 }
 
@@ -628,6 +587,7 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                 LevelWorldPoint right_point;
                 LevelStaticWallScene *scene_wall;
                 LevelStaticWallMechanism wall_mechanism;
+                int32_t texture_v_span;
 
                 if (!level_draw_graph_get_record(runtime, zone_index, upper_stream,
                                                  record_index, &record, error, error_size)) {
@@ -668,17 +628,6 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                     scene_wall->mechanism_wall_source_offset =
                         wall_mechanism.canonical_wall_source_offset;
                     scene_wall->lift_graphics_offset = wall_mechanism.lift_graphics_offset;
-                    if (scene_wall->is_mechanism_surface != 0u) {
-                        LevelDrawWall controlled_wall;
-
-                        if (!level_static_scene_read_mechanism_wall(
-                                runtime, scene_wall->mechanism_wall_source_offset,
-                                &controlled_wall, error, error_size)) {
-                            goto fail;
-                        }
-                        scene_wall->texture_initial_top = controlled_wall.top;
-                        scene_wall->texture_initial_bottom = controlled_wall.bottom;
-                    }
                     if (scene_wall->mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_LIFT) {
                         int32_t lift_initial_height;
 
@@ -692,10 +641,14 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                     scene_wall->solid_initial_top = wall.top;
                     scene_wall->solid_initial_bottom = wall.bottom;
                     level_static_scene_set_wall_texture_window(scene_wall, &wall);
+                    if (!level_static_scene_wall_texture_v_span(&wall, &texture_v_span,
+                                                                error, error_size)) {
+                        goto fail;
+                    }
                     level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point,
                                                          &right_point, wall.texture_u_end,
                                                          wall.texture_y_offset,
-                                                         (int32_t)wall.texture_height_mask + 1);
+                                                         texture_v_span);
                     continue;
                 }
                 if (record.type == LEVEL_DRAW_GRAPH_TYPE_FLOOR ||
@@ -884,8 +837,8 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
              */
             solid_wall.top = lift_height;
             solid_wall.bottom = (int32_t)solid_bottom;
-            if (!level_static_scene_mechanism_texture_v_span(
-                    scene_wall, &solid_wall, &texture_wall, &texture_v_span, error, error_size)) {
+            if (!level_static_scene_wall_texture_v_span(
+                    &solid_wall, &texture_v_span, error, error_size)) {
                 return 0;
             }
             level_static_scene_set_wall_vertices(
@@ -909,8 +862,8 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
                     scene_wall, &solid_wall, wall_material_count, error, error_size)) {
                 return 0;
             }
-            if (!level_static_scene_mechanism_texture_v_span(
-                    scene_wall, &solid_wall, &solid_wall, &texture_v_span, error, error_size)) {
+            if (!level_static_scene_wall_texture_v_span(
+                    &solid_wall, &texture_v_span, error, error_size)) {
                 return 0;
             }
             level_static_scene_set_wall_vertices(
@@ -922,9 +875,15 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
                     scene_wall, &wall, wall_material_count, error, error_size)) {
                 return 0;
             }
+            int32_t texture_v_span;
+
+            if (!level_static_scene_wall_texture_v_span(
+                    &wall, &texture_v_span, error, error_size)) {
+                return 0;
+            }
             level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point, &right_point,
                                                  wall.texture_u_end, wall.texture_y_offset,
-                                                 (int32_t)wall.texture_height_mask + 1);
+                                                 texture_v_span);
         } else {
             level_static_scene_set_error(error, error_size,
                                          "static wall has an invalid mechanism type");
