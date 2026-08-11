@@ -1,5 +1,6 @@
 #include "game_input.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -69,6 +70,32 @@ void game_input_add_mouse_motion(GameInput *input, int32_t delta_x, int32_t delt
     input->pending_mouse_x = (int16_t)((uint16_t)input->pending_mouse_x +
                                        (uint16_t)delta_x);
     input->mouse_y = (int16_t)((uint16_t)input->mouse_y + (uint16_t)delta_y);
+}
+
+int16_t game_input_scale_present_mouse_delta(int32_t delta, int32_t reference_extent,
+                                             int32_t present_extent, int32_t *remainder)
+{
+    int64_t scaled;
+    int64_t reference_delta;
+
+    if (!remainder || reference_extent <= 0 || present_extent <= 0) {
+        return 0;
+    }
+    /*
+     * Alien-Breed-3D-I:player_mouse_delta_to_reference converts SDL relative
+     * motion back into its reference render extent. Keep the signed remainder
+     * so high-resolution one-pixel events are not discarded.
+     */
+    scaled = (int64_t)delta * reference_extent + *remainder;
+    reference_delta = scaled / present_extent;
+    *remainder = (int32_t)(scaled % present_extent);
+    if (reference_delta > INT16_MAX) {
+        return INT16_MAX;
+    }
+    if (reference_delta < INT16_MIN) {
+        return INT16_MIN;
+    }
+    return (int16_t)reference_delta;
 }
 
 int16_t game_input_peek_mouse_x(const GameInput *input)

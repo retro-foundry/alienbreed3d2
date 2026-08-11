@@ -217,6 +217,11 @@ typedef struct {
     Renderer *renderer;
     AudioSdl *audio;
     RenderView view;
+    /* First-port presented-pixel to reference-view mouse conversion state. */
+    int mouse_present_width;
+    int mouse_present_height;
+    int32_t mouse_remainder_x;
+    int32_t mouse_remainder_y;
     /* Host display frames are not source VBlanks; keep source logic at 50 Hz. */
     GameVBlankClock vblank_clock;
     int sdl_initialized;
@@ -453,6 +458,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
      */
     renderer_config.desktop_window = app->gpu_smoke ? 0 : 1;
     renderer_config.hidden_window = app->gpu_smoke;
+    app->mouse_present_width = renderer_config.window_width;
+    app->mouse_present_height = renderer_config.window_height;
     app->renderer = renderer_create(&renderer_config, error, sizeof(error));
     if (!app->renderer) {
         fprintf(stderr, "[RENDER] %s\n", error);
@@ -572,12 +579,24 @@ static void game_app_tick(GameApp *app)
             }
         }
         if (event.type == SDL_MOUSEMOTION) {
-            game_input_add_mouse_motion(&app->game.input, event.motion.xrel, event.motion.yrel);
+            enum {
+                /* Alien-Breed-3D-I renderer reference view: 96x80 at 8x. */
+                MOUSE_REFERENCE_WIDTH = 768,
+                MOUSE_REFERENCE_HEIGHT = 640
+            };
+            int16_t mouse_x = game_input_scale_present_mouse_delta(
+                event.motion.xrel, MOUSE_REFERENCE_WIDTH, app->mouse_present_width,
+                &app->mouse_remainder_x);
+            int16_t mouse_y = game_input_scale_present_mouse_delta(
+                event.motion.yrel, MOUSE_REFERENCE_HEIGHT, app->mouse_present_height,
+                &app->mouse_remainder_y);
+
+            game_input_add_mouse_motion(&app->game.input, mouse_x, mouse_y);
             /* Native real look is presentation state; source mouse input stays intact. */
             if (app->game.player.mouse_active != 0u) {
-                render_view_add_mouse_yaw(&app->view, event.motion.xrel);
+                render_view_add_mouse_yaw(&app->view, mouse_x);
             }
-            render_view_add_mouse_motion(&app->view, event.motion.yrel,
+            render_view_add_mouse_motion(&app->view, mouse_y,
                                          app->game.player.invert_mouse);
         }
         if (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP) {

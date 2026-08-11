@@ -5351,6 +5351,23 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    {
+        int32_t mouse_remainder = 0;
+
+        /* First-port desktop-to-reference input scaling retains tiny motion. */
+        if (game_input_scale_present_mouse_delta(1, 768, 1920, &mouse_remainder) != 0 ||
+            mouse_remainder != 768 ||
+            game_input_scale_present_mouse_delta(1, 768, 1920, &mouse_remainder) != 0 ||
+            mouse_remainder != 1536 ||
+            game_input_scale_present_mouse_delta(1, 768, 1920, &mouse_remainder) != 1 ||
+            mouse_remainder != 384 ||
+            game_input_scale_present_mouse_delta(-3, 768, 1920, &mouse_remainder) != -1 ||
+            mouse_remainder != 0) {
+            fprintf(stderr, "desktop mouse reference scaling is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
     game.session.player1_inventory.health = 199u;
     game_session_finish_single_player(&game.session, 0);
     if (game.session.campaign_inventory.health != 200u) {
