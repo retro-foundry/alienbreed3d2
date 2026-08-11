@@ -25,6 +25,14 @@ typedef struct {
     int32_t x;
     int32_t y;
     int32_t z;
+    /*
+     * Host-rate camera endpoints. The source renderer consumes only the
+     * collision-accepted integer words, but an accepted open-space axis may
+     * retain its 16.16 accumulator for interpolation between 50 Hz ticks.
+     * A collision-corrected axis is promoted from its accepted integer word.
+     */
+    int32_t presentation_x;
+    int32_t presentation_z;
     /* modules/player.s input-side state, committed by hires.s:Plr1_Control. */
     int32_t snap_x;
     int32_t snap_y;
