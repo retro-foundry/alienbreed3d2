@@ -195,6 +195,33 @@ static int find_direct_mechanism_wall_target(const LevelMechanisms *mechanisms,
     return 1;
 }
 
+/* Full-scene depth ownership: co-oriented opaque walls must not overlap. */
+static int scene_walls_have_same_facing_overlap(const LevelStaticWallScene *left,
+                                                const LevelStaticWallScene *right)
+{
+    int32_t left_low;
+    int32_t left_high;
+    int32_t right_low;
+    int32_t right_high;
+
+    if (!left || !right ||
+        left->vertices[0].position.x != right->vertices[0].position.x ||
+        left->vertices[0].position.z != right->vertices[0].position.z ||
+        left->vertices[1].position.x != right->vertices[1].position.x ||
+        left->vertices[1].position.z != right->vertices[1].position.z) {
+        return 0;
+    }
+    left_low = left->vertices[0].position.y < left->vertices[2].position.y ?
+        left->vertices[0].position.y : left->vertices[2].position.y;
+    left_high = left->vertices[0].position.y > left->vertices[2].position.y ?
+        left->vertices[0].position.y : left->vertices[2].position.y;
+    right_low = right->vertices[0].position.y < right->vertices[2].position.y ?
+        right->vertices[0].position.y : right->vertices[2].position.y;
+    right_high = right->vertices[0].position.y > right->vertices[2].position.y ?
+        right->vertices[0].position.y : right->vertices[2].position.y;
+    return left_low < right_high && right_low < left_high;
+}
+
 /* objdrawhires.s:draw_CalcBrightsInZone's live point-light samples. */
 static int scene_sprite_expected_point_light(const GameBootstrap *game,
                                              uint16_t zone_index, uint8_t upper_zone,
@@ -3686,6 +3713,7 @@ int main(int argc, char **argv)
             int32_t top;
             int32_t bottom;
             int32_t texture_v_span;
+            int32_t texture_v_origin;
 
             if (scene_wall->source_record_offset > game.dynamic_level.runtime.graphics_size ||
                 30u > game.dynamic_level.runtime.graphics_size - scene_wall->source_record_offset ||
@@ -3745,7 +3773,6 @@ int main(int argc, char **argv)
             case LEVEL_STATIC_WALL_MECHANISM_NONE:
                 top = (int32_t)read_be32(source + 20u);
                 bottom = (int32_t)read_be32(source + 24u);
-                texture_v_span = (int32_t)texture_source[16u] + 1;
                 break;
             case LEVEL_STATIC_WALL_MECHANISM_DOOR:
                 if (scene_wall->mechanism_wall_source_offset >
@@ -3801,6 +3828,82 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            texture_v_origin = read_be16(texture_source + 12u);
+            if (scene_wall->presentation_clip_lift_wall_source_offset != UINT32_MAX) {
+                const uint8_t *lift_source;
+                LevelWorldPoint lift_left_point;
+                LevelWorldPoint lift_right_point;
+                int32_t static_low;
+                int32_t static_high;
+                int32_t lift_top;
+                int32_t lift_bottom;
+                int32_t lift_low;
+                int32_t lift_high;
+
+                if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE ||
+                    scene_wall->presentation_clip_lift_wall_source_offset >=
+                        game.dynamic_level.runtime.graphics_size ||
+                    30u > game.dynamic_level.runtime.graphics_size -
+                              scene_wall->presentation_clip_lift_wall_source_offset) {
+                    fprintf(stderr,
+                            "campaign level %u static wall %u has invalid lift depth ownership\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                lift_source = game.dynamic_level.runtime.graphics_bytes +
+                    scene_wall->presentation_clip_lift_wall_source_offset;
+                if ((uint8_t)read_be16(lift_source) != LEVEL_DRAW_GRAPH_TYPE_WALL ||
+                    !find_direct_mechanism_wall_target(
+                        &game.level_mechanisms,
+                        scene_wall->presentation_clip_lift_wall_source_offset,
+                        &direct_mechanism_kind, &direct_mechanism_index,
+                        error, sizeof(error)) ||
+                    direct_mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_LIFT ||
+                    !level_runtime_get_world_point(&game.dynamic_level.runtime,
+                                                   read_be16(lift_source + 2u),
+                                                   &lift_left_point, error, sizeof(error)) ||
+                    !level_runtime_get_world_point(&game.dynamic_level.runtime,
+                                                   read_be16(lift_source + 4u),
+                                                   &lift_right_point, error, sizeof(error)) ||
+                    lift_left_point.x != left_point.x || lift_left_point.z != left_point.z ||
+                    lift_right_point.x != right_point.x || lift_right_point.z != right_point.z) {
+                    fprintf(stderr,
+                            "campaign level %u static wall %u has non-source lift depth ownership: %s\n",
+                            level_index, static_wall_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                static_low = top < bottom ? top : bottom;
+                static_high = top > bottom ? top : bottom;
+                lift_top = (int32_t)read_be32(lift_source + 20u);
+                lift_bottom = (int32_t)read_be32(lift_source + 24u);
+                lift_low = lift_top < lift_bottom ? lift_top : lift_bottom;
+                lift_high = lift_top > lift_bottom ? lift_top : lift_bottom;
+                if (static_low < lift_low && static_high > lift_low &&
+                    static_high <= lift_high) {
+                    if (top == static_high) {
+                        texture_v_origin += (top - lift_low) / 256;
+                        top = lift_low;
+                    } else {
+                        bottom = lift_low;
+                    }
+                } else if (static_low >= lift_low && static_low < lift_high &&
+                           static_high > lift_high) {
+                    if (top == static_low) {
+                        texture_v_origin += (lift_high - top) / 256;
+                        top = lift_high;
+                    } else {
+                        bottom = lift_high;
+                    }
+                } else {
+                    fprintf(stderr,
+                            "campaign level %u static wall %u has invalid lift depth interval\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
             {
                 int64_t source_y_span = (int64_t)bottom - top;
 
@@ -3832,17 +3935,49 @@ int main(int argc, char **argv)
                 scene_wall->texture_window.u_period != (uint16_t)texture_source[18u] + 1u ||
                 scene_wall->texture_window.v_period != (uint16_t)texture_source[16u] + 1u ||
                 scene_wall->vertices[0].texture_u != 0 ||
-                scene_wall->vertices[0].texture_v != read_be16(texture_source + 12u) ||
+                scene_wall->vertices[0].texture_v != texture_v_origin ||
                 scene_wall->vertices[1].texture_u != read_be16(texture_source + 8u) ||
-                scene_wall->vertices[1].texture_v != read_be16(texture_source + 12u) ||
+                scene_wall->vertices[1].texture_v != texture_v_origin ||
                 scene_wall->vertices[2].texture_u != read_be16(texture_source + 8u) ||
                 scene_wall->vertices[2].texture_v !=
-                    (int32_t)read_be16(texture_source + 12u) + texture_v_span ||
+                    texture_v_origin + texture_v_span ||
                 scene_wall->vertices[5].texture_u != 0 ||
                 scene_wall->vertices[5].texture_v !=
-                    (int32_t)read_be16(texture_source + 12u) + texture_v_span) {
+                    texture_v_origin + texture_v_span) {
                 fprintf(stderr, "campaign level %u static wall %u geometry is inconsistent\n",
                         level_index, static_wall_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        /*
+         * The desktop path submits the entire graph, unlike the source zone
+         * order.  Direct LiftRoutine faces own a co-oriented shaft boundary;
+         * a remaining overlap would make the two opaque materials contend in
+         * the GPU depth pass.  Oppositely directed source records remain the
+         * intentionally distinct two-sided wall materials.
+         */
+        for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
+             ++static_wall_index) {
+            const LevelStaticWallScene *lift_wall =
+                &game.static_scene.walls[static_wall_index];
+
+            if (lift_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_LIFT ||
+                lift_wall->source_record_offset != lift_wall->mechanism_wall_source_offset) {
+                continue;
+            }
+            for (uint32_t other_wall_index = 0u;
+                 other_wall_index < game.static_scene.wall_count; ++other_wall_index) {
+                const LevelStaticWallScene *other_wall =
+                    &game.static_scene.walls[other_wall_index];
+
+                if (other_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE ||
+                    !scene_walls_have_same_facing_overlap(lift_wall, other_wall)) {
+                    continue;
+                }
+                fprintf(stderr,
+                        "campaign level %u lift wall %u still overlaps co-oriented shaft wall %u\n",
+                        level_index, static_wall_index, other_wall_index);
                 game_bootstrap_destroy(&game);
                 return 1;
             }

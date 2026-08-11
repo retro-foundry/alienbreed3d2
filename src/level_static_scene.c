@@ -182,6 +182,177 @@ static void level_static_scene_set_wall_vertices(LevelStaticWallScene *scene_wal
                                   left_point->z, 0, texture_v_bottom);
 }
 
+static int level_static_scene_wall_texture_v_span(const LevelDrawWall *wall,
+                                                  int32_t *out_span,
+                                                  char *error, size_t error_size);
+
+static int32_t level_static_scene_minimum_y(int32_t left, int32_t right)
+{
+    return left < right ? left : right;
+}
+
+static int32_t level_static_scene_maximum_y(int32_t left, int32_t right)
+{
+    return left > right ? left : right;
+}
+
+static int level_static_scene_wall_texture_v_delta(int32_t first, int32_t second,
+                                                    int32_t *out_delta,
+                                                    char *error, size_t error_size)
+{
+    int64_t distance = (int64_t)first - second;
+
+    if (!out_delta) {
+        level_static_scene_set_error(error, error_size,
+                                     "wall texture V adjustment has no output");
+        return 0;
+    }
+    if (distance < 0) {
+        distance = -distance;
+    }
+    distance >>= 8u;
+    if (distance > INT32_MAX) {
+        level_static_scene_set_error(error, error_size,
+                                     "wall texture V adjustment is outside scene range");
+        return 0;
+    }
+    *out_delta = (int32_t)distance;
+    return 1;
+}
+
+/*
+ * A full-level GPU frame retains source Draw_Wall records that the Amiga path
+ * normally isolates through its zone draw order.  LiftRoutine only mutates
+ * the direct ZDoorWall.graphics_offset record.  Some authored graphs also
+ * retain an unlisted, co-oriented shaft segment that overlaps that live edge.
+ * It is not a second physical wall, so make the direct
+ * LiftRoutine boundary own the shared edge.  Oppositely directed records are
+ * the two authored sides of a wall and deliberately remain independent.
+ */
+static int level_static_scene_trim_static_wall_against_lift(
+    LevelStaticWallScene *static_wall, const LevelStaticWallScene *lift_wall,
+    int *out_trimmed, char *error, size_t error_size)
+{
+    int32_t static_top;
+    int32_t static_bottom;
+    int32_t static_low;
+    int32_t static_high;
+    int32_t lift_low;
+    int32_t lift_high;
+    int32_t trimmed_top;
+    int32_t trimmed_bottom;
+    int32_t texture_v_delta = 0;
+
+    if (!static_wall || !lift_wall || !out_trimmed) {
+        level_static_scene_set_error(error, error_size,
+                                     "lift wall ownership received invalid scene geometry");
+        return 0;
+    }
+    *out_trimmed = 0;
+    if (static_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE ||
+        lift_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_LIFT ||
+        lift_wall->source_record_offset != lift_wall->mechanism_wall_source_offset ||
+        static_wall->vertices[0].position.x != lift_wall->vertices[0].position.x ||
+        static_wall->vertices[0].position.z != lift_wall->vertices[0].position.z ||
+        static_wall->vertices[1].position.x != lift_wall->vertices[1].position.x ||
+        static_wall->vertices[1].position.z != lift_wall->vertices[1].position.z) {
+        return 1;
+    }
+    static_top = static_wall->vertices[0].position.y;
+    static_bottom = static_wall->vertices[2].position.y;
+    static_low = level_static_scene_minimum_y(static_top, static_bottom);
+    static_high = level_static_scene_maximum_y(static_top, static_bottom);
+    lift_low = level_static_scene_minimum_y(lift_wall->vertices[0].position.y,
+                                            lift_wall->vertices[2].position.y);
+    lift_high = level_static_scene_maximum_y(lift_wall->vertices[0].position.y,
+                                             lift_wall->vertices[2].position.y);
+    if (static_low >= lift_high || lift_low >= static_high) {
+        return 1;
+    }
+    trimmed_top = static_top;
+    trimmed_bottom = static_bottom;
+    if (static_low < lift_low && static_high > lift_low && static_high <= lift_high) {
+        if (static_top == static_high) {
+            trimmed_top = lift_low;
+        } else {
+            trimmed_bottom = lift_low;
+        }
+    } else if (static_low >= lift_low && static_low < lift_high && static_high > lift_high) {
+        if (static_top == static_low) {
+            trimmed_top = lift_high;
+        } else {
+            trimmed_bottom = lift_high;
+        }
+    } else {
+        level_static_scene_set_error(
+            error, error_size,
+            "same-facing lift and shaft walls require an unsupported source polygon split");
+        return 0;
+    }
+    if (trimmed_top == trimmed_bottom ||
+        !level_static_scene_wall_texture_v_delta(static_top, trimmed_top,
+                                                  &texture_v_delta, error, error_size)) {
+        if (trimmed_top == trimmed_bottom) {
+            level_static_scene_set_error(error, error_size,
+                                         "lift wall ownership produced a zero-height shaft wall");
+        }
+        return 0;
+    }
+    static_wall->vertices[0].position.y = trimmed_top;
+    static_wall->vertices[1].position.y = trimmed_top;
+    static_wall->vertices[3].position.y = trimmed_top;
+    static_wall->vertices[2].position.y = trimmed_bottom;
+    static_wall->vertices[4].position.y = trimmed_bottom;
+    static_wall->vertices[5].position.y = trimmed_bottom;
+    static_wall->vertices[0].texture_v += texture_v_delta;
+    static_wall->vertices[1].texture_v += texture_v_delta;
+    static_wall->vertices[3].texture_v += texture_v_delta;
+    if (!level_static_scene_wall_texture_v_span(
+            &(LevelDrawWall){.top = trimmed_top, .bottom = trimmed_bottom},
+            &texture_v_delta, error, error_size)) {
+        return 0;
+    }
+    static_wall->vertices[2].texture_v = static_wall->vertices[0].texture_v + texture_v_delta;
+    static_wall->vertices[4].texture_v = static_wall->vertices[2].texture_v;
+    static_wall->vertices[5].texture_v = static_wall->vertices[2].texture_v;
+    static_wall->presentation_clip_lift_wall_source_offset = lift_wall->source_record_offset;
+    *out_trimmed = 1;
+    return 1;
+}
+
+static int level_static_scene_resolve_lift_wall_overlaps(LevelStaticScene *scene,
+                                                          char *error, size_t error_size)
+{
+    if (!scene || (scene->wall_count != 0u && !scene->walls)) {
+        level_static_scene_set_error(error, error_size,
+                                     "lift wall ownership received an invalid static scene");
+        return 0;
+    }
+    for (uint32_t wall_index = 0u; wall_index < scene->wall_count; ++wall_index) {
+        scene->walls[wall_index].presentation_clip_lift_wall_source_offset = UINT32_MAX;
+    }
+    for (uint32_t lift_wall_index = 0u; lift_wall_index < scene->wall_count;
+         ++lift_wall_index) {
+        const LevelStaticWallScene *lift_wall = &scene->walls[lift_wall_index];
+
+        if (lift_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_LIFT ||
+            lift_wall->source_record_offset != lift_wall->mechanism_wall_source_offset) {
+            continue;
+        }
+        for (uint32_t static_wall_index = 0u; static_wall_index < scene->wall_count;
+             ++static_wall_index) {
+            int trimmed;
+
+            if (!level_static_scene_trim_static_wall_against_lift(
+                    &scene->walls[static_wall_index], lift_wall, &trimmed,
+                    error, error_size)) {
+                return 0;
+            }
+        }
+    }
+    return 1;
+}
+
 /*
  * hires.s:DrawDisplay maps wall V from the source 8.8 world Y coordinate
  * (`Plr_YOff_l >> 8`), before hireswall.s:Draw_Wall applies its wrapped
@@ -694,6 +865,9 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
         goto fail;
     }
     scene.wall_count = wall_count;
+    if (!level_static_scene_resolve_lift_wall_overlaps(&scene, error, error_size)) {
+        goto fail;
+    }
     *out_scene = scene;
     return 1;
 
@@ -806,6 +980,9 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
                                          "static wall has an invalid mechanism type");
             return 0;
         }
+    }
+    if (!level_static_scene_resolve_lift_wall_overlaps(scene, error, error_size)) {
+        return 0;
     }
     for (flat_index = 0u; flat_index < scene->flat_count; ++flat_index) {
         LevelStaticFlatScene *scene_flat = &scene->flats[flat_index];

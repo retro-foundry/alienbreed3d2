@@ -34,6 +34,12 @@ typedef struct {
     /* DoorRoutine/LiftRoutine table index; groups source-controlled surfaces. */
     uint16_t mechanism_index;
     uint32_t mechanism_wall_source_offset;
+    /*
+     * Direct LiftRoutine Draw_Wall record that trims this otherwise-static,
+     * same-facing shaft segment for complete-level depth ownership. UINT32_MAX
+     * means the source span is submitted unchanged.
+     */
+    uint32_t presentation_clip_lift_wall_source_offset;
     uint16_t source_zone_index;
     uint8_t source_upper_zone;
     uint8_t point_brightness_selector;

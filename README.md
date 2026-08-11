@@ -96,7 +96,11 @@ gameplay-first scope.
   direct wall faces retain their live `+20` boundary while their source `+24`
   boundary remains fixed, alongside the live `Draw_Flats` plane. This keeps
   adjacent shaft walls static while preserving each authored panel's texture motion without
-  per-face height normalization or stretching;
+  per-face height normalization or stretching. Where the complete graph has
+  an unlisted, co-oriented shaft wall overlapping a direct lift face at a
+  shared edge, the direct `LiftRoutine` face owns that edge and the shaft
+  segment is clipped there; opposite-facing records remain the authored
+  materials for the other side of the wall;
 - defines a GPU-neutral frame command interface for cameras, lighting,
   environment, static/dynamic mesh instances, and source-object instances.
   Every live source object now emits an
