@@ -1049,23 +1049,15 @@ static int player_runtime_update_keyboard_motion(PlayerRuntime *player, const Ga
 
     strafe = 0;
     if (strafe_left_down) {
-        /* modules/player.s mutates the same d4 word with both ADD.W pairs. */
-        strafe = player_runtime_add16(strafe, move_speed);
-        strafe = player_runtime_add16(strafe, move_speed);
-        strafe = player_runtime_asr16(strafe, 1u);
+        strafe = move_speed;
     }
     if (strafe_right_down) {
-        /* A simultaneous left input remains in d4 on this source path. */
-        strafe = player_runtime_add16(strafe, move_speed);
-        strafe = player_runtime_add16(strafe, move_speed);
-        strafe = player_runtime_asr16(strafe, 1u);
-        strafe = (int16_t)(UINT16_C(0) - (uint16_t)strafe);
+        /* First-port PC policy: the later source binding wins key rollover. */
+        strafe = (int16_t)(UINT16_C(0) - (uint16_t)move_speed);
     }
     forward = 0;
     if (game_input_is_control_down(input, controls, GAME_CONTROL_FORWARDS)) {
-        /* NEG.W changes d2 itself before the later backwards-key test. */
-        move_speed = (int16_t)(UINT16_C(0) - (uint16_t)move_speed);
-        forward = move_speed;
+        forward = (int16_t)(UINT16_C(0) - (uint16_t)move_speed);
     }
     if (game_input_is_control_down(input, controls, GAME_CONTROL_BACKWARDS)) {
         forward = move_speed;
