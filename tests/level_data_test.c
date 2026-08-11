@@ -8821,6 +8821,7 @@ int main(int argc, char **argv)
             attack_state.animation.finished != UINT8_MAX ||
             attack_state.projectile_spawned != UINT8_MAX ||
             attack_runtime.heading_angle != attack_state.heading.angle ||
+            attack_runtime.motion.new_x != 100 || attack_runtime.motion.new_z != 200 ||
             read_be16(slot_bytes + PROJECTILE_ATTACK_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
                           30u) !=
                 (uint16_t)(attack_state.heading.angle + attack_state.animation.facing) ||
@@ -8997,6 +8998,7 @@ int main(int argc, char **argv)
             attack_state.impact_z != expected_impact_z ||
             attack_random.state != expected_random.state ||
             attack_runtime.heading_angle != attack_state.heading.angle ||
+            attack_runtime.motion.new_x != 100 || attack_runtime.motion.new_z != 200 ||
             slot_bytes[HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] !=
                 (uint8_t)(0x10u + (uint8_t)attack_bullet.hit_damage) ||
             read_be16(slot_bytes + HITSCAN_ATTACK_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
@@ -12307,6 +12309,8 @@ int main(int argc, char **argv)
             charge_dispatch_state.route != ALIEN_MAIN_ROUTE_RESPONSE ||
             charge_dispatch_state.behavior != ALIEN_MAIN_BEHAVIOR_CHARGE ||
             charge_dispatch_state.charge.damaged_player != UINT8_MAX ||
+            charge_runtime.motion.new_x != charge_dispatch_workspace.movement.new_x ||
+            charge_runtime.motion.new_z != charge_dispatch_workspace.movement.new_z ||
             slot_bytes[CHARGE_PLAYER_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 7u) {
             fprintf(stderr, "AI_MainRoutine response dispatch is inconsistent: %s\n", error);
             level_dynamic_state_destroy(&charge_dynamic);

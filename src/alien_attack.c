@@ -727,6 +727,8 @@ int alien_attack_with_hitscan_update(
         }
     }
 
+    /* The source restores the alien point after any hitscan trace. */
+    object_motion_runtime_set_new_words(&alien_runtime->motion, point_x, point_z);
     if (!alien_torch_apply(lighting, level, math, objects, slot_index, alien_setup,
                            point_x, point_z, error, error_size)) {
         return 0;
@@ -848,6 +850,8 @@ int alien_attack_with_projectile_update(
 
     point_x = alien_attack_read_be16s(point);
     point_z = alien_attack_read_be16s(point + 4u);
+    /* The source restores the alien point after FireAtPlayer1. */
+    object_motion_runtime_set_new_words(&alien_runtime->motion, point_x, point_z);
     if (!alien_torch_apply(lighting, level, math, objects, slot_index, alien_setup,
                            point_x, point_z, error, error_size)) {
         return 0;

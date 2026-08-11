@@ -267,6 +267,10 @@ static int alien_charge_update_common(
         return 0;
     }
 
+    /* CheckTeleport consumes the process-global objectmove.s:newx/newz pair. */
+    workspace->new_x = alien_runtime->motion.new_x;
+    workspace->new_z = alien_runtime->motion.new_z;
+
     {
         ObjectCollisionTrace teleport_trace;
 
@@ -420,6 +424,8 @@ static int alien_charge_update_common(
                                     state.heading.angle);
         }
     }
+    object_motion_runtime_set_new_words(
+        &alien_runtime->motion, workspace->new_x, workspace->new_z);
 
     /* A successful CheckTeleport branches directly to .no_munch. */
     if ((approach != 0u || flying == 0u) && state.teleport.teleported == 0u &&
