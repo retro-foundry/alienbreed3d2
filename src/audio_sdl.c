@@ -11,7 +11,12 @@
 enum {
     AUDIO_SDL_RATE = 48000,
     AUDIO_SDL_CHANNELS = 2,
-    AUDIO_SDL_BUFFER_SAMPLES = 1024,
+    /*
+     * 256 @ 48 kHz is 5.3 ms.  MakeSomeNoise requests are only created on
+     * the source 50 Hz VBlank, so a larger desktop callback would add a full
+     * extra frame of audible delay without changing source timing.
+     */
+    AUDIO_SDL_BUFFER_SAMPLES = 256,
     AUDIO_SDL_MUSIC_GAIN = 11000
 };
 
