@@ -558,7 +558,7 @@ multiplayer work is planned.
   `ASR.W #2`/`MULS #256` direct-wall boundary during fractional source motion,
   so arbitrary authored door perimeters remain a single moving closed mesh
   rather than exposing the source records' sub-texel difference as a gap. Lift
-  faces retain `LiftRoutine`'s live +20
+  planes use the identical quantised boundary, matching `LiftRoutine`'s live +20
   boundary and fixed +24 boundary beside the live `Draw_Flats` plane; no
   same-`EdgeT` shaft face follows a lift. For a complete graph's unlisted,
   co-oriented static shaft record that overlaps a direct lift face at a shared

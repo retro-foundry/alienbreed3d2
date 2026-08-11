@@ -139,9 +139,10 @@ static int16_t level_static_scene_asr16_2(int16_t value)
 
 /*
  * newanims.s:DoorRoutine writes the Draw_Flats +2 height directly from d3,
- * then uses ASR.W #2 and MULS #256 to write every direct ZDoorWall +24
- * boundary. The native solid must use that latter boundary for the controller
- * plane as well: during a non-four-unit motion step the two source records
+ * then uses ASR.W #2 and MULS #256 for every direct ZDoorWall +24 boundary.
+ * LiftRoutine performs the same quantisation before storing its Draw_Flats
+ * height and direct ZDoorWall +20 boundary. Route both controller planes
+ * through that shared boundary: DoorRoutine's intermediate source records can
  * differ by at most 192 units, which is invisible in the source column pass
  * but becomes an actual open seam in a 3D mesh. This is presentation-only;
  * the exact mutable source records remain unchanged.
@@ -150,7 +151,8 @@ static int32_t level_static_scene_flat_world_y(const LevelStaticFlatScene *scene
                                                int16_t source_height)
 {
     if (scene_flat &&
-        scene_flat->dynamic_surface_kind == LEVEL_STATIC_DYNAMIC_SURFACE_DOOR) {
+        (scene_flat->dynamic_surface_kind == LEVEL_STATIC_DYNAMIC_SURFACE_DOOR ||
+         scene_flat->dynamic_surface_kind == LEVEL_STATIC_DYNAMIC_SURFACE_LIFT)) {
         return (int32_t)level_static_scene_asr16_2(source_height) * 256;
     }
     return (int32_t)source_height * 64;

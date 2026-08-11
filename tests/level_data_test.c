@@ -2142,6 +2142,9 @@ int main(int argc, char **argv)
         uint32_t dynamic_door_fixture_wall_offset = UINT32_MAX;
         uint32_t dynamic_door_fixture_plane_offset = UINT32_MAX;
         int32_t dynamic_door_fixture_boundary = 0;
+        uint32_t dynamic_lift_fixture_wall_offset = UINT32_MAX;
+        uint32_t dynamic_lift_fixture_plane_offset = UINT32_MAX;
+        int32_t dynamic_lift_fixture_boundary = 0;
 
         if (!game_session_select_level(&game.session, level_index, error, sizeof(error)) ||
             !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||
@@ -3770,8 +3773,19 @@ int main(int argc, char **argv)
             const LevelStaticWallScene *scene_wall =
                 &game.static_scene.walls[static_wall_index];
             uint8_t *dynamic_lift_top;
+            uint8_t *dynamic_lift_plane;
+            LevelLiftable lift;
+            int32_t moved_boundary;
+            int32_t moved_plane;
 
-            if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_LIFT) {
+            if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_LIFT ||
+                scene_wall->source_record_offset != scene_wall->mechanism_wall_source_offset ||
+                !level_mechanisms_get_lift(&game.level_mechanisms,
+                                           scene_wall->mechanism_index, &lift,
+                                           error, sizeof(error)) ||
+                !level_dynamic_state_get_graphics_range(
+                    &game.dynamic_level, lift.graphics_offset + 2u, 2u,
+                    &dynamic_lift_plane)) {
                 continue;
             }
             if (!level_dynamic_state_get_graphics_range(
@@ -3782,7 +3796,21 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
-            write_be32(dynamic_lift_top, read_be32(dynamic_lift_top) + 256u);
+            moved_boundary = (int32_t)read_be32(dynamic_lift_top) + 256;
+            if ((moved_boundary % 64) != 0 || moved_boundary / 64 < INT16_MIN ||
+                moved_boundary / 64 > INT16_MAX || (moved_boundary / 64) % 4 != 0) {
+                fprintf(stderr,
+                        "campaign level %u lift movement fixture cannot preserve source plane\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            moved_plane = moved_boundary / 64;
+            write_be32(dynamic_lift_top, (uint32_t)moved_boundary);
+            write_be16(dynamic_lift_plane, (uint16_t)(int16_t)moved_plane);
+            dynamic_lift_fixture_wall_offset = scene_wall->mechanism_wall_source_offset;
+            dynamic_lift_fixture_plane_offset = lift.graphics_offset;
+            dynamic_lift_fixture_boundary = moved_boundary;
             ++lift_wall_motion_fixture_count;
             break;
         }
@@ -3841,6 +3869,57 @@ int main(int argc, char **argv)
             if (fixture_wall_count == 0u || fixture_plane_count == 0u) {
                 fprintf(stderr,
                         "campaign level %u moving door fixture has no native closed mesh\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        if (dynamic_lift_fixture_wall_offset != UINT32_MAX) {
+            uint32_t fixture_wall_count = 0u;
+            uint32_t fixture_plane_count = 0u;
+
+            for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
+                 ++static_wall_index) {
+                const LevelStaticWallScene *scene_wall =
+                    &game.static_scene.walls[static_wall_index];
+
+                if (scene_wall->source_record_offset != dynamic_lift_fixture_wall_offset) {
+                    continue;
+                }
+                if (scene_wall->vertices[0].position.y != dynamic_lift_fixture_boundary &&
+                    scene_wall->vertices[2].position.y != dynamic_lift_fixture_boundary) {
+                    fprintf(stderr,
+                            "campaign level %u moving lift wall did not retain its source boundary\n",
+                            level_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                ++fixture_wall_count;
+            }
+            for (static_flat_index = 0u; static_flat_index < game.static_scene.flat_count;
+                 ++static_flat_index) {
+                const LevelStaticFlatScene *scene_flat =
+                    &game.static_scene.flats[static_flat_index];
+
+                if (scene_flat->source_record_offset != dynamic_lift_fixture_plane_offset) {
+                    continue;
+                }
+                for (uint16_t point_index = 0u; point_index < scene_flat->vertex_count;
+                     ++point_index) {
+                    if (scene_flat->vertices[point_index].position.y !=
+                        dynamic_lift_fixture_boundary) {
+                        fprintf(stderr,
+                                "campaign level %u moving lift plane does not seal its wall\n",
+                                level_index);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                }
+                ++fixture_plane_count;
+            }
+            if (fixture_wall_count == 0u || fixture_plane_count == 0u) {
+                fprintf(stderr,
+                        "campaign level %u moving lift fixture has no native closed mesh\n",
                         level_index);
                 game_bootstrap_destroy(&game);
                 return 1;
@@ -4179,8 +4258,10 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
-            expected_height = scene_flat->dynamic_surface_kind ==
-                    LEVEL_STATIC_DYNAMIC_SURFACE_DOOR ?
+            expected_height = (scene_flat->dynamic_surface_kind ==
+                    LEVEL_STATIC_DYNAMIC_SURFACE_DOOR ||
+                scene_flat->dynamic_surface_kind ==
+                    LEVEL_STATIC_DYNAMIC_SURFACE_LIFT) ?
                 (int32_t)source_asr16_2(draw_flat.height) * 256 :
                 (int32_t)draw_flat.height * 64;
             for (flat_point_index = 0u; flat_point_index < draw_flat.point_count;

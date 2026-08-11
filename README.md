@@ -99,7 +99,8 @@ gameplay-first scope.
   avoiding the sub-texel source-record difference becoming a 3D seam.
   `LiftRoutine`'s
   direct wall faces retain their live `+20` boundary while their source `+24`
-  boundary remains fixed, alongside the live `Draw_Flats` plane. This keeps
+  boundary remains fixed, alongside a plane snapped through the same source
+  quantisation. This keeps
   adjacent shaft walls static while preserving each authored panel's texture motion without
   per-face height normalization or stretching. Where the complete graph has
   an unlisted, co-oriented shaft wall overlapping a direct lift face at a
