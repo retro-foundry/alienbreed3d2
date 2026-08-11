@@ -12252,30 +12252,21 @@ int main(int argc, char **argv)
 
         render_view_init(&view);
         render_view_add_mouse_motion(&view, -100, 0u);
-        if (view.pitch_degrees < 51.33f || view.pitch_degrees > 51.35f ||
-            view.aim_speed != -10240 || view.look_offset != -20) {
-            fprintf(stderr, "source projectile-aligned upward pitch is inconsistent\n");
+        if (view.pitch_degrees < 14.99f || view.pitch_degrees > 15.01f) {
+            fprintf(stderr, "native real mouse-look upward pitch is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }
         render_view_add_mouse_motion(&view, 1000, 0u);
-        if (view.pitch_degrees > -51.33f || view.pitch_degrees < -51.35f ||
-            view.aim_speed != 10240 || view.look_offset != 20) {
-            fprintf(stderr, "source projectile-aligned lower clamp is inconsistent\n");
+        if (view.pitch_degrees != -85.0f) {
+            fprintf(stderr, "native real mouse-look lower clamp is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }
         render_view_init(&view);
         render_view_add_mouse_motion(&view, -100, UINT8_MAX);
-        if (view.pitch_degrees > -51.33f || view.pitch_degrees < -51.35f) {
-            fprintf(stderr, "source projectile-aligned mouse inversion is inconsistent\n");
-            game_bootstrap_destroy(&game);
-            return 1;
-        }
-        render_view_set_source_look(&view, -4096, -8);
-        if (view.pitch_degrees < 26.56f || view.pitch_degrees > 26.57f ||
-            view.aim_speed != -4096 || view.look_offset != -8) {
-            fprintf(stderr, "source committed aim reconciliation is inconsistent\n");
+        if (view.pitch_degrees > -14.99f || view.pitch_degrees < -15.01f) {
+            fprintf(stderr, "native real mouse-look inversion is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }

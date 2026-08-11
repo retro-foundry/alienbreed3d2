@@ -2801,7 +2801,10 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
         float up_x = right_z * forward_y;
         float up_y = forward_z * right_x - forward_x * right_z;
         float up_z = -right_x * forward_y;
-        float source_relative_yaw;
+        float source_relative_yaw = ((float)sprite->yaw -
+                                     renderer_opengl_source_angle_quarter_turn -
+                                     (float)camera->yaw) *
+            (2.0f * renderer_opengl_pi / renderer_opengl_source_angle_full_turn);
         float source_view_x;
         float source_view_z;
         float bob;
@@ -2811,15 +2814,12 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
         local_y = -(float)source_point.y * 0.0125f;
         local_z = (float)source_point.z * 0.0125f;
         /*
-         * Plr1_Use writes the companion angle as the current player angle +
-         * SINE_SIZE (4096), and draw_PolygonModel subtracts 2048 and the same
-         * live Vis_AngPos_w. The result is always +2048. The presentation
-         * camera can consume mouse motion between source ticks, so deriving
-         * this from the interpolated ObjT angle makes the gun lag and rotate
-         * away from the shot. Preserve the source invariant directly.
+         * objdrawhires.s:draw_PolygonModel rotates every vector model by
+         * EntT_CurrentAngle_w - 2048 - Vis_AngPos_w.  Perform that complete
+         * source-relative rotation in camera space: applying ordinary world
+         * yaw first makes the companion turn the wrong way as the player
+         * turns.  Plr1_Use writes its reversed player angle.
          */
-        source_relative_yaw = renderer_opengl_source_angle_quarter_turn *
-            (2.0f * renderer_opengl_pi / renderer_opengl_source_angle_full_turn);
         source_view_x = local_x * sinf(source_relative_yaw) -
             local_z * cosf(source_relative_yaw);
         source_view_z = local_z * sinf(source_relative_yaw) +
