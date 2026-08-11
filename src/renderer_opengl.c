@@ -2974,18 +2974,18 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
     for (uint16_t y = 0u; y < height; ++y) {
         for (uint16_t x = 0u; x < width; ++x) {
             /*
-             * objdrawhires.s:drawpol first derives the U byte from d6,
-             * shifts it into bits 8..15, then copies the V byte from d5 into
-             * bits 0..7 before `(a0,d0.w*4)`. The source map is therefore
-             * addressed as U << 8 | V, even though this converted texture is
-             * stored conventionally as rows of V and columns of U.  The
-             * `(a0,d0.w*4)` index is signed: source coordinates with U's
+             * objdrawhires.s:draw_PutInLines stores source byte 2 (U) in
+             * draw_Poly*Tab+2 and source byte 3 (V) in +6. drawpol shifts the
+             * latter into bits 8..15, then copies the former into bits 0..7
+             * before `(a0,d0.w*4)`. The source map is therefore addressed as
+             * V << 8 | U, matching conventional rows of V and columns of U. The
+             * `(a0,d0.w*4)` index is signed: source coordinates with V's
              * high bit set address backward from the selected map bank.
              */
             uint8_t source_u = (uint8_t)(minimum_u + x);
             uint8_t source_v = (uint8_t)(minimum_v + y);
             int16_t source_coordinate =
-                (int16_t)(((uint16_t)source_u << 8u) | source_v);
+                source_vector_texture_coordinate(source_u, source_v);
             int64_t source_texel_offset_signed;
             size_t source_texel_offset;
             size_t source_light_palette_offset;

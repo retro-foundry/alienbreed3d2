@@ -5664,8 +5664,21 @@ int main(int argc, char **argv)
 
         number_weapon_player.gun_selected = 3u;
         number_weapon_inventory.weapons[3u] = UINT8_MAX;
+        number_weapon_inventory.weapons[5u] = UINT8_MAX;
         number_weapon_inventory.weapons[7u] = UINT8_MAX;
         game_input_init(&number_weapon_input);
+        /* raw key $06 is RAWKEY_6, which selects the rocket launcher at entry 5. */
+        if (!game_input_set_raw_key(&number_weapon_input, 6u, 1, error, sizeof(error)) ||
+            !player_runtime_update_discrete_controls(
+                &number_weapon_player, &number_weapon_input, &control_defaults,
+                &game.level_runtime, &number_weapon_inventory, error, sizeof(error)) ||
+            number_weapon_player.gun_selected != 5u ||
+            number_weapon_player.reset_weapon_animation != UINT8_MAX ||
+            !game_input_set_raw_key(&number_weapon_input, 6u, 0, error, sizeof(error))) {
+            fprintf(stderr, "source rocket-launcher key selection is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
         /* raw key $08 is RAWKEY_8, which selects source weapon table entry 7. */
         if (!game_input_set_raw_key(&number_weapon_input, 8u, 1, error, sizeof(error)) ||
             !player_runtime_update_discrete_controls(
@@ -5968,14 +5981,16 @@ int main(int argc, char **argv)
         projection.centre_y = 120u;
         projection.scale_numerator = 5u;
         projection.scale_denominator = 3u;
-        if (!source_vector_transform_view_weapon_point(
+        if (source_vector_texture_coordinate(0x12u, 0x34u) != INT16_C(0x3412) ||
+            source_vector_texture_coordinate(0x56u, 0x80u) != (int16_t)UINT16_C(0x8056) ||
+            !source_vector_transform_view_weapon_point(
                 &projection, 4, -2, 6, &point) ||
             !source_vector_make_view_weapon_matrix(
                 &projection, 16.0f / 9.0f, matrix) ||
             point.x != 255.0f || point.y != 0.0f || point.z != -5.0f ||
             matrix[0] < 0.00780f || matrix[0] > 0.00782f ||
             matrix[5] < 0.01388f || matrix[5] > 0.01390f) {
-            fprintf(stderr, "source view-weapon point projection is inconsistent: %s\n",
+            fprintf(stderr, "source vector decoding/projection is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;

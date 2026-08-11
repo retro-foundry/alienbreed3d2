@@ -12,6 +12,9 @@ typedef struct {
     float z;
 } SourceVectorEyePoint;
 
+/* Signed 16-bit source map address assembled by objdrawhires.s:drawpol. */
+int16_t source_vector_texture_coordinate(uint8_t source_u, uint8_t source_v);
+
 /* Exact fixed-point point transform used by the source view-weapon path. */
 int source_vector_transform_view_weapon_point(
     const SceneViewWeaponProjection *projection,

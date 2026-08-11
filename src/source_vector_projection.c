@@ -23,6 +23,11 @@ static int32_t source_vector_asr32(int32_t value, unsigned int shift)
     return (int32_t)-((-(int64_t)value + (((int64_t)1 << shift) - 1)) >> shift);
 }
 
+int16_t source_vector_texture_coordinate(uint8_t source_u, uint8_t source_v)
+{
+    return (int16_t)(((uint16_t)source_v << 8u) | source_u);
+}
+
 int source_vector_transform_view_weapon_point(
     const SceneViewWeaponProjection *projection,
     int16_t source_x, int16_t source_y, int16_t source_z,
