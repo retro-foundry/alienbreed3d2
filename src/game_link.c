@@ -67,7 +67,8 @@ enum {
     GLFT_GUN_OBJECTS_OFFSET = GLFT_ALIEN_BRIGHTNESS_OFFSET + GLFT_ALIEN_COUNT * 2,
     GLFT_PLAYER_GRAPHICS_OFFSET = GLFT_GUN_OBJECTS_OFFSET + GLFT_GUN_COUNT * 2,
     GLFT_FLOOR_DATA_OFFSET = GLFT_PLAYER_GRAPHICS_OFFSET + 4,
-    GLFT_ALIEN_SHOOT_DEFINITIONS_OFFSET = GLFT_FLOOR_DATA_OFFSET + 16 * 4,
+    GLFT_ALIEN_SHOOT_DEFINITIONS_OFFSET = GLFT_FLOOR_DATA_OFFSET +
+                                          GAME_LINK_FLOOR_DATA_COUNT * 4,
     GLFT_AMBIENT_SFX_OFFSET = GLFT_ALIEN_SHOOT_DEFINITIONS_OFFSET + GLFT_ALIEN_COUNT * GLFT_SHOOT_DEFINITION_SIZE,
     GLFT_LEVEL_MUSIC_OFFSET = GLFT_AMBIENT_SFX_OFFSET + 16 * 2,
     GLFT_ECHO_OFFSET = GLFT_LEVEL_MUSIC_OFFSET + GLFT_LEVEL_COUNT * GLFT_PATH_SIZE,
@@ -110,7 +111,8 @@ static const GameLinkTableRange game_link_ranges[GAME_LINK_TABLE_COUNT] = {
     [GAME_LINK_TABLE_ALIEN_BRIGHTNESS] = {GLFT_ALIEN_BRIGHTNESS_OFFSET, GLFT_ALIEN_COUNT * 2},
     [GAME_LINK_TABLE_GUN_OBJECTS] = {GLFT_GUN_OBJECTS_OFFSET, GLFT_GUN_COUNT * 2},
     [GAME_LINK_TABLE_PLAYER_GRAPHICS] = {GLFT_PLAYER_GRAPHICS_OFFSET, 4},
-    [GAME_LINK_TABLE_FLOOR_DATA] = {GLFT_FLOOR_DATA_OFFSET, 16 * 4},
+    [GAME_LINK_TABLE_FLOOR_DATA] = {GLFT_FLOOR_DATA_OFFSET,
+                                    GAME_LINK_FLOOR_DATA_COUNT * 4},
     [GAME_LINK_TABLE_ALIEN_SHOOT_DEFINITIONS] = {GLFT_ALIEN_SHOOT_DEFINITIONS_OFFSET, GLFT_ALIEN_COUNT * GLFT_SHOOT_DEFINITION_SIZE},
     [GAME_LINK_TABLE_AMBIENT_SFX] = {GLFT_AMBIENT_SFX_OFFSET, 16 * 2},
     [GAME_LINK_TABLE_LEVEL_MUSIC] = {GLFT_LEVEL_MUSIC_OFFSET, GAME_LINK_LEVEL_COUNT * GLFT_PATH_SIZE},
@@ -335,6 +337,28 @@ int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
     definition.bullet_count = game_link_read_be16(source + 4u);
     definition.sound_effect = game_link_read_be16(source + 6u);
     *out_definition = definition;
+    return 1;
+}
+
+int game_link_get_floor_data(const GameLink *link, uint16_t floor_index,
+                             GameFloorData *out_data,
+                             char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+    const uint8_t *source;
+    GameFloorData data;
+
+    if (!out_data || floor_index >= GAME_LINK_FLOOR_DATA_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_FLOOR_DATA, &bytes, &size) ||
+        size != (size_t)GAME_LINK_FLOOR_DATA_COUNT * 4u) {
+        game_link_set_error(error, error_size, "floor data is outside the GLFT table");
+        return 0;
+    }
+    source = bytes + (size_t)floor_index * 4u;
+    data.damage = game_link_read_be16(source);
+    data.sound_effect = game_link_read_be16(source + 2u);
+    *out_data = data;
     return 1;
 }
 

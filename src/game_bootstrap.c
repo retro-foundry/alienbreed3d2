@@ -377,9 +377,10 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
                                                  &game->controls, &game->dynamic_level.runtime,
                                                  &game->session.player1_inventory,
                                                  error, error_size) ||
-        !player_runtime_update_spatial_with_motion(
+        !player_runtime_update_spatial_with_motion_and_audio(
             &game->player, &game->input, &game->controls, &game->preferences, &game->math,
             &game->dynamic_level.runtime, &game->dynamic_level, &game->alien_runtime.motion,
+            &game->game_link_catalog, &game->audio_events,
             error, error_size) ||
         !lighting_runtime_refresh_single_player(
             &game->lighting_runtime, &game->dynamic_level.runtime, &game->player,

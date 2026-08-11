@@ -36,7 +36,9 @@ enum {
     GAME_LINK_OBJECT_ANIMATION_FRAME_SIZE = 6,
     GAME_LINK_OBJECT_ANIMATION_FRAME_COUNT = 20,
     GAME_LINK_OBJECT_FRAME_DATA_SIZE = 8,
-    GAME_LINK_OBJECT_FRAME_DATA_COUNT = 32
+    GAME_LINK_OBJECT_FRAME_DATA_COUNT = 32,
+    /* defs.i:GLFT_FloorData_l. */
+    GAME_LINK_FLOOR_DATA_COUNT = 16
 };
 
 /*
@@ -103,6 +105,12 @@ typedef struct {
     uint16_t bullet_count;
     uint16_t sound_effect;
 } GameShootDefinition;
+
+/* defs.i:GLFT_FloorData_l: high word damage, low word one-based SFX slot. */
+typedef struct {
+    uint16_t damage;
+    uint16_t sound_effect;
+} GameFloorData;
 
 /* defs.i:AlienT, consumed by newaliencontrol.s:ItsAnAlien. */
 typedef struct {
@@ -254,6 +262,10 @@ int game_link_get_object_frame_data(const GameLink *link, uint16_t object_index,
 int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
                                    GameShootDefinition *out_definition,
                                    char *error, size_t error_size);
+/* modules/player.s:plr_DoFootstepFX selects the low word by ZoneT_FloorNoise_w. */
+int game_link_get_floor_data(const GameLink *link, uint16_t floor_index,
+                             GameFloorData *out_data,
+                             char *error, size_t error_size);
 /* defs.i:GLFT_GunObjects_l, consumed by hires.s:Plr1_Use. */
 int game_link_get_gun_object_type(const GameLink *link, uint16_t gun_index,
                                   uint16_t *out_object_type,

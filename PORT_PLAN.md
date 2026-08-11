@@ -251,6 +251,13 @@ sound effects and music now play through the SDL WAV backend.
   `music/packedtest` module for its committed WAV render. `src/game_audio.*`
   retains source event selection/timing while `src/audio_sdl.*` presents the
   staged WAVs with source-style priority, attenuation, and stereo panning.
+- [x] `src/player_runtime.*` now retains `modules/player.s:plr_Fall`'s
+  `PlrT_WalkSFXTime_w` wrap cadence and `plr_DoFootstepFX` material selection.
+  It reads the exact `GLFT_FloorData_l` damage/SFX record, preserves the water
+  sample-six special case, and submits the original volume 80, `$fff8` source
+  identity, forward-relative position, and zone echo through `GameAudioEvents`.
+  The focused source-state test covers floor-table bounds/decoding, one emitted
+  material step, and the following non-wrap tick.
 - [x] The no-op presenter remains deliberately unchanged. The future backend
   receives whole-level camera/material/geometry/sprite/HUD intent and does
   not need PVS, portals, or software rendering.

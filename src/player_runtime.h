@@ -6,6 +6,8 @@
 
 #include "game_input.h"
 #include "game_inventory.h"
+#include "game_audio.h"
+#include "game_link.h"
 #include "game_math.h"
 #include "game_preferences.h"
 #include "level_dynamic_state.h"
@@ -56,6 +58,8 @@ typedef struct {
     int16_t floor_speed;
     uint16_t bobble;
     int16_t add_to_bobble;
+    /* modules/player.s:PlrT_WalkSFXTime_w, wrapping at 4,096 source units. */
+    uint16_t walk_sfx_time;
     /* newplayershoot.s:Plr1_TimeToShoot_w. */
     int16_t time_to_shoot;
     /* newanims.s/newplayershoot.s:Plr1_NoiseVol_w. */
@@ -141,5 +145,17 @@ int player_runtime_update_spatial_with_motion(PlayerRuntime *player, GameInput *
                                               LevelDynamicState *dynamic_state,
                                               ObjectMotionRuntime *motion_runtime,
                                               char *error, size_t error_size);
+
+/*
+ * Same source movement sequence with modules/player.s:plr_Fall's footstep
+ * MakeSomeNoise request. The non-audio entry points intentionally remain
+ * available for source-state tests that do not own an audio queue.
+ */
+int player_runtime_update_spatial_with_motion_and_audio(
+    PlayerRuntime *player, GameInput *input, const GameControls *controls,
+    const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,
+    LevelDynamicState *dynamic_state, ObjectMotionRuntime *motion_runtime,
+    const GameLink *game_link, GameAudioEvents *audio_events,
+    char *error, size_t error_size);
 
 #endif

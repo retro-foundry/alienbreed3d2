@@ -71,8 +71,10 @@ payloads exactly as the source file loader does. The desktop boundary exports
 those decoded samples and the source-packed `music/packedtest` module as
 committed WAVs, stages them beside the executable, and plays source-owned
 events with listener-relative MakeSomeNoise-style priority, attenuation, and
-stereo panning. The source default music toggle starts the looped module at
-`Game_Begin`.
+stereo panning. `modules/player.s:plr_Fall` also supplies its original
+floor-material footsteps through that path, including the source 4,096-unit
+walk cadence and water-step special case. The source default music toggle
+starts the looped module at `Game_Begin`.
 
 - loads the authoritative `test.lnk` game database and `TEXT_FILE` narrative;
 - unpacks (including stored and LHA-compressed `=SB=` records), parses, and validates the map, fly map, `twolev.bin`,

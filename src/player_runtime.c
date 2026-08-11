@@ -714,9 +714,81 @@ static int player_runtime_move_static(const LevelRuntime *runtime, uint16_t *io_
     return 1;
 }
 
+/*
+ * MakeSomeNoise consumes listener-relative coordinates. The player-only
+ * plr_DoFootstepFX caller supplies (0, 100), so rotate that source point back
+ * into map words for the API-neutral event queue consumed by the desktop
+ * listener.
+ */
+static int player_runtime_emit_relative_player_sound(
+    const PlayerRuntime *player, const GameMath *math, GameAudioEvents *audio_events,
+    int16_t sample_index, int16_t volume, uint8_t echo,
+    char *error, size_t error_size)
+{
+    int16_t sine;
+    int16_t cosine;
+    int16_t world_x;
+    int16_t world_z;
+
+    if (!audio_events) {
+        return 1;
+    }
+    if (!game_math_sine(math, player->snap_yaw, &sine, error, error_size) ||
+        !game_math_cosine(math, player->snap_yaw, &cosine, error, error_size)) {
+        return 0;
+    }
+    /* transform.s's table values are 2.14 fixed point. */
+    world_x = (int16_t)((int32_t)player_runtime_position_to_world(player->snap_x) +
+                        ((int32_t)sine * 100) / 16384);
+    world_z = (int16_t)((int32_t)player_runtime_position_to_world(player->snap_z) +
+                        ((int32_t)cosine * 100) / 16384);
+    game_audio_events_emit(audio_events, sample_index, volume, world_x, world_z,
+                           UINT16_C(0xfff8), 0u, echo);
+    return 1;
+}
+
+/* modules/player.s:plr_DoFootstepFX. */
+static int player_runtime_emit_footstep(PlayerRuntime *player, const LevelZone *zone,
+                                        const GameMath *math, const GameLink *game_link,
+                                        GameAudioEvents *audio_events,
+                                        char *error, size_t error_size)
+{
+    GameFloorData floor_data;
+    int16_t sample_index;
+    uint16_t floor_index;
+
+    if (!audio_events) {
+        return 1;
+    }
+    if (zone->water < zone->floor && zone->water >= player->y &&
+        player->stood_in_top == 0u) {
+        /* The water branch writes slot six directly, rather than one-based GLFT data. */
+        sample_index = 6;
+    } else {
+        floor_index = player->stood_in_top != 0u ? zone->upper_floor_noise : zone->floor_noise;
+        if (!game_link || !game_link_get_floor_data(game_link, floor_index, &floor_data,
+                                                     error, error_size)) {
+            if (!game_link) {
+                player_runtime_set_error(error, error_size,
+                                         "source footstep sound requires the GLFT catalog");
+            }
+            return 0;
+        }
+        /* GLFT's LSW is one based; signed negative after decrement is silent. */
+        sample_index = (int16_t)(uint16_t)(floor_data.sound_effect - 1u);
+        if (sample_index < 0) {
+            return 1;
+        }
+    }
+    return player_runtime_emit_relative_player_sound(player, math, audio_events,
+                                                      sample_index, 80, zone->echo,
+                                                      error, error_size);
+}
+
 static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *input,
-                                     const GameControls *controls,
-                                     const LevelRuntime *runtime,
+                                     const GameControls *controls, const GameMath *math,
+                                     const LevelRuntime *runtime, const GameLink *game_link,
+                                     GameAudioEvents *audio_events,
                                      char *error, size_t error_size)
 {
     LevelZone zone;
@@ -740,6 +812,8 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
         }
         y = player_runtime_add32(y, correction);
     } else if (target_y == y) {
+        uint16_t walk_sound_accumulator;
+
         /* LiftRoutine's signed word speed is applied as a 32-bit << 6 here. */
         velocity = (int32_t)player->floor_speed * 64;
         player->decelerate = UINT8_MAX;
@@ -747,6 +821,14 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
         player->fall_damage = 0;
         player->bobble = game_math_wrap_angle_address(
             (uint16_t)((uint32_t)player->bobble + (uint16_t)player->add_to_bobble));
+        walk_sound_accumulator =
+            (uint16_t)(player->walk_sfx_time + (uint16_t)player->add_to_bobble);
+        player->walk_sfx_time = (uint16_t)(walk_sound_accumulator & 4095u);
+        if ((walk_sound_accumulator & UINT16_C(0xf000)) != 0u &&
+            !player_runtime_emit_footstep(player, &zone, math, game_link, audio_events,
+                                           error, error_size)) {
+            return 0;
+        }
         if (game_input_is_control_down(input, controls, GAME_CONTROL_JUMP) &&
             player->health != 0u) {
             /* ZoneT_Water_l selects plr_Fall's shallow-water jump speed. */
@@ -1001,10 +1083,11 @@ static void player_runtime_update_mouse_controls(PlayerRuntime *player, GameInpu
     player->look_offset = look_offset;
 }
 
-int player_runtime_update_spatial_with_motion(
+int player_runtime_update_spatial_with_motion_and_audio(
     PlayerRuntime *player, GameInput *input, const GameControls *controls,
     const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,
     LevelDynamicState *dynamic_state, ObjectMotionRuntime *motion_runtime,
+    const GameLink *game_link, GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
     LevelZone zone;
@@ -1036,7 +1119,8 @@ int player_runtime_update_spatial_with_motion(
     player_runtime_update_keyboard_look(player, input, controls);
     if (!player_runtime_update_keyboard_motion(player, input, controls, preferences, math,
                                                error, error_size) ||
-        !player_runtime_apply_fall(player, input, controls, runtime, error, error_size) ||
+        !player_runtime_apply_fall(player, input, controls, math, runtime, game_link,
+                                   audio_events, error, error_size) ||
         !level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
         return 0;
     }
@@ -1131,6 +1215,17 @@ int player_runtime_update_spatial_with_motion(
     /* hires.s:Plr1_Control leaves MoveObject's final newx/newz words live. */
     object_motion_runtime_set_new_words(motion_runtime, new_x, new_z);
     return 1;
+}
+
+int player_runtime_update_spatial_with_motion(
+    PlayerRuntime *player, GameInput *input, const GameControls *controls,
+    const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,
+    LevelDynamicState *dynamic_state, ObjectMotionRuntime *motion_runtime,
+    char *error, size_t error_size)
+{
+    return player_runtime_update_spatial_with_motion_and_audio(
+        player, input, controls, preferences, math, runtime, dynamic_state, motion_runtime,
+        NULL, NULL, error, error_size);
 }
 
 int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,

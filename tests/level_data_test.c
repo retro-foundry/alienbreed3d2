@@ -829,6 +829,7 @@ int main(int argc, char **argv)
     AssetBlob game_link_blob = {0};
     const uint8_t *table_bytes;
     const uint8_t *shoot_definition_bytes;
+    const uint8_t *floor_data_bytes;
     const uint8_t *alien_definition_bytes;
     const uint8_t *alien_brightness_bytes;
     const uint8_t *alien_shoot_definition_bytes;
@@ -841,6 +842,7 @@ int main(int argc, char **argv)
     const uint8_t *object_item_grant_bytes;
     size_t table_size;
     size_t shoot_definition_size;
+    size_t floor_data_size;
     size_t alien_definition_size;
     size_t alien_animation_size;
     size_t object_definition_size;
@@ -855,6 +857,7 @@ int main(int argc, char **argv)
     uint16_t object_animation_index;
     uint16_t object_frame_data_index;
     uint16_t shoot_definition_index;
+    uint16_t floor_data_index;
     uint16_t alien_definition_index;
     uint16_t alien_animation_option;
     uint16_t alien_animation_frame_index;
@@ -889,6 +892,7 @@ int main(int argc, char **argv)
     GameObjectAnimationFrame object_animation_frame;
     GameObjectFrameData object_frame_data;
     GameShootDefinition shoot_definition;
+    GameFloorData floor_data;
     GameShootDefinition alien_shoot_definition;
     GameAlienDefinition alien_definition;
     GameAlienAnimationFrame alien_animation_frame;
@@ -1372,6 +1376,9 @@ int main(int argc, char **argv)
                          &shoot_definition_bytes, &shoot_definition_size) ||
         shoot_definition_size != (size_t)GAME_LINK_GUN_COUNT *
                                       GAME_LINK_SHOOT_DEFINITION_SIZE ||
+        !game_link_table(&game_link, GAME_LINK_TABLE_FLOOR_DATA,
+                         &floor_data_bytes, &floor_data_size) ||
+        floor_data_size != (size_t)GAME_LINK_FLOOR_DATA_COUNT * 4u ||
         !game_link_table(&game_link, GAME_LINK_TABLE_ALIEN_DEFINITIONS,
                          &alien_definition_bytes, &alien_definition_size) ||
         alien_definition_size != (size_t)GAME_LINK_ALIEN_COUNT *
@@ -1580,6 +1587,21 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    for (floor_data_index = 0u;
+         floor_data_index < GAME_LINK_FLOOR_DATA_COUNT;
+         ++floor_data_index) {
+        const uint8_t *source = floor_data_bytes + (size_t)floor_data_index * 4u;
+
+        if (!game_link_get_floor_data(&game_link, floor_data_index, &floor_data,
+                                      error, sizeof(error)) ||
+            floor_data.damage != read_be16(source) ||
+            floor_data.sound_effect != read_be16(source + 2u)) {
+            fprintf(stderr, "GLFT floor data %u is inconsistent: %s\n",
+                    floor_data_index, error);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+    }
     for (object_definition_index = 0u;
          object_definition_index < GAME_LINK_OBJECT_COUNT;
          ++object_definition_index) {
@@ -1667,6 +1689,8 @@ int main(int argc, char **argv)
                                              error, sizeof(error)) ||
         game_link_get_shoot_definition(&game_link, GAME_LINK_GUN_COUNT,
                                        &shoot_definition, error, sizeof(error)) ||
+        game_link_get_floor_data(&game_link, GAME_LINK_FLOOR_DATA_COUNT,
+                                 &floor_data, error, sizeof(error)) ||
         game_link_get_alien_definition(&game_link, GAME_LINK_ALIEN_COUNT,
                                        &alien_definition, error, sizeof(error)) ||
         game_link_get_alien_brightness(&game_link, GAME_LINK_ALIEN_COUNT,
@@ -4728,6 +4752,89 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+    }
+    {
+        /* modules/player.s:plr_Fall/plr_DoFootstepFX: one source floor material step. */
+        LevelDynamicState footstep_level = {0};
+        PlayerRuntime footstep_player = game.player;
+        GameInput footstep_input;
+        GameAudioEvents footstep_events;
+        GameFloorData footstep_floor;
+        LevelZone footstep_zone;
+        uint8_t *zone_offset_bytes;
+        uint8_t *zone_bytes;
+        uint32_t zone_offset;
+        int16_t expected_sample;
+
+        if (!level_dynamic_state_init(&footstep_level, &game.dynamic_level.runtime,
+                                      error, sizeof(error)) ||
+            !level_dynamic_state_get_graphics_range(
+                &footstep_level,
+                footstep_level.runtime.zone_offsets_table_offset +
+                    (size_t)footstep_player.zone_index * 4u,
+                4u, &zone_offset_bytes)) {
+            fprintf(stderr, "footstep source-level fixture could not be prepared: %s\n", error);
+            level_dynamic_state_destroy(&footstep_level);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        zone_offset = read_be32(zone_offset_bytes);
+        if (!level_dynamic_state_get_level_range(&footstep_level, zone_offset, 50u,
+                                                 &zone_bytes) ||
+            !game_link_get_floor_data(&game.game_link_catalog, 1u, &footstep_floor,
+                                      error, sizeof(error)) ||
+            footstep_floor.sound_effect == 0u) {
+            fprintf(stderr, "footstep source material fixture is invalid: %s\n", error);
+            level_dynamic_state_destroy(&footstep_level);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /* ZoneT_FloorNoise_w selects GLFT entry one; no water direct-slot override. */
+        write_be16(zone_bytes + 44u, 1u);
+        write_be32(zone_bytes + 18u, read_be32(zone_bytes + 2u));
+        if (!level_runtime_get_zone(&footstep_level.runtime, footstep_player.zone_index,
+                                    &footstep_zone, error, sizeof(error))) {
+            fprintf(stderr, "footstep fixture zone could not be read: %s\n", error);
+            level_dynamic_state_destroy(&footstep_level);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        expected_sample = (int16_t)(uint16_t)(footstep_floor.sound_effect - 1u);
+        footstep_player.walk_sfx_time = 0u;
+        game_input_init(&footstep_input);
+        game_audio_events_init(&footstep_events);
+        if (!game_input_set_raw_key(
+                &footstep_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_FORWARDS], 1,
+                error, sizeof(error)) ||
+            !player_runtime_update_spatial_with_motion_and_audio(
+                &footstep_player, &footstep_input, &control_defaults, &game.preferences,
+                &game.math, &footstep_level.runtime, &footstep_level, NULL,
+                &game.game_link_catalog, &footstep_events, error, sizeof(error)) ||
+            footstep_events.count != 1u ||
+            footstep_events.events[0u].sample_index != (uint16_t)expected_sample ||
+            footstep_events.events[0u].volume != 80u ||
+            footstep_events.events[0u].source_id != UINT16_C(0xfff8) ||
+            footstep_events.events[0u].channel_pick != 0u ||
+            footstep_events.events[0u].echo != footstep_zone.echo ||
+            footstep_player.walk_sfx_time >= 4096u) {
+            fprintf(stderr, "source floor footstep event is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&footstep_level);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game_audio_events_begin(&footstep_events);
+        if (!player_runtime_update_spatial_with_motion_and_audio(
+                &footstep_player, &footstep_input, &control_defaults, &game.preferences,
+                &game.math, &footstep_level.runtime, &footstep_level, NULL,
+                &game.game_link_catalog, &footstep_events, error, sizeof(error)) ||
+            footstep_events.count != 0u) {
+            fprintf(stderr, "source floor footstep cadence is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&footstep_level);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        level_dynamic_state_destroy(&footstep_level);
     }
     /*
      * modules/player.s:plr_KeyboardControl then Plr1_Fall, followed by
