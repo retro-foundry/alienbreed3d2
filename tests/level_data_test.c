@@ -922,6 +922,7 @@ int main(int argc, char **argv)
     GameObjectFrameData object_frame_data;
     GameShootDefinition shoot_definition;
     GameFloorData floor_data;
+    uint16_t ambient_sample_index;
     GameShootDefinition alien_shoot_definition;
     GameAlienDefinition alien_definition;
     GameAlienAnimationFrame alien_animation_frame;
@@ -1720,6 +1721,8 @@ int main(int argc, char **argv)
                                        &shoot_definition, error, sizeof(error)) ||
         game_link_get_floor_data(&game_link, GAME_LINK_FLOOR_DATA_COUNT,
                                  &floor_data, error, sizeof(error)) ||
+        game_link_get_ambient_sfx(&game_link, GAME_LINK_AMBIENT_SFX_COUNT,
+                                  &ambient_sample_index, error, sizeof(error)) ||
         game_link_get_alien_definition(&game_link, GAME_LINK_ALIEN_COUNT,
                                        &alien_definition, error, sizeof(error)) ||
         game_link_get_alien_brightness(&game_link, GAME_LINK_ALIEN_COUNT,
@@ -1826,6 +1829,65 @@ int main(int argc, char **argv)
         fprintf(stderr, "Game_Start source random seed is inconsistent\n");
         game_bootstrap_destroy(&game);
         return 1;
+    }
+    {
+        GameBackgroundAudioRuntime background_runtime;
+        GameRandom background_random;
+        GameAudioEvents background_events;
+        LevelZone background_zone = {0};
+        uint16_t first_sample;
+        uint16_t second_sample;
+
+        background_zone.background_sfx_mask = UINT16_C(1) << 5u;
+        /* BACKSFX's alternating +2-byte mask reads DrawBackdrop/Echo. */
+        background_zone.draw_backdrop = 0u;
+        background_zone.echo = 4u;
+        game_background_audio_runtime_init(&background_runtime);
+        game_random_init(&background_random);
+        game_audio_events_init(&background_events);
+        if (!game_link_get_ambient_sfx(&game.game_link_catalog, 5u, &first_sample,
+                                       error, sizeof(error)) ||
+            !game_link_get_ambient_sfx(&game.game_link_catalog, 2u, &second_sample,
+                                       error, sizeof(error)) ||
+            !game_background_audio_update(
+                &background_runtime, 1u, &background_zone, &game.game_link_catalog,
+                &background_random, &background_events, error, sizeof(error)) ||
+            background_runtime.time_to_noise != 182 || background_runtime.odd_even != 2u ||
+            background_random.state != UINT16_C(0xe226) || background_events.count != 1u ||
+            background_events.events[0u].sample_index != first_sample ||
+            background_events.events[0u].volume != 38u ||
+            background_events.events[0u].world_x != 0 ||
+            background_events.events[0u].world_z != 0 ||
+            background_events.events[0u].source_id != UINT16_C(0xfff0) ||
+            background_events.events[0u].suppress_if_playing != UINT8_MAX ||
+            background_events.events[0u].echo != 0u) {
+            fprintf(stderr, "newanims.s BACKSFX first-mask event is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game_audio_events_begin(&background_events);
+        if (!game_background_audio_update(
+                &background_runtime, 181u, &background_zone, &game.game_link_catalog,
+                &background_random, &background_events, error, sizeof(error)) ||
+            background_runtime.time_to_noise != 1 || background_events.count != 0u ||
+            background_random.state != UINT16_C(0xe226)) {
+            fprintf(stderr, "newanims.s BACKSFX countdown is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        if (!game_background_audio_update(
+                &background_runtime, 1u, &background_zone, &game.game_link_catalog,
+                &background_random, &background_events, error, sizeof(error)) ||
+            background_runtime.time_to_noise != 115 || background_runtime.odd_even != 0u ||
+            background_random.state != UINT16_C(0x5be9) || background_events.count != 1u ||
+            background_events.events[0u].sample_index != second_sample ||
+            background_events.events[0u].volume != 41u) {
+            fprintf(stderr, "newanims.s BACKSFX alternate-mask event is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     if (game.shared_resources.main_palette.size != 1536u ||
         game.shared_resources.floor_texture.size != 65536u ||

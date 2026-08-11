@@ -48,6 +48,8 @@ typedef struct {
     GameControls controls;
     /* Source MakeSomeNoise requests for the current completed VBlank. */
     GameAudioEvents audio_events;
+    /* newanims.s:BACKSFX BSS persists across campaign-level loads. */
+    GameBackgroundAudioRuntime background_audio_runtime;
     GameInput input;
     GamePreferences preferences;
     /* User-owned desktop configuration, applied without changing source data. */

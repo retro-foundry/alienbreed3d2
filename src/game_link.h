@@ -38,7 +38,9 @@ enum {
     GAME_LINK_OBJECT_FRAME_DATA_SIZE = 8,
     GAME_LINK_OBJECT_FRAME_DATA_COUNT = 32,
     /* defs.i:GLFT_FloorData_l. */
-    GAME_LINK_FLOOR_DATA_COUNT = 16
+    GAME_LINK_FLOOR_DATA_COUNT = 16,
+    /* defs.i:GLFT_AmbientSFX_l. */
+    GAME_LINK_AMBIENT_SFX_COUNT = 16
 };
 
 /*
@@ -266,6 +268,10 @@ int game_link_get_shoot_definition(const GameLink *link, uint16_t gun_index,
 int game_link_get_floor_data(const GameLink *link, uint16_t floor_index,
                              GameFloorData *out_data,
                              char *error, size_t error_size);
+/* newanims.s:BACKSFX selects one direct sample index from this word table. */
+int game_link_get_ambient_sfx(const GameLink *link, uint16_t ambient_index,
+                              uint16_t *out_sample_index,
+                              char *error, size_t error_size);
 /* defs.i:GLFT_GunObjects_l, consumed by hires.s:Plr1_Use. */
 int game_link_get_gun_object_type(const GameLink *link, uint16_t gun_index,
                                   uint16_t *out_object_type,

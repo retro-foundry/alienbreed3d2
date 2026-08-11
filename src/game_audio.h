@@ -1,7 +1,12 @@
 #ifndef AB3D2_GAME_AUDIO_H
 #define AB3D2_GAME_AUDIO_H
 
+#include <stddef.h>
 #include <stdint.h>
+
+#include "game_link.h"
+#include "game_random.h"
+#include "level_runtime.h"
 
 /* hires.s:MakeSomeNoise has eight candidate source voices (four per side). */
 enum {
@@ -35,6 +40,12 @@ typedef struct {
     uint16_t dropped_count;
 } GameAudioEvents;
 
+/* bss/anim_bss.s state consumed by newanims.s:BACKSFX. */
+typedef struct {
+    int16_t time_to_noise;
+    uint16_t odd_even;
+} GameBackgroundAudioRuntime;
+
 void game_audio_events_init(GameAudioEvents *events);
 /* Call once before each source VBlank; completed events are then host-consumed. */
 void game_audio_events_begin(GameAudioEvents *events);
@@ -42,5 +53,12 @@ void game_audio_events_begin(GameAudioEvents *events);
 void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16_t volume,
                             int16_t world_x, int16_t world_z, uint16_t source_id,
                             uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
+
+void game_background_audio_runtime_init(GameBackgroundAudioRuntime *runtime);
+/* Exact BACKSFX timer, alternating zone mask, random selection, and event order. */
+int game_background_audio_update(GameBackgroundAudioRuntime *runtime, uint16_t frame_ticks,
+                                 const LevelZone *zone, const GameLink *game_link,
+                                 GameRandom *random, GameAudioEvents *events,
+                                 char *error, size_t error_size);
 
 #endif

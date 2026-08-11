@@ -70,7 +70,7 @@ enum {
     GLFT_ALIEN_SHOOT_DEFINITIONS_OFFSET = GLFT_FLOOR_DATA_OFFSET +
                                           GAME_LINK_FLOOR_DATA_COUNT * 4,
     GLFT_AMBIENT_SFX_OFFSET = GLFT_ALIEN_SHOOT_DEFINITIONS_OFFSET + GLFT_ALIEN_COUNT * GLFT_SHOOT_DEFINITION_SIZE,
-    GLFT_LEVEL_MUSIC_OFFSET = GLFT_AMBIENT_SFX_OFFSET + 16 * 2,
+    GLFT_LEVEL_MUSIC_OFFSET = GLFT_AMBIENT_SFX_OFFSET + GAME_LINK_AMBIENT_SFX_COUNT * 2,
     GLFT_ECHO_OFFSET = GLFT_LEVEL_MUSIC_OFFSET + GLFT_LEVEL_COUNT * GLFT_PATH_SIZE,
     GLFT_SIZE = GLFT_ECHO_OFFSET + GLFT_ECHO_SIZE
 };
@@ -114,7 +114,8 @@ static const GameLinkTableRange game_link_ranges[GAME_LINK_TABLE_COUNT] = {
     [GAME_LINK_TABLE_FLOOR_DATA] = {GLFT_FLOOR_DATA_OFFSET,
                                     GAME_LINK_FLOOR_DATA_COUNT * 4},
     [GAME_LINK_TABLE_ALIEN_SHOOT_DEFINITIONS] = {GLFT_ALIEN_SHOOT_DEFINITIONS_OFFSET, GLFT_ALIEN_COUNT * GLFT_SHOOT_DEFINITION_SIZE},
-    [GAME_LINK_TABLE_AMBIENT_SFX] = {GLFT_AMBIENT_SFX_OFFSET, 16 * 2},
+    [GAME_LINK_TABLE_AMBIENT_SFX] = {GLFT_AMBIENT_SFX_OFFSET,
+                                     GAME_LINK_AMBIENT_SFX_COUNT * 2},
     [GAME_LINK_TABLE_LEVEL_MUSIC] = {GLFT_LEVEL_MUSIC_OFFSET, GAME_LINK_LEVEL_COUNT * GLFT_PATH_SIZE},
     [GAME_LINK_TABLE_ECHO] = {GLFT_ECHO_OFFSET, GLFT_ECHO_SIZE}
 };
@@ -359,6 +360,24 @@ int game_link_get_floor_data(const GameLink *link, uint16_t floor_index,
     data.damage = game_link_read_be16(source);
     data.sound_effect = game_link_read_be16(source + 2u);
     *out_data = data;
+    return 1;
+}
+
+int game_link_get_ambient_sfx(const GameLink *link, uint16_t ambient_index,
+                              uint16_t *out_sample_index,
+                              char *error, size_t error_size)
+{
+    const uint8_t *bytes;
+    size_t size;
+
+    if (!out_sample_index || ambient_index >= GAME_LINK_AMBIENT_SFX_COUNT ||
+        !game_link_table(link, GAME_LINK_TABLE_AMBIENT_SFX, &bytes, &size) ||
+        size != (size_t)GAME_LINK_AMBIENT_SFX_COUNT * 2u) {
+        game_link_set_error(error, error_size,
+                            "ambient sound index is outside the GLFT table");
+        return 0;
+    }
+    *out_sample_index = game_link_read_be16(bytes + (size_t)ambient_index * 2u);
     return 1;
 }
 

@@ -338,6 +338,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     }
     game_controls_default(&game->controls);
     game_audio_events_init(&game->audio_events);
+    game_background_audio_runtime_init(&game->background_audio_runtime);
     game_input_init(&game->input);
     game_preferences_default(&game->preferences);
     desktop_settings_default(&game->desktop_settings);
@@ -442,6 +443,14 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     }
     /* newanims.s:objmoveanim clears this immediately before Plr1_Shot. */
     game->player.noise_volume = 0;
+    if (!level_runtime_get_zone(&game->dynamic_level.runtime, game->player.zone_index,
+                                &player_zone, error, error_size) ||
+        !game_background_audio_update(
+            &game->background_audio_runtime, 1u, &player_zone,
+            &game->game_link_catalog, &game->random, &game->audio_events,
+            error, error_size)) {
+        return 0;
+    }
     alien_context.animation_runtime = &game->object_animation_runtime;
     alien_context.lighting_runtime = &game->lighting_runtime;
     alien_context.navigation = &game->level_navigation;
@@ -723,6 +732,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     memset(&game->session, 0, sizeof(game->session));
     memset(&game->preferences, 0, sizeof(game->preferences));
     game_progression_init(&game->progression);
+    game_background_audio_runtime_init(&game->background_audio_runtime);
     asset_blob_release(&game->story_text);
     game_bootstrap_release_level(game);
     game->active_level_index = 0;
