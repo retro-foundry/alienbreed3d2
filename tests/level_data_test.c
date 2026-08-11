@@ -5130,14 +5130,14 @@ int main(int argc, char **argv)
         PlayerRuntime rollover_player = game.player;
         GameInput rollover_input;
         GamePreferences rollover_preferences = game.preferences;
-        const int32_t expected_x_velocity = 32767 * 3;
+        const int32_t expected_x_velocity = 32767 * 4;
         const int32_t expected_z_velocity = -32767 * 3;
 
         /*
-         * Alien-Breed-3D-I's modern mouse+keyboard controller resolves an
-         * opposing-key transition deterministically: the later source binding
-         * wins. Preserve that requested PC movement policy instead of exposing
-         * modules/player.s's shared-register rollover artefact.
+         * modules/player.s applies both strafe branches to the same d4 word.
+         * With run speed three, left leaves d4=3 and the following right
+         * branch produces -(3+3+3)>>1 = -4. Forward/backward still use the
+         * later binding because they assign d3 rather than accumulating it.
          */
         rollover_player.mouse_active = 0u;
         rollover_player.yaw = 0u;
@@ -5183,7 +5183,7 @@ int main(int argc, char **argv)
                 player_runtime_position_to_world(rollover_player.snap_z) ||
             rollover_player.presentation_x != rollover_player.x ||
             rollover_player.presentation_z != rollover_player.z) {
-            fprintf(stderr, "first-port opposing-key rollover is inconsistent: %s\n",
+            fprintf(stderr, "source opposing-key rollover is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;
