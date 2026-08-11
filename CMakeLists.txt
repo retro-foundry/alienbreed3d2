@@ -98,6 +98,7 @@ set(AB3D2_CORE_SOURCES
   src/player_shoot.c
   src/render_view.c
   src/scene_frame.c
+  src/source_vector_projection.c
   # Reused =SB= decoder from the first PC port. It matches
   # modules/file_io.s:io_HandlePacked, which calls the original unLHA code.
   src/sb_decompress.c

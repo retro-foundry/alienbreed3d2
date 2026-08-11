@@ -56,6 +56,7 @@
 #include "player_shoot.h"
 #include "render_view.h"
 #include "scene_frame.h"
+#include "source_vector_projection.h"
 
 static uint16_t read_be16(const uint8_t *source)
 {
@@ -2539,6 +2540,9 @@ int main(int argc, char **argv)
             uint8_t weapon_scene_source = UINT8_MAX;
             uint8_t weapon_scene_presentation = UINT8_MAX;
             uint32_t weapon_scene_asset_id = UINT32_MAX;
+            uint16_t weapon_scene_yaw = 0u;
+            int32_t weapon_scene_y = 0;
+            SceneViewWeaponProjection weapon_projection = {0};
             int8_t weapon_source_light[16u * 16u];
             int16_t saved_weapon_zone_lights[LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT];
 
@@ -2693,6 +2697,10 @@ int main(int argc, char **argv)
                     weapon_scene_source = weapon_command->data.sprite_instance.sprite.source;
                     weapon_scene_presentation = weapon_command->data.sprite_instance.sprite.presentation;
                     weapon_scene_asset_id = weapon_command->data.sprite_instance.sprite.source_asset_id;
+                    weapon_scene_yaw = weapon_command->data.sprite_instance.sprite.yaw;
+                    weapon_scene_y = weapon_command->data.sprite_instance.sprite.position.y;
+                    weapon_projection =
+                        weapon_command->data.sprite_instance.sprite.view_weapon_projection;
                     saw_weapon = weapon_command->data.sprite_instance.sprite.presentation ==
                         SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON &&
                         weapon_command->data.sprite_instance.sprite.source ==
@@ -2713,6 +2721,36 @@ int main(int argc, char **argv)
                 scene_frame_destroy(&weapon_scene);
                 game_bootstrap_destroy(&game);
                 return 1;
+            }
+            {
+                uint16_t relative_yaw = game_math_wrap_angle_address(
+                    (uint16_t)(weapon_scene_yaw - UINT16_C(2048) - game.player.yaw));
+                int16_t expected_sine;
+                int16_t expected_cosine;
+                int32_t relative_y = (int32_t)((uint32_t)weapon_scene_y -
+                                                (uint32_t)game.player.y);
+                int32_t expected_y_offset = (int32_t)((uint32_t)relative_y +
+                                                       (uint32_t)relative_y);
+
+                if (!game_math_sine(&game.math, relative_yaw, &expected_sine,
+                                    error, sizeof(error)) ||
+                    !game_math_cosine(&game.math, relative_yaw, &expected_cosine,
+                                      error, sizeof(error)) ||
+                    weapon_projection.sine != expected_sine ||
+                    weapon_projection.cosine != expected_cosine ||
+                    weapon_projection.y_offset != expected_y_offset ||
+                    weapon_projection.depth_bias != 3 ||
+                    weapon_projection.centre_x != 160u ||
+                    weapon_projection.centre_y != 120u ||
+                    weapon_projection.scale_numerator != 5u ||
+                    weapon_projection.scale_denominator != 3u) {
+                    fprintf(stderr,
+                            "campaign level %u source view-weapon projection is inconsistent: %s\n",
+                            level_index, error);
+                    scene_frame_destroy(&weapon_scene);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
             }
             /*
              * objdrawhires.s:draw_CalcBrightRings must reach the camera-space
@@ -5418,6 +5456,39 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    {
+        SceneViewWeaponProjection projection = {0};
+        SourceVectorEyePoint muzzle;
+        SourceVectorEyePoint breech;
+        float matrix[16];
+
+        /*
+         * Compiled media/vectobj/shotgun is authored along negative X: frame
+         * zero's muzzle reaches X=-353 and its rear body is near X=-35.
+         * At Plr1_Use + ACTANIMOBJ's initial relative angle, the source
+         * rotation must put that muzzle farther down the view ray. This is
+         * the direction oracle that the former guessed world transform lost.
+         */
+        projection.sine = 0;
+        projection.cosine = INT16_MIN;
+        projection.depth_bias = 3;
+        projection.centre_x = 160u;
+        projection.centre_y = 120u;
+        projection.scale_numerator = 5u;
+        projection.scale_denominator = 3u;
+        if (!source_vector_transform_view_weapon_point(
+                &projection, -353, 0, 0, &muzzle) ||
+            !source_vector_transform_view_weapon_point(
+                &projection, -35, 0, 0, &breech) ||
+            !source_vector_make_view_weapon_matrix(&projection, 16.0f / 9.0f, matrix) ||
+            -muzzle.z <= -breech.z || muzzle.x != 0.0f || breech.x != 0.0f ||
+            matrix[0] < 0.00780f || matrix[0] > 0.00782f ||
+            matrix[5] < 0.01388f || matrix[5] > 0.01390f) {
+            fprintf(stderr, "source shotgun view projection faces the wrong direction\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
     game.session.player1_inventory.health = 199u;
     game_session_finish_single_player(&game.session, 0);
     if (game.session.campaign_inventory.health != 200u) {
@@ -6881,7 +6952,7 @@ int main(int argc, char **argv)
             !object_scene_submit_active(
                 &projectile_objects, &game.game_link_catalog, &game.shared_resources,
                 &game.dynamic_level.runtime, &projectile_lighting, &game.math,
-                &game.preferences, &projectile_scene, error, sizeof(error))) {
+                &game.preferences, 0, 0u, &projectile_scene, error, sizeof(error))) {
             fprintf(stderr, "ItsABullet source scene submission is inconsistent: %s\n", error);
             scene_frame_destroy(&projectile_scene);
             game_bootstrap_destroy(&game);
@@ -6918,7 +6989,7 @@ int main(int argc, char **argv)
         if (!object_scene_submit_active(
                 &projectile_objects, &game.game_link_catalog, &game.shared_resources,
                 &game.dynamic_level.runtime, &projectile_lighting, &game.math,
-                &game.preferences, &projectile_scene, error, sizeof(error))) {
+                &game.preferences, 0, 0u, &projectile_scene, error, sizeof(error))) {
             fprintf(stderr, "ItsABullet stationary contact handoff is inconsistent: %s\n",
                     error);
             scene_frame_destroy(&projectile_scene);

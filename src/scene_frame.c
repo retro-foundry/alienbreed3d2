@@ -484,6 +484,15 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
                 previous_sprite->source_brightness, current_sprite->source_brightness, alpha);
             destination_sprite->source_light_level = scene_frame_interpolate_i16(
                 previous_sprite->source_light_level, current_sprite->source_light_level, alpha);
+            destination_sprite->view_weapon_projection.y_offset = scene_frame_interpolate_i32(
+                previous_sprite->view_weapon_projection.y_offset,
+                current_sprite->view_weapon_projection.y_offset, alpha);
+            destination_sprite->view_weapon_projection.sine = scene_frame_interpolate_i16(
+                previous_sprite->view_weapon_projection.sine,
+                current_sprite->view_weapon_projection.sine, alpha);
+            destination_sprite->view_weapon_projection.cosine = scene_frame_interpolate_i16(
+                previous_sprite->view_weapon_projection.cosine,
+                current_sprite->view_weapon_projection.cosine, alpha);
             destination_sprite->source_clip_top_y = scene_frame_interpolate_i32(
                 previous_sprite->source_clip_top_y, current_sprite->source_clip_top_y, alpha);
             destination_sprite->source_clip_bottom_y = scene_frame_interpolate_i32(

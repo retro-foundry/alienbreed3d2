@@ -1084,6 +1084,7 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         if (!object_scene_submit_active(&game->object_runtime, &game->game_link_catalog,
                                         &game->shared_resources, &game->dynamic_level.runtime,
                                         &game->lighting_runtime, &game->math, &game->preferences,
+                                        game->player.y, game->player.yaw,
                                         frame, NULL, 0u)) {
             return 0;
         }

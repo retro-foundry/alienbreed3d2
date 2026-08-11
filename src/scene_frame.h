@@ -214,6 +214,25 @@ typedef struct {
 } SceneSpriteFrameMetrics;
 
 /*
+ * objdrawhires.s:draw_PolygonModel's dedicated ENT_NEXT_2 projection state.
+ * The companion is not placed at an invented world-space distance: the
+ * source rotates its authored points in view space, adds this Y/depth state,
+ * then projects them around the source viewport centre.  Keeping the state
+ * explicit lets OpenGL and a future ray-traced backend share the same source
+ * model transform without sharing an API-specific camera matrix.
+ */
+typedef struct {
+    int32_t y_offset;
+    int16_t sine;
+    int16_t cosine;
+    int16_t depth_bias;
+    uint16_t centre_x;
+    uint16_t centre_y;
+    uint16_t scale_numerator;
+    uint16_t scale_denominator;
+} SceneViewWeaponProjection;
+
+/*
  * Raw source assets and draw descriptor for one active ObjT record.  This is
  * intentionally unprojected and unsorted: a GPU backend owns projection,
  * culling, draw order, asset conversion, and upload. `source_aux_bytes` is
@@ -236,6 +255,7 @@ typedef struct {
     uint16_t yaw;
     uint16_t source_brightness;
     int16_t source_light_level;
+    SceneViewWeaponProjection view_weapon_projection;
     /* draw_ResetAngleBrights' lower/upper 16-direction source rings for a
      * draw_bitmap_lighted object. Unused sprite modes leave these as zero. */
     int8_t source_bitmap_angle_brightness[16u * 2u];

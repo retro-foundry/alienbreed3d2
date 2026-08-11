@@ -536,6 +536,7 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
                                      const GameSharedResources *resources,
                                      const LevelRuntime *level,
                                      const LightingRuntime *lighting, const GameMath *math,
+                                     int32_t source_view_y, uint16_t source_view_yaw,
                                      uint32_t slot_index, SceneSprite *out_sprite,
                                      char *error, size_t error_size)
 {
@@ -657,7 +658,32 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
             return 0;
         }
         if (slot_index == objects->player1_slot + 2u) {
+            uint16_t relative_yaw = game_math_wrap_angle_address(
+                (uint16_t)(sprite.yaw - UINT16_C(2048) - source_view_yaw));
+            int32_t relative_y = (int32_t)((uint32_t)sprite.position.y -
+                                            (uint32_t)source_view_y);
+
             sprite.presentation = SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON;
+            if (!game_math_sine(math, relative_yaw,
+                                &sprite.view_weapon_projection.sine,
+                                error, error_size) ||
+                !game_math_cosine(math, relative_yaw,
+                                  &sprite.view_weapon_projection.cosine,
+                                  error, error_size)) {
+                return 0;
+            }
+            /*
+             * Native play presents the maintained source's fullscreen vector
+             * path: d1=1 becomes a depth bias of three, and both projected
+             * axes use the 5/3 scaler around the 320x240 source viewport.
+             */
+            sprite.view_weapon_projection.y_offset =
+                (int32_t)((uint32_t)relative_y + (uint32_t)relative_y);
+            sprite.view_weapon_projection.depth_bias = 3;
+            sprite.view_weapon_projection.centre_x = 160u;
+            sprite.view_weapon_projection.centre_y = 120u;
+            sprite.view_weapon_projection.scale_numerator = 5u;
+            sprite.view_weapon_projection.scale_denominator = 3u;
         }
     } else if (graphics_type < 0) {
         asset_index = (uint16_t)(0u - (uint16_t)graphics_type);
@@ -758,7 +784,9 @@ int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *gam
                                const LevelRuntime *level,
                                const LightingRuntime *lighting,
                                const GameMath *math,
-                               const GamePreferences *preferences, SceneFrame *frame,
+                               const GamePreferences *preferences,
+                               int32_t source_view_y, uint16_t source_view_yaw,
+                               SceneFrame *frame,
                                char *error, size_t error_size)
 {
     if (!game_link || !resources || !level || !lighting || !math || !preferences || !frame ||
@@ -792,7 +820,8 @@ int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *gam
         memset(&command.data.sprite_instance, 0, sizeof(command.data.sprite_instance));
         command.data.sprite_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
         if (!object_scene_build_sprite(
-                objects, game_link, resources, level, lighting, math, slot_index,
+                objects, game_link, resources, level, lighting, math,
+                source_view_y, source_view_yaw, slot_index,
                 &command.data.sprite_instance.sprite, error, error_size)) {
             return 0;
         }

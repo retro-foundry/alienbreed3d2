@@ -1,6 +1,7 @@
 #include "renderer_opengl.h"
 
 #include "bitmap_source_decode.h"
+#include "source_vector_projection.h"
 
 #include <limits.h>
 #include <math.h>
@@ -39,7 +40,6 @@ static const float renderer_opengl_pi = 3.14159265358979323846f;
 static const float renderer_opengl_near_plane = 0.05f;
 static const float renderer_opengl_far_plane = 8192.0f;
 static const float renderer_opengl_source_angle_full_turn = 8192.0f;
-static const float renderer_opengl_source_angle_quarter_turn = 2048.0f;
 /*
  * `Draw_Objects` paints a live ShotT after the source room columns.  A GPU
  * depth buffer otherwise rejects an impact/blood frame whose centre lies
@@ -2769,13 +2769,6 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
                                                RendererOpenGLVertex *out_vertex)
 {
     RendererOpenGLVectorPoint source_point;
-    float center_x;
-    float center_y;
-    float center_z;
-    float yaw;
-    float local_x;
-    float local_y;
-    float local_z;
 
     if (!sprite || !camera || !view || !point_bytes || !out_vertex) {
         return 0;
@@ -2783,70 +2776,33 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     source_point.x = renderer_opengl_read_be16s(point_bytes);
     source_point.y = renderer_opengl_read_be16s(point_bytes + 2u);
     source_point.z = renderer_opengl_read_be16s(point_bytes + 4u);
-    yaw = (float)sprite->yaw * (2.0f * renderer_opengl_pi /
-                                renderer_opengl_source_angle_full_turn);
-    renderer_opengl_world_point(&sprite->position, &center_x, &center_y, &center_z);
     if (camera_space != 0) {
-        float camera_x;
-        float camera_y;
-        float camera_z;
-        float camera_yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi /
-                                                  renderer_opengl_source_angle_full_turn);
-        float pitch = view->pitch_degrees * (renderer_opengl_pi / 180.0f);
-        float forward_x = sinf(camera_yaw) * cosf(pitch);
-        float forward_y = sinf(pitch);
-        float forward_z = cosf(camera_yaw) * cosf(pitch);
-        float right_x = cosf(camera_yaw);
-        float right_z = -sinf(camera_yaw);
-        float up_x = right_z * forward_y;
-        float up_y = forward_z * right_x - forward_x * right_z;
-        float up_z = -right_x * forward_y;
-        float source_relative_yaw = ((float)sprite->yaw -
-                                     renderer_opengl_source_angle_quarter_turn -
-                                     (float)camera->yaw) *
-            (2.0f * renderer_opengl_pi / renderer_opengl_source_angle_full_turn);
-        float source_view_x;
-        float source_view_z;
-        float bob;
+        SourceVectorEyePoint eye_point;
 
-        renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
-        local_x = (float)source_point.x * 0.0125f;
-        local_y = -(float)source_point.y * 0.0125f;
-        local_z = (float)source_point.z * 0.0125f;
         /*
-         * objdrawhires.s:draw_PolygonModel rotates every vector model by
-         * EntT_CurrentAngle_w - 2048 - Vis_AngPos_w.  Perform that complete
-         * source-relative rotation in camera space: applying ordinary world
-         * yaw first makes the companion turn the wrong way as the player
-         * turns.  Plr1_Use writes its reversed player angle.
+         * The ENT_NEXT_2 model has a dedicated source projection.  Its
+         * position is not a world transform, so do not approximate it with a
+         * guessed metres-per-source-unit scale or a near-camera placement.
          */
-        source_view_x = local_x * sinf(source_relative_yaw) -
-            local_z * cosf(source_relative_yaw);
-        source_view_z = local_z * sinf(source_relative_yaw) +
-            local_x * cosf(source_relative_yaw);
-        center_x = camera_x + forward_x * 1.3f - right_x * 0.35f;
-        center_z = camera_z + forward_z * 1.3f - right_z * 0.35f;
-        /*
-         * objdrawhires.s:draw_PolygonModel special-cases Plr1_Use's
-         * ENT_NEXT_2 companion at depth one and resets its projection centre
-         * to the screen centre.  Its ObjT vertical word still carries the
-         * live Plr1_Use bob, but is not a world-space origin for that pass.
-         * Keep that source bob as a small camera-space displacement instead
-         * of placing the whole model at the player's body height.
-         */
-        bob = (center_y - camera_y) * (1.0f / 64.0f);
-        center_x += up_x * (-0.55f + bob);
-        center_y = camera_y + up_y * (-0.55f + bob);
-        center_z += up_z * (-0.55f + bob);
-        out_vertex->x = center_x + right_x * source_view_x + forward_x * source_view_z +
-            up_x * local_y;
-        out_vertex->y = center_y + forward_y * source_view_z + up_y * local_y;
-        out_vertex->z = center_z + right_z * source_view_x + forward_z * source_view_z +
-            up_z * local_y;
+        if (!source_vector_transform_view_weapon_point(
+                &sprite->view_weapon_projection,
+                source_point.x, source_point.y, source_point.z, &eye_point)) {
+            return 0;
+        }
+        out_vertex->x = eye_point.x;
+        out_vertex->y = eye_point.y;
+        out_vertex->z = eye_point.z;
     } else {
-        local_x = (float)source_point.x * 0.5f;
-        local_y = -(float)source_point.y * 0.25f;
-        local_z = (float)source_point.z * 0.5f;
+        float center_x;
+        float center_y;
+        float center_z;
+        float yaw = (float)sprite->yaw * (2.0f * renderer_opengl_pi /
+                                          renderer_opengl_source_angle_full_turn);
+        float local_x = (float)source_point.x * 0.5f;
+        float local_y = -(float)source_point.y * 0.25f;
+        float local_z = (float)source_point.z * 0.5f;
+
+        renderer_opengl_world_point(&sprite->position, &center_x, &center_y, &center_z);
         out_vertex->x = center_x + cosf(yaw) * local_x - sinf(yaw) * local_z;
         out_vertex->y = center_y + local_y;
         out_vertex->z = center_z + sinf(yaw) * local_x + cosf(yaw) * local_z;
@@ -3275,6 +3231,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                               const SceneCamera *camera,
                                               const RenderView *view,
                                               const float view_projection[16],
+                                              float drawable_aspect,
                                               char *error, size_t error_size)
 {
     const uint8_t *bytes;
@@ -3293,8 +3250,11 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     RendererOpenGLVertex *vertices = NULL;
     uint32_t vertex_count = 0u;
     uint32_t vertex_capacity = 0u;
+    float view_weapon_projection[16];
+    const float *draw_projection = view_projection;
     float clip_top_y = 0.0f;
     float clip_bottom_y = 0.0f;
+    int camera_space;
     int clip_to_sector;
     int result = 0;
 
@@ -3305,6 +3265,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
         return 0;
     }
     renderer_opengl_use_default_light_response(renderer);
+    camera_space = sprite->presentation ==
+        SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON;
     clip_to_sector = sprite->presentation == SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
     if (clip_to_sector != 0) {
         clip_top_y = -(float)sprite->source_clip_top_y * renderer_opengl_source_y_unit;
@@ -3340,6 +3302,18 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     if (point_data_offset > size || (size_t)point_count > (size - point_data_offset) / 6u) {
         renderer_opengl_set_error(error, error_size, "source vector model point table is malformed");
         return 0;
+    }
+    if (camera_space != 0) {
+        if (!source_vector_make_view_weapon_matrix(
+                &sprite->view_weapon_projection, drawable_aspect,
+                view_weapon_projection)) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source view weapon projection is invalid");
+            return 0;
+        }
+        draw_projection = view_weapon_projection;
+        renderer->gl.uniform_matrix_4fv(renderer->view_projection_uniform, 1, GL_FALSE,
+                                        draw_projection);
     }
     on_off = renderer_opengl_read_be32(bytes + frame_offset);
     for (uint32_t part_index = 0u; ; ++part_index) {
@@ -3464,7 +3438,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                         if (!renderer_opengl_vector_model_point(
                                 sprite, camera, view,
                                 bytes + point_data_offset + (size_t)point_index * 6u,
-                                sprite->presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON,
+                                camera_space,
                                 &vertex)) {
                             renderer_opengl_set_error(error, error_size,
                                                       "source vector model point is invalid");
@@ -3497,7 +3471,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                         triangle_vertices[corner] = vertex;
                     }
                     if (!renderer_opengl_vector_face_is_front_facing(
-                            triangle_vertices, view_projection)) {
+                            triangle_vertices, draw_projection)) {
                         continue;
                     }
                     if (clip_to_sector != 0) {
@@ -3561,6 +3535,10 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     result = 1;
 done:
     free(vertices);
+    if (camera_space != 0) {
+        renderer->gl.uniform_matrix_4fv(renderer->view_projection_uniform, 1, GL_FALSE,
+                                        view_projection);
+    }
     return result;
 }
 
@@ -3880,7 +3858,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                 ++additive_count;
             } else if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
-                                                           view_projection, error, error_size)) ||
+                                                           view_projection,
+                                                           (float)drawable_width /
+                                                               (float)drawable_height,
+                                                           error, error_size)) ||
                        (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
                             renderer, sprite, camera, drawable_width, drawable_height,
@@ -3897,7 +3878,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
 
         if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
-                                                view_projection, error, error_size)) ||
+                                                view_projection,
+                                                (float)drawable_width /
+                                                    (float)drawable_height,
+                                                error, error_size)) ||
             (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
                  renderer, sprite, camera, drawable_width, drawable_height,
@@ -3950,7 +3934,9 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             if (command->data.sprite_instance.sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
                 !renderer_opengl_draw_vector_sprite(
                     renderer, &command->data.sprite_instance.sprite, camera, view,
-                                                   view_projection, error, error_size)) {
+                    view_projection,
+                    (float)drawable_width / (float)drawable_height,
+                    error, error_size)) {
                 free(before_pixels);
                 return 0;
             }

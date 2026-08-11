@@ -25,7 +25,9 @@ int object_scene_submit_active(const ObjectRuntime *objects, const GameLink *gam
                                const LevelRuntime *level,
                                const LightingRuntime *lighting,
                                const GameMath *math,
-                               const GamePreferences *preferences, SceneFrame *frame,
+                               const GamePreferences *preferences,
+                               int32_t source_view_y, uint16_t source_view_yaw,
+                               SceneFrame *frame,
                                char *error, size_t error_size);
 
 #endif
