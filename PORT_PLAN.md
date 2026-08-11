@@ -419,7 +419,7 @@ sound effects and music now play through the SDL WAV backend.
   `ItsABullet:notpopping` path: signed lifetime comparison/tick, source frame
   descriptor, roof/floor bounce or impact, fixed-point Vec2L/vertical motion,
   zero-extension `MoveObject` contact, horizontal reflection or impact, and
-  the source direct-target segment test/damage write, and the immediate
+  the source three-refinement direct-target segment range and damage write, and the immediate
   `anim_BrightenPoints` call after a moving `MoveObject` trace. `ObjectHandler`
   supplies the mutable level and source lighting state needed by those paths,
   so non-hitscan player volleys now advance in the live game loop. Their
