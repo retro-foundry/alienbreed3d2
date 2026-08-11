@@ -2437,6 +2437,7 @@ int main(int argc, char **argv)
             game.level_runtime.world_point_count != (uint32_t)game.level.point_count + 1u ||
             game.level_runtime.object_record_count == 0u ||
             game.static_scene.wall_count == 0u ||
+            game.player_hazard_runtime.time_to_damage != 100 ||
             game.alien_runtime.no_enemies != UINT8_MAX ||
             game.alien_runtime.entity_workspace[0u][0u] != 0 ||
             game.alien_runtime.entity_workspace[0u][2u] != -1 ||

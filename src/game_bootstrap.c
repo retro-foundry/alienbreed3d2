@@ -721,6 +721,8 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         return 0;
     }
     mechanism_runtime_init(&game->mechanism_runtime);
+    /* hires.s:Game_Begin resets timetodamage to 100 for every level. */
+    player_hazard_runtime_init(&game->player_hazard_runtime);
 
     /* hires.s:Game_Begin initializes this before objmoveanim can dispatch AI. */
     alien_runtime_begin_level(&game->alien_runtime);
