@@ -80,6 +80,17 @@ static int32_t player_shoot_asr32(int32_t value, unsigned int shift)
     return -(((-(int64_t)value) + ((INT64_C(1) << shift) - 1)) >> shift);
 }
 
+/* 68000 ASL.L with a register count: only the low six count bits participate. */
+static int32_t player_shoot_asl32_count(int32_t value, uint16_t count)
+{
+    unsigned int effective_count = count & 63u;
+
+    if (effective_count >= 32u) {
+        return 0;
+    }
+    return (int32_t)((uint32_t)value << effective_count);
+}
+
 /* 68000 ASR.W with a register count treats counts over 15 as sign-fill. */
 static int16_t player_shoot_asr16_count(int16_t value, uint16_t count)
 {
@@ -707,10 +718,13 @@ int player_shoot_spawn_projectile_volley(ObjectRuntime *objects, const GameMath 
             !game_math_cosine(math, (uint16_t)shot_angle, &cosine, error, error_size)) {
             return 0;
         }
-        velocity_x = player_shoot_add32(
-            player_shoot_muls16(sine, bullet_speed), player_shoot_muls16(sine, bullet_speed));
-        velocity_z = player_shoot_add32(
-            player_shoot_muls16(cosine, bullet_speed), player_shoot_muls16(cosine, bullet_speed));
+        /*
+         * newplayershoot.s:firefive sign-extends the SinCosTable values and
+         * applies `asl.l BulletSpd,Dn`. BulT_Speed_l is therefore a source
+         * fixed-point shift count, not a scalar multiplier.
+         */
+        velocity_x = player_shoot_asl32_count(sine, (uint16_t)bullet_speed);
+        velocity_z = player_shoot_asl32_count(cosine, (uint16_t)bullet_speed);
         launch_y = player_shoot_add32(player->y, PLAYER_SHOOT_PROJECTILE_Y_OFFSET);
         player_shoot_write_be16(shot_slot + PLAYER_SHOOT_SHOT_GRAVITY,
                                  (uint16_t)bullet->gravity);

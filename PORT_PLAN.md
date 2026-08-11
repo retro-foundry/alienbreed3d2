@@ -408,7 +408,8 @@ sound effects and music now play through the SDL WAV backend.
   and `FREE_ENT` release are dispatched in `ObjectHandler` slot order.
   `src/player_shoot.*` also now translates
   `newplayershoot.s:firefive`, which creates a non-hitscan volley directly in
-  the source player-shot pool: exact centred firing angles, speed/vertical
+  the source player-shot pool: exact centred firing angles, `ASL.L` speed
+  shift, vertical
   clamp, launch coordinates, and projectile bytes are covered by regression
   tests. `src/object_projectiles.*` now also translates the live
   `ItsABullet:notpopping` path: signed lifetime comparison/tick, source frame

@@ -135,6 +135,16 @@ static uint32_t read_be32(const uint8_t *source)
            ((uint32_t)source[2] << 8) | source[3];
 }
 
+static int32_t source_asl32_count(int32_t value, uint16_t count)
+{
+    unsigned int effective_count = count & 63u;
+
+    if (effective_count >= 32u) {
+        return 0;
+    }
+    return (int32_t)((uint32_t)value << effective_count);
+}
+
 /*
  * newanims.s calls DoorRoutine before LiftRoutine.  Each list entry writes
  * its graphics pointer directly, so retain the final exact source writer;
@@ -6079,9 +6089,9 @@ int main(int argc, char **argv)
             int16_t sine = shot_index == 0u ? first_sine : second_sine;
             int16_t cosine = shot_index == 0u ? first_cosine : second_cosine;
             uint32_t expected_velocity_x =
-                (uint32_t)((int32_t)((int64_t)sine * projectile_speed) * 2);
+                (uint32_t)source_asl32_count(sine, (uint16_t)projectile_speed);
             uint32_t expected_velocity_z =
-                (uint32_t)((int32_t)((int64_t)cosine * projectile_speed) * 2);
+                (uint32_t)source_asl32_count(cosine, (uint16_t)projectile_speed);
 
             if (slot[16u] != 2u ||
                 read_be16(slot + 12u) != projectile_player.zone_index ||
