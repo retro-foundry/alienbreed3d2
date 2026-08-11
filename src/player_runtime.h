@@ -25,6 +25,13 @@ typedef struct {
     int32_t x;
     int32_t y;
     int32_t z;
+    /*
+     * Host-rate camera endpoints. Open movement retains the source 16.16
+     * accumulator; a collision-corrected axis is promoted from the accepted
+     * integer coordinate so rejected fractions never move the camera.
+     */
+    int32_t presentation_x;
+    int32_t presentation_z;
     /* modules/player.s input-side state, committed by hires.s:Plr1_Control. */
     int32_t snap_x;
     int32_t snap_y;

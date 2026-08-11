@@ -4968,7 +4968,9 @@ int main(int argc, char **argv)
                           (uint32_t)expected_x_velocity) ||
             rollover_player.snap_z !=
                 (int32_t)((uint32_t)game.player.snap_z +
-                          (uint32_t)expected_z_velocity)) {
+                          (uint32_t)expected_z_velocity) ||
+            rollover_player.presentation_x != rollover_player.x ||
+            rollover_player.presentation_z != rollover_player.z) {
             fprintf(stderr, "first-port opposing-key rollover is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
@@ -5210,6 +5212,10 @@ int main(int argc, char **argv)
             player_runtime_position_to_world(player_collision_player.z) != old_z ||
             ((uint32_t)player_collision_player.x & UINT32_C(0xffff)) != UINT32_C(0x1234) ||
             ((uint32_t)player_collision_player.z & UINT32_C(0xffff)) != UINT32_C(0x5678) ||
+            player_collision_player.presentation_x !=
+                player_runtime_world_to_position(old_x) ||
+            player_collision_player.presentation_z !=
+                player_runtime_world_to_position(old_z) ||
             player_collision_motion.new_x != attempted_x ||
             player_collision_motion.new_z != attempted_z) {
             fprintf(stderr, "Plr1_Control object collision handoff is inconsistent: %s\n",
@@ -6203,6 +6209,8 @@ int main(int argc, char **argv)
             game.player.y != zone.floor - 12 * 1024 ||
             game.player.snap_x != game.player.x || game.player.snap_y != game.player.y ||
             game.player.snap_z != game.player.z || game.player.snap_target_y != game.player.y ||
+            game.player.presentation_x != game.player.x ||
+            game.player.presentation_z != game.player.z ||
             game.player.height != 12 * 1024 || game.player.default_enemy_flags != 0x23u ||
             frame.count < 3u + geometry_instance_count + active_sprite_count ||
             frame.commands[0u].type != SCENE_COMMAND_CAMERA ||
@@ -6210,9 +6218,9 @@ int main(int argc, char **argv)
                 player_runtime_position_to_world(game.player.x) ||
             frame.commands[0u].data.camera.position.y != game.player.y ||
             frame.commands[0u].data.camera.source_position_x_16_16 !=
-                player_runtime_world_to_position(player_runtime_position_to_world(game.player.x)) ||
+                game.player.presentation_x ||
             frame.commands[0u].data.camera.source_position_z_16_16 !=
-                player_runtime_world_to_position(player_runtime_position_to_world(game.player.z)) ||
+                game.player.presentation_z ||
             frame.commands[0u].data.camera.has_source_position_16_16 == 0u ||
             frame.commands[1u].type != SCENE_COMMAND_LIGHTING ||
             frame.commands[1u].data.lighting.current_point_brightness !=
