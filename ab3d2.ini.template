@@ -1,0 +1,19 @@
+# Alien Breed 3D II: The Killing Grounds - desktop settings
+#
+# This file is copied to ab3d2.ini beside the executable on the first build.
+# Later builds leave your ab3d2.ini untouched. Boolean values accept
+# 0/1, false/true, no/yes, or off/on.
+
+# Campaign level A through P, written one-indexed.
+start_level=1
+
+# PC convenience options. They are off by default and do not alter source assets.
+infinite_health=0
+all_weapons=0
+
+# Master SDL mixer volume, from 0 (silent) through 100.
+volume=100
+
+# Run by default; hold Shift to walk. run_default is also accepted for parity
+# with the first port's INI.
+always_run=1

@@ -49,6 +49,7 @@ set(AB3D2_CORE_SOURCES
   src/alien_spawn.c
   src/alien_torch.c
   src/asset_io.c
+  src/desktop_settings.c
   src/game_audio.c
   src/game_bootstrap.c
   src/game_controls.c
@@ -171,8 +172,14 @@ else()
             --destination "$<TARGET_FILE_DIR:ab3d2>/data"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
             "$<TARGET_FILE_DIR:ab3d2>/data/audio"
+    COMMAND ${CMAKE_COMMAND}
+            -DDEST_DIR="$<TARGET_FILE_DIR:ab3d2>"
+            -DSRC_FILE="${CMAKE_CURRENT_SOURCE_DIR}/ab3d2.ini.template"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_ab3d2_ini_if_missing.cmake"
     COMMENT "Stage authoritative AB3D2 media as case-stable executable-local data/"
   )
+  set_property(TARGET ab3d2 APPEND PROPERTY ADDITIONAL_CLEAN_FILES
+               "$<TARGET_FILE_DIR:ab3d2>/ab3d2.ini")
   add_custom_target(ab3d2_gpu_smoke
     COMMAND $<TARGET_FILE:ab3d2> --gpu-smoke all
     DEPENDS ab3d2
@@ -209,6 +216,10 @@ target_compile_definitions(ab3d2_core PRIVATE AB3D_STANDALONE_TOOL)
 
 include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
+  add_executable(ab3d2_desktop_settings_test tests/desktop_settings_test.c)
+  target_link_libraries(ab3d2_desktop_settings_test PRIVATE ab3d2_core)
+  target_include_directories(ab3d2_desktop_settings_test PRIVATE src)
+  add_test(NAME ab3d2_desktop_settings_test COMMAND ab3d2_desktop_settings_test)
   add_executable(ab3d2_level_data_test tests/level_data_test.c)
   target_link_libraries(ab3d2_level_data_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_level_data_test PRIVATE src)
