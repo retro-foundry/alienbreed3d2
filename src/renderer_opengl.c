@@ -10,11 +10,6 @@
 #include <string.h>
 
 #include <SDL.h>
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <SDL_syswm.h>
-#endif
 #if defined(__EMSCRIPTEN__)
 #include <SDL_opengles2.h>
 #else
@@ -186,73 +181,6 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
     *out_y = -(float)point->y * renderer_opengl_source_y_unit;
     *out_z = (float)(int16_t)(uint16_t)point->z;
 }
-
-#if defined(_WIN32)
-/*
- * Keep the first port's normal decorated SDL window, but place its outer
- * frame so the client rectangle exactly covers display_init's desktop bounds.
- * This removes the visible one-pixel non-client edge without a fullscreen or
- * borderless mode request.  All dimensions are in the same DPI-unaware
- * desktop coordinate space selected by the matching VS_DPI_AWARE manifest.
- */
-static int renderer_opengl_place_windows_client_at_desktop_bounds(SDL_Window *window,
-                                                                   const SDL_Rect *desktop_bounds,
-                                                                   char *error, size_t error_size)
-{
-    SDL_SysWMinfo window_info;
-    HWND native_window;
-    LONG_PTR window_style;
-    LONG_PTR extended_window_style;
-    RECT outer_rect;
-
-    if (!window || !desktop_bounds || desktop_bounds->w < 1 || desktop_bounds->h < 1) {
-        renderer_opengl_set_error(error, error_size,
-                                  "Windows desktop client placement received invalid bounds");
-        return 0;
-    }
-    SDL_VERSION(&window_info.version);
-    if (!SDL_GetWindowWMInfo(window, &window_info)) {
-        renderer_opengl_set_sdl_error(error, error_size,
-                                      "SDL native-window lookup failed");
-        return 0;
-    }
-    if (window_info.subsystem != SDL_SYSWM_WINDOWS || !window_info.info.win.window) {
-        renderer_opengl_set_error(error, error_size,
-                                  "SDL did not expose a Windows desktop window");
-        return 0;
-    }
-    native_window = window_info.info.win.window;
-    window_style = GetWindowLongPtr(native_window, GWL_STYLE);
-    extended_window_style = GetWindowLongPtr(native_window, GWL_EXSTYLE);
-    outer_rect.left = 0;
-    outer_rect.top = 0;
-    outer_rect.right = desktop_bounds->w;
-    outer_rect.bottom = desktop_bounds->h;
-    if (!AdjustWindowRectEx(&outer_rect, (DWORD)window_style, FALSE,
-                            (DWORD)extended_window_style)) {
-        if (error && error_size > 0u) {
-            (void)snprintf(error, error_size,
-                           "Windows desktop client placement could not calculate window frame (%lu)",
-                           (unsigned long)GetLastError());
-        }
-        return 0;
-    }
-    if (!SetWindowPos(native_window, NULL,
-                      desktop_bounds->x + outer_rect.left,
-                      desktop_bounds->y + outer_rect.top,
-                      outer_rect.right - outer_rect.left,
-                      outer_rect.bottom - outer_rect.top,
-                      SWP_NOACTIVATE | SWP_NOZORDER | SWP_FRAMECHANGED)) {
-        if (error && error_size > 0u) {
-            (void)snprintf(error, error_size,
-                           "Windows desktop client placement failed (%lu)",
-                           (unsigned long)GetLastError());
-        }
-        return 0;
-    }
-    return 1;
-}
-#endif
 
 /*
  * objdrawhires.s:draw_Bitmap adds ObjT_Brightness to the signed rotated
@@ -3602,8 +3530,6 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     RendererOpenGL *renderer;
     int window_x = SDL_WINDOWPOS_CENTERED;
     int window_y = SDL_WINDOWPOS_CENTERED;
-    SDL_Rect desktop_bounds;
-    int desktop_bounds_valid = 0;
     Uint32 window_flags;
 
     if (!window_title || window_width < RENDERER_OPENGL_WINDOW_MINIMUM_SIZE ||
@@ -3643,6 +3569,7 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
 #if !defined(__EMSCRIPTEN__)
     if (desktop_window != 0 && hidden_window == 0) {
         SDL_DisplayMode desktop_mode;
+        SDL_Rect desktop_bounds;
 
         /*
          * Copy Alien Breed 3D I src/display.c:display_init exactly: query the
@@ -3660,7 +3587,6 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
             if (desktop_bounds.w >= 96 && desktop_bounds.h >= 80) {
                 window_width = desktop_bounds.w;
                 window_height = desktop_bounds.h;
-                desktop_bounds_valid = 1;
             }
         }
         window_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
@@ -3675,16 +3601,6 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
         free(renderer);
         return NULL;
     }
-#if defined(_WIN32)
-    if (desktop_window != 0 && hidden_window == 0 && desktop_bounds_valid != 0 &&
-        !renderer_opengl_place_windows_client_at_desktop_bounds(renderer->window,
-                                                                 &desktop_bounds,
-                                                                 error, error_size)) {
-        SDL_DestroyWindow(renderer->window);
-        free(renderer);
-        return NULL;
-    }
-#endif
     renderer->context = SDL_GL_CreateContext(renderer->window);
     if (!renderer->context) {
         renderer_opengl_set_sdl_error(error, error_size, "SDL OpenGL context creation failed");

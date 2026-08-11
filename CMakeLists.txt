@@ -181,7 +181,7 @@ else()
 endif()
 
 if(WIN32 AND NOT EMSCRIPTEN)
-  target_link_libraries(ab3d2 PRIVATE user32 winmm imm32 version setupapi)
+  target_link_libraries(ab3d2 PRIVATE winmm imm32 version setupapi)
 endif()
 
 if(MSVC)
