@@ -418,7 +418,8 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     /* hires.s:dosomething calls DOALLANIMS before its control/object work. */
     if (!object_animation_update_single_player_with_audio(
             &game->object_animation_runtime, &game->object_runtime,
-            &game->game_link_catalog, &game->random, &game->audio_events,
+            &game->game_link_catalog, &game->random, &game->object_observation,
+            &game->audio_events,
             error, error_size) ||
         !level_runtime_get_zone(&game->dynamic_level.runtime, game->player.zone_index,
                                 &player_zone, error, error_size)) {

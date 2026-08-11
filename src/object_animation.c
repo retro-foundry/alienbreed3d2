@@ -31,12 +31,6 @@ static uint16_t object_animation_read_be16(const uint8_t *source)
     return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
 }
 
-static int32_t object_animation_read_be32s(const uint8_t *source)
-{
-    return (int32_t)(((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
-                     ((uint32_t)source[2] << 8) | source[3]);
-}
-
 static void object_animation_write_be16(uint8_t *target, uint16_t value)
 {
     target[0] = (uint8_t)(value >> 8);
@@ -145,6 +139,7 @@ int object_animation_update_single_player_with_audio(ObjectAnimationRuntime *run
                                                      ObjectRuntime *objects,
                                                      const GameLink *game_link,
                                                      GameRandom *random,
+                                                     const ObjectObservation *observation,
                                                      GameAudioEvents *audio_events,
                                                      char *error, size_t error_size)
 {
@@ -220,19 +215,21 @@ int object_animation_update_single_player_with_audio(ObjectAnimationRuntime *run
 
         /* hires.s:DOALLANIMS byte five is a one-based SFX index. */
         if (current_frame.bytes[5u] != 0u) {
-            uint8_t *point;
             uint16_t point_index = object_animation_read_be16(
                 slot + OBJECT_ANIMATION_SLOT_POINT_INDEX);
 
-            if (!object_runtime_get_point_bytes(objects, point_index, &point)) {
+            if (audio_events &&
+                (!observation || point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT)) {
                 object_animation_set_error(error, error_size,
-                                           "DOALLANIMS sound frame has an invalid source point");
+                                           "DOALLANIMS sound point is outside ObjRotated state");
                 return 0;
             }
-            game_audio_events_emit(audio_events, (int16_t)current_frame.bytes[5u] - 1,
-                                   80, (int16_t)(object_animation_read_be32s(point) >> 16),
-                                   (int16_t)(object_animation_read_be32s(point + 4u) >> 16),
-                                   point_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
+            if (audio_events) {
+                game_audio_events_emit_relative(
+                    audio_events, (int16_t)current_frame.bytes[5u] - 1, 80,
+                    observation->rotated_x[point_index], observation->rotated_z[point_index],
+                    point_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
+            }
         }
         if (current_frame.bytes[6u] != 0u) {
             workspace[0u] = (uint8_t)(workspace[0u] + 1u);
@@ -284,5 +281,5 @@ int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
                                           char *error, size_t error_size)
 {
     return object_animation_update_single_player_with_audio(runtime, objects, game_link, random,
-                                                            NULL, error, error_size);
+                                                            NULL, NULL, error, error_size);
 }

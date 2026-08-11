@@ -9404,6 +9404,76 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        {
+            static const uint8_t source_options[4u] = {0u, 8u, 9u, 10u};
+            ObjectObservation animation_observation;
+            GameAudioEvents animation_audio;
+            GameAlienAnimationFrame sound_frame;
+            uint16_t sound_alien = UINT16_MAX;
+            uint16_t sound_frame_index = 0u;
+            uint8_t sound_which = 0u;
+
+            for (uint16_t alien = 0u; alien < GAME_LINK_ALIEN_COUNT &&
+                 sound_alien == UINT16_MAX; ++alien) {
+                for (uint8_t which = 0u; which < 4u &&
+                     sound_alien == UINT16_MAX; ++which) {
+                    for (uint16_t frame_index = 0u;
+                         frame_index + 1u < GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT;
+                         ++frame_index) {
+                        if (!game_link_get_alien_animation_frame(
+                                &game.game_link_catalog, alien, source_options[which],
+                                frame_index, &sound_frame, error, sizeof(error))) {
+                            fprintf(stderr, "DOALLANIMS sound-frame scan failed: %s\n", error);
+                            game_bootstrap_destroy(&game);
+                            return 1;
+                        }
+                        if (sound_frame.bytes[5u] != 0u) {
+                            sound_alien = alien;
+                            sound_frame_index = frame_index;
+                            sound_which = which;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (sound_alien == UINT16_MAX) {
+                fprintf(stderr, "DOALLANIMS source data has no sound frame\n");
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            memset(slot_bytes, 0, sizeof(slot_bytes));
+            write_be16(slot_bytes + 0u, 0u);
+            write_be16(slot_bytes + 12u, 0u);
+            slot_bytes[16u] = 0u;
+            slot_bytes[54u] = (uint8_t)sound_alien;
+            slot_bytes[55u] = sound_which;
+            slot_bytes[62u] = UINT8_MAX;
+            write_be16(slot_bytes + 40u, sound_frame_index);
+            write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+            object_animation_runtime_destroy(&animation_runtime);
+            object_animation_runtime_init(&animation_runtime);
+            object_observation_init(&animation_observation);
+            animation_observation.rotated_x[0u] = 44;
+            animation_observation.rotated_z[0u] = -55;
+            game_audio_events_init(&animation_audio);
+            if (!object_animation_update_single_player_with_audio(
+                    &animation_runtime, &animation_objects, &game.game_link_catalog,
+                    &animation_random, &animation_observation, &animation_audio,
+                    error, sizeof(error)) ||
+                animation_audio.count != 1u ||
+                animation_audio.events[0u].sample_index !=
+                    (uint16_t)(sound_frame.bytes[5u] - 1u) ||
+                animation_audio.events[0u].world_x != 44 ||
+                animation_audio.events[0u].world_z != -55 ||
+                animation_audio.events[0u].source_id != 0u ||
+                animation_audio.events[0u].listener_relative == 0u) {
+                fprintf(stderr, "DOALLANIMS source sound handoff is inconsistent: %s\n",
+                        error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        object_animation_runtime_destroy(&animation_runtime);
     }
     {
         /* modules/ai.s:ai_CheckForDark preserves its same-zone and random gates. */

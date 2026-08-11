@@ -7,6 +7,7 @@
 #include "game_link.h"
 #include "game_audio.h"
 #include "game_random.h"
+#include "object_observation.h"
 #include "object_runtime.h"
 
 enum {
@@ -60,6 +61,7 @@ int object_animation_update_single_player_with_audio(ObjectAnimationRuntime *run
                                                      ObjectRuntime *objects,
                                                      const GameLink *game_link,
                                                      GameRandom *random,
+                                                     const ObjectObservation *observation,
                                                      GameAudioEvents *audio_events,
                                                      char *error, size_t error_size);
 
