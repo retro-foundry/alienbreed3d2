@@ -67,8 +67,11 @@ references to an unbound AI dispatcher are superseded by this live
 integration.
 
 Mouse X remains the source controller's yaw input, while `RenderView` mirrors
-its raw delta immediately for high-frame-rate presentation and reconciles the
-next completed source tick without double-applying it. Mouse Y drives the
+its raw delta immediately for high-frame-rate presentation. As the next
+completed source tick is interpolated, that already-presented mouse component
+is faded out of the presentation offset while source keyboard yaw stays in
+lockstep with interpolated player position. The identical temporary offset is
+applied to `Plr1_Use`'s camera-space weapon companion. Mouse Y drives the
 native `RenderView` pitch for real 3D mouse-look (clamped to +/-85 degrees and
 respecting the source invert-mouse preference); both presentation adjustments
 are isolated from source player state and do not replace the original aim/look

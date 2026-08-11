@@ -31,10 +31,12 @@ authority for all game behavior and data formats.
   requirements.
 - Native real mouse-look is explicitly requested presentation behavior: source
   mouse X still owns source yaw and input state. `RenderView` mirrors its raw
-  X delta immediately for host-rate display yaw, reconciles the completed
-  source tick without double-applying that delta, and owns a clamped pitch from
-  mouse Y. It must not rewrite source player aiming or replace the retained
-  small-screen look state.
+  X delta immediately for host-rate display yaw, fades that already-presented
+  component out while the completed source tick is interpolated, and applies
+  the same temporary yaw to the camera-space weapon companion. Source keyboard
+  yaw therefore remains interpolated with player position. `RenderView` also
+  owns a clamped pitch from mouse Y. It must not rewrite source player aiming
+  or replace the retained small-screen look state.
 
 ## Current OpenGL/WebGL presentation milestone
 
@@ -164,9 +166,11 @@ authority for all game behavior and data formats.
   `hires.s:dosomething` companion/action frames at fixed PAL 50 Hz even when
   presentation is 120 Hz or higher.
   Spawned/removed source records remain discrete.
-  Raw mouse-X display yaw is applied at host cadence and reconciled after the
-  source `c/system.c:Sys_ReadMouse`/`modules/player.s:plr_MouseControl` tick,
-  so mouse look is not limited to 50 Hz or applied twice.
+  Raw mouse-X display yaw is applied at host cadence. After the source
+  `c/system.c:Sys_ReadMouse`/`modules/player.s:plr_MouseControl` tick consumes
+  it, the already-presented component is compensated across interpolation and
+  is applied equally to the camera and `Plr1_Use` weapon companion. Mouse look
+  is therefore neither limited to 50 Hz nor allowed to detach the weapon.
 - [x] Native CMake links OpenGL and preserves the first port's SDL setup.
   Emscripten skips FetchContent, builds an `ab3d2.html` WebGL target with the
   browser-safe main loop, and preloads the lower-case `stage_media.py` asset
