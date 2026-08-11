@@ -994,8 +994,18 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         command.data.camera.position.x = player_runtime_position_to_world(game->player.x);
         command.data.camera.position.y = scene_camera_y;
         command.data.camera.position.z = player_runtime_position_to_world(game->player.z);
-        command.data.camera.source_position_x_16_16 = game->player.x;
-        command.data.camera.source_position_z_16_16 = game->player.z;
+        /*
+         * Plr1_Control can reject a move by restoring only the high word of
+         * Plr1_XOff_l/Plr1_ZOff_l. The retained low words are source velocity
+         * accumulation, not an accepted position: modules/transform.s reads
+         * only the high words when it builds the view. Promote those accepted
+         * coordinates back to 16.16 so host-rate interpolation stays smooth
+         * without presenting collision bookkeeping as camera motion.
+         */
+        command.data.camera.source_position_x_16_16 =
+            player_runtime_world_to_position((int16_t)command.data.camera.position.x);
+        command.data.camera.source_position_z_16_16 =
+            player_runtime_world_to_position((int16_t)command.data.camera.position.z);
         command.data.camera.yaw = game->player.yaw;
         command.data.camera.look_offset = game->player.look_offset;
         command.data.camera.has_source_position_16_16 = UINT8_MAX;

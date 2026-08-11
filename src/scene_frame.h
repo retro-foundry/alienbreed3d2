@@ -18,9 +18,9 @@ typedef struct {
 typedef struct {
     SceneWorldPoint position;
     /*
-     * The source player accumulates X/Z in 16.16. Keep those exact endpoints
-     * for high-rate camera interpolation while `position` remains the integer
-     * source coordinate used by lighting and object projection.
+     * Host-rate 16.16 presentation endpoints promoted from the collision-
+     * accepted source coordinates. `position` remains the integer source
+     * coordinate used by lighting and object projection.
      */
     int32_t source_position_x_16_16;
     int32_t source_position_z_16_16;
