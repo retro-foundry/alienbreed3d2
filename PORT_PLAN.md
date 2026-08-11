@@ -184,7 +184,8 @@ authority for all game behavior and data formats.
 
 The renderer uses continuous GPU light interpolation from the live source
 brightness tables instead of reproducing Amiga palette dithering. HUD glyphs,
-menus, audio, and multiplayer remain deliberately excluded. The opt-in
+menus, and multiplayer remain deliberately excluded. Source WAV music and the
+live source event mixer are desktop presentation work, not renderer work. The opt-in
 `ab3d2_gpu_smoke` target creates a hidden real OpenGL context and draws one
 frame from every authored level, reporting shader or source-decoding errors.
 
@@ -204,8 +205,8 @@ former status-only presenter has been replaced by the OpenGL/WebGL milestone.
   clean-process A--P direct-play regression, including its six source
   VBlank-equivalent ticks per selected level.
 
-Menus and audio event/playback work remain deferred as requested; no
-multiplayer work is planned.
+Menus remain deferred as requested; no multiplayer work is planned. Source
+sound effects and music now play through the SDL WAV backend.
 
 ## Current completed foundation
 
@@ -245,9 +246,11 @@ multiplayer work is planned.
 - [x] `src/asset_io.*` now directly ports `modules/file_io.s:io_LoadSample`'s
   `CSFX` Fibonacci-delta sample decode, including its post-decode signed
   clipping to `[-64, 63]`. `Res_LoadSoundFx` therefore owns the decoded source
-  PCM payloads it would supply to the original mixer. Native playback and
-  source `MakeSomeNoise` event routing are deliberately deferred from the
-  current gameplay-first scope.
+  PCM payloads it would supply to the original mixer. `tools/audio_export.c`
+  writes those exact decoded samples as committed WAVs and unpacks the source
+  `music/packedtest` module for its committed WAV render. `src/game_audio.*`
+  retains source event selection/timing while `src/audio_sdl.*` presents the
+  staged WAVs with source-style priority, attenuation, and stereo panning.
 - [x] The no-op presenter remains deliberately unchanged. The future backend
   receives whole-level camera/material/geometry/sprite/HUD intent and does
   not need PVS, portals, or software rendering.
@@ -394,7 +397,8 @@ multiplayer work is planned.
   supplies the mutable level and source lighting state needed by those paths,
   so non-hitscan player volleys now advance in the live game loop. Their
   source roof, floor, wall, timeout, and direct-target `ComputeBlast` calls
-  now apply source damage/impulse/flame state; impact audio remains deferred.
+  now apply source damage/impulse/flame state; impact audio uses the source
+  bullet slot through the shared event path.
   `src/object_movement.*`
   now translates `objectmove.s:MoveObject`'s primary and non-zero-`Obj_ExtLen_w`
   extended-edge passes: source height-opening checks, edge flag writes,
@@ -453,8 +457,8 @@ multiplayer work is planned.
   control/object work. It retains the low-byte signed five-tick cadence,
   ObjT terminator/zone/worry/type gates, walk/attack/hit/death option mapping,
   `EntT_Timer2_w` frame advance/end handling, action bytes, and deterministic
-  `GetRand` special-frame behavior. Animation sound byte five remains absent
-  until the native audio event path exists; no sound or AI substitute is made.
+  `GetRand` special-frame behavior. Animation byte five now emits its original
+  one-based sound slot at its live object point; no substitute sample is used.
   The workspace is intentionally preserved across level loads, as in the
   source, for the later `modules/ai.s` consumers. The native runtime retains
   the exact 300-entry source BSS prefix and reserves a zeroed tail only when a
@@ -1111,8 +1115,9 @@ a native flash or invoke an unported damage effect by itself.
   is dispatched from `ObjectHandler` using the mutable level and lighting
 runtime. Its pop branch uses the same source point-brightness call before
 the next pop frame. Projectile blast damage, knockback, and flame allocation
-now run through their original `ItsABullet` branches; native audio playback
-remains deferred. The reusable `CanItBeSeen` query now
+now run through their original `ItsABullet` branches; source impact sound
+requests use the associated `BulT_ImpactSFX_l` slot. The reusable
+`CanItBeSeen` query now
 retains source gameplay PVST/clip/height behavior but is deliberately not
 wired until the owning alien path is translated. `firefive` now creates the
 source non-hitscan launch state, and its `ItsABullet` movement/collision path
@@ -1248,11 +1253,10 @@ PVS traversal, and portal-order rendering remain out of scope by design.
      vector models, glare bitmap blending, and glyphs from their owning source
      routines. Keep HUD/UI out until asked.
 
-2. **Keep deferred source event outputs out of the current path**
-   - Do not spend implementation time on original sound-effect/music event
-     routing, `MakeSomeNoise`, or native audio playback unless requested in a
-     later scope change. The decoded source samples remain available for that
-     future, source-backed work; do not synthesize substitute effects.
+2. **Keep remaining source event outputs explicit**
+   - `MakeSomeNoise` is represented by `GameAudioEvents` and the SDL WAV
+     backend; preserve the original caller's sample index, volume, source
+     position, and source identity. Do not synthesize substitute effects.
    - Trace the remaining source-owned brightness/event branches before enabling
      each one. Keep any branch absent until its original caller and state
      ownership are established.
@@ -1282,5 +1286,4 @@ PVS traversal, and portal-order rendering remain out of scope by design.
      and add renderer output validation separately from simulation-state
      validation.
    - Keep menus deferred until direct game presentation, input, and simulation
-     work end to end. Audio is intentionally deferred; do not reintroduce
-     multiplayer.
+     work end to end; do not reintroduce multiplayer.

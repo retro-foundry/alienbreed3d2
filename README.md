@@ -66,10 +66,13 @@ terminator-delimited ObjT list beyond its fixed BSS prefix; Level G exercises
 the source AI's direct control-point address after an unavailable navigation
 route; and Level K exercises its ignored 68000 `DIVS.W` overflow result.
 
-The shared-resource loader also now decodes the original `CSFX` Fibonacci
-sample payloads exactly as the source file loader does. Source sound-event
-routing and playback are deliberately deferred from the current
-gameplay-first scope.
+The shared-resource loader decodes the original `CSFX` Fibonacci sample
+payloads exactly as the source file loader does. The desktop boundary exports
+those decoded samples and the source-packed `music/packedtest` module as
+committed WAVs, stages them beside the executable, and plays source-owned
+events with listener-relative MakeSomeNoise-style priority, attenuation, and
+stereo panning. The source default music toggle starts the looped module at
+`Game_Begin`.
 
 - loads the authoritative `test.lnk` game database and `TEXT_FILE` narrative;
 - unpacks (including stored and LHA-compressed `=SB=` records), parses, and validates the map, fly map, `twolev.bin`,
@@ -148,7 +151,8 @@ gameplay-first scope.
   projectiles now retain the source lifetime, fixed-point movement,
   floor/roof/wall response, direct target collision, and post-`MoveObject`
   point-brightness call; their source `ComputeBlast` damage, impulse, and
-  flame-allocation paths are live, while audio remains deferred;
+  flame-allocation paths are live, with projectile-impact sound requests
+  emitted from the same source branches;
 - preserves the source `DEFGAME`/save-slot campaign record (a 70-byte,
   big-endian level and inventory payload). The native Load Position and Save
   Position menus use the original six-record, 420-byte `boot.dat` layout at a
@@ -218,13 +222,13 @@ gameplay-first scope.
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
   now allocates and initializes its source alien-projectile state, including
-  predictive lead and lateral launch offset; its separate audio calls remain
-  absent. `modules/ai.s:ai_AttackWithProjectile` now composes that projectile
+  predictive lead and lateral launch offset; its source animation-frame audio
+  now uses the shared event path. `modules/ai.s:ai_AttackWithProjectile` now composes that projectile
   handoff with the source damage/death exit, attack animation, heading, memory,
   torch, and finished/sight transitions. `ai_DoTakeDamage`
   likewise completes the selected nonfatal reaction animation and heading
-  branch with explicit source torch inputs. Enemy behavior and dynamic blast
-  are live; audio is deliberately deferred;
+  branch with explicit source torch inputs. Enemy behavior, dynamic blast, and
+  source-backed desktop audio are live;
 - opens an SDL OpenGL window that draws the direct-play world with depth
   testing: source sky, complete authored geometry, smooth source light,
   animated water, source bitmap/glare/vector objects, and the live view weapon.

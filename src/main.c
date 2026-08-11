@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "audio_sdl.h"
 #include "game_bootstrap.h"
 #include "game_vblank_clock.h"
 #include "render_view.h"
@@ -211,6 +212,7 @@ typedef struct {
     SceneFrame previous_source_frame;
     SceneFrame frame;
     Renderer *renderer;
+    AudioSdl *audio;
     RenderView view;
     /* Host display frames are not source VBlanks; keep source logic at 50 Hz. */
     GameVBlankClock vblank_clock;
@@ -231,6 +233,8 @@ static void game_app_shutdown(GameApp *app)
     }
     renderer_destroy(app->renderer);
     app->renderer = NULL;
+    audio_sdl_destroy(app->audio);
+    app->audio = NULL;
     if (app->frame_initialized) {
         scene_frame_destroy(&app->frame);
         app->frame_initialized = 0;
@@ -316,6 +320,14 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     app->game_initialized = 1;
+    app->audio = audio_sdl_create(app->data_root, error, sizeof(error));
+    if (!app->audio) {
+        fprintf(stderr, "[AUDIO] %s\n", error);
+        return 0;
+    }
+    if (!audio_sdl_is_available(app->audio)) {
+        fprintf(stderr, "[AUDIO] disabled: %s\n", error);
+    }
     if (!scene_frame_init(&app->source_frame, 1024u)) {
         fprintf(stderr, "[SCENE] unable to allocate frame command buffer\n");
         return 0;
@@ -357,6 +369,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         fprintf(stderr, "[GAME] %s\n", error);
         return 0;
     }
+    /* hires.s:Game_Begin's mt_init begins the source-selected packedtest module. */
+    audio_sdl_set_music_enabled(app->audio, app->game.preferences.play_music);
     render_view_init(&app->view);
     render_view_set_source_yaw(&app->view, app->game.player.yaw);
     scene_frame_begin(&app->source_frame);
@@ -489,6 +503,8 @@ static void game_app_tick(GameApp *app)
         }
         render_view_reconcile_source_yaw(&app->view, previous_source_yaw,
                                          app->game.player.yaw, consumed_mouse_x);
+        audio_sdl_consume_events(app->audio, &app->game.audio_events, &app->game.player,
+                                 render_view_yaw(&app->view));
         if (!game_app_capture_source_frame(app)) {
             fprintf(stderr, "[SCENE] unable to capture the completed source frame\n");
             app->exit_code = 1;

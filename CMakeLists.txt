@@ -115,6 +115,7 @@ if(NOT EMSCRIPTEN)
 endif()
 
 add_executable(ab3d2
+  src/audio_sdl.c
   src/main.c
   src/renderer.c
   src/renderer_opengl.c
@@ -138,6 +139,14 @@ if(EMSCRIPTEN)
     COMMENT "Stage authoritative AB3D2 media for WebGL preload"
   )
   add_dependencies(ab3d2 ab3d2_web_media)
+  add_custom_target(ab3d2_web_audio
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_WEB_DATA_DIR}/audio"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
+            "${AB3D2_WEB_DATA_DIR}/audio"
+    DEPENDS ab3d2_web_media
+    COMMENT "Stage converted AB3D2 WAV audio for WebAudio preload"
+  )
+  add_dependencies(ab3d2 ab3d2_web_audio)
   target_compile_options(ab3d2 PRIVATE "SHELL:-sUSE_SDL=2")
   target_link_options(ab3d2 PRIVATE
     "SHELL:-sUSE_SDL=2"
@@ -153,6 +162,8 @@ else()
     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/stage_media.py"
             --source "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media"
             --destination "$<TARGET_FILE_DIR:ab3d2>/data"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
+            "$<TARGET_FILE_DIR:ab3d2>/data/audio"
     COMMENT "Stage authoritative AB3D2 media as case-stable executable-local data/"
   )
   add_custom_target(ab3d2_gpu_smoke
