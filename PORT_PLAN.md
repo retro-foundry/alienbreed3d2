@@ -171,10 +171,13 @@ authority for all game behavior and data formats.
   Emscripten skips FetchContent, builds an `ab3d2.html` WebGL target with the
   browser-safe main loop, and preloads the lower-case `stage_media.py` asset
   tree as `/data`.
-- [x] Native direct play queries SDL's active desktop mode before creating the
-  OpenGL window, then renders to the complete drawable rather than a fixed
-  1280x720 request. The hidden GPU smoke path intentionally stays 1280x720 so
-  its all-level validation remains bounded and independent of monitor layout.
+- [x] Native direct play matches the first port's fullscreen-desktop startup
+  presentation: `renderer_opengl.c` queries SDL's active desktop mode and
+  display bounds, creates the OpenGL window at those bounds without an
+  `SDL_WINDOW_FULLSCREEN*` mode switch, and renders to the complete drawable
+  rather than a fixed 1280x720 request. The hidden GPU smoke path intentionally
+  stays 1280x720 so its all-level validation remains bounded and independent of
+  monitor layout.
 - [x] Native presentation now relies on `renderer_opengl.c`'s requested
   `SDL_GL_SetSwapInterval(1)`/`SDL_GL_SwapWindow` boundary rather than a fixed
   16 ms `SDL_Delay`. This matches the first port's display-paced game loop:

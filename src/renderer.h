@@ -22,6 +22,13 @@ typedef struct {
     int window_width;
     int window_height;
     const char *window_title;
+    /*
+     * Match the native Alien Breed 3D I startup display mode: create a
+     * desktop-sized window at the active display bounds without asking SDL to
+     * change the monitor's display mode.  This remains a presentation choice
+     * at the renderer boundary, rather than a gameplay concern.
+     */
+    int fullscreen_desktop;
     /* Opt-in validation path: an SDL hidden window still exercises real GL. */
     int hidden_window;
 } RendererConfig;

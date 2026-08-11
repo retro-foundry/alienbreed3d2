@@ -3523,10 +3523,14 @@ done:
 
 RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
                                        const char *window_title,
+                                       int fullscreen_desktop,
                                        int hidden_window,
                                        char *error, size_t error_size)
 {
     RendererOpenGL *renderer;
+    int window_x = SDL_WINDOWPOS_CENTERED;
+    int window_y = SDL_WINDOWPOS_CENTERED;
+    Uint32 window_flags;
 
     if (!window_title || window_width < RENDERER_OPENGL_WINDOW_MINIMUM_SIZE ||
         window_height < RENDERER_OPENGL_WINDOW_MINIMUM_SIZE) {
@@ -3559,11 +3563,38 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     }
     /* The opt-in hidden window is the GPU smoke path, not the game loop. */
     renderer->measure_view_weapon_coverage = hidden_window != 0 ? 1u : 0u;
-    renderer->window = SDL_CreateWindow(window_title, SDL_WINDOWPOS_CENTERED,
-                                        SDL_WINDOWPOS_CENTERED, window_width, window_height,
-                                        SDL_WINDOW_OPENGL |
-                                        (hidden_window != 0 ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) |
-                                        SDL_WINDOW_RESIZABLE);
+    window_flags = SDL_WINDOW_OPENGL |
+                   (hidden_window != 0 ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) |
+                   SDL_WINDOW_RESIZABLE;
+    if (fullscreen_desktop != 0 && hidden_window == 0) {
+        SDL_DisplayMode desktop_mode;
+        SDL_Rect desktop_bounds;
+
+        /*
+         * This intentionally mirrors display_init() in the first PC port:
+         * desktop bounds and size, but no SDL_WINDOW_FULLSCREEN* flag.  That
+         * avoids a mode switch while letting the renderer fill the active
+         * desktop drawable.  SDL's supplied dimensions remain a clear fallback
+         * on hosts which do not expose desktop mode information.
+         */
+        if (SDL_GetDesktopDisplayMode(0, &desktop_mode) == 0 &&
+            desktop_mode.w >= RENDERER_OPENGL_WINDOW_MINIMUM_SIZE &&
+            desktop_mode.h >= RENDERER_OPENGL_WINDOW_MINIMUM_SIZE) {
+            window_width = desktop_mode.w;
+            window_height = desktop_mode.h;
+        }
+        if (SDL_GetDisplayBounds(0, &desktop_bounds) == 0) {
+            window_x = desktop_bounds.x;
+            window_y = desktop_bounds.y;
+            if (desktop_bounds.w >= RENDERER_OPENGL_WINDOW_MINIMUM_SIZE &&
+                desktop_bounds.h >= RENDERER_OPENGL_WINDOW_MINIMUM_SIZE) {
+                window_width = desktop_bounds.w;
+                window_height = desktop_bounds.h;
+            }
+        }
+    }
+    renderer->window = SDL_CreateWindow(window_title, window_x, window_y,
+                                        window_width, window_height, window_flags);
     if (!renderer->window) {
         renderer_opengl_set_sdl_error(error, error_size, "SDL OpenGL window creation failed");
         free(renderer);

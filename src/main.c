@@ -355,6 +355,12 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     renderer_config.window_title = "Alien Breed 3D II: The Killing Grounds";
+    /*
+     * Keep direct play in the first port's desktop-sized startup mode.  The
+     * hidden GPU validation path deliberately remains an ordinary bounded
+     * window so it does not depend on the host display layout.
+     */
+    renderer_config.fullscreen_desktop = app->gpu_smoke ? 0 : 1;
     renderer_config.hidden_window = app->gpu_smoke;
     app->renderer = renderer_create(&renderer_config, error, sizeof(error));
     if (!app->renderer) {
