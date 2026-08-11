@@ -2539,6 +2539,8 @@ int main(int argc, char **argv)
             uint8_t weapon_scene_source = UINT8_MAX;
             uint8_t weapon_scene_presentation = UINT8_MAX;
             uint32_t weapon_scene_asset_id = UINT32_MAX;
+            uint16_t weapon_scene_yaw = UINT16_MAX;
+            uint16_t expected_weapon_yaw;
             int8_t weapon_source_light[16u * 16u];
             int16_t saved_weapon_zone_lights[LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT];
 
@@ -2674,6 +2676,9 @@ int main(int argc, char **argv)
                 !object_handler_apply_active_object_animation_slot(
                     &game.object_runtime, game.object_runtime.player1_slot + 2u,
                     &game.game_link_catalog, error, sizeof(error)) ||
+                (expected_weapon_yaw = (uint16_t)(
+                     ((game.player.tmp_yaw + 4096u) & 8190u) + gun_frame.word_2),
+                 read_be16(weapon_slot + 30u) != expected_weapon_yaw) ||
                 !scene_frame_init(&weapon_scene, 1u) ||
                 !game_bootstrap_submit_scene_frame(&game, &weapon_scene)) {
                 fprintf(stderr, "campaign level %u weapon scene submission failed\n",
@@ -2693,11 +2698,13 @@ int main(int argc, char **argv)
                     weapon_scene_source = weapon_command->data.sprite_instance.sprite.source;
                     weapon_scene_presentation = weapon_command->data.sprite_instance.sprite.presentation;
                     weapon_scene_asset_id = weapon_command->data.sprite_instance.sprite.source_asset_id;
+                    weapon_scene_yaw = weapon_command->data.sprite_instance.sprite.yaw;
                     saw_weapon = weapon_command->data.sprite_instance.sprite.presentation ==
                         SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON &&
                         weapon_command->data.sprite_instance.sprite.source ==
                             SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-                        weapon_command->data.sprite_instance.sprite.source_asset_id == weapon_source_asset_id;
+                        weapon_command->data.sprite_instance.sprite.source_asset_id == weapon_source_asset_id &&
+                        weapon_command->data.sprite_instance.sprite.yaw == expected_weapon_yaw;
                     memcpy(weapon_source_light,
                            weapon_command->data.sprite_instance.sprite.source_point_and_polygon_brightness,
                            sizeof(weapon_source_light));
@@ -2707,9 +2714,10 @@ int main(int argc, char **argv)
             if (saw_weapon == 0u) {
                 fprintf(stderr,
                         "campaign level %u live companion weapon is missing from scene "
-                        "(source=%u presentation=%u asset=%u expected vector asset=%u)\n",
+                        "(source=%u presentation=%u asset=%u yaw=%u expected vector asset=%u yaw=%u)\n",
                         level_index, weapon_scene_source, weapon_scene_presentation,
-                        weapon_scene_asset_id, weapon_source_asset_id);
+                        weapon_scene_asset_id, weapon_scene_yaw, weapon_source_asset_id,
+                        expected_weapon_yaw);
                 scene_frame_destroy(&weapon_scene);
                 game_bootstrap_destroy(&game);
                 return 1;
