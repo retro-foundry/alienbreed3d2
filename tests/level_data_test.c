@@ -1065,12 +1065,18 @@ int main(int argc, char **argv)
 
         previous_camera.type = SCENE_COMMAND_CAMERA;
         previous_camera.data.camera.position = (SceneWorldPoint){0, 0, 0};
+        previous_camera.data.camera.source_position_x_16_16 = 16384;
+        previous_camera.data.camera.source_position_z_16_16 = 32768;
         previous_camera.data.camera.yaw = 8180u;
         previous_camera.data.camera.look_offset = -20;
+        previous_camera.data.camera.has_source_position_16_16 = UINT8_MAX;
         current_camera.type = SCENE_COMMAND_CAMERA;
         current_camera.data.camera.position = (SceneWorldPoint){20, 40, 60};
+        current_camera.data.camera.source_position_x_16_16 = 20 * 65536 + 49152;
+        current_camera.data.camera.source_position_z_16_16 = 60 * 65536 + 32768;
         current_camera.data.camera.yaw = 8u;
         current_camera.data.camera.look_offset = 20;
+        current_camera.data.camera.has_source_position_16_16 = UINT8_MAX;
         previous_surface[0].geometry.vertices = previous_vertices;
         previous_surface[0].geometry.vertex_count = 3u;
         previous_surface[0].geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
@@ -1120,6 +1126,11 @@ int main(int argc, char **argv)
             presentation.commands[0u].data.camera.position.x != 10 ||
             presentation.commands[0u].data.camera.position.y != 20 ||
             presentation.commands[0u].data.camera.position.z != 30 ||
+            presentation.commands[0u].data.camera.source_position_x_16_16 !=
+                10 * 65536 + 32768 ||
+            presentation.commands[0u].data.camera.source_position_z_16_16 !=
+                30 * 65536 + 32768 ||
+            presentation.commands[0u].data.camera.has_source_position_16_16 == 0u ||
             presentation.commands[0u].data.camera.yaw != 8190u ||
             presentation.commands[0u].data.camera.look_offset != 0 ||
             presentation.commands[1u].data.geometry_instance.mesh.surfaces[0u].geometry.vertices ==
@@ -6212,6 +6223,9 @@ int main(int argc, char **argv)
             frame.commands[0u].data.camera.position.x !=
                 player_runtime_position_to_world(game.player.x) ||
             frame.commands[0u].data.camera.position.y != game.player.y ||
+            frame.commands[0u].data.camera.source_position_x_16_16 != game.player.x ||
+            frame.commands[0u].data.camera.source_position_z_16_16 != game.player.z ||
+            frame.commands[0u].data.camera.has_source_position_16_16 == 0u ||
             frame.commands[1u].type != SCENE_COMMAND_LIGHTING ||
             frame.commands[1u].data.lighting.current_point_brightness !=
                 &game.lighting_runtime.current_point_brightness[0][0] ||

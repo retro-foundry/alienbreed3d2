@@ -431,6 +431,17 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
             destination_command->data.camera.position.z = scene_frame_interpolate_i32(
                 previous_command->data.camera.position.z,
                 current_command->data.camera.position.z, alpha);
+            if (previous_command->data.camera.has_source_position_16_16 != 0u &&
+                current_command->data.camera.has_source_position_16_16 != 0u) {
+                destination_command->data.camera.source_position_x_16_16 =
+                    scene_frame_interpolate_i32(
+                        previous_command->data.camera.source_position_x_16_16,
+                        current_command->data.camera.source_position_x_16_16, alpha);
+                destination_command->data.camera.source_position_z_16_16 =
+                    scene_frame_interpolate_i32(
+                        previous_command->data.camera.source_position_z_16_16,
+                        current_command->data.camera.source_position_z_16_16, alpha);
+            }
             destination_command->data.camera.yaw = scene_frame_interpolate_angle(
                 previous_command->data.camera.yaw, current_command->data.camera.yaw, alpha);
             destination_command->data.camera.look_offset = scene_frame_interpolate_i16(

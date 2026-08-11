@@ -182,6 +182,17 @@ static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out
     *out_z = (float)(int16_t)(uint16_t)point->z;
 }
 
+static void renderer_opengl_camera_point(const SceneCamera *camera, float *out_x,
+                                         float *out_y, float *out_z)
+{
+    renderer_opengl_world_point(&camera->position, out_x, out_y, out_z);
+    if (camera->has_source_position_16_16 != 0u) {
+        /* Match the first port's interpolation of raw player endpoints. */
+        *out_x = (float)((double)camera->source_position_x_16_16 / 65536.0);
+        *out_z = (float)((double)camera->source_position_z_16_16 / 65536.0);
+    }
+}
+
 /*
  * display_init in the first port requests a desktop-sized normal window.  On
  * a framed desktop window, its top/left non-client pixels remain visible at
@@ -1830,7 +1841,7 @@ static void renderer_opengl_view_projection(float out_matrix[16], const SceneCam
     float field_of_view = 70.0f * (renderer_opengl_pi / 180.0f);
     float focal_length = 1.0f / tanf(field_of_view * 0.5f);
 
-    renderer_opengl_world_point(&camera->position, &eye_x, &eye_y, &eye_z);
+    renderer_opengl_camera_point(camera, &eye_x, &eye_y, &eye_z);
     renderer_opengl_identity(projection);
     projection[0] = focal_length / aspect;
     projection[5] = focal_length;

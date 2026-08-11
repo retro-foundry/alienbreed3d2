@@ -17,8 +17,17 @@ typedef struct {
 
 typedef struct {
     SceneWorldPoint position;
+    /*
+     * The source player accumulates X/Z in 16.16. Keep those exact endpoints
+     * for high-rate camera interpolation while `position` remains the integer
+     * source coordinate used by lighting and object projection.
+     */
+    int32_t source_position_x_16_16;
+    int32_t source_position_z_16_16;
     uint16_t yaw;
     int16_t look_offset;
+    uint8_t has_source_position_16_16;
+    uint8_t reserved[3];
 } SceneCamera;
 
 typedef enum {
