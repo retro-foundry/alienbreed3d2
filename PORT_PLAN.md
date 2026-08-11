@@ -156,9 +156,13 @@ authority for all game behavior and data formats.
   input, player, collision, weapon, and object ordering; the scene boundary
   deep-snapshots the source frame before every completed tick and blends its
   camera, mutable geometry, object sprites, and source light levels by the
-  current VBlank remainder. Its accumulator is based on SDL's high-resolution
-  performance counter, keeping `hires.s:dosomething` companion/action frames
-  at fixed PAL 50 Hz even when presentation is 120 Hz or higher.
+  current VBlank remainder. Sprite transform matching keys on the stable
+  ObjT/ShotT source slot and presentation role, not its mutable source mesh:
+  `modules/ai.s:ai_DoWalkAnim` is therefore free to select its next art/frame
+  while the same enemy transform remains interpolated. Its accumulator is
+  based on SDL's high-resolution performance counter, keeping
+  `hires.s:dosomething` companion/action frames at fixed PAL 50 Hz even when
+  presentation is 120 Hz or higher.
   Spawned/removed source records remain discrete.
   Raw mouse-X display yaw is applied at host cadence and reconciled after the
   source `c/system.c:Sys_ReadMouse`/`modules/player.s:plr_MouseControl` tick,

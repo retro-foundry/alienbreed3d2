@@ -183,12 +183,18 @@ static int scene_frame_commands_match(const SceneCommand *previous,
         }
         return 1;
     case SCENE_COMMAND_SPRITE_INSTANCE:
+        /*
+         * ObjT/ShotT slots, not their selected drawable resource, are the
+         * source TLAS identities.  modules/ai.s:ai_DoWalkAnim rewrites the
+         * display graphics/frame fields as an alien changes facing or walks;
+         * that must retain the preceding slot transform so presentation can
+         * blend it, while the cloned current command remains authoritative
+         * for the newly selected art.
+         */
         return previous->data.sprite_instance.sprite.source_record_id ==
                    current->data.sprite_instance.sprite.source_record_id &&
                previous->data.sprite_instance.sprite.presentation ==
-                   current->data.sprite_instance.sprite.presentation &&
-               previous->data.sprite_instance.source_mesh_id ==
-                   current->data.sprite_instance.source_mesh_id;
+                   current->data.sprite_instance.sprite.presentation;
     default:
         return 0;
     }

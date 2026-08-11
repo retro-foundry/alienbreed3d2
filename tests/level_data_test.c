@@ -1114,6 +1114,32 @@ int main(int argc, char **argv)
             scene_frame_destroy(&previous);
             return 1;
         }
+        /*
+         * modules/ai.s:ai_DoWalkAnim changes an alien's selected ObjT
+         * graphics resource as its animation/facing changes. Its source slot
+         * remains the entity identity: retain the current resource while
+         * blending the slot transform, rather than snapping an animated enemy
+         * to every new source-art endpoint.
+         */
+        current_sprite.data.sprite_instance.source_mesh_id = 99u;
+        current_sprite.data.sprite_instance.sprite.source_asset_id = 99u;
+        current_sprite.data.sprite_instance.sprite.frame_index = 3u;
+        current_sprite.data.sprite_instance.sprite.position = (SceneWorldPoint){40, 60, 80};
+        current.commands[2u] = current_sprite;
+        if (!scene_frame_interpolate(&presentation, &previous, &current, 0.5f) ||
+            presentation.commands[2u].data.sprite_instance.source_mesh_id != 99u ||
+            presentation.commands[2u].data.sprite_instance.sprite.source_asset_id != 99u ||
+            presentation.commands[2u].data.sprite_instance.sprite.frame_index != 3u ||
+            presentation.commands[2u].data.sprite_instance.sprite.position.x != 20 ||
+            presentation.commands[2u].data.sprite_instance.sprite.position.y != 30 ||
+            presentation.commands[2u].data.sprite_instance.sprite.position.z != 40) {
+            fprintf(stderr,
+                    "animated source sprite did not retain its slot interpolation identity\n");
+            scene_frame_destroy(&presentation);
+            scene_frame_destroy(&current);
+            scene_frame_destroy(&previous);
+            return 1;
+        }
         scene_frame_destroy(&presentation);
         scene_frame_destroy(&current);
         scene_frame_destroy(&previous);
