@@ -3,18 +3,23 @@
 
 #include <stddef.h>
 
+#include "game_audio.h"
+#include "game_inventory.h"
 #include "game_link.h"
+#include "game_random.h"
 #include "level_runtime.h"
 #include "object_runtime.h"
 #include "player_runtime.h"
 
 /*
  * hires.s:Plr1_Use source-owned ObjT/object-point publication needed by the
- * object, projectile, and sprite paths. Damage response and sprite selection
- * stay with their original owning routines.
+ * object, projectile, and sprite paths, including the damage/impact block at
+ * the head of Plr1_Use.
  */
 int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime *level,
                                      const GameLink *game_link, PlayerRuntime *player,
+                                     GameInventory *inventory, GameRandom *random,
+                                     GameAudioEvents *audio_events,
                                      char *error, size_t error_size);
 
 /* hires.s single-player game loop: FREE_ENT Plr2_ObjectPtr then clears sight. */

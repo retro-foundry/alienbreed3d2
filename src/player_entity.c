@@ -11,10 +11,14 @@ enum {
     PLAYER_ENTITY_ZONE_ID_OFFSET = 12u,
     PLAYER_ENTITY_TYPE_ID_OFFSET = 16u,
     PLAYER_ENTITY_HIT_POINTS_OFFSET = 18u,
+    PLAYER_ENTITY_DAMAGE_TAKEN_OFFSET = 19u,
     PLAYER_ENTITY_SEES_PLAYER_OFFSET = 17u,
     PLAYER_ENTITY_ENTITY_ZONE_ID_OFFSET = 26u,
     PLAYER_ENTITY_CURRENT_ANGLE_OFFSET = 30u,
     PLAYER_ENTITY_TIMER1_OFFSET = 34u,
+    PLAYER_ENTITY_IMPACT_X_OFFSET = 42u,
+    PLAYER_ENTITY_IMPACT_Z_OFFSET = 44u,
+    PLAYER_ENTITY_IMPACT_Y_OFFSET = 46u,
     PLAYER_ENTITY_OBJECT_KIND_OFFSET = 54u,
     PLAYER_ENTITY_WHICH_ANIMATION_OFFSET = 55u,
     PLAYER_ENTITY_IN_UPPER_ZONE_OFFSET = 63u,
@@ -37,6 +41,11 @@ static void player_entity_set_error(char *error, size_t error_size, const char *
 static uint16_t player_entity_read_be16(const uint8_t *source)
 {
     return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
+}
+
+static int16_t player_entity_read_be16s(const uint8_t *source)
+{
+    return (int16_t)player_entity_read_be16(source);
 }
 
 static void player_entity_write_be16(uint8_t *target, uint16_t value)
@@ -69,6 +78,52 @@ static int32_t player_entity_asr32(int32_t value, unsigned int shift)
     return -(((-(int64_t)value) + ((INT64_C(1) << shift) - 1)) >> shift);
 }
 
+static int32_t player_entity_add_high_word(int32_t value, int16_t addend)
+{
+    uint32_t bits = (uint32_t)value;
+    uint16_t high = (uint16_t)((bits >> 16u) + (uint16_t)addend);
+
+    return (int32_t)(((uint32_t)high << 16u) | (bits & UINT32_C(0xffff)));
+}
+
+static void player_entity_apply_damage(uint8_t *slot, const LevelZone *zone,
+                                       PlayerRuntime *player, GameInventory *inventory,
+                                       GameRandom *random, GameAudioEvents *audio_events)
+{
+    uint16_t damage = slot[PLAYER_ENTITY_DAMAGE_TAKEN_OFFSET];
+
+    if (damage != 0u) {
+        int16_t impact_x = player_entity_read_be16s(slot + PLAYER_ENTITY_IMPACT_X_OFFSET);
+        int16_t impact_z = player_entity_read_be16s(slot + PLAYER_ENTITY_IMPACT_Z_OFFSET);
+        int16_t impact_y = player_entity_read_be16s(slot + PLAYER_ENTITY_IMPACT_Y_OFFSET);
+        int16_t twist_damage = (impact_x != 0 || impact_z != 0) ? (int16_t)damage : 0;
+        int32_t random_twist = (int32_t)(int16_t)game_random_next(random) * twist_damage;
+
+        /*
+         * hires.s:Plr1_Use uses ADD.W at the address of each 32-bit X/Z
+         * velocity. On 68000 big-endian storage this changes the high word,
+         * while ImpactY is sign-extended, shifted by eight, and added as a
+         * complete longword.
+         */
+        player->snap_x_speed = player_entity_add_high_word(player->snap_x_speed, impact_x);
+        player->snap_z_speed = player_entity_add_high_word(player->snap_z_speed, impact_z);
+        player->snap_y_velocity = (int32_t)((uint32_t)player->snap_y_velocity +
+            ((uint32_t)(int32_t)impact_y << 8u));
+        random_twist = player_entity_asr32(random_twist, 8u);
+        random_twist = player_entity_asr32(random_twist, 4u);
+        player->snap_yaw_speed = (int16_t)((uint16_t)player->snap_yaw_speed +
+                                           (uint16_t)random_twist);
+        inventory->health = (uint16_t)(inventory->health - damage);
+        player->health = inventory->health;
+        player_entity_write_be16(slot + PLAYER_ENTITY_IMPACT_X_OFFSET, 0u);
+        player_entity_write_be16(slot + PLAYER_ENTITY_IMPACT_Z_OFFSET, 0u);
+        player_entity_write_be16(slot + PLAYER_ENTITY_IMPACT_Y_OFFSET, 0u);
+        game_audio_events_emit(audio_events, 19, 60, 0, 0, UINT16_C(0xfffa),
+                               GAME_AUDIO_RESTART_SOURCE, 0u, zone->echo);
+    }
+    slot[PLAYER_ENTITY_DAMAGE_TAKEN_OFFSET] = 0u;
+}
+
 int player_entity_disable_second_for_single_player(ObjectRuntime *objects,
                                                    char *error, size_t error_size)
 {
@@ -88,6 +143,8 @@ int player_entity_disable_second_for_single_player(ObjectRuntime *objects,
 
 int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime *level,
                                      const GameLink *game_link, PlayerRuntime *player,
+                                     GameInventory *inventory, GameRandom *random,
+                                     GameAudioEvents *audio_events,
                                      char *error, size_t error_size)
 {
     uint8_t *slot;
@@ -102,7 +159,8 @@ int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime 
     int32_t weapon_height;
     int32_t weapon_bobble;
 
-    if (!objects || !level || !game_link || !player || player->zone_index >= level->zone_count ||
+    if (!objects || !level || !game_link || !player || !inventory || !random || !audio_events ||
+        player->zone_index >= level->zone_count ||
         !object_runtime_get_player1_slot_bytes(objects, &slot)) {
         player_entity_set_error(error, error_size,
                                 "Plr1_Use received an invalid player entity or source zone");
@@ -115,6 +173,9 @@ int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime 
                                 "Plr1_Use player entity references an invalid source point or zone");
         return 0;
     }
+
+    /* hires.s:Plr1_Use consumes the prior object tick's player impact first. */
+    player_entity_apply_damage(slot, &zone, player, inventory, random, audio_events);
 
     /* hires.s:Plr1_Use publishes current player position to its ObjT point. */
     player_entity_write_be32(point + 0u, (uint32_t)player->x);

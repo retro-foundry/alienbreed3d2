@@ -433,6 +433,8 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
             &game->lighting_runtime, &game->dynamic_level.runtime, error, error_size) ||
         !player_entity_sync_single_player(&game->object_runtime, &game->dynamic_level.runtime,
                                           &game->game_link_catalog, &game->player,
+                                          &game->session.player1_inventory, &game->random,
+                                          &game->audio_events,
                                           error, error_size) ||
         !player_entity_disable_second_for_single_player(&game->object_runtime,
                                                         error, error_size)) {

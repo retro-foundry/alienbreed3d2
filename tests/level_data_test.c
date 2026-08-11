@@ -2593,6 +2593,8 @@ int main(int argc, char **argv)
             if (!player_entity_sync_single_player(&game.object_runtime,
                                                   &game.dynamic_level.runtime,
                                                   &game.game_link_catalog, &game.player,
+                                                  &game.session.player1_inventory, &game.random,
+                                                  &game.audio_events,
                                                   error, sizeof(error)) ||
                 !object_runtime_get_player1_slot_bytes(&game.object_runtime, &runtime_slot) ||
                 runtime_slot[16u] != 4u || runtime_slot[18u] != 10u ||
@@ -5045,6 +5047,62 @@ int main(int argc, char **argv)
             player_teleport_motion.new_x != 1010 || player_teleport_motion.new_z != 1020 ||
             player_teleport_audio.count != 0u) {
             fprintf(stderr, "Plr1_Control rejected teleport handoff is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        /* hires.s:Plr1_Use damage, impact, random twist, and hit-noise block. */
+        uint8_t damage_slots[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t damage_points[3u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        ObjectRuntime damage_objects = {0};
+        PlayerRuntime damage_player = game.player;
+        GameInventory damage_inventory = game.session.player1_inventory;
+        GameRandom damage_random = {234u};
+        GameRandom expected_damage_random = damage_random;
+        GameAudioEvents damage_audio;
+        int32_t expected_twist;
+
+        damage_objects.slot_bytes = damage_slots;
+        damage_objects.slot_count = 3u;
+        damage_objects.active_slot_count = 3u;
+        damage_objects.player1_slot = 0u;
+        damage_objects.point_bytes = damage_points;
+        damage_objects.point_count = 3u;
+        write_be16(damage_slots + 0u, 0u);
+        write_be16(damage_slots + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 2u);
+        damage_slots[19u] = 5u;
+        write_be16(damage_slots + 42u, 3u);
+        write_be16(damage_slots + 44u, (uint16_t)-4);
+        write_be16(damage_slots + 46u, (uint16_t)-2);
+        damage_player.snap_x_speed = (int32_t)UINT32_C(0x12345678);
+        damage_player.snap_z_speed = (int32_t)UINT32_C(0xfffe1111);
+        damage_player.snap_y_velocity = 100;
+        damage_player.snap_yaw_speed = 7;
+        damage_inventory.health = 100u;
+        damage_player.health = damage_inventory.health;
+        expected_twist = (int32_t)(int16_t)game_random_next(&expected_damage_random) * 5;
+        expected_twist = source_asr32_count(expected_twist, 8u);
+        expected_twist = source_asr32_count(expected_twist, 4u);
+        game_audio_events_init(&damage_audio);
+        if (!player_entity_sync_single_player(
+                &damage_objects, &game.dynamic_level.runtime, &game.game_link_catalog,
+                &damage_player, &damage_inventory, &damage_random, &damage_audio,
+                error, sizeof(error)) ||
+            (uint32_t)damage_player.snap_x_speed != UINT32_C(0x12375678) ||
+            (uint32_t)damage_player.snap_z_speed != UINT32_C(0xfffa1111) ||
+            damage_player.snap_y_velocity != -412 ||
+            damage_player.snap_yaw_speed != (int16_t)(7 + expected_twist) ||
+            damage_inventory.health != 95u || damage_player.health != 95u ||
+            damage_random.state != expected_damage_random.state ||
+            damage_slots[19u] != 0u || read_be16(damage_slots + 42u) != 0u ||
+            read_be16(damage_slots + 44u) != 0u || read_be16(damage_slots + 46u) != 0u ||
+            damage_slots[18u] != 10u || damage_audio.count != 1u ||
+            damage_audio.events[0u].sample_index != 19u ||
+            damage_audio.events[0u].volume != 60u ||
+            damage_audio.events[0u].source_id != UINT16_C(0xfffa)) {
+            fprintf(stderr, "Plr1_Use player damage/impact response is inconsistent: %s\n",
                     error);
             game_bootstrap_destroy(&game);
             return 1;
