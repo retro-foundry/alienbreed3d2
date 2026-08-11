@@ -357,8 +357,12 @@ static int object_projectiles_check_direct_target_collision(
             --highest_bit;
         }
         range = (int16_t)(UINT16_C(1) << (highest_bit >> 1u));
-        /* The source's initial estimate and three repeat passes are all word DIVS. */
-        for (uint32_t approximation_pass = 0u; approximation_pass < 4u;
+        /*
+         * newanims.s:.foundhigh, .stillnot0, and .stillnot02 each perform
+         * one word DIVS refinement before .stillnot03 falls through.  A
+         * fourth PC refinement changes the source collision threshold.
+         */
+        for (uint32_t approximation_pass = 0u; approximation_pass < 3u;
              ++approximation_pass) {
             int32_t error_term = object_projectiles_sub32(
                 object_projectiles_muls16(range, range), length_squared);

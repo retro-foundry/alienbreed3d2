@@ -6635,6 +6635,48 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            /*
+             * newanims.s:ItsABullet refines its segment range exactly three
+             * times. For this 2,011-unit segment, that yields 2,012: the
+             * target at source range + 80 must be hit, while a fourth
+             * refinement incorrectly produces 2,011 and rejects it.
+             */
+            memset(flight_slot_bytes, 0, sizeof(flight_slot_bytes));
+            memset(flight_point_bytes, 0, sizeof(flight_point_bytes));
+            write_be16(flight_slot_bytes + 0u, 0u);
+            write_be16(flight_slot_bytes + 4u, (uint16_t)expected_target_height);
+            write_be16(flight_slot_bytes + 12u, 0u);
+            flight_slot_bytes[16u] = 2u;
+            flight_slot_bytes[28u] = 7u;
+            flight_slot_bytes[31u] = (uint8_t)projectile_bullet_index;
+            write_be16(flight_slot_bytes + 58u, UINT16_MAX);
+            write_be32(flight_slot_bytes + 18u, UINT32_C(2011) << 16u);
+            write_be32(flight_slot_bytes + 44u, (uint32_t)projectile_start_y);
+            write_be32(flight_slot_bytes + 36u, 1u);
+            write_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u, 1u);
+            write_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 4u,
+                       (uint16_t)expected_target_height);
+            write_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 0u);
+            flight_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 1u;
+            write_be32(flight_point_bytes + OBJECT_RUNTIME_POINT_BYTE_COUNT + 0u,
+                       UINT32_C(2092) << 16u);
+            write_be16(flight_slot_bytes + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 0u,
+                       UINT16_MAX);
+            if (!object_projectiles_update_flight_animation_slot(
+                    &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
+                    &game.game_link_catalog, 1u,
+                    error, sizeof(error)) || flight_slot_bytes[30u] != 1u ||
+                read_be32(flight_point_bytes + 0u) != (UINT32_C(2011) << 16u) ||
+                flight_slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] != 7u ||
+                read_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 42u) != 2011u ||
+                read_be16(flight_slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 44u) != 0u) {
+                fprintf(stderr,
+                        "ItsABullet source direct-target range refinement is inconsistent: %s\n",
+                        error);
+                level_dynamic_state_destroy(&flight_dynamic);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
             level_dynamic_state_destroy(&flight_dynamic);
         }
         {
