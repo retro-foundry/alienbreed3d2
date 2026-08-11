@@ -104,6 +104,15 @@ set(AB3D2_CORE_SOURCES
 add_library(ab3d2_core STATIC ${AB3D2_CORE_SOURCES})
 target_include_directories(ab3d2_core PUBLIC src)
 
+# Development-only exporter for the decoded source samples and packed tracker
+# module.  The committed WAVs are generated from this instead of treating the
+# original CSFX/LHA files as host PCM.
+if(NOT EMSCRIPTEN)
+  add_executable(ab3d2_audio_export tools/audio_export.c)
+  target_link_libraries(ab3d2_audio_export PRIVATE ab3d2_core)
+  target_include_directories(ab3d2_audio_export PRIVATE src)
+endif()
+
 add_executable(ab3d2
   src/main.c
   src/renderer.c
@@ -159,11 +168,20 @@ endif()
 if(MSVC)
   target_compile_options(ab3d2_core PRIVATE /W4)
   target_compile_options(ab3d2 PRIVATE /W4)
+  if(NOT EMSCRIPTEN)
+    target_compile_options(ab3d2_audio_export PRIVATE /W4)
+  endif()
   target_compile_definitions(ab3d2_core PRIVATE _CRT_SECURE_NO_WARNINGS)
   target_compile_definitions(ab3d2 PRIVATE _CRT_SECURE_NO_WARNINGS)
+  if(NOT EMSCRIPTEN)
+    target_compile_definitions(ab3d2_audio_export PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
 else()
   target_compile_options(ab3d2_core PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(ab3d2 PRIVATE -Wall -Wextra -Wpedantic)
+  if(NOT EMSCRIPTEN)
+    target_compile_options(ab3d2_audio_export PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
 endif()
 
 # The decompressor is reused as a self-contained library rather than the
