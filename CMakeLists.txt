@@ -49,6 +49,7 @@ set(AB3D2_CORE_SOURCES
   src/alien_spawn.c
   src/alien_torch.c
   src/asset_io.c
+  src/game_audio.c
   src/game_bootstrap.c
   src/game_controls.c
   src/game_input.c

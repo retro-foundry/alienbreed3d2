@@ -8,6 +8,7 @@
 #include "alien_dispatch.h"
 #include "asset_io.h"
 #include "game_controls.h"
+#include "game_audio.h"
 #include "game_input.h"
 #include "game_link.h"
 #include "game_math.h"
@@ -44,6 +45,8 @@ typedef struct {
     AssetBlob glyph_spacing;
     GameSharedResources shared_resources;
     GameControls controls;
+    /* Source MakeSomeNoise requests for the current completed VBlank. */
+    GameAudioEvents audio_events;
     GameInput input;
     GamePreferences preferences;
     /* macros.i:STATS_KILL's source-owned progression subset. */

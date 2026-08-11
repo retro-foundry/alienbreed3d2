@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "game_random.h"
+#include "game_audio.h"
 #include "game_link.h"
 #include "object_movement.h"
 #include "object_motion.h"
@@ -72,6 +73,15 @@ int player_shoot_update_single_player_with_motion(
     const GameLink *game_link, const GamePreferences *preferences,
     const GameMath *math, GameRandom *random, uint16_t frame_ticks,
     char *error, size_t error_size);
+
+/* Same source Plr1_Shot pass, publishing its MakeSomeNoise calls when requested. */
+int player_shoot_update_single_player_with_motion_and_audio(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const ObjectObservation *observation, PlayerRuntime *player,
+    ObjectMotionRuntime *motion_runtime, GameInventory *inventory,
+    const GameLink *game_link, const GamePreferences *preferences,
+    const GameMath *math, GameRandom *random, uint16_t frame_ticks,
+    GameAudioEvents *audio_events, char *error, size_t error_size);
 
 /*
  * newplayershoot.s:plr1_HitscanSucceded.  Creates the source impact ObjT

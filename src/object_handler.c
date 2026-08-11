@@ -197,6 +197,7 @@ int object_handler_update_single_player(
     projectile_source_runtime.visibility_runtime = &alien_runtime->visibility;
     projectile_source_runtime.clips = alien_context->clips;
     projectile_source_runtime.random = alien_context->random;
+    projectile_source_runtime.audio_events = alien_context->audio_events;
     for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
         uint8_t *slot;
         GameObjectDefinition definition;
@@ -299,10 +300,10 @@ int object_handler_update_single_player(
                 (uint16_t)object_handler_read_be32(slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD);
         }
         if (definition.behaviour == OBJECT_BEHAVIOUR_COLLECTABLE) {
-            if (!object_collectables_update_slot_single_player(
+            if (!object_collectables_update_slot_single_player_with_audio(
                     objects, slot_index, level, game_link, player, inventory, limits,
                     alien_context->messages, alien_context->preferences->show_messages,
-                    alien_context->message_time_milliseconds,
+                    alien_context->message_time_milliseconds, alien_context->audio_events,
                     &newly_collected, error, error_size)) {
                 return 0;
             }

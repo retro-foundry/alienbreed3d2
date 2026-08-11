@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "game_link.h"
+#include "game_audio.h"
 #include "game_random.h"
 #include "level_dynamic_state.h"
 #include "lighting_runtime.h"
@@ -20,6 +21,7 @@ typedef struct {
     ObjectVisibilityRuntime *visibility_runtime;
     const AssetBlob *clips;
     GameRandom *random;
+    GameAudioEvents *audio_events;
 } ObjectProjectileSourceRuntime;
 
 /*

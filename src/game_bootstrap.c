@@ -312,6 +312,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
         goto fail;
     }
     game_controls_default(&game->controls);
+    game_audio_events_init(&game->audio_events);
     game_input_init(&game->input);
     game_preferences_default(&game->preferences);
     game_progression_init(&game->progression);
@@ -365,12 +366,13 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
         return 1;
     }
     game->message_time_milliseconds = message_time_milliseconds;
+    game_audio_events_begin(&game->audio_events);
     /* hires.s:VBlankInterrupt decrements Anim_Timer_w before frame work. */
     lighting_runtime_vblank(&game->lighting_runtime);
     /* hires.s:dosomething calls DOALLANIMS before its control/object work. */
-    if (!object_animation_update_single_player(
+    if (!object_animation_update_single_player_with_audio(
             &game->object_animation_runtime, &game->object_runtime,
-            &game->game_link_catalog, &game->random, error, error_size) ||
+            &game->game_link_catalog, &game->random, &game->audio_events, error, error_size) ||
         !player_runtime_update_discrete_controls(&game->player, &game->input,
                                                  &game->controls, &game->dynamic_level.runtime,
                                                  &game->session.player1_inventory,
@@ -406,24 +408,26 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     alien_context.dispatch_workspace = &game->alien_dispatch_workspace;
     alien_context.messages = &game->message_runtime;
     alien_context.preferences = &game->preferences;
+    alien_context.audio_events = &game->audio_events;
     alien_context.message_time_milliseconds = game->message_time_milliseconds;
-    if (!player_shoot_update_single_player_with_motion(
+    if (!player_shoot_update_single_player_with_motion_and_audio(
             &game->object_runtime, &game->dynamic_level, &game->object_observation,
             &game->player, &game->alien_runtime.motion, &game->session.player1_inventory,
             &game->game_link_catalog,
-            &game->preferences, &game->math, &game->random, 1u, error, error_size) ||
+            &game->preferences, &game->math, &game->random, 1u, &game->audio_events,
+            error, error_size) ||
         !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level, &game->mechanism_runtime,
             &game->alien_runtime,
             &game->game_link_catalog, &alien_context,
             &game->player, &game->session.player1_inventory, &game->inventory_limits,
             1u, NULL, error, error_size) ||
-        !mechanism_runtime_update_doors_single_player(
+        !mechanism_runtime_update_doors_single_player_with_audio(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
-            &game->player, 1u, error, error_size) ||
-        !mechanism_runtime_update_lifts_single_player(
+            &game->player, 1u, &game->audio_events, error, error_size) ||
+        !mechanism_runtime_update_lifts_single_player_with_audio(
             &game->mechanism_runtime, &game->dynamic_level, &game->level_mechanisms,
-            &game->player, 1u, error, error_size)) {
+            &game->player, 1u, &game->audio_events, error, error_size)) {
         return 0;
     }
     /* newanims.s:objmoveanim advances brightanim after ObjectHandler/doors/lifts. */

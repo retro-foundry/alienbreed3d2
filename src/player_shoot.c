@@ -256,12 +256,12 @@ int player_shoot_hitscan_roll_is_hit(const ObjectRuntime *objects,
     return 1;
 }
 
-int player_shoot_update_single_player_with_motion(
+int player_shoot_update_single_player_with_motion_and_audio(
     ObjectRuntime *objects, LevelDynamicState *dynamic_level,
     const ObjectObservation *observation, PlayerRuntime *player,
     ObjectMotionRuntime *motion_runtime, GameInventory *inventory,
     const GameLink *game_link, const GamePreferences *preferences,
-    const GameMath *math, GameRandom *random, uint16_t frame_ticks,
+    const GameMath *math, GameRandom *random, uint16_t frame_ticks, GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
     GameShootDefinition shoot;
@@ -308,8 +308,12 @@ int player_shoot_update_single_player_with_motion(
     }
     ammunition = inventory->ammunition[shoot.bullet_type];
     if ((int16_t)ammunition < (int16_t)shoot.bullet_count) {
-        /* newplayershoot.s:Plr1_Shot publishes this before its unported sound. */
+        /* newplayershoot.s:Plr1_Shot no-ammunition MakeSomeNoise (slot 12). */
         player->noise_volume = 100;
+        game_audio_events_emit(audio_events, 12, 100,
+                               player_runtime_position_to_world(player->x),
+                               player_runtime_position_to_world(player->z),
+                               UINT16_C(0xfffe), 0u, 0u);
         return 1;
     }
     if (objects->player1_slot > UINT32_MAX - 2u ||
@@ -323,8 +327,12 @@ int player_shoot_update_single_player_with_motion(
     player->time_to_shoot = (int16_t)shoot.delay;
     inventory->ammunition[shoot.bullet_type] =
         (uint16_t)(ammunition - shoot.bullet_count);
-    /* newplayershoot.s:.okcanshoot publishes this before its unported sound. */
+    /* newplayershoot.s:.okcanshoot emits ShootT_SFX_w at the player point. */
     player->noise_volume = 100;
+    game_audio_events_emit(audio_events, (int16_t)shoot.sound_effect, 300,
+                           player_runtime_position_to_world(player->x),
+                           player_runtime_position_to_world(player->z),
+                           UINT16_C(0xfffe), 2u, 0u);
 
     vertical_speed = target.found != 0u ? target.vertical_speed :
         player_shoot_manual_vertical_speed(player, &bullet);
@@ -373,6 +381,19 @@ int player_shoot_update_single_player_with_motion(
         }
     }
     return 1;
+}
+
+int player_shoot_update_single_player_with_motion(
+    ObjectRuntime *objects, LevelDynamicState *dynamic_level,
+    const ObjectObservation *observation, PlayerRuntime *player,
+    ObjectMotionRuntime *motion_runtime, GameInventory *inventory,
+    const GameLink *game_link, const GamePreferences *preferences,
+    const GameMath *math, GameRandom *random, uint16_t frame_ticks,
+    char *error, size_t error_size)
+{
+    return player_shoot_update_single_player_with_motion_and_audio(
+        objects, dynamic_level, observation, player, motion_runtime, inventory, game_link,
+        preferences, math, random, frame_ticks, NULL, error, error_size);
 }
 
 int player_shoot_update_single_player(ObjectRuntime *objects,

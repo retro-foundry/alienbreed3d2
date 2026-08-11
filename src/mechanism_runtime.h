@@ -6,6 +6,7 @@
 
 #include "level_dynamic_state.h"
 #include "level_mechanisms.h"
+#include "game_audio.h"
 #include "player_runtime.h"
 
 /* newanims.s:DoorRoutine's persistent non-level-data globals. */
@@ -31,6 +32,13 @@ int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
                                                  uint16_t frame_ticks,
                                                  char *error, size_t error_size);
 
+/* Same DoorRoutine update with its source one-based liftable SFX requests. */
+int mechanism_runtime_update_doors_single_player_with_audio(
+    MechanismRuntime *runtime, LevelDynamicState *dynamic_level,
+    const LevelMechanisms *mechanisms, const PlayerRuntime *player,
+    uint16_t frame_ticks, GameAudioEvents *audio_events,
+    char *error, size_t error_size);
+
 /* Single-player newanims.s:LiftRoutine, including its trailing DoWaterAnims pass. */
 int mechanism_runtime_update_lifts_single_player(MechanismRuntime *runtime,
                                                  LevelDynamicState *dynamic_level,
@@ -38,6 +46,13 @@ int mechanism_runtime_update_lifts_single_player(MechanismRuntime *runtime,
                                                  PlayerRuntime *player,
                                                  uint16_t frame_ticks,
                                                  char *error, size_t error_size);
+
+/* Same LiftRoutine update with its source one-based liftable SFX requests. */
+int mechanism_runtime_update_lifts_single_player_with_audio(
+    MechanismRuntime *runtime, LevelDynamicState *dynamic_level,
+    const LevelMechanisms *mechanisms, PlayerRuntime *player,
+    uint16_t frame_ticks, GameAudioEvents *audio_events,
+    char *error, size_t error_size);
 
 /* Standalone source DoWaterAnims pass used after LiftRoutine's 999 terminator. */
 int mechanism_runtime_update_water_animations(LevelDynamicState *dynamic_level,

@@ -31,6 +31,12 @@ static uint16_t object_animation_read_be16(const uint8_t *source)
     return (uint16_t)(((uint16_t)source[0] << 8) | source[1]);
 }
 
+static int32_t object_animation_read_be32s(const uint8_t *source)
+{
+    return (int32_t)(((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
+                     ((uint32_t)source[2] << 8) | source[3]);
+}
+
 static void object_animation_write_be16(uint8_t *target, uint16_t value)
 {
     target[0] = (uint8_t)(value >> 8);
@@ -135,11 +141,12 @@ uint8_t *object_animation_runtime_workspace(ObjectAnimationRuntime *runtime,
         (size_t)extended_slot_index * OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT;
 }
 
-int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
-                                          ObjectRuntime *objects,
-                                          const GameLink *game_link,
-                                          GameRandom *random,
-                                          char *error, size_t error_size)
+int object_animation_update_single_player_with_audio(ObjectAnimationRuntime *runtime,
+                                                     ObjectRuntime *objects,
+                                                     const GameLink *game_link,
+                                                     GameRandom *random,
+                                                     GameAudioEvents *audio_events,
+                                                     char *error, size_t error_size)
 {
     if (!runtime || !objects || !game_link || !random || !objects->slot_bytes ||
         objects->active_slot_count > objects->slot_count) {
@@ -211,7 +218,22 @@ int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
             return 0;
         }
 
-        /* hires.s emits audio for bytes[5]; no native audio consumer exists yet. */
+        /* hires.s:DOALLANIMS byte five is a one-based SFX index. */
+        if (current_frame.bytes[5u] != 0u) {
+            uint8_t *point;
+            uint16_t point_index = object_animation_read_be16(
+                slot + OBJECT_ANIMATION_SLOT_POINT_INDEX);
+
+            if (!object_runtime_get_point_bytes(objects, point_index, &point)) {
+                object_animation_set_error(error, error_size,
+                                           "DOALLANIMS sound frame has an invalid source point");
+                return 0;
+            }
+            game_audio_events_emit(audio_events, (int16_t)current_frame.bytes[5u] - 1,
+                                   80, (int16_t)(object_animation_read_be32s(point) >> 16),
+                                   (int16_t)(object_animation_read_be32s(point + 4u) >> 16),
+                                   point_index, 0u, 0u);
+        }
         if (current_frame.bytes[6u] != 0u) {
             workspace[0u] = (uint8_t)(workspace[0u] + 1u);
             workspace[1u] = (uint8_t)timer2;
@@ -253,4 +275,14 @@ int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
         object_animation_write_be16(slot + OBJECT_ANIMATION_SLOT_TIMER2, next_timer2);
     }
     return 1;
+}
+
+int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
+                                          ObjectRuntime *objects,
+                                          const GameLink *game_link,
+                                          GameRandom *random,
+                                          char *error, size_t error_size)
+{
+    return object_animation_update_single_player_with_audio(runtime, objects, game_link, random,
+                                                            NULL, error, error_size);
 }

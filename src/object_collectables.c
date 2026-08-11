@@ -244,6 +244,7 @@ static int object_collectables_update_range_single_player(
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
     uint8_t messages_enabled, uint64_t message_time_milliseconds,
+    GameAudioEvents *audio_events,
     uint32_t first_slot, uint32_t slot_limit,
     uint32_t *out_collected_count,
     char *error, size_t error_size)
@@ -346,6 +347,11 @@ static int object_collectables_update_range_single_player(
             return 0;
         }
         game_inventory_apply_grant(inventory, &grant, limits);
+        /* newaliencontrol.s:Plr1_CollectItem ODefT_SFX_w (negative is silent). */
+        game_audio_events_emit(audio_events, definition.sound_effect, 80,
+                               (int16_t)(object_collectables_read_be32(point_bytes) >> 16),
+                               (int16_t)(object_collectables_read_be32(point_bytes + 4u) >> 16),
+                               point_index, 0u, 0u);
         /* Plr1_CollectItem / Collectable remove the source slot on success. */
         object_collectables_write_be16(slot + OBJECT_SLOT_ZONE_ID, UINT16_MAX);
         slot[OBJECT_SLOT_WORRY] = 0u;
@@ -371,7 +377,7 @@ int object_collectables_update_single_player(
 {
     return object_collectables_update_range_single_player(
         objects, level, game_link, player, inventory, limits, messages, messages_enabled,
-        message_time_milliseconds, 0u,
+        message_time_milliseconds, NULL, 0u,
         objects ? objects->active_slot_count : 0u, out_collected_count, error, error_size);
 }
 
@@ -383,6 +389,19 @@ int object_collectables_update_slot_single_player(
     uint32_t *out_collected_count,
     char *error, size_t error_size)
 {
+    return object_collectables_update_slot_single_player_with_audio(
+        objects, slot_index, level, game_link, player, inventory, limits, messages,
+        messages_enabled, message_time_milliseconds, NULL, out_collected_count, error, error_size);
+}
+
+int object_collectables_update_slot_single_player_with_audio(
+    ObjectRuntime *objects, uint32_t slot_index, const LevelRuntime *level,
+    const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
+    const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
+    uint8_t messages_enabled, uint64_t message_time_milliseconds,
+    GameAudioEvents *audio_events, uint32_t *out_collected_count,
+    char *error, size_t error_size)
+{
     if (!objects || slot_index >= objects->active_slot_count) {
         object_collectables_set_error(error, error_size,
                                      "source collectable slot is outside ObjectHandler's list");
@@ -390,7 +409,7 @@ int object_collectables_update_slot_single_player(
     }
     return object_collectables_update_range_single_player(
         objects, level, game_link, player, inventory, limits, messages, messages_enabled,
-        message_time_milliseconds,
+        message_time_milliseconds, audio_events,
         slot_index, slot_index + 1u,
         out_collected_count, error, error_size);
 }

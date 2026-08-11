@@ -7,6 +7,7 @@
 #include "alien_dispatch.h"
 #include "alien_runtime.h"
 #include "game_math.h"
+#include "game_audio.h"
 #include "game_preferences.h"
 #include "game_progression.h"
 #include "game_random.h"
@@ -37,6 +38,7 @@ typedef struct {
     AlienDispatchWorkspace *dispatch_workspace;
     MessageRuntime *messages;
     const GamePreferences *preferences;
+    GameAudioEvents *audio_events;
     /* c/message.c Sys_FrameTimeECV_q[0], represented as native monotonic milliseconds. */
     uint64_t message_time_milliseconds;
 } ObjectHandlerAlienContext;

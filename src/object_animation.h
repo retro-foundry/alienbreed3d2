@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "game_link.h"
+#include "game_audio.h"
 #include "game_random.h"
 #include "object_runtime.h"
 
@@ -53,5 +54,13 @@ int object_animation_update_single_player(ObjectAnimationRuntime *runtime,
                                           const GameLink *game_link,
                                           GameRandom *random,
                                           char *error, size_t error_size);
+
+/* Same DOALLANIMS update with frame-byte-five MakeSomeNoise events retained. */
+int object_animation_update_single_player_with_audio(ObjectAnimationRuntime *runtime,
+                                                     ObjectRuntime *objects,
+                                                     const GameLink *game_link,
+                                                     GameRandom *random,
+                                                     GameAudioEvents *audio_events,
+                                                     char *error, size_t error_size);
 
 #endif
