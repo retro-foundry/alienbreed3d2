@@ -91,9 +91,10 @@ gameplay-first scope.
   door, lift, and water updates. Doors and lifts are a deliberate native-renderer
   simplification: every `Draw_Wall` record on a controlled `EdgeT` follows its
   canonical source mechanism record, and a lift's wall sides move rigidly from
-  the live `Draw_Flats` plane. This produces a closed moving solid with fixed
-  authored texture mapping, while `DoorRoutine`/`LiftRoutine` state, collision,
-  and timing continue to update;
+  the live `Draw_Flats` plane. This produces a closed moving solid while still
+  applying the live controlled `Draw_Wall` material, lighting, V-origin, and
+  texture-window updates written by `DoorRoutine`/`LiftRoutine`, so the source
+  panel motion remains visible;
 - defines a GPU-neutral frame command interface for cameras, lighting,
   environment, static/dynamic mesh instances, and source-object instances.
   Every live source object now emits an

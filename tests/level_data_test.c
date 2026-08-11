@@ -3519,9 +3519,9 @@ int main(int argc, char **argv)
             }
         }
         /*
-         * The source door/lift routines change +12 for their software
-         * renderer's texture scroll.  The GPU scene must retain the authored
-         * mapping on its single moving solid instead.
+         * newanims.s:DoorRoutine/LiftRoutine write +12 in each controlled
+         * Draw_Wall.  The native closed mesh must consume that live source
+         * V origin rather than retaining an initial UV cache.
          */
         for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
              ++static_wall_index) {
@@ -3533,7 +3533,7 @@ int main(int argc, char **argv)
                 continue;
             }
             if (!level_dynamic_state_get_graphics_range(
-                    &game.dynamic_level, scene_wall->source_record_offset + 12u, 2u,
+                    &game.dynamic_level, scene_wall->mechanism_wall_source_offset + 12u, 2u,
                     &dynamic_texture_offset)) {
                 fprintf(stderr,
                         "campaign level %u mechanism wall has no mutable texture offset\n",
@@ -3593,7 +3593,6 @@ int main(int argc, char **argv)
             if (scene_wall->source_record_offset > game.dynamic_level.runtime.graphics_size ||
                 30u > game.dynamic_level.runtime.graphics_size - scene_wall->source_record_offset ||
                 (uint8_t)read_be16(source) != LEVEL_DRAW_GRAPH_TYPE_WALL ||
-                scene_wall->material_id != read_be16(source + 14u) ||
                 !level_runtime_get_world_point(&game.dynamic_level.runtime, read_be16(source + 2u),
                                                &left_point, error, sizeof(error)) ||
                 !level_runtime_get_world_point(&game.dynamic_level.runtime, read_be16(source + 4u),
@@ -3611,28 +3610,6 @@ int main(int argc, char **argv)
                         level_index, static_wall_index);
                 game_bootstrap_destroy(&game);
                 return 1;
-            }
-            if (scene_wall->is_mechanism_surface != 0u) {
-                if (scene_wall->source_record_offset > game.level_mechanisms.graphics_size ||
-                    30u > game.level_mechanisms.graphics_size -
-                              scene_wall->source_record_offset) {
-                    fprintf(stderr,
-                            "campaign level %u static mechanism wall %u has an invalid source range\n",
-                            level_index, static_wall_index);
-                    game_bootstrap_destroy(&game);
-                    return 1;
-                }
-                texture_source = game.level_mechanisms.graphics_bytes +
-                    scene_wall->source_record_offset;
-                if (scene_wall->solid_texture_u_end != read_be16(texture_source + 8u) ||
-                    scene_wall->solid_texture_y_offset != read_be16(texture_source + 12u) ||
-                    scene_wall->solid_texture_height_mask != texture_source[16u]) {
-                    fprintf(stderr,
-                            "campaign level %u static mechanism wall %u has a bad solid mapping\n",
-                            level_index, static_wall_index);
-                    game_bootstrap_destroy(&game);
-                    return 1;
-                }
             }
             switch (scene_wall->mechanism_kind) {
             case LEVEL_STATIC_WALL_MECHANISM_NONE:
@@ -3661,6 +3638,7 @@ int main(int argc, char **argv)
                 }
                 top = (int32_t)read_be32(mechanism_source + 20u);
                 bottom = (int32_t)read_be32(mechanism_source + 24u);
+                texture_source = mechanism_source;
                 break;
             case LEVEL_STATIC_WALL_MECHANISM_LIFT:
                 if (scene_wall->lift_graphics_offset > game.dynamic_level.runtime.graphics_size ||
@@ -3685,6 +3663,25 @@ int main(int argc, char **argv)
                 top = (int32_t)(int16_t)read_be16(mechanism_source + 2u) * 64;
                 bottom = top + (scene_wall->solid_initial_bottom -
                                 scene_wall->solid_initial_top);
+                if (scene_wall->mechanism_wall_source_offset >
+                        game.dynamic_level.runtime.graphics_size ||
+                    30u > game.dynamic_level.runtime.graphics_size -
+                              scene_wall->mechanism_wall_source_offset) {
+                    fprintf(stderr,
+                            "campaign level %u lift wall %u has no controlled Draw_Wall\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                texture_source = game.dynamic_level.runtime.graphics_bytes +
+                    scene_wall->mechanism_wall_source_offset;
+                if ((uint8_t)read_be16(texture_source) != LEVEL_DRAW_GRAPH_TYPE_WALL) {
+                    fprintf(stderr,
+                            "campaign level %u lift wall %u controlled source is not Draw_Wall\n",
+                            level_index, static_wall_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
                 break;
             default:
                 fprintf(stderr, "campaign level %u static wall %u has an unknown mechanism type\n",
@@ -3692,7 +3689,13 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
-            if (scene_wall->vertices[0].position.x != left_point.x ||
+            if (scene_wall->material_id != read_be16(texture_source + 14u) ||
+                scene_wall->point_brightness_selector != texture_source[19u] ||
+                scene_wall->left_point_brightness != texture_source[6u] ||
+                scene_wall->right_point_brightness != texture_source[7u] ||
+                scene_wall->brightness_offset != (int8_t)texture_source[28u] ||
+                scene_wall->other_zone != texture_source[29u] ||
+                scene_wall->vertices[0].position.x != left_point.x ||
                 scene_wall->vertices[0].position.y != top ||
                 scene_wall->vertices[0].position.z != left_point.z ||
                 scene_wall->vertices[1].position.x != right_point.x ||

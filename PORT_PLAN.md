@@ -551,9 +551,10 @@ multiplayer work is planned.
   wall records are presented as closed native solids: all `Draw_Wall` records
   on each controlled `EdgeT` follow the canonical source mechanism wall, and
   lift sides retain their original depth while translating from the live
-  `Draw_Flats` plane. Their source V-scroll remains in mutable state for game
-  behavior, but does not create scrolling, separated counterpart surfaces, or
-  segmented GPU geometry.
+  `Draw_Flats` plane. Their source controlled `Draw_Wall` material, lighting,
+  V-origin, and texture-window updates remain live on the closed dynamic mesh,
+  preserving the authored moving-panel illusion without separated counterpart
+  surfaces or segmented GPU geometry.
   Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its

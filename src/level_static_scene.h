@@ -27,14 +27,6 @@ typedef struct {
     uint32_t material_id;
     uint32_t source_record_offset;
     SceneTextureWindow texture_window;
-    /*
-     * GPU presentation cache for a DoorRoutine/LiftRoutine wall.  The source
-     * mutates its V offset to compensate for a software strip renderer; a
-     * native moving solid retains its authored texture mapping instead.
-     */
-    uint16_t solid_texture_u_end;
-    uint16_t solid_texture_y_offset;
-    uint8_t solid_texture_height_mask;
     uint8_t is_mechanism_surface;
     /* The canonical wall record and lift flat selected by newanims.s. */
     uint8_t mechanism_kind;

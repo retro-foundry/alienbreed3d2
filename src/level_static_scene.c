@@ -137,6 +137,27 @@ static void level_static_scene_set_wall_texture_window(LevelStaticWallScene *sce
     scene_wall->texture_window.v_period = (uint16_t)wall->texture_height_mask + 1u;
 }
 
+/* hireswall.s:Draw_Wall consumes these fields from the same source record. */
+static int level_static_scene_set_wall_presentation(LevelStaticWallScene *scene_wall,
+                                                    const LevelDrawWall *wall,
+                                                    uint32_t wall_material_count,
+                                                    char *error, size_t error_size)
+{
+    if (!scene_wall || !wall || wall->texture_id >= wall_material_count) {
+        level_static_scene_set_error(error, error_size,
+                                     "controlled wall texture id is outside source material table");
+        return 0;
+    }
+    scene_wall->material_id = wall->texture_id;
+    scene_wall->point_brightness_selector = wall->point_brightness_selector;
+    scene_wall->left_point_brightness = wall->left_point_brightness;
+    scene_wall->right_point_brightness = wall->right_point_brightness;
+    scene_wall->brightness_offset = wall->brightness_offset;
+    scene_wall->other_zone = wall->other_zone;
+    level_static_scene_set_wall_texture_window(scene_wall, wall);
+    return 1;
+}
+
 static void level_static_scene_set_wall_vertices(LevelStaticWallScene *scene_wall,
                                                  const LevelDrawWall *wall,
                                                  const LevelWorldPoint *left_point,
@@ -543,11 +564,6 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                     scene_wall->mechanism_wall_source_offset =
                         wall_mechanism.canonical_wall_source_offset;
                     scene_wall->lift_graphics_offset = wall_mechanism.lift_graphics_offset;
-                    if (scene_wall->is_mechanism_surface != 0u) {
-                        scene_wall->solid_texture_u_end = wall.texture_u_end;
-                        scene_wall->solid_texture_y_offset = wall.texture_y_offset;
-                        scene_wall->solid_texture_height_mask = wall.texture_height_mask;
-                    }
                     if (scene_wall->mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_LIFT) {
                         int32_t lift_initial_height;
 
@@ -711,14 +727,9 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
             }
             return 0;
         }
-        scene_wall->material_id = wall.texture_id;
-        scene_wall->point_brightness_selector = wall.point_brightness_selector;
-        scene_wall->left_point_brightness = wall.left_point_brightness;
-        scene_wall->right_point_brightness = wall.right_point_brightness;
-        scene_wall->brightness_offset = wall.brightness_offset;
-        scene_wall->other_zone = wall.other_zone;
         if (scene_wall->mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_LIFT) {
             LevelDrawWall solid_wall = wall;
+            LevelDrawWall texture_wall;
             int32_t lift_height;
             int64_t solid_bottom;
 
@@ -734,6 +745,21 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
                 return 0;
             }
             /*
+             * newanims.s:LiftRoutine writes the controlled Draw_Wall's
+             * +12 texture origin while updating the lift.  The rigid native
+             * side still receives that source V scroll; only its closed
+             * boundary is a presentation choice.
+             */
+            if (!level_static_scene_read_mechanism_wall(
+                    runtime, scene_wall->mechanism_wall_source_offset, &texture_wall,
+                    error, error_size)) {
+                return 0;
+            }
+            if (!level_static_scene_set_wall_presentation(
+                    scene_wall, &texture_wall, wall_material_count, error, error_size)) {
+                return 0;
+            }
+            /*
              * newanims.s:LiftRoutine changes a Draw_Flats plane and selected
              * Draw_Wall tops independently for the column renderer. In the
              * complete-level GPU view, translate every wall on its source
@@ -744,8 +770,8 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
             solid_wall.bottom = (int32_t)solid_bottom;
             level_static_scene_set_wall_vertices(
                 scene_wall, &solid_wall, &left_point, &right_point,
-                scene_wall->solid_texture_u_end, scene_wall->solid_texture_y_offset,
-                scene_wall->solid_texture_height_mask);
+                texture_wall.texture_u_end, texture_wall.texture_y_offset,
+                texture_wall.texture_height_mask);
         } else if (scene_wall->mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_DOOR) {
             LevelDrawWall solid_wall = wall;
 
@@ -754,15 +780,23 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
                     error, error_size)) {
                 return 0;
             }
-            /* Preserve the duplicate graph record's X/Z endpoints and material. */
+            /* Preserve the duplicate graph record's X/Z endpoints. */
             solid_wall.left_point_index = wall.left_point_index;
             solid_wall.right_point_index = wall.right_point_index;
+            /* DoorRoutine likewise owns the live Draw_Wall texture origin. */
+            if (!level_static_scene_set_wall_presentation(
+                    scene_wall, &solid_wall, wall_material_count, error, error_size)) {
+                return 0;
+            }
             level_static_scene_set_wall_vertices(
                 scene_wall, &solid_wall, &left_point, &right_point,
-                scene_wall->solid_texture_u_end, scene_wall->solid_texture_y_offset,
-                scene_wall->solid_texture_height_mask);
+                solid_wall.texture_u_end, solid_wall.texture_y_offset,
+                solid_wall.texture_height_mask);
         } else if (scene_wall->mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_NONE) {
-            level_static_scene_set_wall_texture_window(scene_wall, &wall);
+            if (!level_static_scene_set_wall_presentation(
+                    scene_wall, &wall, wall_material_count, error, error_size)) {
+                return 0;
+            }
             level_static_scene_set_wall_vertices(scene_wall, &wall, &left_point, &right_point,
                                                  wall.texture_u_end, wall.texture_y_offset,
                                                  wall.texture_height_mask);
