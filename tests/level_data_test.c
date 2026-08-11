@@ -135,6 +135,21 @@ static uint32_t read_be32(const uint8_t *source)
            ((uint32_t)source[2] << 8) | source[3];
 }
 
+/* 68000 ASR.W with a register count: only its low six bits participate. */
+static int16_t source_asr16_count(int16_t value, uint16_t count)
+{
+    unsigned int effective_count = count & 63u;
+
+    if (effective_count >= 16u) {
+        return value < 0 ? -1 : 0;
+    }
+    if (value >= 0) {
+        return (int16_t)(value >> effective_count);
+    }
+    return (int16_t)-(((-(int32_t)value) + ((1 << effective_count) - 1)) >>
+                     effective_count);
+}
+
 static int32_t source_asl32_count(int32_t value, uint16_t count)
 {
     unsigned int effective_count = count & 63u;
@@ -5969,6 +5984,257 @@ int main(int argc, char **argv)
             fprintf(stderr, "desktop infinite-ammo firing did not retain Plr1_Shot semantics\n");
             game_bootstrap_destroy(&game);
             return 1;
+        }
+    }
+    {
+        enum {
+            ALL_WEAPON_TARGET_SLOT = 0u,
+            ALL_WEAPON_SHOT_FIRST_SLOT = 1u,
+            ALL_WEAPON_PLAYER_SLOT =
+                ALL_WEAPON_SHOT_FIRST_SLOT + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT,
+            ALL_WEAPON_COMPANION_SLOT = ALL_WEAPON_PLAYER_SLOT + 2u,
+            ALL_WEAPON_TERMINATOR_SLOT = ALL_WEAPON_COMPANION_SLOT + 1u,
+            ALL_WEAPON_SLOT_COUNT = ALL_WEAPON_TERMINATOR_SLOT + 1u
+        };
+        uint8_t slot_bytes[ALL_WEAPON_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT];
+        uint8_t point_bytes[ALL_WEAPON_TERMINATOR_SLOT * OBJECT_RUNTIME_POINT_BYTE_COUNT];
+        ObjectRuntime weapon_objects = {0};
+        ObjectObservation weapon_observation;
+
+        weapon_objects.slot_bytes = slot_bytes;
+        weapon_objects.slot_count = ALL_WEAPON_SLOT_COUNT;
+        weapon_objects.active_slot_count = ALL_WEAPON_TERMINATOR_SLOT;
+        weapon_objects.player_shot_first_slot = ALL_WEAPON_SHOT_FIRST_SLOT;
+        weapon_objects.player1_slot = ALL_WEAPON_PLAYER_SLOT;
+        weapon_objects.point_bytes = point_bytes;
+        weapon_objects.point_count = ALL_WEAPON_TERMINATOR_SLOT;
+
+        for (uint16_t gun_index = 0u; gun_index < GAME_LINK_GUN_COUNT; ++gun_index) {
+            GameShootDefinition shoot;
+            GameBulletDefinition bullet;
+            PlayerRuntime weapon_player = game.player;
+            GameInventory weapon_inventory = {0};
+            PlayerShotTarget expected_target;
+            GameRandom weapon_random;
+            GameRandom expected_random;
+            uint16_t weapon_random_seed = 0u;
+            uint16_t expected_projectile_count;
+            int16_t expected_vertical_speed;
+            int found_hit_seed = 0;
+
+            if (!game_link_get_shoot_definition(&game.game_link_catalog, gun_index, &shoot,
+                                                error, sizeof(error)) ||
+                !game_link_get_bullet_definition(&game.game_link_catalog, shoot.bullet_type,
+                                                 &bullet, error, sizeof(error))) {
+                fprintf(stderr, "could not load source weapon %u: %s\n", gun_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            memset(slot_bytes, 0, sizeof(slot_bytes));
+            memset(point_bytes, 0, sizeof(point_bytes));
+            object_observation_init(&weapon_observation);
+            weapon_player.x = game.player.x;
+            weapon_player.y = 0;
+            weapon_player.z = game.player.z;
+            weapon_player.height = 12 * 1024;
+            weapon_player.aim_speed = 512;
+            weapon_player.mouse_active = 0u;
+            weapon_player.stood_in_top = UINT8_MAX;
+            weapon_player.tmp_gun_selected = (uint8_t)gun_index;
+            weapon_player.tmp_fire = UINT8_MAX;
+            weapon_player.time_to_shoot = 0;
+            write_be16(slot_bytes + ALL_WEAPON_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT,
+                       ALL_WEAPON_TARGET_SLOT);
+            write_be16(slot_bytes + ALL_WEAPON_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                           12u,
+                       weapon_player.zone_index);
+            slot_bytes[ALL_WEAPON_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 1u;
+            slot_bytes[ALL_WEAPON_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 17u] =
+                UINT8_MAX;
+            slot_bytes[ALL_WEAPON_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 18u] = 100u;
+            write_be32(point_bytes + 0u,
+                       (uint32_t)weapon_player.x | UINT32_C(0x00001111));
+            write_be32(point_bytes + 4u,
+                       (uint32_t)weapon_player.z | UINT32_C(0x00002222));
+            for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+                 ++shot_index) {
+                uint32_t slot_index = ALL_WEAPON_SHOT_FIRST_SLOT + shot_index;
+                uint8_t *shot_slot = slot_bytes +
+                    (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+                uint8_t *shot_point = point_bytes +
+                    (size_t)slot_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
+
+                write_be16(shot_slot + 0u, (uint16_t)slot_index);
+                write_be16(shot_slot + 12u, UINT16_MAX);
+                write_be32(shot_point + 0u, UINT32_C(0x11112222));
+                write_be32(shot_point + 4u, UINT32_C(0x33334444));
+            }
+            for (uint32_t slot_index = ALL_WEAPON_PLAYER_SLOT;
+                 slot_index < ALL_WEAPON_TERMINATOR_SLOT; ++slot_index) {
+                write_be16(slot_bytes + (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT,
+                           (uint16_t)slot_index);
+                write_be16(slot_bytes + (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                               12u,
+                           UINT16_MAX);
+            }
+            write_be16(slot_bytes +
+                           (size_t)ALL_WEAPON_TERMINATOR_SLOT *
+                               OBJECT_RUNTIME_SLOT_BYTE_COUNT,
+                       UINT16_MAX);
+            weapon_observation.in_line[0u] = UINT8_MAX;
+            weapon_observation.distances[0u] = 50u;
+            weapon_inventory.ammunition[shoot.bullet_type] =
+                (uint16_t)(shoot.bullet_count + 5u);
+            if (!player_shoot_find_target_single_player(
+                    &weapon_objects, &weapon_observation, &weapon_player, &bullet,
+                    &expected_target, error, sizeof(error)) ||
+                expected_target.found != UINT8_MAX) {
+                fprintf(stderr, "Plr1_Shot could not acquire source fixture target for gun %u: %s\n",
+                        gun_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            expected_projectile_count = shoot.bullet_count == 0u ? 1u : shoot.bullet_count;
+            expected_vertical_speed = expected_target.vertical_speed;
+            if (bullet.gravity != 0u) {
+                expected_vertical_speed = source_asr16_count(
+                    (int16_t)weapon_player.aim_speed,
+                    (uint16_t)(UINT16_C(8) - (uint16_t)bullet.speed));
+            }
+            if (expected_vertical_speed > 20 * 128) {
+                expected_vertical_speed = 20 * 128;
+            }
+            if (expected_vertical_speed < -20 * 128) {
+                expected_vertical_speed = -20 * 128;
+            }
+            if ((uint16_t)bullet.is_hitscan != 0u) {
+                for (uint32_t candidate = 0u; candidate <= UINT16_MAX; ++candidate) {
+                    GameRandom candidate_random = {(uint16_t)candidate};
+                    uint16_t shot_index;
+
+                    found_hit_seed = 1;
+                    for (shot_index = 0u; shot_index < expected_projectile_count; ++shot_index) {
+                        if (((game_random_next(&candidate_random) & UINT16_C(0x7fff)) << 1u) ==
+                            0u) {
+                            found_hit_seed = 0;
+                            break;
+                        }
+                    }
+                    if (found_hit_seed != 0) {
+                        weapon_random_seed = (uint16_t)candidate;
+                        break;
+                    }
+                }
+                if (found_hit_seed == 0) {
+                    fprintf(stderr, "could not prepare source hit-roll fixture for gun %u\n",
+                            gun_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
+            weapon_random.state = weapon_random_seed;
+            expected_random = weapon_random;
+            if ((uint16_t)bullet.is_hitscan != 0u) {
+                for (uint16_t shot_index = 0u; shot_index < expected_projectile_count;
+                     ++shot_index) {
+                    (void)game_random_next(&expected_random);
+                }
+            }
+            if (!player_shoot_update_single_player(
+                    &weapon_objects, &game.dynamic_level, &weapon_observation, &weapon_player,
+                    &weapon_inventory, &game.game_link_catalog, &game.preferences, &game.math,
+                    &weapon_random, 1u, error, sizeof(error)) ||
+                weapon_player.time_to_shoot != (int16_t)shoot.delay ||
+                weapon_player.noise_volume != 100 ||
+                weapon_inventory.ammunition[shoot.bullet_type] != 5u ||
+                read_be16(slot_bytes + (size_t)ALL_WEAPON_COMPANION_SLOT *
+                                      OBJECT_RUNTIME_SLOT_BYTE_COUNT +
+                              34u) != 1u || weapon_random.state != expected_random.state) {
+                fprintf(stderr, "Plr1_Shot common source state is inconsistent for gun %u: %s\n",
+                        gun_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if ((uint16_t)bullet.is_hitscan != 0u) {
+                if (slot_bytes[ALL_WEAPON_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] !=
+                    (uint8_t)((uint8_t)bullet.hit_damage *
+                              (uint8_t)expected_projectile_count)) {
+                    fprintf(stderr, "Plr1_Shot hitscan damage is inconsistent for gun %u\n",
+                            gun_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                for (uint16_t shot_index = 0u; shot_index < expected_projectile_count;
+                     ++shot_index) {
+                    const uint8_t *shot_slot = slot_bytes +
+                        (size_t)(ALL_WEAPON_SHOT_FIRST_SLOT + shot_index) *
+                            OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+                    if (read_be16(shot_slot + 12u) != weapon_player.zone_index ||
+                        shot_slot[30u] != 1u || shot_slot[31u] != (uint8_t)shoot.bullet_type ||
+                        read_be16(shot_slot + 54u) != 0u || shot_slot[52u] != 0u ||
+                        shot_slot[62u] != UINT8_MAX) {
+                        fprintf(stderr, "Plr1_Shot hitscan dispatch is inconsistent for gun %u\n",
+                                gun_index);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                }
+            } else {
+                int16_t angle = (int16_t)((uint16_t)weapon_player.yaw -
+                    (uint16_t)((uint16_t)(shoot.bullet_count - 1u) * 128u));
+                int32_t launch_y = weapon_player.y + 30 * 128;
+
+                angle = (int16_t)game_math_wrap_angle_address((uint16_t)angle);
+                for (uint16_t shot_index = 0u; shot_index < expected_projectile_count;
+                     ++shot_index) {
+                    const uint8_t *shot_slot = slot_bytes +
+                        (size_t)(ALL_WEAPON_SHOT_FIRST_SLOT + shot_index) *
+                            OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+                    const uint8_t *shot_point = point_bytes +
+                        (size_t)(ALL_WEAPON_SHOT_FIRST_SLOT + shot_index) *
+                            OBJECT_RUNTIME_POINT_BYTE_COUNT;
+                    int16_t sine;
+                    int16_t cosine;
+
+                    if (!game_math_sine(&game.math, (uint16_t)angle, &sine,
+                                        error, sizeof(error)) ||
+                        !game_math_cosine(&game.math, (uint16_t)angle, &cosine,
+                                          error, sizeof(error)) ||
+                        shot_slot[16u] != 2u ||
+                        read_be16(shot_slot + 12u) != weapon_player.zone_index ||
+                        shot_slot[30u] != 0u || shot_slot[31u] != (uint8_t)shoot.bullet_type ||
+                        shot_slot[28u] != (uint8_t)bullet.hit_damage ||
+                        read_be16(shot_slot + 54u) != (uint16_t)bullet.gravity ||
+                        shot_slot[60u] != (uint8_t)bullet.bounce_horizontal ||
+                        shot_slot[61u] != (uint8_t)bullet.bounce_vertical ||
+                        read_be32(shot_slot + 18u) !=
+                            (uint32_t)source_asl32_count(sine, (uint16_t)bullet.speed) ||
+                        read_be32(shot_slot + 22u) !=
+                            (uint32_t)source_asl32_count(cosine, (uint16_t)bullet.speed) ||
+                        read_be16(shot_slot + 42u) != (uint16_t)expected_vertical_speed ||
+                        read_be32(shot_slot + 44u) != (uint32_t)launch_y ||
+                        read_be16(shot_slot + 4u) !=
+                            (uint16_t)source_asr32_7(launch_y) ||
+                        read_be32(shot_point + 0u) !=
+                            ((uint32_t)(uint16_t)player_runtime_position_to_world(weapon_player.x)
+                             << 16u | UINT32_C(0x2222)) ||
+                        read_be32(shot_point + 4u) !=
+                            ((uint32_t)(uint16_t)player_runtime_position_to_world(weapon_player.z)
+                             << 16u | UINT32_C(0x4444)) ||
+                        shot_slot[62u] != UINT8_MAX ||
+                        shot_slot[63u] != weapon_player.stood_in_top ||
+                        read_be32(shot_slot + 36u) != UINT32_C(0x23)) {
+                        fprintf(stderr,
+                                "firefive source launch state is inconsistent for gun %u: %s\n",
+                                gun_index, error);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                    angle = (int16_t)game_math_wrap_angle_address(
+                        (uint16_t)((uint16_t)angle + 256u));
+                }
+            }
         }
     }
     {

@@ -411,7 +411,11 @@ sound effects and music now play through the SDL WAV backend.
   the source player-shot pool: exact centred firing angles, `ASL.L` speed
   shift, vertical
   clamp, launch coordinates, and projectile bytes are covered by regression
-  tests. `src/object_projectiles.*` now also translates the live
+  tests. The all-weapon firing regression drives all ten authored `ShootT`
+  records through that shared path, checking their source cooldown/ammunition,
+  companion trigger, hitscan damage/roll sequence, and every non-hitscan
+  volley's angle, fixed-point velocity, gravity, bounce, origin, power, and
+  upper-zone state. `src/object_projectiles.*` now also translates the live
   `ItsABullet:notpopping` path: signed lifetime comparison/tick, source frame
   descriptor, roof/floor bounce or impact, fixed-point Vec2L/vertical motion,
   zero-extension `MoveObject` contact, horizontal reflection or impact, and
@@ -431,12 +435,14 @@ sound effects and music now play through the SDL WAV backend.
   alien-girth extension (`40`) through `checkotherwalls`. The explicit
   zero-extension wrapper remains the bounded `newplayershoot.s` caller.
   `src/player_shoot.*` now also translates
-  `plr1_HitscanFailed` itself: it advances `GetRand` once for the vertical
-  spread, repeats the source ray through that zero-extension trace, and writes
-  its stationary miss effect to the first free player-shot slot without
-  touching the source fields it does not own. Its regression verifies the
-  ray/contact height, source slot/point byte writes, edge flag, and random
-  state. The parent `Plr1_Shot` is now called before `ObjectHandler`, as
+  `plr1_HitscanFailed` itself: the no-target branch advances `GetRand` once
+  for its vertical spread and repeats the source forward ray through the
+  zero-extension trace, while the selected-target hit-roll miss traces to the
+  source target midpoint and retains the terminating ObjT vertical word with
+  no second random draw. Both write their stationary miss effect to the first
+  free player-shot slot without touching source fields they do not own. Their
+  regressions verify the ray/contact height, source slot/point byte writes,
+  edge flag, and random state. The parent `Plr1_Shot` is now called before `ObjectHandler`, as
   `objmoveanim` does: it retains the source signed word cooldown, GLFT weapon
   lookup, ammunition check/debit, companion weapon timer, target/no-target
   decision, gravity/mouse no-auto-aim branch, and hit-scan or `firefive`
