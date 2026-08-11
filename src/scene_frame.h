@@ -241,6 +241,14 @@ typedef struct {
     uint16_t centre_y;
     uint16_t scale_numerator;
     uint16_t scale_denominator;
+    /*
+     * The compiled shotgun places its named stock at the far end of the
+     * camera-space depth range. Normalise that authored longitudinal basis
+     * with a rigid half turn around the selected frame's depth centre.
+     */
+    uint8_t reverse_longitudinal_axis;
+    uint8_t reserved[3];
+    int32_t depth_reflection_sum;
 } SceneViewWeaponProjection;
 
 /*
