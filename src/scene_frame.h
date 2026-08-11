@@ -18,10 +18,11 @@ typedef struct {
 typedef struct {
     SceneWorldPoint position;
     /*
-     * Host-rate 16.16 presentation endpoints. Valid open-space fractions are
-     * retained; collision-corrected axes are promoted from the accepted
-     * source coordinate. `position` remains the integer source coordinate
-     * used by lighting and object projection.
+     * Host-rate 16.16 presentation endpoints promoted from the accepted
+     * source position words. `position` remains the integer source coordinate
+     * used by lighting and object projection. Interpolating these promoted
+     * endpoints smooths 50 Hz movement without presenting the rejected low
+     * word that Plr1_Control deliberately retains after a collision.
      */
     int32_t source_position_x_16_16;
     int32_t source_position_z_16_16;

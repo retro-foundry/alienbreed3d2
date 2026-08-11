@@ -6286,7 +6286,10 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
-        /* Exercise the post-MoveObject fraction that the renderer must retain. */
+        /*
+         * A rejected move preserves these low words. Source rendering must
+         * not expose them as a physical camera endpoint.
+         */
         game.player.x = (int32_t)((uint32_t)game.player.x | UINT32_C(0x1234));
         game.player.z = (int32_t)((uint32_t)game.player.z | UINT32_C(0x5678));
         game.player.snap_x = game.player.x;
@@ -6352,8 +6355,12 @@ int main(int argc, char **argv)
             frame.commands[0u].data.camera.position.x !=
                 player_runtime_position_to_world(game.player.x) ||
             frame.commands[0u].data.camera.position.y != game.player.y ||
-            frame.commands[0u].data.camera.source_position_x_16_16 != game.player.x ||
-            frame.commands[0u].data.camera.source_position_z_16_16 != game.player.z ||
+            frame.commands[0u].data.camera.source_position_x_16_16 !=
+                player_runtime_world_to_position(
+                    player_runtime_position_to_world(game.player.x)) ||
+            frame.commands[0u].data.camera.source_position_z_16_16 !=
+                player_runtime_world_to_position(
+                    player_runtime_position_to_world(game.player.z)) ||
             frame.commands[0u].data.camera.has_source_position_16_16 == 0u ||
             frame.commands[1u].type != SCENE_COMMAND_LIGHTING ||
             frame.commands[1u].data.lighting.current_point_brightness !=
