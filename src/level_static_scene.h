@@ -34,8 +34,11 @@ typedef struct {
     /* DoorRoutine/LiftRoutine table index; groups all rigid source surfaces. */
     uint16_t mechanism_index;
     uint32_t mechanism_wall_source_offset;
+    /* Original bounds of that controlled Draw_Wall, used for live V scaling. */
+    int32_t texture_initial_top;
+    int32_t texture_initial_bottom;
     uint32_t lift_graphics_offset;
-    /* Native rigid-lift side bounds, all in scene Y units. */
+    /* Original output-surface span used by the closed native lift side. */
     int32_t solid_initial_top;
     int32_t solid_initial_bottom;
     uint16_t source_zone_index;

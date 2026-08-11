@@ -754,6 +754,7 @@ int main(int argc, char **argv)
     uint32_t destructible_fixture_count = 0u;
     uint32_t water_fixture_count = 0u;
     uint32_t mechanism_surface_fixture_count = 0u;
+    uint32_t dynamic_wall_v_scale_fixture_count = 0u;
     uint32_t solid_lift_motion_fixture_count = 0u;
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
@@ -3546,6 +3547,39 @@ int main(int argc, char **argv)
             ++mechanism_surface_fixture_count;
             break;
         }
+        /*
+         * DoorRoutine changes Draw_Wall +24 as the panel contracts. Exercise
+         * that source-sized span independently of the live +12 V origin.
+         */
+        for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
+             ++static_wall_index) {
+            const LevelStaticWallScene *scene_wall =
+                &game.static_scene.walls[static_wall_index];
+            uint8_t *dynamic_door_bounds;
+            int32_t top;
+            int32_t bottom;
+
+            if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_DOOR ||
+                scene_wall->source_record_offset != scene_wall->mechanism_wall_source_offset ||
+                !level_dynamic_state_get_graphics_range(
+                    &game.dynamic_level, scene_wall->mechanism_wall_source_offset + 20u, 8u,
+                    &dynamic_door_bounds)) {
+                continue;
+            }
+            top = (int32_t)read_be32(dynamic_door_bounds + 0u);
+            bottom = (int32_t)read_be32(dynamic_door_bounds + 4u);
+            if (bottom > top + 512) {
+                write_be32(dynamic_door_bounds + 4u,
+                           (uint32_t)(top + (bottom - top) / 2));
+            } else if (top > bottom + 512) {
+                write_be32(dynamic_door_bounds + 4u,
+                           (uint32_t)(top - (top - bottom) / 2));
+            } else {
+                continue;
+            }
+            ++dynamic_wall_v_scale_fixture_count;
+            break;
+        }
         for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
              ++static_wall_index) {
             const LevelStaticWallScene *scene_wall =
@@ -3589,6 +3623,7 @@ int main(int argc, char **argv)
             LevelWorldPoint right_point;
             int32_t top;
             int32_t bottom;
+            int32_t texture_v_span;
 
             if (scene_wall->source_record_offset > game.dynamic_level.runtime.graphics_size ||
                 30u > game.dynamic_level.runtime.graphics_size - scene_wall->source_record_offset ||
@@ -3615,6 +3650,7 @@ int main(int argc, char **argv)
             case LEVEL_STATIC_WALL_MECHANISM_NONE:
                 top = (int32_t)read_be32(source + 20u);
                 bottom = (int32_t)read_be32(source + 24u);
+                texture_v_span = (int32_t)texture_source[16u] + 1;
                 break;
             case LEVEL_STATIC_WALL_MECHANISM_DOOR:
                 if (scene_wall->mechanism_wall_source_offset >
@@ -3689,6 +3725,26 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE) {
+                int64_t live_height = (int64_t)bottom - top;
+                int64_t authored_height = (int64_t)scene_wall->texture_initial_bottom -
+                    scene_wall->texture_initial_top;
+
+                if (live_height < 0) {
+                    live_height = -live_height;
+                }
+                if (authored_height < 0) {
+                    authored_height = -authored_height;
+                }
+                live_height >>= 8u;
+                authored_height >>= 8u;
+                texture_v_span = scene_wall->source_record_offset !=
+                    scene_wall->mechanism_wall_source_offset ?
+                    (int32_t)texture_source[16u] + 1 : live_height == 0 ? 0 :
+                    authored_height == 0 ? (int32_t)live_height : (int32_t)(
+                        (live_height * ((int64_t)texture_source[16u] + 1) +
+                         authored_height / 2) / authored_height);
+            }
             if (scene_wall->material_id != read_be16(texture_source + 14u) ||
                 scene_wall->point_brightness_selector != texture_source[19u] ||
                 scene_wall->left_point_brightness != texture_source[6u] ||
@@ -3717,10 +3773,10 @@ int main(int argc, char **argv)
                 scene_wall->vertices[1].texture_v != read_be16(texture_source + 12u) ||
                 scene_wall->vertices[2].texture_u != read_be16(texture_source + 8u) ||
                 scene_wall->vertices[2].texture_v !=
-                    (int32_t)read_be16(texture_source + 12u) + texture_source[16u] + 1 ||
+                    (int32_t)read_be16(texture_source + 12u) + texture_v_span ||
                 scene_wall->vertices[5].texture_u != 0 ||
                 scene_wall->vertices[5].texture_v !=
-                    (int32_t)read_be16(texture_source + 12u) + texture_source[16u] + 1) {
+                    (int32_t)read_be16(texture_source + 12u) + texture_v_span) {
                 fprintf(stderr, "campaign level %u static wall %u geometry is inconsistent\n",
                         level_index, static_wall_index);
                 game_bootstrap_destroy(&game);
@@ -3843,6 +3899,7 @@ int main(int argc, char **argv)
         }
     if (decoration_fixture_count == 0u || destructible_fixture_count == 0u ||
         water_fixture_count == 0u || mechanism_surface_fixture_count == 0u ||
+        dynamic_wall_v_scale_fixture_count == 0u ||
         solid_lift_motion_fixture_count == 0u) {
         fprintf(stderr,
                 "campaign data does not contain all passive-object/water/mechanism fixtures\n");

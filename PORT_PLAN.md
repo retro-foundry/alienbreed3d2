@@ -552,9 +552,9 @@ multiplayer work is planned.
   on each controlled `EdgeT` follow the canonical source mechanism wall, and
   lift sides retain their original depth while translating from the live
   `Draw_Flats` plane. Their source controlled `Draw_Wall` material, lighting,
-  V-origin, and texture-window updates remain live on the closed dynamic mesh,
-  preserving the authored moving-panel illusion without separated counterpart
-  surfaces or segmented GPU geometry.
+  V-origin, texture-window, and live-height V scale remain live on the closed
+  dynamic mesh, preserving the authored moving-panel illusion without
+  separated counterpart surfaces or segmented GPU geometry.
   Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its

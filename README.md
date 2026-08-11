@@ -94,7 +94,7 @@ gameplay-first scope.
   the live `Draw_Flats` plane. This produces a closed moving solid while still
   applying the live controlled `Draw_Wall` material, lighting, V-origin, and
   texture-window updates written by `DoorRoutine`/`LiftRoutine`, so the source
-  panel motion remains visible;
+  panel motion remains visible without stretching a shrinking panel texture;
 - defines a GPU-neutral frame command interface for cameras, lighting,
   environment, static/dynamic mesh instances, and source-object instances.
   Every live source object now emits an
