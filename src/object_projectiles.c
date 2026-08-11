@@ -819,6 +819,13 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
                     slot + OBJECT_PROJECTILE_VELOCITY_Z), 1u));
         }
     } else if (trace.wall_bounce == 0u && trace.hit_wall != 0u) {
+        /*
+         * newanims.s:ItsABullet enters .hitsomething for a non-bouncing
+         * wall collision. That label clears `timeout` before publishing the
+         * impact, so a projectile expiring on the same tick must not emit a
+         * second impact sound/blast through the later timeout branch.
+         */
+        timed_out = 0u;
         object_projectiles_write_be32(slot + OBJECT_PROJECTILE_ACCUMULATED_Y,
                                       (uint32_t)trace.wall_hit_height);
         object_projectiles_write_be16(slot + OBJECT_PROJECTILE_VERTICAL_POSITION,

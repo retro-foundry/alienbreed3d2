@@ -7540,6 +7540,9 @@ int main(int argc, char **argv)
             LevelRuntime flight_level = {0};
             LevelDynamicState flight_dynamic = {0};
             ObjectRuntime flight_objects = {0};
+            ObjectMotionRuntime flight_motion;
+            ObjectProjectileSourceRuntime flight_source = {0};
+            GameAudioEvents flight_audio;
 
             if (!game_link_table(&game.game_link_catalog, GAME_LINK_TABLE_BULLET_DEFINITIONS,
                                  &bullet_table, &bullet_table_size) ||
@@ -7608,6 +7611,10 @@ int main(int argc, char **argv)
             flight_objects.active_slot_count = 2u;
             flight_objects.point_bytes = flight_point_bytes;
             flight_objects.point_count = 1u;
+            object_motion_runtime_init(&flight_motion);
+            game_audio_events_init(&flight_audio);
+            flight_source.motion_runtime = &flight_motion;
+            flight_source.audio_events = &flight_audio;
             write_be16(flight_slot_bytes + 0u, 0u);
             write_be16(flight_slot_bytes + 12u, 0u);
             flight_slot_bytes[16u] = 2u;
@@ -7654,7 +7661,38 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            /*
+             * ItsABullet:.hitsomething clears a simultaneous lifetime
+             * timeout before emitting its wall impact. The port must retain
+             * that single source event rather than playing and blasting the
+             * same collision twice.
+             */
+            write_be32(bullet_definition + 8u, 0u);
+            write_be32(bullet_definition + 48u, 5u);
+            flight_slot_bytes[30u] = 0u;
+            flight_slot_bytes[52u] = 0u;
+            write_be16(flight_slot_bytes + 58u, 1u);
+            write_be32(flight_slot_bytes + 18u, UINT32_C(0x00140000));
+            write_be32(flight_slot_bytes + 22u, 0u);
+            write_be32(flight_slot_bytes + 44u, 100000u);
+            write_be32(flight_point_bytes + 0u, 0u);
+            write_be32(flight_point_bytes + 4u, UINT32_C(0x000a0000));
+            game_audio_events_begin(&flight_audio);
+            if (!object_projectiles_update_flight_animation_slot_with_source_state(
+                    &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
+                    &flight_source, &flight_link, 1u, error, sizeof(error)) ||
+                flight_slot_bytes[30u] != 1u || flight_audio.count != 1u ||
+                flight_audio.events[0u].sample_index != 5u) {
+                fprintf(stderr,
+                        "ItsABullet simultaneous wall/timeout impact is inconsistent: %s\n",
+                        error);
+                level_dynamic_state_destroy(&flight_dynamic);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
             /* Floor response uses BulT_BounceVert_l rather than ShotT's roof flag byte. */
+            write_be32(bullet_definition + 8u, UINT32_MAX);
+            write_be32(bullet_definition + 48u, UINT32_MAX);
             write_be32(bullet_definition + 20u, 1u);
             flight_slot_bytes[30u] = 0u;
             flight_slot_bytes[52u] = 0u;
@@ -7675,6 +7713,7 @@ int main(int argc, char **argv)
             }
             /* A finite source lifetime marks the same impact state after movement. */
             write_be32(bullet_definition + 8u, 0u);
+            write_be32(bullet_definition + 48u, UINT32_MAX);
             write_be32(bullet_definition + 20u, 0u);
             flight_slot_bytes[30u] = 0u;
             flight_slot_bytes[52u] = 0u;
