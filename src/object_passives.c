@@ -199,11 +199,18 @@ int object_passives_update_slot(ObjectRuntime *objects, uint32_t slot_index,
                     "StillHere object point is outside the owned source state");
                 return 0;
             }
-            return alien_perception_look_for_player_one(
-                alien_runtime, objects, slot_index, level, clips, player,
-                object_passives_read_be16(slot + OBJECT_SLOT_ZONE_ID),
-                object_passives_read_be16s(point),
-                object_passives_read_be16s(point + 4u), error, error_size);
+            if (!alien_perception_look_for_player_one(
+                    alien_runtime, objects, slot_index, level, clips, player,
+                    object_passives_read_be16(slot + OBJECT_SLOT_ZONE_ID),
+                    object_passives_read_be16s(point),
+                    object_passives_read_be16s(point + 4u), error, error_size)) {
+                return 0;
+            }
+            /* StillHere deliberately falls through into Decoration/intodeco. */
+            return object_passives_place_slot(level, definition, slot, error, error_size) &&
+                object_passives_apply_animation(
+                    game_link, definition, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                    slot, error, error_size);
         }
         if (slot[OBJECT_SLOT_HIT_POINTS] != 0u) {
             if (!object_passives_push_destruction_message(level, slot, messages,

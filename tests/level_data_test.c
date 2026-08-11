@@ -9039,6 +9039,8 @@ int main(int argc, char **argv)
             /* newaliencontrol.s:StillHere supplies the live object's point to the same helper. */
             uint8_t point_bytes[OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
             GameObjectDefinition destructible_definition = {0};
+            GameObjectAnimationFrame destructible_frame;
+            LevelZone destructible_zone;
             MessageRuntime passive_messages = {0};
 
             perception_objects.point_bytes = point_bytes;
@@ -9056,12 +9058,22 @@ int main(int argc, char **argv)
             destructible_definition.behaviour = 2u;
             destructible_definition.hit_points = 2u;
             perception_player.stood_in_top = 0u;
-            if (!object_passives_update_slot(
+            if (!level_runtime_get_zone(
+                    &game.dynamic_level.runtime, perception_player.zone_index,
+                    &destructible_zone, error, sizeof(error)) ||
+                !game_link_get_object_animation_frame(
+                    &game.game_link_catalog, GAME_LINK_OBJECT_ANIMATION_DEFAULT,
+                    0u, 0u, &destructible_frame, error, sizeof(error)) ||
+                !object_passives_update_slot(
                     &perception_objects, 0u, &perception_alien_runtime,
                     &game.dynamic_level.runtime, &game.game_link_catalog,
                     &game.level_clips, &perception_player, &destructible_definition,
                     &passive_messages, 0u, error, sizeof(error)) ||
                 slot_bytes[17u] != 1u || slot_bytes[18u] != 1u ||
+                read_be16(slot_bytes + 4u) !=
+                    (uint16_t)(source_asr32_7(destructible_zone.floor) +
+                               (int16_t)destructible_frame.signed_byte_4 * 2) ||
+                read_be16(slot_bytes + 34u) != destructible_frame.next_timer1 ||
                 perception_alien_runtime.motion.new_x != 90 ||
                 perception_alien_runtime.motion.new_z != 190 ||
                 perception_alien_runtime.visibility.viewer_x != 90 ||
