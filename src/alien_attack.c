@@ -308,14 +308,14 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
     approach.new_z = player_runtime_position_to_world(player->z);
     if (!object_heading_calculate_distance(&approach, error, error_size) ||
         !alien_attack_divs16(
-            alien_attack_muls16(approach.x_difference, approach.distance),
+            alien_attack_muls16(player->source_x_difference, approach.distance),
             (int16_t)attack_setup->shot_speed, &lead, error, error_size)) {
         return 0;
     }
     approach.new_x = alien_attack_add16(
         approach.new_x, (int16_t)alien_attack_asr32(lead, 4u));
     if (!alien_attack_divs16(
-            alien_attack_muls16(approach.z_difference, approach.distance),
+            alien_attack_muls16(player->source_z_difference, approach.distance),
             (int16_t)attack_setup->shot_speed, &lead, error, error_size)) {
         return 0;
     }

@@ -33,6 +33,13 @@ typedef struct {
      */
     int32_t presentation_x;
     int32_t presentation_z;
+    /*
+     * hires.s:XDiff_w/ZDiff_w. After Plr1_Control accepts or rejects the
+     * tick's movement, the integer-word displacement is shifted left four
+     * bits and published for newaliencontrol.s:FireAtPlayer1 projectile lead.
+     */
+    int16_t source_x_difference;
+    int16_t source_z_difference;
     /* modules/player.s input-side state, committed by hires.s:Plr1_Control. */
     int32_t snap_x;
     int32_t snap_y;

@@ -5402,6 +5402,8 @@ int main(int argc, char **argv)
             ((uint32_t)player_collision_player.z & UINT32_C(0xffff)) != UINT32_C(0x5678) ||
             player_collision_player.presentation_x != player_collision_player.x ||
             player_collision_player.presentation_z != player_collision_player.z ||
+            player_collision_player.source_x_difference != 0 ||
+            player_collision_player.source_z_difference != 0 ||
             player_collision_motion.new_x != attempted_x ||
             player_collision_motion.new_z != attempted_z) {
             fprintf(stderr, "Plr1_Control object collision handoff is inconsistent: %s\n",
@@ -5511,6 +5513,8 @@ int main(int argc, char **argv)
             player_teleport_player.snap_y != expected_visual_y ||
             player_teleport_player.snap_target_y !=
                 destination_floor - player_teleport_player.height ||
+            player_teleport_player.source_x_difference != -11200 ||
+            player_teleport_player.source_z_difference != -9600 ||
             player_teleport_motion.new_x != 300 || player_teleport_motion.new_z != 400 ||
             player_teleport_audio.count != 1u ||
             player_teleport_audio.events[0u].sample_index != 26u ||
@@ -5580,6 +5584,8 @@ int main(int argc, char **argv)
             player_runtime_position_to_world(player_teleport_player.z) != 1020 ||
             ((uint32_t)player_teleport_player.x & UINT32_C(0xffff)) != UINT32_C(0x1234) ||
             ((uint32_t)player_teleport_player.z & UINT32_C(0xffff)) != UINT32_C(0x5678) ||
+            player_teleport_player.source_x_difference != 160 ||
+            player_teleport_player.source_z_difference != 320 ||
             player_teleport_motion.new_x != 1010 || player_teleport_motion.new_z != 1020 ||
             player_teleport_audio.count != 0u) {
             fprintf(stderr, "Plr1_Control rejected teleport handoff is inconsistent: %s\n",
@@ -8729,6 +8735,8 @@ int main(int argc, char **argv)
                    UINT32_C(0x6666face));
         fire_player.x = player_runtime_world_to_position(500);
         fire_player.z = player_runtime_world_to_position(-100);
+        fire_player.source_x_difference = 16;
+        fire_player.source_z_difference = -32;
         fire_alien_setup.shot_y_offset = 1234;
         fire_alien_setup.shot_offset_multiplier = 128;
         fire_alien_setup.zone_echo = 5u;
@@ -8754,12 +8762,12 @@ int main(int argc, char **argv)
         expected_approach.new_x = source_add16(
             expected_approach.new_x,
             (int16_t)source_asr32_count(
-                (int32_t)expected_approach.x_difference * expected_approach.distance / 16,
+                (int32_t)fire_player.source_x_difference * expected_approach.distance / 16,
                 4u));
         expected_approach.new_z = source_add16(
             expected_approach.new_z,
             (int16_t)source_asr32_count(
-                (int32_t)expected_approach.z_difference * expected_approach.distance / 16,
+                (int32_t)fire_player.source_z_difference * expected_approach.distance / 16,
                 4u));
         future_x = expected_approach.new_x;
         future_z = expected_approach.new_z;

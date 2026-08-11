@@ -1458,6 +1458,15 @@ int player_runtime_update_spatial_with_motion_and_audio(
      */
     player->presentation_x = player->x;
     player->presentation_z = player->z;
+    /*
+     * hires.s computes XDiff_w/ZDiff_w from the collision-accepted integer
+     * endpoints, then ASL.W #4. The native loop advances exactly one source
+     * VBlank per call, so Anim_TempFrames_w's guarded divisor is one here.
+     */
+    player->source_x_difference = (int16_t)(
+        (uint16_t)((uint16_t)new_x - (uint16_t)old_x) << 4u);
+    player->source_z_difference = (int16_t)(
+        (uint16_t)((uint16_t)new_z - (uint16_t)old_z) << 4u);
     player->y = visual_y;
     player->snap_target_y = player_runtime_sub32(
         player->stood_in_top != 0u ? zone.upper_floor : zone.floor, player->height);
