@@ -31,13 +31,9 @@ typedef struct {
     /* The canonical wall record and lift flat selected by newanims.s. */
     uint8_t mechanism_kind;
     uint8_t reserved0;
-    /* DoorRoutine/LiftRoutine table index; groups all rigid source surfaces. */
+    /* DoorRoutine/LiftRoutine table index; groups source-controlled surfaces. */
     uint16_t mechanism_index;
     uint32_t mechanism_wall_source_offset;
-    uint32_t lift_graphics_offset;
-    /* Original output-surface span used by the closed native lift side. */
-    int32_t solid_initial_top;
-    int32_t solid_initial_bottom;
     uint16_t source_zone_index;
     uint8_t source_upper_zone;
     uint8_t point_brightness_selector;

@@ -551,11 +551,12 @@ multiplayer work is planned.
   wall records are presented as closed native solids: every exact
   `ZDoorWall.graphics_offset` retains that individual source `Draw_Wall`'s
   material, lighting, V-origin, texture window, and source-8.8 V density;
-  same-`EdgeT` counterpart faces use the controller only when no exact source
-  target exists. Lift sides retain their original depth while translating from
-  the live `Draw_Flats` plane. This preserves the authored moving-panel
-  illusion without per-face height normalization, separated counterpart
-  surfaces, or segmented GPU geometry.
+  same-`EdgeT` counterpart faces use the controller only for doors when no
+  exact source target exists. Lift faces retain `LiftRoutine`'s live +20
+  boundary and fixed +24 boundary beside the live `Draw_Flats` plane; no
+  same-`EdgeT` shaft face follows a lift. This preserves the authored
+  moving-panel illusion without per-face height normalization, separated
+  counterpart surfaces, or segmented GPU geometry.
   Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its

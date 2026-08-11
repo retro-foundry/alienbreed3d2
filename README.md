@@ -92,9 +92,10 @@ gameplay-first scope.
   simplification: every exact source `ZDoorWall.graphics_offset` keeps its own
   live `Draw_Wall` material, lighting, V-origin, texture window, source-8.8
   V density, and moving edge written by `DoorRoutine`/`LiftRoutine`; only a renderer-added
-  same-`EdgeT` counterpart uses its controller association. Lift wall sides
-  move rigidly from the live `Draw_Flats` plane. This produces a closed moving
-  solid while preserving each authored panel's texture motion without
+  door same-`EdgeT` counterpart uses its controller association. `LiftRoutine`'s
+  direct wall faces retain their live `+20` boundary while their source `+24`
+  boundary remains fixed, alongside the live `Draw_Flats` plane. This keeps
+  adjacent shaft walls static while preserving each authored panel's texture motion without
   per-face height normalization or stretching;
 - defines a GPU-neutral frame command interface for cameras, lighting,
   environment, static/dynamic mesh instances, and source-object instances.
