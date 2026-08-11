@@ -89,12 +89,13 @@ gameplay-first scope.
   rebuild only dynamic BLASes without a producer-interface change. The
   retained scene refreshes its commands from the mutable graph after source
   door, lift, and water updates. Doors and lifts are a deliberate native-renderer
-  simplification: every `Draw_Wall` record on a controlled `EdgeT` follows its
-  canonical source mechanism record, and a lift's wall sides move rigidly from
-  the live `Draw_Flats` plane. This produces a closed moving solid while still
-  applying the live controlled `Draw_Wall` material, lighting, V-origin, and
-  texture-window updates written by `DoorRoutine`/`LiftRoutine`, so the source
-  panel motion remains visible without stretching a shrinking panel texture;
+  simplification: every exact source `ZDoorWall.graphics_offset` keeps its own
+  live `Draw_Wall` material, lighting, V-origin, texture window, and moving
+  edge written by `DoorRoutine`/`LiftRoutine`; only a renderer-added
+  same-`EdgeT` counterpart uses its controller association. Lift wall sides
+  move rigidly from the live `Draw_Flats` plane. This produces a closed moving
+  solid while preserving each authored panel's texture motion without
+  stretching a shrinking panel texture;
 - defines a GPU-neutral frame command interface for cameras, lighting,
   environment, static/dynamic mesh instances, and source-object instances.
   Every live source object now emits an

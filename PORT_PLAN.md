@@ -548,13 +548,13 @@ multiplayer work is planned.
   IDs from the mutable source draw graph after door, lift, and water updates;
   it rejects a source topology change rather than silently substituting native
   geometry. By request, `newanims.s:DoorRoutine` and `LiftRoutine` source
-  wall records are presented as closed native solids: all `Draw_Wall` records
-  on each controlled `EdgeT` follow the canonical source mechanism wall, and
-  lift sides retain their original depth while translating from the live
-  `Draw_Flats` plane. Their source controlled `Draw_Wall` material, lighting,
-  V-origin, texture-window, and live-height V scale remain live on the closed
-  dynamic mesh, preserving the authored moving-panel illusion without
-  separated counterpart surfaces or segmented GPU geometry.
+  wall records are presented as closed native solids: every exact
+  `ZDoorWall.graphics_offset` retains that individual source `Draw_Wall`'s
+  material, lighting, V-origin, texture window, and live-height V scale;
+  same-`EdgeT` counterpart faces use the controller only when no exact source
+  target exists. Lift sides retain their original depth while translating from
+  the live `Draw_Flats` plane. This preserves the authored moving-panel
+  illusion without separated counterpart surfaces or segmented GPU geometry.
   Neither step uses PVS/portal traversal.
 - [x] `src/player_runtime.*` ports the single-player `Plr_Initialise` spawn
   coordinates into both committed and input-side snap X/Y/Z state, its

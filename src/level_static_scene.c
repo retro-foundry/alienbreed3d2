@@ -322,6 +322,7 @@ static int level_static_scene_find_wall_mechanism(
 {
     uint16_t mechanism_index;
     LevelStaticWallMechanism mechanism = {0};
+    int direct_record_match = 0;
 
     if (!runtime || !mechanisms || !left_point || !right_point || !out_mechanism) {
         level_static_scene_set_error(error, error_size,
@@ -346,7 +347,24 @@ static int level_static_scene_find_wall_mechanism(
                                                       error, error_size)) {
                 return 0;
             }
-            if (wall.graphics_offset == source_record_offset || edge_matches != 0) {
+            /*
+             * newanims.s:DoorRoutine writes this ZDoorWall's graphics
+             * pointer directly.  A draw-graph record at that address must
+             * retain its own per-face V phase and moving edge.  EdgeT
+             * matching is only the closed-solid renderer's counterpart-face
+             * association, so it cannot replace an exact source match.
+             */
+            if (wall.graphics_offset == source_record_offset) {
+                if (direct_record_match == 0) {
+                    memset(&mechanism, 0, sizeof(mechanism));
+                    direct_record_match = 1;
+                }
+                if (!level_static_scene_add_wall_mechanism_match(
+                        &mechanism, LEVEL_STATIC_WALL_MECHANISM_DOOR,
+                        mechanism_index, wall.graphics_offset, 0u, error, error_size)) {
+                    return 0;
+                }
+            } else if (direct_record_match == 0 && edge_matches != 0) {
                 if (!level_static_scene_add_wall_mechanism_match(
                         &mechanism, LEVEL_STATIC_WALL_MECHANISM_DOOR,
                         mechanism_index,
@@ -374,7 +392,19 @@ static int level_static_scene_find_wall_mechanism(
                                                       error, error_size)) {
                 return 0;
             }
-            if (wall.graphics_offset == source_record_offset || edge_matches != 0) {
+            /* LiftRoutine has the same per-ZDoorWall direct write contract. */
+            if (wall.graphics_offset == source_record_offset) {
+                if (direct_record_match == 0) {
+                    memset(&mechanism, 0, sizeof(mechanism));
+                    direct_record_match = 1;
+                }
+                if (!level_static_scene_add_wall_mechanism_match(
+                        &mechanism, LEVEL_STATIC_WALL_MECHANISM_LIFT,
+                        mechanism_index, wall.graphics_offset, lift.graphics_offset,
+                        error, error_size)) {
+                    return 0;
+                }
+            } else if (direct_record_match == 0 && edge_matches != 0) {
                 if (!level_static_scene_add_wall_mechanism_match(
                         &mechanism, LEVEL_STATIC_WALL_MECHANISM_LIFT,
                         mechanism_index,

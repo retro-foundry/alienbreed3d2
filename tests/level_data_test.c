@@ -35,6 +35,7 @@
 #include "game_save.h"
 #include "level_bootstrap.h"
 #include "level_draw_graph.h"
+#include "level_mechanisms.h"
 #include "lighting_runtime.h"
 #include "message_runtime.h"
 #include "object_collectables.h"
@@ -132,6 +133,66 @@ static uint32_t read_be32(const uint8_t *source)
 {
     return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
            ((uint32_t)source[2] << 8) | source[3];
+}
+
+/*
+ * newanims.s calls DoorRoutine before LiftRoutine.  Each list entry writes
+ * its graphics pointer directly, so retain the final exact source writer;
+ * this deliberately does not use the renderer's same-EdgeT solid-face rule.
+ */
+static int find_direct_mechanism_wall_target(const LevelMechanisms *mechanisms,
+                                             uint32_t source_record_offset,
+                                             uint8_t *out_kind, uint16_t *out_index,
+                                             char *error, size_t error_size)
+{
+    if (!mechanisms || !out_kind || !out_index) {
+        return 0;
+    }
+    *out_kind = LEVEL_STATIC_WALL_MECHANISM_NONE;
+    *out_index = 0u;
+    for (uint16_t mechanism_index = 0u; mechanism_index < mechanisms->door_count;
+         ++mechanism_index) {
+        LevelLiftable door;
+
+        if (!level_mechanisms_get_door(mechanisms, mechanism_index, &door,
+                                       error, error_size)) {
+            return 0;
+        }
+        for (uint16_t target_index = 0u; target_index < door.wall_count; ++target_index) {
+            LevelLiftableWall target;
+
+            if (!level_mechanisms_get_door_wall(mechanisms, mechanism_index, target_index,
+                                                &target, error, error_size)) {
+                return 0;
+            }
+            if (target.graphics_offset == source_record_offset) {
+                *out_kind = LEVEL_STATIC_WALL_MECHANISM_DOOR;
+                *out_index = mechanism_index;
+            }
+        }
+    }
+    for (uint16_t mechanism_index = 0u; mechanism_index < mechanisms->lift_count;
+         ++mechanism_index) {
+        LevelLiftable lift;
+
+        if (!level_mechanisms_get_lift(mechanisms, mechanism_index, &lift,
+                                       error, error_size)) {
+            return 0;
+        }
+        for (uint16_t target_index = 0u; target_index < lift.wall_count; ++target_index) {
+            LevelLiftableWall target;
+
+            if (!level_mechanisms_get_lift_wall(mechanisms, mechanism_index, target_index,
+                                                &target, error, error_size)) {
+                return 0;
+            }
+            if (target.graphics_offset == source_record_offset) {
+                *out_kind = LEVEL_STATIC_WALL_MECHANISM_LIFT;
+                *out_index = mechanism_index;
+            }
+        }
+    }
+    return 1;
 }
 
 /* objdrawhires.s:draw_CalcBrightsInZone's live point-light samples. */
@@ -3621,6 +3682,8 @@ int main(int argc, char **argv)
             const uint8_t *mechanism_source;
             LevelWorldPoint left_point;
             LevelWorldPoint right_point;
+            uint8_t direct_mechanism_kind;
+            uint16_t direct_mechanism_index;
             int32_t top;
             int32_t bottom;
             int32_t texture_v_span;
@@ -3642,6 +3705,31 @@ int main(int argc, char **argv)
                 scene_wall->is_mechanism_surface !=
                     (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE ? 1u : 0u)) {
                 fprintf(stderr, "campaign level %u static wall %u has invalid mechanism metadata\n",
+                        level_index, static_wall_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            if (!find_direct_mechanism_wall_target(
+                    &game.level_mechanisms, scene_wall->source_record_offset,
+                    &direct_mechanism_kind, &direct_mechanism_index, error, sizeof(error))) {
+                fprintf(stderr,
+                        "campaign level %u static wall %u has invalid direct mechanism data: %s\n",
+                        level_index, static_wall_index, error);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            /*
+             * DoorRoutine/LiftRoutine mutate every listed ZDoorWall.graphics_offset.
+             * A same-EdgeT native solid face must never replace that direct
+             * source target's individual scroll, span, or controller identity.
+             */
+            if (direct_mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE &&
+                (scene_wall->mechanism_kind != direct_mechanism_kind ||
+                 scene_wall->mechanism_index != direct_mechanism_index ||
+                 scene_wall->mechanism_wall_source_offset !=
+                     scene_wall->source_record_offset)) {
+                fprintf(stderr,
+                        "campaign level %u static wall %u lost its direct mechanism texture state\n",
                         level_index, static_wall_index);
                 game_bootstrap_destroy(&game);
                 return 1;
