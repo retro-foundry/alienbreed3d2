@@ -64,6 +64,7 @@ void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16
     }
     /* Every explicit source caller writes Aud_SampleNum_w before MakeSomeNoise. */
     events->source_sample_index = sample_index;
+    events->source_id_register = source_id;
     game_audio_events_queue(events, sample_index, volume, world_x, world_z, source_id,
                             suppress_if_playing, channel_pick, echo, 0u);
 }
@@ -77,8 +78,25 @@ void game_audio_events_emit_relative(
         return;
     }
     events->source_sample_index = sample_index;
+    events->source_id_register = source_id;
     game_audio_events_queue(events, sample_index, volume, relative_x, relative_z, source_id,
                             suppress_if_playing, channel_pick, echo, UINT8_MAX);
+}
+
+void game_audio_events_emit_with_source_id_high_byte(
+    GameAudioEvents *events, int16_t sample_index, int16_t volume,
+    int16_t world_x, int16_t world_z, uint8_t source_id_high_byte,
+    uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo)
+{
+    if (!events) {
+        return;
+    }
+    events->source_sample_index = sample_index;
+    events->source_id_register = (uint16_t)(((uint16_t)source_id_high_byte << 8u) |
+                                            (events->source_id_register & UINT16_C(0x00ff)));
+    game_audio_events_queue(
+        events, sample_index, volume, world_x, world_z, events->source_id_register,
+        suppress_if_playing, channel_pick, echo, 0u);
 }
 
 void game_audio_events_emit_current_sample(
@@ -88,6 +106,7 @@ void game_audio_events_emit_current_sample(
     if (!events) {
         return;
     }
+    events->source_id_register = source_id;
     game_audio_events_queue(events, events->source_sample_index, volume, world_x, world_z,
                             source_id, suppress_if_playing, channel_pick, echo, 0u);
 }

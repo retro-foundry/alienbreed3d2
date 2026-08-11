@@ -42,6 +42,8 @@ typedef struct {
     uint16_t dropped_count;
     /* hires.s:Aud_SampleNum_w persists between MakeSomeNoise callers. */
     int16_t source_sample_index;
+    /* hires.s:IDNUM persists; some source callers replace only its high byte. */
+    uint16_t source_id_register;
 } GameAudioEvents;
 
 /* bss/anim_bss.s state consumed by newanims.s:BACKSFX. */
@@ -61,6 +63,11 @@ void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16
 void game_audio_events_emit_relative(
     GameAudioEvents *events, int16_t sample_index, int16_t volume,
     int16_t relative_x, int16_t relative_z, uint16_t source_id,
+    uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
+/* Explicit sample plus a big-endian byte write at the address of hires.s:IDNUM. */
+void game_audio_events_emit_with_source_id_high_byte(
+    GameAudioEvents *events, int16_t sample_index, int16_t volume,
+    int16_t world_x, int16_t world_z, uint8_t source_id_high_byte,
     uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
 /* MakeSomeNoise using the last value written to hires.s:Aud_SampleNum_w. */
 void game_audio_events_emit_current_sample(

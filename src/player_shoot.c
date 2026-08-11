@@ -330,10 +330,11 @@ int player_shoot_update_single_player_with_motion_and_audio(
     if (infinite_ammo == 0u && (int16_t)ammunition < (int16_t)shoot.bullet_count) {
         /* newplayershoot.s:Plr1_Shot no-ammunition MakeSomeNoise (slot 12). */
         player->noise_volume = 100;
-        game_audio_events_emit(audio_events, 12, 100,
-                               player_runtime_position_to_world(player->x),
-                               player_runtime_position_to_world(player->z),
-                               UINT16_C(0xfffe), GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
+        game_audio_events_emit_with_source_id_high_byte(
+            audio_events, 12, 100,
+            player_runtime_position_to_world(player->x),
+            player_runtime_position_to_world(player->z),
+            UINT8_C(0xfb), GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
         return 1;
     }
     if (objects->player1_slot > UINT32_MAX - 2u ||
@@ -353,10 +354,11 @@ int player_shoot_update_single_player_with_motion_and_audio(
     }
     /* newplayershoot.s:.okcanshoot emits ShootT_SFX_w at the player point. */
     player->noise_volume = 100;
-    game_audio_events_emit(audio_events, (int16_t)shoot.sound_effect, 300,
-                           player_runtime_position_to_world(player->x),
-                           player_runtime_position_to_world(player->z),
-                           UINT16_C(0xfffe), GAME_AUDIO_RESTART_SOURCE, 2u, 0u);
+    game_audio_events_emit_with_source_id_high_byte(
+        audio_events, (int16_t)shoot.sound_effect, 300,
+        player_runtime_position_to_world(player->x),
+        player_runtime_position_to_world(player->z),
+        UINT8_C(0xfb), GAME_AUDIO_RESTART_SOURCE, 2u, 0u);
 
     vertical_speed = target.found != 0u ? target.vertical_speed :
         player_shoot_manual_vertical_speed(player, &bullet);

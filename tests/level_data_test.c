@@ -6493,6 +6493,7 @@ int main(int argc, char **argv)
         GameBulletDefinition parent_bullet;
         GameRandom parent_random;
         GameRandom expected_parent_random;
+        GameAudioEvents parent_audio;
 
         if (!game_link_get_shoot_definition(&game.game_link_catalog, 0u, &parent_shoot,
                                             error, sizeof(error)) ||
@@ -6535,16 +6536,23 @@ int main(int argc, char **argv)
         parent_player.zone_index = 0u;
         parent_inventory.ammunition[parent_shoot.bullet_type] = 8u;
         game_random_init(&parent_random);
+        game_audio_events_init(&parent_audio);
+        /* move.b #$fb,IDNUM replaces the high byte and retains this low byte. */
+        parent_audio.source_id_register = UINT16_C(0x12ab);
         expected_parent_random = parent_random;
         for (uint16_t shot_index = 0u; shot_index < parent_shoot.bullet_count; ++shot_index) {
             (void)game_random_next(&expected_parent_random);
         }
-        if (!player_shoot_update_single_player(
+        if (!player_shoot_update_single_player_with_motion_and_audio(
                 &parent_objects, &game.dynamic_level, &parent_observation, &parent_player,
-                &parent_inventory, &game.game_link_catalog, &game.preferences, &game.math,
-                &parent_random, 1u, error, sizeof(error)) ||
+                NULL, &parent_inventory, &game.game_link_catalog, &game.preferences, &game.math,
+                &parent_random, 1u, 0u, &parent_audio, error, sizeof(error)) ||
             parent_player.time_to_shoot != (int16_t)parent_shoot.delay ||
             parent_player.noise_volume != 100 ||
+            parent_audio.count != 1u ||
+            parent_audio.source_id_register != UINT16_C(0xfbab) ||
+            parent_audio.events[0u].source_id != UINT16_C(0xfbab) ||
+            parent_audio.events[0u].sample_index != parent_shoot.sound_effect ||
             parent_inventory.ammunition[parent_shoot.bullet_type] !=
                 (uint16_t)(8u - parent_shoot.bullet_count) ||
             slot_bytes[PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] !=
