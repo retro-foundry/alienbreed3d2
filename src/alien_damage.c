@@ -143,6 +143,8 @@ int alien_damage_take(ObjectRuntime *objects, uint32_t slot_index,
             return 0;
         }
         alien_runtime->heading_angle = heading.angle;
+        object_motion_runtime_set_new_words(
+            &alien_runtime->motion, heading.new_x, heading.new_z);
         alien_damage_write_be16(slot + ALIEN_DAMAGE_SLOT_CURRENT_ANGLE, heading.angle);
     } else {
         slot[ALIEN_DAMAGE_SLOT_CURRENT_MODE] = 4u;

@@ -9899,6 +9899,8 @@ int main(int argc, char **argv)
             slot_bytes[19u] != 0u || slot_bytes[20u] != 1u || slot_bytes[55u] != 1u ||
             read_be16(slot_bytes + 30u) != expected_heading.angle ||
             damage_runtime.heading_angle != expected_heading.angle ||
+            damage_runtime.motion.new_x != expected_heading.new_x ||
+            damage_runtime.motion.new_z != expected_heading.new_z ||
             read_be16(slot_bytes + 34u) != 0u || read_be16(slot_bytes + 40u) != 0u ||
             damage_animation_runtime.workspace[0u][1u] != UINT8_MAX ||
             damage_random.state != expected_random.state) {
@@ -9907,6 +9909,8 @@ int main(int argc, char **argv)
             return 1;
         }
         alien_runtime_init(&damage_runtime);
+        damage_runtime.motion.new_x = 321;
+        damage_runtime.motion.new_z = 654;
         object_animation_runtime_init(&damage_animation_runtime);
         slot_bytes[18u] = 10u;
         slot_bytes[19u] = 4u;
@@ -9924,6 +9928,7 @@ int main(int argc, char **argv)
             damage_state.got_out != UINT8_MAX || damage_runtime.damage[0u] != 4 ||
             slot_bytes[19u] != 0u || slot_bytes[20u] != 4u || slot_bytes[55u] != 2u ||
             read_be16(slot_bytes + 30u) != 0x1234u || damage_runtime.heading_angle != 0u ||
+            damage_runtime.motion.new_x != 321 || damage_runtime.motion.new_z != 654 ||
             read_be16(slot_bytes + 34u) != 0u ||
             read_be16(slot_bytes + 40u) != 0u ||
             damage_animation_runtime.workspace[0u][1u] != UINT8_MAX) {
