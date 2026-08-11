@@ -4784,6 +4784,98 @@ int main(int argc, char **argv)
         }
     }
     {
+        /*
+         * hires.s:Plr1_Control calls Obj_DoCollision before MoveObject. On a
+         * hit its move.w restores only the committed integer X/Z words, while
+         * Plr1_Snap* retains the attempted fixed-point fractions and the
+         * shared newx/newz workspace retains the attempted integer position.
+         */
+        uint8_t player_collision_slots[3u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        uint8_t player_collision_points[2u * OBJECT_RUNTIME_POINT_BYTE_COUNT] = {0};
+        int16_t player_collision_a2[8u] = {0, 20, 80, 0, 0, 20, 80, 0};
+        ObjectRuntime player_collision_objects = {0};
+        PlayerObjectCollisionContext player_collision_context = {0};
+        PlayerRuntime player_collision_player = game.player;
+        GameInput player_collision_input;
+        ObjectMotionRuntime player_collision_motion;
+        LevelZone player_collision_zone;
+        const int16_t old_x = 1000;
+        const int16_t old_z = 1000;
+        const int16_t attempted_x = 1050;
+        const int16_t attempted_z = 1000;
+        int32_t visual_y;
+
+        if (!level_runtime_get_zone(&game.level_runtime, player_collision_player.zone_index,
+                                    &player_collision_zone, error, sizeof(error))) {
+            fprintf(stderr, "player Obj_DoCollision fixture zone is unavailable: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        player_collision_player.x = player_runtime_world_to_position(old_x);
+        player_collision_player.z = player_runtime_world_to_position(old_z);
+        player_collision_player.snap_x =
+            (int32_t)((uint32_t)player_runtime_world_to_position(attempted_x) | UINT32_C(0x1234));
+        player_collision_player.snap_z =
+            (int32_t)((uint32_t)player_runtime_world_to_position(attempted_z) | UINT32_C(0x5678));
+        player_collision_player.snap_x_speed = 0;
+        player_collision_player.snap_z_speed = 0;
+        player_collision_player.snap_target_y = player_collision_player.snap_y;
+        player_collision_player.snap_y_velocity = 0;
+        player_collision_player.bobble = 0u;
+        player_collision_player.ducked = 0u;
+        player_collision_player.squished = 0u;
+        visual_y = player_collision_player.snap_y + 2048;
+
+        player_collision_objects.slot_bytes = player_collision_slots;
+        player_collision_objects.slot_count = 3u;
+        player_collision_objects.active_slot_count = 2u;
+        player_collision_objects.player1_slot = 1u;
+        player_collision_objects.point_bytes = player_collision_points;
+        player_collision_objects.point_count = 2u;
+        /* Candidate alien, Player 1, then the source negative terminator. */
+        write_be16(player_collision_slots + 0u, 0u);
+        write_be16(player_collision_slots + 4u,
+                   (uint16_t)(source_asr32_7(visual_y) + 20));
+        write_be16(player_collision_slots + 12u, player_collision_zone.id);
+        player_collision_slots[16u] = 0u;
+        player_collision_slots[18u] = 1u;
+        player_collision_slots[63u] = player_collision_player.stood_in_top;
+        write_be16(player_collision_slots + OBJECT_RUNTIME_SLOT_BYTE_COUNT, 1u);
+        write_be16(player_collision_slots + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   player_collision_zone.id);
+        player_collision_slots[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 63u] =
+            player_collision_player.stood_in_top;
+        write_be16(player_collision_slots + 2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT, UINT16_MAX);
+        write_be32(player_collision_points + 0u, (uint32_t)(uint16_t)attempted_x << 16u);
+        write_be32(player_collision_points + 4u, (uint32_t)(uint16_t)attempted_z << 16u);
+        write_be32(player_collision_points + OBJECT_RUNTIME_POINT_BYTE_COUNT,
+                   (uint32_t)(uint16_t)old_x << 16u);
+        write_be32(player_collision_points + OBJECT_RUNTIME_POINT_BYTE_COUNT + 4u,
+                   (uint32_t)(uint16_t)old_z << 16u);
+        player_collision_context.objects = &player_collision_objects;
+        player_collision_context.source_a2_words = player_collision_a2;
+        player_collision_context.source_a2_word_count =
+            sizeof(player_collision_a2) / sizeof(player_collision_a2[0]);
+        game_input_init(&player_collision_input);
+        object_motion_runtime_init(&player_collision_motion);
+        if (!player_runtime_update_spatial_with_motion_and_audio(
+                &player_collision_player, &player_collision_input, &control_defaults,
+                &game.preferences, &game.math, &game.level_runtime, NULL,
+                &player_collision_motion, &player_collision_context,
+                &game.game_link_catalog, NULL, error, sizeof(error)) ||
+            player_runtime_position_to_world(player_collision_player.x) != old_x ||
+            player_runtime_position_to_world(player_collision_player.z) != old_z ||
+            ((uint32_t)player_collision_player.x & UINT32_C(0xffff)) != UINT32_C(0x1234) ||
+            ((uint32_t)player_collision_player.z & UINT32_C(0xffff)) != UINT32_C(0x5678) ||
+            player_collision_motion.new_x != attempted_x ||
+            player_collision_motion.new_z != attempted_z) {
+            fprintf(stderr, "Plr1_Control object collision handoff is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         PlayerRuntime number_weapon_player = game.player;
         GameInput number_weapon_input;
         GameInventory number_weapon_inventory = {0};
@@ -4866,6 +4958,7 @@ int main(int argc, char **argv)
             !player_runtime_update_spatial_with_motion_and_audio(
                 &footstep_player, &footstep_input, &control_defaults, &game.preferences,
                 &game.math, &footstep_level.runtime, &footstep_level, NULL,
+                NULL,
                 &game.game_link_catalog, &footstep_events, error, sizeof(error)) ||
             footstep_events.count != 1u ||
             footstep_events.events[0u].sample_index != (uint16_t)expected_sample ||
@@ -4883,6 +4976,7 @@ int main(int argc, char **argv)
         if (!player_runtime_update_spatial_with_motion_and_audio(
                 &footstep_player, &footstep_input, &control_defaults, &game.preferences,
                 &game.math, &footstep_level.runtime, &footstep_level, NULL,
+                NULL,
                 &game.game_link_catalog, &footstep_events, error, sizeof(error)) ||
             footstep_events.count != 0u) {
             fprintf(stderr, "source floor footstep cadence is inconsistent: %s\n", error);

@@ -391,6 +391,7 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
 {
     LevelZone player_zone;
     ObjectHandlerAlienContext alien_context;
+    PlayerObjectCollisionContext player_collision;
 
     if (!game || game->level_data.size == 0u) {
         if (error && error_size > 0u) {
@@ -405,6 +406,10 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     }
     game->message_time_milliseconds = message_time_milliseconds;
     game_audio_events_begin(&game->audio_events);
+    player_collision.objects = &game->object_runtime;
+    player_collision.source_a2_words = &game->alien_runtime.team_workspace[0u][0u];
+    player_collision.source_a2_word_count =
+        ALIEN_RUNTIME_TEAM_COUNT * ALIEN_RUNTIME_WORKSPACE_WORD_COUNT;
     /* hires.s:VBlankInterrupt decrements Anim_Timer_w before frame work. */
     lighting_runtime_vblank(&game->lighting_runtime);
     /* hires.s:dosomething calls DOALLANIMS before its control/object work. */
@@ -418,6 +423,7 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
         !player_runtime_update_spatial_with_motion_and_audio(
             &game->player, &game->input, &game->controls, &game->preferences, &game->math,
             &game->dynamic_level.runtime, &game->dynamic_level, &game->alien_runtime.motion,
+            &player_collision,
             &game->game_link_catalog, &game->audio_events,
             error, error_size) ||
         !lighting_runtime_refresh_single_player(

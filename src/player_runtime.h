@@ -13,6 +13,7 @@
 #include "level_dynamic_state.h"
 #include "level_runtime.h"
 #include "object_motion.h"
+#include "object_runtime.h"
 
 /* Single-player subset of modules/player.s:Plr_Initialise. */
 typedef struct {
@@ -98,6 +99,18 @@ typedef struct {
 } PlayerRuntime;
 
 /*
+ * hires.s:Plr1_Control's Obj_DoCollision inputs. The maintained source leaves
+ * a2 on AI_AlienTeamWorkspace_vl at the preceding game_main_loop tail, so the
+ * live caller supplies that raw word storage explicitly instead of inventing
+ * native collision dimensions.
+ */
+typedef struct {
+    ObjectRuntime *objects;
+    const int16_t *source_a2_words;
+    size_t source_a2_word_count;
+} PlayerObjectCollisionContext;
+
+/*
  * Source X/Z boundary helpers. `move.w Plr1_XOff_l,Dn` reads the high word
  * of the big-endian source longword, while the low word carries sub-unit
  * movement accumulated by modules/player.s:plr_KeyboardControl.
@@ -132,8 +145,8 @@ int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *in
 /*
  * Single-player spatial sequence from modules/player.s, plr1control.s, and
  * hires.s:Plr1_Control.  It retains the source snap-state order, falling,
- * fixed-point keyboard motion, and static EdgeT/zone collision.  Dynamic
- * Obj_DoCollision remains owned by the later object-runtime slice.
+ * fixed-point keyboard motion, and static EdgeT/zone collision. The complete
+ * entry point below also owns the source player Obj_DoCollision pass.
  */
 int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
                                   const GameControls *controls,
@@ -162,6 +175,7 @@ int player_runtime_update_spatial_with_motion_and_audio(
     PlayerRuntime *player, GameInput *input, const GameControls *controls,
     const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,
     LevelDynamicState *dynamic_state, ObjectMotionRuntime *motion_runtime,
+    const PlayerObjectCollisionContext *object_collision,
     const GameLink *game_link, GameAudioEvents *audio_events,
     char *error, size_t error_size);
 

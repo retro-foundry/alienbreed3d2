@@ -271,6 +271,14 @@ sound effects and music now play through the SDL WAV backend.
   identity, forward-relative position, and zone echo through `GameAudioEvents`.
   The focused source-state test covers floor-table bounds/decoding, one emitted
   material step, and the following non-wrap tick.
+- [x] `src/player_runtime.*` now also restores `hires.s:Plr1_Control`'s live
+  `Obj_DoCollision` call before `MoveObject`. The caller supplies Player 1's
+  source `ObjT` record and the exact raw `a2` storage left by the preceding
+  `game_main_loop` object-worry scan. A blocked move restores only the integer
+  X/Z words, retains the attempted fixed-point fractions in `Plr1_Snap*`,
+  skips static edge movement, and leaves the attempted `newx/newz` words
+  published for the following source routines. A focused regression covers
+  that complete handoff rather than testing the collision helper in isolation.
 - [x] `src/audio_sdl.*` now preserves `hires.s:MakeSomeNoise` source-identity
   behavior at the eight-voice host boundary: unrelated source IDs overlap and
   are summed, a clear `notifplaying` restarts its matching source voice, and a

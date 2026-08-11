@@ -1,5 +1,6 @@
 #include "player_runtime.h"
 
+#include "object_collision.h"
 #include "object_movement.h"
 
 #include <limits.h>
@@ -1110,6 +1111,7 @@ int player_runtime_update_spatial_with_motion_and_audio(
     PlayerRuntime *player, GameInput *input, const GameControls *controls,
     const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,
     LevelDynamicState *dynamic_state, ObjectMotionRuntime *motion_runtime,
+    const PlayerObjectCollisionContext *object_collision,
     const GameLink *game_link, GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
@@ -1123,6 +1125,9 @@ int player_runtime_update_spatial_with_motion_and_audio(
     int32_t visual_y;
     int32_t thing_height;
     int32_t step_up;
+    int object_blocked = 0;
+    int16_t published_new_x;
+    int16_t published_new_z;
 
     if (!player || !input || !controls || !preferences || !math || !runtime ||
         player->zone_index >= runtime->zone_count) {
@@ -1165,6 +1170,8 @@ int player_runtime_update_spatial_with_motion_and_audio(
     old_z = player_runtime_position_to_world(player->z);
     new_x = player_runtime_position_to_world(player->snap_x);
     new_z = player_runtime_position_to_world(player->snap_z);
+    published_new_x = new_x;
+    published_new_z = new_z;
     player->height = player->snap_height;
     player->yaw = player->snap_yaw;
     if (!game_math_sine(math, player->bobble, &sine, error, error_size)) {
@@ -1184,18 +1191,48 @@ int player_runtime_update_spatial_with_motion_and_audio(
     step_up = (player->ducked != 0u || player->squished != 0u) ?
         PLAYER_SMALL_STEP_UP : PLAYER_STEP_UP;
 
-    /*
-     * hires.s:Plr1_Control probes a ZoneT teleport destination with
-     * Obj_DoCollision and only commits the destination when hitwall is clear.
-     * PlayerRuntime owns the static MoveObject slice; its caller has not yet
-     * supplied the player entity and the raw caller a2 collision words that
-     * Obj_DoCollision requires.  Therefore teleport metadata must not be
-     * treated as an unconditional position write: retain the authored player
-     * state and continue through the static collision path until that probe is
-     * owned by the dynamic object-runtime slice.
-     */
+    if (object_collision != NULL) {
+        ObjectCollisionTrace collision = {0};
+        uint8_t *player_slot;
+        uint8_t hit_wall;
 
-    if (dynamic_state != NULL) {
+        if (!object_collision->objects || !object_collision->source_a2_words ||
+            !object_runtime_get_player1_slot_bytes(
+                object_collision->objects, &player_slot)) {
+            player_runtime_set_error(error, error_size,
+                                     "Plr1_Control has no source player collision state");
+            return 0;
+        }
+        collision.collision_id = (uint16_t)(((uint16_t)player_slot[0u] << 8u) |
+                                            player_slot[1u]);
+        collision.old_x = old_x;
+        collision.old_z = old_z;
+        collision.new_x = new_x;
+        collision.new_z = new_z;
+        collision.new_y = visual_y;
+        collision.thing_height = thing_height;
+        collision.stood_in_top = player->stood_in_top;
+        /* hires.s:Plr1_Control .noteleport calls this before MoveObject. */
+        if (!object_collision_check(
+                object_collision->objects, game_link,
+                object_collision->source_a2_words,
+                object_collision->source_a2_word_count,
+                &collision, &hit_wall, error, error_size)) {
+            return 0;
+        }
+        if (hit_wall != 0u) {
+            /*
+             * The two move.w writes restore only the integer position words;
+             * the attempted snap state's fractional words keep accumulating.
+             * Source newx/newz remain the attempted coordinates on this path.
+             */
+            new_x = old_x;
+            new_z = old_z;
+            object_blocked = 1;
+        }
+    }
+
+    if (object_blocked == 0 && dynamic_state != NULL) {
         ObjectMovementTrace movement = {0};
 
         /* hires.s:Plr1_Control's .nothitanything -> objectmove.s:MoveObject. */
@@ -1219,11 +1256,16 @@ int player_runtime_update_spatial_with_motion_and_audio(
         player->stood_in_top = movement.stood_in_top;
         new_x = movement.new_x;
         new_z = movement.new_z;
-    } else if (!player_runtime_move_static(
+        published_new_x = new_x;
+        published_new_z = new_z;
+    } else if (object_blocked == 0 && !player_runtime_move_static(
                    runtime, &player->zone_index, &player->stood_in_top, old_x, old_z,
                    visual_y, visual_y, thing_height, step_up, &new_x, &new_z, NULL,
                    error, error_size)) {
         return 0;
+    } else if (object_blocked == 0) {
+        published_new_x = new_x;
+        published_new_z = new_z;
     }
     if (!level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
         return 0;
@@ -1236,7 +1278,7 @@ int player_runtime_update_spatial_with_motion_and_audio(
     player->snap_target_y = player_runtime_sub32(
         player->stood_in_top != 0u ? zone.upper_floor : zone.floor, player->height);
     /* hires.s:Plr1_Control leaves MoveObject's final newx/newz words live. */
-    object_motion_runtime_set_new_words(motion_runtime, new_x, new_z);
+    object_motion_runtime_set_new_words(motion_runtime, published_new_x, published_new_z);
     return 1;
 }
 
@@ -1248,7 +1290,7 @@ int player_runtime_update_spatial_with_motion(
 {
     return player_runtime_update_spatial_with_motion_and_audio(
         player, input, controls, preferences, math, runtime, dynamic_state, motion_runtime,
-        NULL, NULL, error, error_size);
+        NULL, NULL, NULL, error, error_size);
 }
 
 int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,
