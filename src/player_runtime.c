@@ -977,10 +977,17 @@ static int player_runtime_update_keyboard_motion(PlayerRuntime *player, const Ga
 
     strafe = 0;
     if (game_input_is_control_down(input, controls, strafe_left_binding)) {
-        strafe = move_speed;
+        /* add.w d2,d4; add.w d2,d4; asr.w #1,d4 */
+        strafe = player_runtime_add16(strafe, move_speed);
+        strafe = player_runtime_add16(strafe, move_speed);
+        strafe = player_runtime_asr16(strafe, 1u);
     }
     if (game_input_is_control_down(input, controls, strafe_right_binding)) {
-        strafe = (int16_t)-move_speed;
+        /* The source mutates the existing d4, including an earlier left input. */
+        strafe = player_runtime_add16(strafe, move_speed);
+        strafe = player_runtime_add16(strafe, move_speed);
+        strafe = player_runtime_asr16(strafe, 1u);
+        strafe = (int16_t)(UINT16_C(0) - (uint16_t)strafe);
     }
     forward = 0;
     if (game_input_is_control_down(input, controls, GAME_CONTROL_FORWARDS)) {
