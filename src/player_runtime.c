@@ -977,14 +977,23 @@ static int player_runtime_update_keyboard_motion(PlayerRuntime *player, const Ga
 
     strafe = 0;
     if (game_input_is_control_down(input, controls, strafe_left_binding)) {
-        strafe = move_speed;
+        /* modules/player.s mutates d4 with both ADD.W instructions. */
+        strafe = player_runtime_add16(strafe, move_speed);
+        strafe = player_runtime_add16(strafe, move_speed);
+        strafe = player_runtime_asr16(strafe, 1u);
     }
     if (game_input_is_control_down(input, controls, strafe_right_binding)) {
-        strafe = (int16_t)-move_speed;
+        /* A simultaneous left input remains in d4 on this source path. */
+        strafe = player_runtime_add16(strafe, move_speed);
+        strafe = player_runtime_add16(strafe, move_speed);
+        strafe = player_runtime_asr16(strafe, 1u);
+        strafe = (int16_t)(UINT16_C(0) - (uint16_t)strafe);
     }
     forward = 0;
     if (game_input_is_control_down(input, controls, GAME_CONTROL_FORWARDS)) {
-        forward = (int16_t)-move_speed;
+        /* NEG.W changes d2 itself before the later backwards-key test. */
+        move_speed = (int16_t)(UINT16_C(0) - (uint16_t)move_speed);
+        forward = move_speed;
     }
     if (game_input_is_control_down(input, controls, GAME_CONTROL_BACKWARDS)) {
         forward = move_speed;

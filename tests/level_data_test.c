@@ -4705,6 +4705,64 @@ int main(int argc, char **argv)
         return 1;
     }
     {
+        PlayerRuntime rollover_player = game.player;
+        GameInput rollover_input;
+        GamePreferences rollover_preferences = game.preferences;
+        const int32_t expected_x_velocity = 32767 * 4;
+        const int32_t expected_z_velocity = 32767 * 3;
+
+        /*
+         * modules/player.s:plr_KeyboardControl operates on the same d4/d2
+         * words when opposing keys overlap. At run speed three A+D yields
+         * source strafe -4, while W negates d2 before S reads it, so W+S
+         * remains source forward -3. Host key rollover must retain that
+         * instruction-level behavior rather than reverse for one tick.
+         */
+        rollover_player.mouse_active = 0u;
+        rollover_player.yaw = 0u;
+        rollover_player.snap_yaw = 0u;
+        rollover_player.snap_yaw_speed = 0;
+        rollover_player.snap_x_speed = 0;
+        rollover_player.snap_z_speed = 0;
+        rollover_player.decelerate = UINT8_MAX;
+        rollover_player.snap_target_y = rollover_player.snap_y;
+        rollover_preferences.always_run = UINT8_MAX;
+        game_input_init(&rollover_input);
+        if (!game_input_set_raw_key(
+                &rollover_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_SIDESTEP_LEFT], 1,
+                error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &rollover_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_SIDESTEP_RIGHT], 1,
+                error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &rollover_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_FORWARDS], 1,
+                error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &rollover_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_BACKWARDS], 1,
+                error, sizeof(error)) ||
+            !player_runtime_update_spatial(
+                &rollover_player, &rollover_input, &control_defaults,
+                &rollover_preferences, &game.math, &game.level_runtime,
+                NULL, error, sizeof(error)) ||
+            rollover_player.snap_x_speed != expected_x_velocity ||
+            rollover_player.snap_z_speed != expected_z_velocity ||
+            rollover_player.snap_x !=
+                (int32_t)((uint32_t)game.player.snap_x +
+                          (uint32_t)expected_x_velocity) ||
+            rollover_player.snap_z !=
+                (int32_t)((uint32_t)game.player.snap_z +
+                          (uint32_t)expected_z_velocity)) {
+            fprintf(stderr, "source opposing-key rollover arithmetic is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         PlayerRuntime weapon_selection_player = game.player;
         GameInput weapon_selection_input;
         GameInventory weapon_selection_inventory = {0};
