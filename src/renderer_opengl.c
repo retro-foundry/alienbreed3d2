@@ -48,7 +48,7 @@ static const float renderer_opengl_source_angle_quarter_turn = 2048.0f;
  * position stay untouched, while the visible particle remains on the facing
  * side of the contacted surface.
  */
-static const float renderer_opengl_projectile_surface_epsilon = 16.0f;
+static const float renderer_opengl_projectile_contact_surface_epsilon = 16.0f;
 /* The authored shade tables are fitted before upload.  Eight comfortably
  * covers every source response while retaining useful 8-bit parameter precision. */
 static const float renderer_opengl_light_response_exponent_maximum = 8.0f;
@@ -2471,19 +2471,17 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     center_x += right_x * (float)sprite->source_aux_offset_x;
     center_z += right_z * (float)sprite->source_aux_offset_x;
     center_y -= (float)sprite->source_aux_offset_y;
-    if ((sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
+    if ((sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) != 0u) {
         /*
-         * objdrawhires.s:Draw_Objects paints ShotT records after the room
-         * columns.  A depth buffer needs the inverse of the view forward
-         * vector here: a projectile that stopped on a wall/floor/roof must
-         * move onto the camera-facing side of that contact surface.  Adding
-         * the forward vector places it through the wall and makes the live
-         * impact, gib, and flame records disappear behind the world mesh.
-         * This leaves `ItsABullet` / `Anim_ExplodeIntoBits` source state
-         * unchanged; it is solely the GPU equivalent of source draw order.
+         * ItsABullet's non-zero ShotT_Status_b path paints a stationary pop
+         * after the source room columns. A depth buffer needs the inverse of
+         * the view forward vector so that exact contact point remains on the
+         * camera-facing side. Never apply this to Status==0 flight: doing so
+         * subtracts a full launch tick from `firefive` and puts speed-6 shots
+         * back at Plr1_XOff/ZOff instead of at their live source position.
          */
-        center_x -= sinf(yaw) * renderer_opengl_projectile_surface_epsilon;
-        center_z -= cosf(yaw) * renderer_opengl_projectile_surface_epsilon;
+        center_x -= sinf(yaw) * renderer_opengl_projectile_contact_surface_epsilon;
+        center_z -= cosf(yaw) * renderer_opengl_projectile_contact_surface_epsilon;
     }
     half_width = (float)sprite->source_width;
     half_height = (float)sprite->source_height;

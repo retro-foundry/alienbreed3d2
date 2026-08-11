@@ -200,7 +200,9 @@ enum {
      * this identity to prevent a contact effect from disappearing into the
      * surface that spawned it.
      */
-    SCENE_SPRITE_FLAG_PROJECTILE = 1u << 4
+    SCENE_SPRITE_FLAG_PROJECTILE = 1u << 4,
+    /* newanims.s:ItsABullet's non-zero ShotT_Status_b stationary pop path. */
+    SCENE_SPRITE_FLAG_PROJECTILE_CONTACT = 1u << 5
 };
 
 /* GLFT_FrameData_l's eight-byte bitmap-frame record. */

@@ -430,6 +430,9 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         }
         if (slot[16u] == 2u) {
             expected_flags |= SCENE_SPRITE_FLAG_PROJECTILE;
+            if (slot[30u] != 0u) {
+                expected_flags |= SCENE_SPRITE_FLAG_PROJECTILE_CONTACT;
+            }
         }
         point = game->object_runtime.point_bytes +
             (size_t)(uint16_t)point_index * OBJECT_RUNTIME_POINT_BYTE_COUNT;
@@ -6498,6 +6501,7 @@ int main(int argc, char **argv)
             }
             if (!projectile_sprite ||
                 (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) == 0u ||
+                (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) != 0u ||
                 projectile_sprite->source_width != (uint8_t)(projectile_frame.word_2 >> 8u) ||
                 projectile_sprite->source_height != (uint8_t)projectile_frame.word_2) {
                 fprintf(stderr, "ItsABullet source scene projectile handoff is inconsistent\n");
@@ -6506,6 +6510,42 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        /* Only ItsABullet's stationary pop receives the GPU draw-order bias. */
+        slot_bytes[30u] = 1u;
+        scene_frame_begin(&projectile_scene);
+        if (!object_scene_submit_active(
+                &projectile_objects, &game.game_link_catalog, &game.shared_resources,
+                &game.dynamic_level.runtime, &projectile_lighting, &game.math,
+                &game.preferences, &projectile_scene, error, sizeof(error))) {
+            fprintf(stderr, "ItsABullet stationary contact handoff is inconsistent: %s\n",
+                    error);
+            scene_frame_destroy(&projectile_scene);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        {
+            const SceneSprite *contact_sprite = NULL;
+
+            for (size_t command_index = 0u; command_index < projectile_scene.count;
+                 ++command_index) {
+                if (projectile_scene.commands[command_index].type ==
+                        SCENE_COMMAND_SPRITE_INSTANCE &&
+                    projectile_scene.commands[command_index].data.sprite_instance.sprite.source_record_id ==
+                        0u) {
+                    contact_sprite =
+                        &projectile_scene.commands[command_index].data.sprite_instance.sprite;
+                    break;
+                }
+            }
+            if (!contact_sprite ||
+                (contact_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) == 0u) {
+                fprintf(stderr, "ItsABullet stationary contact flag is inconsistent\n");
+                scene_frame_destroy(&projectile_scene);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+        }
+        slot_bytes[30u] = 0u;
         scene_frame_destroy(&projectile_scene);
         if (!lighting_runtime_brighten_points(
                 &expected_projectile_lighting, &game.dynamic_level.runtime,

@@ -18,6 +18,8 @@ enum {
     OBJECT_SCENE_ZONE_ID = 12u,
     OBJECT_SCENE_TYPE_ID = 16u,
     OBJECT_SCENE_CURRENT_ANGLE = 30u,
+    /* ShotT_Status_b aliases EntT_CurrentAngle_w's high byte. */
+    OBJECT_SCENE_PROJECTILE_STATUS = 30u,
     OBJECT_SCENE_AUX_OFFSET_X = 44u,
     OBJECT_SCENE_AUX_OFFSET_Y = 46u,
     OBJECT_SCENE_ENTITY_TYPE = 54u,
@@ -581,6 +583,9 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     if (slot[OBJECT_SCENE_TYPE_ID] == 2u) {
         /* newanims.s:ItsABullet / Anim_ExplodeIntoBits. */
         sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE;
+        if (slot[OBJECT_SCENE_PROJECTILE_STATUS] != 0u) {
+            sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE_CONTACT;
+        }
     }
     if (sprite.source_zone_index >= level->zone_count ||
         sprite.source_zone_index >= LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {

@@ -432,7 +432,11 @@ sound effects and music now play through the SDL WAV backend.
   so non-hitscan player volleys now advance in the live game loop. Their
   source roof, floor, wall, timeout, and direct-target `ComputeBlast` calls
   now apply source damage/impulse/flame state; impact audio uses the source
-  bullet slot through the shared event path.
+  bullet slot through the shared event path. The scene handoff distinguishes
+  `ItsABullet` flight (`ShotT_Status_b == 0`) from its stationary contact pop:
+  only the latter receives the GPU camera-facing depth-order bias. Live shots
+  therefore retain their complete first `firefive` movement instead of being
+  pulled one speed-6 tick back to the player for presentation.
   `src/object_movement.*`
   now translates `objectmove.s:MoveObject`'s primary and non-zero-`Obj_ExtLen_w`
   extended-edge passes: source height-opening checks, edge flag writes,
