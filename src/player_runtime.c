@@ -454,6 +454,54 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
     return 1;
 }
 
+void player_hazard_runtime_init(PlayerHazardRuntime *runtime)
+{
+    if (runtime) {
+        memset(runtime, 0, sizeof(*runtime));
+    }
+}
+
+int player_hazard_runtime_update(PlayerHazardRuntime *runtime, uint16_t frame_ticks,
+                                 const PlayerRuntime *player, const LevelZone *zone,
+                                 const GameLink *game_link, uint8_t *entity_damage,
+                                 char *error, size_t error_size)
+{
+    GameFloorData floor_data;
+    uint16_t floor_index;
+
+    if (!runtime || !player || !zone || !game_link || !entity_damage) {
+        player_runtime_set_error(
+            error, error_size,
+            "dosomething floor damage requires source timer, player, zone, GLFT, and entity state");
+        return 0;
+    }
+
+    /* SUB.W #1,timetodamage followed by signed BGT and reset to 100. */
+    runtime->time_to_damage =
+        (int16_t)((uint16_t)runtime->time_to_damage - frame_ticks);
+    if (runtime->time_to_damage > 0) {
+        return 1;
+    }
+    runtime->time_to_damage = 100;
+
+    floor_index = player->stood_in_top != 0u ?
+        zone->upper_floor_noise : zone->floor_noise;
+    /*
+     * Maintained hires.s issue #1: damage applies while immersed past the
+     * water surface, or while SnapY has reached/crossed SnapTY on dry ground.
+     */
+    if (zone->water >= player->snap_y && player->snap_target_y > player->snap_y) {
+        return 1;
+    }
+    if (!game_link_get_floor_data(game_link, floor_index, &floor_data,
+                                  error, error_size)) {
+        return 0;
+    }
+    /* ADD.B d0,EntT_DamageTaken_b consumes only the source word's low byte. */
+    *entity_damage = (uint8_t)(*entity_damage + (uint8_t)floor_data.damage);
+    return 1;
+}
+
 int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *input,
                                             const GameControls *controls,
                                             const LevelRuntime *runtime,

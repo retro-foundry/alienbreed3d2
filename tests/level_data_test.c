@@ -1632,6 +1632,80 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    {
+        PlayerHazardRuntime hazard_runtime;
+        PlayerRuntime hazard_player = {0};
+        LevelZone hazard_zone = {0};
+        GameFloorData damaging_floor = {0};
+        uint16_t damaging_floor_index = GAME_LINK_FLOOR_DATA_COUNT;
+        uint8_t entity_damage = 250u;
+
+        for (floor_data_index = 0u;
+             floor_data_index < GAME_LINK_FLOOR_DATA_COUNT;
+             ++floor_data_index) {
+            if (!game_link_get_floor_data(&game_link, floor_data_index, &floor_data,
+                                          error, sizeof(error))) {
+                fprintf(stderr, "could not find source hazardous floor data: %s\n", error);
+                asset_blob_release(&game_link_blob);
+                return 1;
+            }
+            if ((uint8_t)floor_data.damage != 0u) {
+                damaging_floor = floor_data;
+                damaging_floor_index = floor_data_index;
+                break;
+            }
+        }
+        if (damaging_floor_index == GAME_LINK_FLOOR_DATA_COUNT) {
+            fprintf(stderr, "GLFT has no hazardous floor fixture\n");
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+        hazard_zone.floor_noise = damaging_floor_index;
+        hazard_zone.water = 2000;
+        hazard_player.snap_y = 1000;
+        hazard_player.snap_target_y = 2000;
+        player_hazard_runtime_init(&hazard_runtime);
+        /* Airborne above both liquid and floor: timer runs, damage does not. */
+        if (!player_hazard_runtime_update(
+                &hazard_runtime, 1u, &hazard_player, &hazard_zone, &game_link,
+                &entity_damage, error, sizeof(error)) ||
+            hazard_runtime.time_to_damage != 100 || entity_damage != 250u) {
+            fprintf(stderr, "hires.s hazardous-floor airborne gate is inconsistent: %s\n",
+                    error);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+        /* The source timer must not test contact again until its 100th VBlank. */
+        hazard_player.snap_target_y = hazard_player.snap_y;
+        if (!player_hazard_runtime_update(
+                &hazard_runtime, 99u, &hazard_player, &hazard_zone, &game_link,
+                &entity_damage, error, sizeof(error)) ||
+            hazard_runtime.time_to_damage != 1 || entity_damage != 250u ||
+            !player_hazard_runtime_update(
+                &hazard_runtime, 1u, &hazard_player, &hazard_zone, &game_link,
+                &entity_damage, error, sizeof(error)) ||
+            hazard_runtime.time_to_damage != 100 ||
+            entity_damage !=
+                (uint8_t)(250u + (uint8_t)damaging_floor.damage)) {
+            fprintf(stderr, "hires.s hazardous-floor contact damage is inconsistent: %s\n",
+                    error);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+        /* Water below source Y is the maintained toxic-liquid contact branch. */
+        player_hazard_runtime_init(&hazard_runtime);
+        hazard_zone.water = 500;
+        hazard_player.snap_target_y = 2000;
+        entity_damage = 0u;
+        if (!player_hazard_runtime_update(
+                &hazard_runtime, 1u, &hazard_player, &hazard_zone, &game_link,
+                &entity_damage, error, sizeof(error)) ||
+            entity_damage != (uint8_t)damaging_floor.damage) {
+            fprintf(stderr, "hires.s hazardous-liquid damage is inconsistent: %s\n", error);
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
+    }
     for (object_definition_index = 0u;
          object_definition_index < GAME_LINK_OBJECT_COUNT;
          ++object_definition_index) {

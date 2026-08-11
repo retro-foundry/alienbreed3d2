@@ -99,6 +99,8 @@ typedef struct {
     uint32_t presentation_frame;
     LevelStaticScene static_scene;
     PlayerRuntime player;
+    /* hires.s:dosomething's process-lifetime hazardous-floor timer. */
+    PlayerHazardRuntime player_hazard_runtime;
 } GameBootstrap;
 
 /*

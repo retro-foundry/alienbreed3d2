@@ -347,6 +347,7 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     object_animation_runtime_init(&game->object_animation_runtime);
     lighting_runtime_init(&game->lighting_runtime);
     object_explosion_runtime_init(&game->object_explosion_runtime);
+    player_hazard_runtime_init(&game->player_hazard_runtime);
     return 1;
 
 fail:
@@ -393,6 +394,7 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     LevelZone player_zone;
     ObjectHandlerAlienContext alien_context;
     PlayerObjectCollisionContext player_collision;
+    uint8_t *player_slot;
 
     if (!game || game->level_data.size == 0u) {
         if (error && error_size > 0u) {
@@ -416,7 +418,22 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     /* hires.s:dosomething calls DOALLANIMS before its control/object work. */
     if (!object_animation_update_single_player_with_audio(
             &game->object_animation_runtime, &game->object_runtime,
-            &game->game_link_catalog, &game->random, &game->audio_events, error, error_size) ||
+            &game->game_link_catalog, &game->random, &game->audio_events,
+            error, error_size) ||
+        !level_runtime_get_zone(&game->dynamic_level.runtime, game->player.zone_index,
+                                &player_zone, error, error_size)) {
+        return 0;
+    }
+    if (!object_runtime_get_player1_slot_bytes(&game->object_runtime, &player_slot)) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "dosomething floor damage has no Player 1 source entity");
+        }
+        return 0;
+    }
+    if (!player_hazard_runtime_update(
+            &game->player_hazard_runtime, 1u, &game->player, &player_zone,
+            &game->game_link_catalog, player_slot + 19u, error, error_size) ||
         !player_runtime_update_discrete_controls(&game->player, &game->input,
                                                  &game->controls, &game->dynamic_level.runtime,
                                                  &game->session.player1_inventory,
@@ -728,6 +745,7 @@ void game_bootstrap_destroy(GameBootstrap *game)
     object_animation_runtime_destroy(&game->object_animation_runtime);
     lighting_runtime_init(&game->lighting_runtime);
     object_explosion_runtime_init(&game->object_explosion_runtime);
+    player_hazard_runtime_init(&game->player_hazard_runtime);
     memset(&game->alien_dispatch_workspace, 0, sizeof(game->alien_dispatch_workspace));
     memset(&game->session, 0, sizeof(game->session));
     memset(&game->preferences, 0, sizeof(game->preferences));

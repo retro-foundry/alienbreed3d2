@@ -98,6 +98,11 @@ typedef struct {
     uint8_t decelerate;
 } PlayerRuntime;
 
+/* hires.s:timetodamage, shared by dosomething's hazardous-floor pass. */
+typedef struct {
+    int16_t time_to_damage;
+} PlayerHazardRuntime;
+
 /*
  * hires.s:Plr1_Control's Obj_DoCollision inputs. The maintained source leaves
  * a2 on AI_AlienTeamWorkspace_vl at the preceding game_main_loop tail, so the
@@ -129,6 +134,13 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
                                       const LevelRuntime *runtime,
                                       PlayerRuntime *out_player,
                                       char *error, size_t error_size);
+
+void player_hazard_runtime_init(PlayerHazardRuntime *runtime);
+/* hires.s:dosomething's maintained floor/liquid contact damage for Player 1. */
+int player_hazard_runtime_update(PlayerHazardRuntime *runtime, uint16_t frame_ticks,
+                                 const PlayerRuntime *player, const LevelZone *zone,
+                                 const GameLink *game_link, uint8_t *entity_damage,
+                                 char *error, size_t error_size);
 
 /*
  * The non-spatial operate/crouch/fire branches of
