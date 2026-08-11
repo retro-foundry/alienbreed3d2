@@ -51,10 +51,12 @@ state. The renderer blends completed source-frame scene snapshots using the
 so the source companion weapon/action sequence advances only at its fixed PAL
 cadence while camera, mutable world geometry, sprites, and source light
 samples present smoothly at the host frame rate. Native direct play copies the
-first port's `display_init` desktop presentation: it queries the active desktop
-bounds and creates the same normal shown/resizable OpenGL window there, without
-any fullscreen or borderless SDL flag and without a monitor-mode change, then
-renders directly to the complete SDL drawable. Its main
+first port's `display_init` desktop geometry: it queries the active desktop
+bounds and creates the same shown/resizable OpenGL window there. It then
+removes only normal-window decoration, matching that port's
+`g_release_borderless_desktop` presentation intent; it makes no fullscreen
+request or monitor-mode change, and renders directly to the complete SDL
+drawable. Its main
 loop relies on the requested OpenGL swap interval rather than a fixed 16 ms
 sleep, so a supported 120 Hz-or-higher display can present the interpolated
 scene at its native refresh rate. The hidden GPU smoke test retains its

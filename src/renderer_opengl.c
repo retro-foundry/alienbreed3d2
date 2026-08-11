@@ -3601,6 +3601,18 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
         free(renderer);
         return NULL;
     }
+#if !defined(__EMSCRIPTEN__)
+    if (desktop_window != 0 && hidden_window == 0) {
+        /*
+         * `display_init` in the first port marks this as its release
+         * desktop presentation (`g_release_borderless_desktop`).  Keep the
+         * exact normal-window creation above, then remove only the platform
+         * decoration.  SDL_SetWindowBordered does not request a fullscreen
+         * display mode or alter the desktop resolution.
+         */
+        SDL_SetWindowBordered(renderer->window, SDL_FALSE);
+    }
+#endif
     renderer->context = SDL_GL_CreateContext(renderer->window);
     if (!renderer->context) {
         renderer_opengl_set_sdl_error(error, error_size, "SDL OpenGL context creation failed");
