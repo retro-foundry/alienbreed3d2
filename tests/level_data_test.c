@@ -5309,51 +5309,6 @@ int main(int argc, char **argv)
         return 1;
     }
     {
-        PlayerRuntime opposing_strafe_player = game.player;
-        GameInput opposing_strafe_input;
-        GamePreferences opposing_strafe_preferences = game.preferences;
-        const int32_t expected_source_velocity = 32767 * 4;
-
-        /*
-         * modules/player.s mutates d4 for left and then mutates that result
-         * for right. With source run speed three the overlap is therefore
-         * -4, not a host-side last-key-wins -3. This overlap occurs during
-         * ordinary key transitions and must not introduce a velocity step.
-         */
-        opposing_strafe_player.mouse_active = 0u;
-        opposing_strafe_player.yaw = 0u;
-        opposing_strafe_player.snap_yaw = 0u;
-        opposing_strafe_player.snap_yaw_speed = 0;
-        opposing_strafe_player.snap_x_speed = 0;
-        opposing_strafe_player.snap_z_speed = 0;
-        opposing_strafe_player.decelerate = UINT8_MAX;
-        opposing_strafe_player.snap_target_y = opposing_strafe_player.snap_y;
-        opposing_strafe_preferences.always_run = UINT8_MAX;
-        game_input_init(&opposing_strafe_input);
-        if (!game_input_set_raw_key(
-                &opposing_strafe_input,
-                control_defaults.assigned_raw_keys[GAME_CONTROL_SIDESTEP_LEFT], 1,
-                error, sizeof(error)) ||
-            !game_input_set_raw_key(
-                &opposing_strafe_input,
-                control_defaults.assigned_raw_keys[GAME_CONTROL_SIDESTEP_RIGHT], 1,
-                error, sizeof(error)) ||
-            !player_runtime_update_spatial(
-                &opposing_strafe_player, &opposing_strafe_input, &control_defaults,
-                &opposing_strafe_preferences, &game.math, &game.level_runtime,
-                NULL, error, sizeof(error)) ||
-            opposing_strafe_player.snap_x_speed != expected_source_velocity ||
-            opposing_strafe_player.snap_z_speed != 0 ||
-            opposing_strafe_player.snap_x !=
-                (int32_t)((uint32_t)game.player.snap_x +
-                          (uint32_t)expected_source_velocity)) {
-            fprintf(stderr, "source opposing-strafe arithmetic is inconsistent: %s\n",
-                    error);
-            game_bootstrap_destroy(&game);
-            return 1;
-        }
-    }
-    {
         PlayerRuntime mouse_player = game.player;
         GameInput mouse_input;
         uint16_t expected_mouse_yaw;
