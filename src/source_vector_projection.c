@@ -68,13 +68,13 @@ int source_vector_transform_view_weapon_point(
 }
 
 int source_vector_make_view_weapon_matrix(
-    const SceneViewWeaponProjection *projection, float aspect, float out_matrix[16])
+    const SceneViewWeaponProjection *projection, float out_matrix[16])
 {
     const float near_plane = 0.5f;
     const float far_plane = 32767.0f;
     float vertical_scale;
 
-    if (!projection || !out_matrix || aspect <= 0.0f || projection->centre_x == 0u ||
+    if (!projection || !out_matrix || projection->centre_x == 0u ||
         projection->centre_y == 0u || projection->scale_numerator == 0u ||
         projection->scale_denominator == 0u) {
         return 0;
@@ -82,7 +82,15 @@ int source_vector_make_view_weapon_matrix(
     vertical_scale = (float)projection->scale_numerator /
         ((float)projection->scale_denominator * (float)projection->centre_y);
     memset(out_matrix, 0, 16u * sizeof(*out_matrix));
-    out_matrix[0] = vertical_scale / aspect;
+    /*
+     * fullscreen_conv projects X and Y independently into the source's
+     * 320x240 viewport: centre X is 160 and centre Y is 120.  These are
+     * already the two aspect corrections.  Applying the host drawable aspect
+     * here as well narrows the weapon on widescreen displays and changes its
+     * authored direction/profile.
+     */
+    out_matrix[0] = (float)projection->scale_numerator /
+        ((float)projection->scale_denominator * (float)projection->centre_x);
     out_matrix[5] = vertical_scale;
     out_matrix[10] = (far_plane + near_plane) / (near_plane - far_plane);
     out_matrix[11] = -1.0f;

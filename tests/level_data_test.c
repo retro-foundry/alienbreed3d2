@@ -5480,9 +5480,9 @@ int main(int argc, char **argv)
                 &projection, -353, 0, 0, &muzzle) ||
             !source_vector_transform_view_weapon_point(
                 &projection, -35, 0, 0, &breech) ||
-            !source_vector_make_view_weapon_matrix(&projection, 16.0f / 9.0f, matrix) ||
+            !source_vector_make_view_weapon_matrix(&projection, matrix) ||
             -muzzle.z <= -breech.z || muzzle.x != 0.0f || breech.x != 0.0f ||
-            matrix[0] < 0.00780f || matrix[0] > 0.00782f ||
+            matrix[0] < 0.01041f || matrix[0] > 0.01042f ||
             matrix[5] < 0.01388f || matrix[5] > 0.01390f) {
             fprintf(stderr, "source shotgun view projection faces the wrong direction\n");
             game_bootstrap_destroy(&game);
