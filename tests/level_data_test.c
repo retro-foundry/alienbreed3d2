@@ -1710,11 +1710,16 @@ int main(int argc, char **argv)
         hazard_player.snap_y = 1000;
         hazard_player.snap_target_y = 2000;
         player_hazard_runtime_init(&hazard_runtime);
+        if (hazard_runtime.time_to_damage != 100) {
+            fprintf(stderr, "hires.s hazardous-floor initial cadence is inconsistent\n");
+            asset_blob_release(&game_link_blob);
+            return 1;
+        }
         /* Airborne above both liquid and floor: timer runs, damage does not. */
         if (!player_hazard_runtime_update(
                 &hazard_runtime, 1u, &hazard_player, &hazard_zone, &game_link,
                 &entity_damage, error, sizeof(error)) ||
-            hazard_runtime.time_to_damage != 100 || entity_damage != 250u) {
+            hazard_runtime.time_to_damage != 99 || entity_damage != 250u) {
             fprintf(stderr, "hires.s hazardous-floor airborne gate is inconsistent: %s\n",
                     error);
             asset_blob_release(&game_link_blob);
@@ -1723,7 +1728,7 @@ int main(int argc, char **argv)
         /* The source timer must not test contact again until its 100th VBlank. */
         hazard_player.snap_target_y = hazard_player.snap_y;
         if (!player_hazard_runtime_update(
-                &hazard_runtime, 99u, &hazard_player, &hazard_zone, &game_link,
+                &hazard_runtime, 98u, &hazard_player, &hazard_zone, &game_link,
                 &entity_damage, error, sizeof(error)) ||
             hazard_runtime.time_to_damage != 1 || entity_damage != 250u ||
             !player_hazard_runtime_update(
@@ -1743,7 +1748,7 @@ int main(int argc, char **argv)
         hazard_player.snap_target_y = 2000;
         entity_damage = 0u;
         if (!player_hazard_runtime_update(
-                &hazard_runtime, 1u, &hazard_player, &hazard_zone, &game_link,
+                &hazard_runtime, 100u, &hazard_player, &hazard_zone, &game_link,
                 &entity_damage, error, sizeof(error)) ||
             entity_damage != (uint8_t)damaging_floor.damage) {
             fprintf(stderr, "hires.s hazardous-liquid damage is inconsistent: %s\n", error);

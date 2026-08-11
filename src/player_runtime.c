@@ -461,7 +461,8 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
 void player_hazard_runtime_init(PlayerHazardRuntime *runtime)
 {
     if (runtime) {
-        memset(runtime, 0, sizeof(*runtime));
+        /* hires.s:Game_Begin seeds timetodamage before the first VBlank. */
+        runtime->time_to_damage = 100;
     }
 }
 
