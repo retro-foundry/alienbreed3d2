@@ -175,8 +175,10 @@ authority for all game behavior and data formats.
   it queries SDL's active desktop mode and display bounds, then creates the
   same `SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL` normal
   window at those bounds. It deliberately uses neither fullscreen nor
-  borderless SDL flags, so it never asks SDL to change the monitor mode. The
-  hidden GPU smoke path intentionally stays 1280x720 so its all-level
+  borderless SDL flags, so it never asks SDL to change the monitor mode. Its
+  MSVC target also carries Alien Breed 3D I's `VS_DPI_AWARE OFF` manifest
+  setting so Windows uses the matching desktop/non-client coordinate space.
+  The hidden GPU smoke path intentionally stays 1280x720 so its all-level
   validation remains bounded and independent of monitor layout.
 - [x] Native presentation now relies on `renderer_opengl.c`'s requested
   `SDL_GL_SetSwapInterval(1)`/`SDL_GL_SwapWindow` boundary rather than a fixed

@@ -55,6 +55,9 @@ first port's `display_init` desktop presentation: it queries the active desktop
 bounds and creates the same normal shown/resizable OpenGL window there, without
 any fullscreen or borderless SDL flag and without a monitor-mode change, then
 renders directly to the complete SDL drawable. Its main
+Windows build also carries the first port's `VS_DPI_AWARE OFF` manifest setting
+so the normal window's non-client geometry uses the same desktop coordinate
+space.
 loop relies on the requested OpenGL swap interval rather than a fixed 16 ms
 sleep, so a supported 120 Hz-or-higher display can present the interpolated
 scene at its native refresh rate. The hidden GPU smoke test retains its

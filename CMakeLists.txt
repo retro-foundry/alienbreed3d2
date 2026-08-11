@@ -126,6 +126,13 @@ if(NOT EMSCRIPTEN)
 endif()
 target_include_directories(ab3d2 PRIVATE src)
 
+# Match the first port's Windows manifest.  Its desktop-sized normal SDL
+# window is intentionally DPI-unaware; without this, Windows can apply a
+# different non-client-area scale and leave a visible desktop edge.
+if(MSVC AND NOT EMSCRIPTEN)
+  set_property(TARGET ab3d2 PROPERTY VS_DPI_AWARE OFF)
+endif()
+
 # The authoritative game assets are preserved byte-for-byte. Their Amiga
 # volume-relative layout becomes executable-local data/ with lower-case paths,
 # avoiding Amiga's case-insensitive filesystem assumption on Linux/macOS.
