@@ -258,6 +258,12 @@ sound effects and music now play through the SDL WAV backend.
   identity, forward-relative position, and zone echo through `GameAudioEvents`.
   The focused source-state test covers floor-table bounds/decoding, one emitted
   material step, and the following non-wrap tick.
+- [x] `src/audio_sdl.*` now preserves `hires.s:MakeSomeNoise` source-identity
+  behavior at the eight-voice host boundary: unrelated source IDs overlap and
+  are summed, a clear `notifplaying` restarts its matching source voice, and a
+  set `notifplaying` suppresses that retrigger. `ab3d2_audio_sdl_test` uses
+  SDL's dummy driver to assert that two independent WAV effects produce their
+  saturated PCM sum and that both source-ID policies are retained.
 - [x] The no-op presenter remains deliberately unchanged. The future backend
   receives whole-level camera/material/geometry/sprite/HUD intent and does
   not need PVS, portals, or software rendering.

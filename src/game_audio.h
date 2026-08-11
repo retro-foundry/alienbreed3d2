@@ -6,7 +6,10 @@
 /* hires.s:MakeSomeNoise has eight candidate source voices (four per side). */
 enum {
     GAME_AUDIO_EVENT_CAPACITY = 128u,
-    GAME_AUDIO_SOURCE_VOICE_COUNT = 8u
+    GAME_AUDIO_SOURCE_VOICE_COUNT = 8u,
+    /* hires.s:notifplaying clear/set values. */
+    GAME_AUDIO_RESTART_SOURCE = 0u,
+    GAME_AUDIO_SUPPRESS_IF_PLAYING = UINT8_MAX
 };
 
 /*
@@ -20,6 +23,8 @@ typedef struct {
     int16_t world_x;
     int16_t world_z;
     uint16_t source_id;
+    /* hires.s:notifplaying: reject only when this ID already owns a voice. */
+    uint8_t suppress_if_playing;
     uint8_t channel_pick;
     uint8_t echo;
 } GameAudioEvent;
@@ -36,6 +41,6 @@ void game_audio_events_begin(GameAudioEvents *events);
 /* Invalid/saturated source requests have no gameplay effect, matching MakeSomeNoise rejection. */
 void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16_t volume,
                             int16_t world_x, int16_t world_z, uint16_t source_id,
-                            uint8_t channel_pick, uint8_t echo);
+                            uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
 
 #endif

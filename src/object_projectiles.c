@@ -197,7 +197,7 @@ static void object_projectiles_emit_impact_sound(
                            200, object_projectiles_high_word(object_projectiles_read_be32s(point)),
                            object_projectiles_high_word(
                                object_projectiles_read_be32s(point + 4u)),
-                           (uint16_t)slot_index, 0u, 0u);
+                           (uint16_t)slot_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
 }
 
 static void object_projectiles_apply_animation_descriptor(

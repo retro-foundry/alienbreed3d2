@@ -380,7 +380,8 @@ static void mechanism_runtime_emit_liftable_sound(GameAudioEvents *audio_events,
 {
     /* newanims.s subtracts one from all four ZLiftableT sound fields. */
     game_audio_events_emit(audio_events, (int16_t)(one_based_sample - 1), 50,
-                           liftable->word9, liftable->word10, source_id, 1u, 0u);
+                           liftable->word9, liftable->word10, source_id,
+                           GAME_AUDIO_RESTART_SOURCE, 1u, 0u);
 }
 
 int mechanism_runtime_update_doors_single_player_with_audio(

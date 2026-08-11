@@ -21,7 +21,7 @@ void game_audio_events_begin(GameAudioEvents *events)
 
 void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16_t volume,
                             int16_t world_x, int16_t world_z, uint16_t source_id,
-                            uint8_t channel_pick, uint8_t echo)
+                            uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo)
 {
     GameAudioEvent *event;
 
@@ -39,6 +39,7 @@ void game_audio_events_emit(GameAudioEvents *events, int16_t sample_index, int16
     event->world_x = world_x;
     event->world_z = world_z;
     event->source_id = source_id;
+    event->suppress_if_playing = suppress_if_playing != 0u ? UINT8_MAX : 0u;
     event->channel_pick = channel_pick;
     event->echo = echo;
 }

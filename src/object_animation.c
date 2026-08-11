@@ -232,7 +232,7 @@ int object_animation_update_single_player_with_audio(ObjectAnimationRuntime *run
             game_audio_events_emit(audio_events, (int16_t)current_frame.bytes[5u] - 1,
                                    80, (int16_t)(object_animation_read_be32s(point) >> 16),
                                    (int16_t)(object_animation_read_be32s(point + 4u) >> 16),
-                                   point_index, 0u, 0u);
+                                   point_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
         }
         if (current_frame.bytes[6u] != 0u) {
             workspace[0u] = (uint8_t)(workspace[0u] + 1u);

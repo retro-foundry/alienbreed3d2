@@ -313,7 +313,7 @@ int player_shoot_update_single_player_with_motion_and_audio(
         game_audio_events_emit(audio_events, 12, 100,
                                player_runtime_position_to_world(player->x),
                                player_runtime_position_to_world(player->z),
-                               UINT16_C(0xfffe), 0u, 0u);
+                               UINT16_C(0xfffe), GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
         return 1;
     }
     if (objects->player1_slot > UINT32_MAX - 2u ||
@@ -332,7 +332,7 @@ int player_shoot_update_single_player_with_motion_and_audio(
     game_audio_events_emit(audio_events, (int16_t)shoot.sound_effect, 300,
                            player_runtime_position_to_world(player->x),
                            player_runtime_position_to_world(player->z),
-                           UINT16_C(0xfffe), 2u, 0u);
+                           UINT16_C(0xfffe), GAME_AUDIO_RESTART_SOURCE, 2u, 0u);
 
     vertical_speed = target.found != 0u ? target.vertical_speed :
         player_shoot_manual_vertical_speed(player, &bullet);

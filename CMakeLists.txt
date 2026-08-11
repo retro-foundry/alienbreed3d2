@@ -211,4 +211,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     COMMAND ab3d2_level_data_test "$<TARGET_FILE_DIR:ab3d2>/data"
             "${CMAKE_CURRENT_SOURCE_DIR}/amiga/ab3d2_old_source/boot.dat"
   )
+  add_executable(ab3d2_audio_sdl_test tests/audio_sdl_test.c src/audio_sdl.c)
+  target_link_libraries(ab3d2_audio_sdl_test PRIVATE ab3d2_core SDL2-static)
+  target_include_directories(ab3d2_audio_sdl_test PRIVATE src)
+  target_compile_definitions(ab3d2_audio_sdl_test PRIVATE AB3D2_AUDIO_SDL_TEST)
+  add_dependencies(ab3d2_audio_sdl_test ab3d2)
+  add_test(
+    NAME ab3d2_audio_sdl_test
+    COMMAND ab3d2_audio_sdl_test "$<TARGET_FILE_DIR:ab3d2>/data"
+  )
+  set_tests_properties(ab3d2_audio_sdl_test PROPERTIES ENVIRONMENT "SDL_AUDIODRIVER=dummy")
 endif()

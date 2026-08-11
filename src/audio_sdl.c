@@ -132,13 +132,8 @@ static int audio_sdl_load_wav(const char *path, AudioSdlSample *out_sample,
     return 1;
 }
 
-static void audio_sdl_callback(void *userdata, Uint8 *stream, int byte_count)
+static void audio_sdl_mix_frames(AudioSdl *audio, int16_t *output, uint32_t frame_count)
 {
-    AudioSdl *audio = userdata;
-    int16_t *output = (int16_t *)stream;
-    uint32_t frame_count = (uint32_t)byte_count / (sizeof(int16_t) * AUDIO_SDL_CHANNELS);
-
-    memset(stream, 0, (size_t)byte_count);
     if (!audio) {
         return;
     }
@@ -174,6 +169,14 @@ static void audio_sdl_callback(void *userdata, Uint8 *stream, int byte_count)
         output[frame * AUDIO_SDL_CHANNELS] = audio_sdl_clamp_s16(left);
         output[frame * AUDIO_SDL_CHANNELS + 1u] = audio_sdl_clamp_s16(right);
     }
+}
+
+static void audio_sdl_callback(void *userdata, Uint8 *stream, int byte_count)
+{
+    uint32_t frame_count = (uint32_t)byte_count / (sizeof(int16_t) * AUDIO_SDL_CHANNELS);
+
+    memset(stream, 0, (size_t)byte_count);
+    audio_sdl_mix_frames(userdata, (int16_t *)stream, frame_count);
 }
 
 AudioSdl *audio_sdl_create(const char *data_root, char *error, size_t error_size)
@@ -236,7 +239,9 @@ AudioSdl *audio_sdl_create(const char *data_root, char *error, size_t error_size
     /* Game_Begin's mt_init owns the actual start; create only preloads the WAV. */
     audio->music_enabled = 0u;
     audio->available = UINT8_MAX;
+#ifndef AB3D2_AUDIO_SDL_TEST
     SDL_PauseAudioDevice(audio->device, 0);
+#endif
     return audio;
 }
 
@@ -281,17 +286,18 @@ static uint16_t audio_sdl_clamp_gain(float value)
     return (uint16_t)(value * (float)UINT16_MAX + 0.5f);
 }
 
-void audio_sdl_consume_events(AudioSdl *audio, const GameAudioEvents *events,
-                              const PlayerRuntime *listener, uint16_t listener_yaw)
+uint16_t audio_sdl_consume_events(AudioSdl *audio, const GameAudioEvents *events,
+                                  const PlayerRuntime *listener, uint16_t listener_yaw)
 {
     int16_t listener_x;
     int16_t listener_z;
     float yaw;
     float sine;
     float cosine;
+    uint16_t scheduled_count = 0u;
 
     if (!audio || !events || !listener || audio->device == 0u || audio->available == 0u) {
-        return;
+        return 0u;
     }
     listener_x = player_runtime_position_to_world(listener->x);
     listener_z = player_runtime_position_to_world(listener->z);
@@ -344,7 +350,13 @@ void audio_sdl_consume_events(AudioSdl *audio, const GameAudioEvents *events,
 
             if (voice->sample && voice->frame_index < voice->sample->frame_count &&
                 voice->source_id == event->source_id) {
-                selected_voice = -2; /* MakeSomeNoise's SameAsMe suppression. */
+                if (event->suppress_if_playing != 0u && event->source_id != UINT16_MAX) {
+                    selected_voice = -2; /* hires.s:SameAsMe. */
+                } else {
+                    /* notifplaying clear: Find*Channel restarts this source's voice. */
+                    selected_voice = (int)voice_index;
+                    weakest_priority = UINT16_MAX;
+                }
                 break;
             }
             if (!voice->sample || voice->frame_index >= voice->sample->frame_count) {
@@ -371,7 +383,22 @@ void audio_sdl_consume_events(AudioSdl *audio, const GameAudioEvents *events,
             voice->priority = (uint16_t)(loudness * 1024.0f + 0.5f);
             voice->left_gain = audio_sdl_clamp_gain(gain * (1.0f - pan));
             voice->right_gain = audio_sdl_clamp_gain(gain * (1.0f + pan));
+            ++scheduled_count;
         }
     }
     SDL_UnlockAudioDevice(audio->device);
+    return scheduled_count;
 }
+
+#ifdef AB3D2_AUDIO_SDL_TEST
+void audio_sdl_test_mix(AudioSdl *audio, int16_t *output, uint32_t frame_count)
+{
+    if (!audio || !output || audio->device == 0u || audio->available == 0u) {
+        return;
+    }
+    SDL_LockAudioDevice(audio->device);
+    memset(output, 0, (size_t)frame_count * AUDIO_SDL_CHANNELS * sizeof(*output));
+    audio_sdl_mix_frames(audio, output, frame_count);
+    SDL_UnlockAudioDevice(audio->device);
+}
+#endif

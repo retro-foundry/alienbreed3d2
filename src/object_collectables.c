@@ -351,7 +351,7 @@ static int object_collectables_update_range_single_player(
         game_audio_events_emit(audio_events, definition.sound_effect, 80,
                                (int16_t)(object_collectables_read_be32(point_bytes) >> 16),
                                (int16_t)(object_collectables_read_be32(point_bytes + 4u) >> 16),
-                               point_index, 0u, 0u);
+                               point_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
         /* Plr1_CollectItem / Collectable remove the source slot on success. */
         object_collectables_write_be16(slot + OBJECT_SLOT_ZONE_ID, UINT16_MAX);
         slot[OBJECT_SLOT_WORRY] = 0u;

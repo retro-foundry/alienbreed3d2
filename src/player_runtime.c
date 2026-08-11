@@ -743,7 +743,7 @@ static int player_runtime_emit_relative_player_sound(
     world_z = (int16_t)((int32_t)player_runtime_position_to_world(player->snap_z) +
                         ((int32_t)cosine * 100) / 16384);
     game_audio_events_emit(audio_events, sample_index, volume, world_x, world_z,
-                           UINT16_C(0xfff8), 0u, echo);
+                           UINT16_C(0xfff8), GAME_AUDIO_RESTART_SOURCE, 0u, echo);
     return 1;
 }
 
