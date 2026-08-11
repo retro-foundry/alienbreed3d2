@@ -5095,7 +5095,7 @@ int main(int argc, char **argv)
                 &player_collision_player, &player_collision_input, &control_defaults,
                 &game.preferences, &game.math, &game.level_runtime, NULL,
                 &player_collision_motion, &player_collision_context,
-                &game.game_link_catalog, NULL, error, sizeof(error)) ||
+                NULL, &game.game_link_catalog, NULL, error, sizeof(error)) ||
             player_runtime_position_to_world(player_collision_player.x) != old_x ||
             player_runtime_position_to_world(player_collision_player.z) != old_z ||
             ((uint32_t)player_collision_player.x & UINT32_C(0xffff)) != UINT32_C(0x1234) ||
@@ -5198,7 +5198,8 @@ int main(int argc, char **argv)
                 &player_teleport_player, &player_teleport_input, &control_defaults,
                 &game.preferences, &game.math, &player_teleport_level, NULL,
                 &player_teleport_motion, &player_teleport_context,
-                &game.game_link_catalog, &player_teleport_audio, error, sizeof(error)) ||
+                NULL, &game.game_link_catalog, &player_teleport_audio,
+                error, sizeof(error)) ||
             player_teleport_player.zone_index != 1u ||
             player_runtime_position_to_world(player_teleport_player.x) != 300 ||
             player_runtime_position_to_world(player_teleport_player.z) != 400 ||
@@ -5269,7 +5270,8 @@ int main(int argc, char **argv)
                 &player_teleport_player, &player_teleport_input, &control_defaults,
                 &game.preferences, &game.math, &player_teleport_level, NULL,
                 &player_teleport_motion, &player_teleport_context,
-                &game.game_link_catalog, &player_teleport_audio, error, sizeof(error)) ||
+                NULL, &game.game_link_catalog, &player_teleport_audio,
+                error, sizeof(error)) ||
             player_teleport_player.zone_index != 0u ||
             player_runtime_position_to_world(player_teleport_player.x) != 1010 ||
             player_runtime_position_to_world(player_teleport_player.z) != 1020 ||
@@ -5422,7 +5424,7 @@ int main(int argc, char **argv)
             !player_runtime_update_spatial_with_motion_and_audio(
                 &footstep_player, &footstep_input, &control_defaults, &game.preferences,
                 &game.math, &footstep_level.runtime, &footstep_level, NULL,
-                NULL,
+                NULL, NULL,
                 &game.game_link_catalog, &footstep_events, error, sizeof(error)) ||
             footstep_events.count != 1u ||
             footstep_events.events[0u].sample_index != (uint16_t)expected_sample ||
@@ -5440,7 +5442,7 @@ int main(int argc, char **argv)
         if (!player_runtime_update_spatial_with_motion_and_audio(
                 &footstep_player, &footstep_input, &control_defaults, &game.preferences,
                 &game.math, &footstep_level.runtime, &footstep_level, NULL,
-                NULL,
+                NULL, NULL,
                 &game.game_link_catalog, &footstep_events, error, sizeof(error)) ||
             footstep_events.count != 0u) {
             fprintf(stderr, "source floor footstep cadence is inconsistent: %s\n", error);
@@ -12237,6 +12239,136 @@ int main(int argc, char **argv)
                 level_dynamic_state_destroy(&movement_state);
                 game_bootstrap_destroy(&game);
                 return 1;
+            }
+
+            {
+                GameInventory fall_inventory = {0};
+                GameAudioEvents fall_audio;
+                uint8_t entity_damage = 250u;
+
+                /* plr_Fall applies its >100 accumulator through ADD.B. */
+                game_input_init(&fall_input);
+                fall_player.snap_y = fall_target;
+                fall_player.snap_target_y = fall_target;
+                fall_player.snap_y_velocity = 0;
+                fall_player.floor_speed = 0;
+                fall_player.fall_damage = 125;
+                fall_player.add_to_bobble = 0;
+                fall_player.walk_sfx_time = 0u;
+                if (!player_runtime_update_fall(
+                        &fall_player, &fall_input, &control_defaults, &game.math,
+                        &movement_state.runtime, &fall_inventory, &entity_damage,
+                        &game.game_link_catalog, NULL, error, sizeof(error)) ||
+                    entity_damage != 19u || fall_player.fall_damage != 0) {
+                    fprintf(stderr, "plr_Fall grounded damage is inconsistent: %s\n", error);
+                    level_dynamic_state_destroy(&movement_state);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+
+                /* TST.W/BLE prevents jump thrust at zero or signed-negative health. */
+                fall_player.snap_y = fall_target;
+                fall_player.snap_target_y = fall_target;
+                fall_player.snap_y_velocity = 0;
+                fall_player.health = UINT16_C(0xffff);
+                if (!game_input_set_raw_key(
+                        &fall_input,
+                        control_defaults.assigned_raw_keys[GAME_CONTROL_JUMP], 1,
+                        error, sizeof(error)) ||
+                    !player_runtime_update_fall(
+                        &fall_player, &fall_input, &control_defaults, &game.math,
+                        &movement_state.runtime, &fall_inventory, &entity_damage,
+                        &game.game_link_catalog, NULL, error, sizeof(error)) ||
+                    fall_player.snap_y != fall_target ||
+                    fall_player.snap_y_velocity != 0) {
+                    fprintf(stderr, "plr_Fall dead-player jump gate is inconsistent: %s\n",
+                            error);
+                    level_dynamic_state_destroy(&movement_state);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                fall_player.health = game.player.health;
+                game_input_init(&fall_input);
+
+                entity_damage = 0u;
+                fall_player.snap_y = fall_target - 100;
+                fall_player.snap_target_y = fall_target;
+                fall_player.snap_y_velocity = 128;
+                fall_player.fall_damage = 131;
+                if (!player_runtime_update_fall(
+                        &fall_player, &fall_input, &control_defaults, &game.math,
+                        &movement_state.runtime, &fall_inventory, &entity_damage,
+                        &game.game_link_catalog, NULL, error, sizeof(error)) ||
+                    fall_player.snap_y != fall_target + 28 ||
+                    fall_player.snap_y_velocity != 0 || entity_damage != 31u ||
+                    fall_player.fall_damage != 0) {
+                    fprintf(stderr, "plr_Fall crossed-floor damage is inconsistent: %s\n",
+                            error);
+                    level_dynamic_state_destroy(&movement_state);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+
+                /* Owned jetpack caps fuel, consumes one unit, and applies -128 thrust. */
+                game_input_init(&fall_input);
+                if (!game_input_set_raw_key(
+                        &fall_input,
+                        control_defaults.assigned_raw_keys[GAME_CONTROL_JUMP], 1,
+                        error, sizeof(error))) {
+                    fprintf(stderr, "could not prepare plr_Fall jetpack fixture: %s\n", error);
+                    level_dynamic_state_destroy(&movement_state);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                fall_inventory.jetpack = 1u;
+                fall_inventory.jetpack_fuel = 300u;
+                fall_player.snap_y = fall_target - 2000;
+                fall_player.snap_target_y = fall_target;
+                fall_player.snap_y_velocity = 200;
+                fall_player.fall_damage = 44;
+                fall_player.bobble = 8190u;
+                entity_damage = 0u;
+                if (!player_runtime_update_fall(
+                        &fall_player, &fall_input, &control_defaults, &game.math,
+                        &movement_state.runtime, &fall_inventory, &entity_damage,
+                        &game.game_link_catalog, NULL, error, sizeof(error)) ||
+                    fall_inventory.jetpack_fuel != 249u ||
+                    fall_player.snap_y != fall_target - 1928 ||
+                    fall_player.snap_y_velocity != 136 || fall_player.fall_damage != 1 ||
+                    fall_player.bobble != 38u || fall_player.decelerate == 0u ||
+                    entity_damage != 0u) {
+                    fprintf(stderr, "plr_Fall jetpack thrust is inconsistent: %s\n", error);
+                    level_dynamic_state_destroy(&movement_state);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+
+                /* Crossing ZoneT_Water emits source sample six and caps descent. */
+                write_be32(movement_state.level_bytes + 18u, 0u);
+                game_input_init(&fall_input);
+                game_audio_events_init(&fall_audio);
+                memset(&fall_inventory, 0, sizeof(fall_inventory));
+                fall_player.snap_y = 1000;
+                fall_player.snap_target_y = 5000;
+                fall_player.snap_y_velocity = 511;
+                fall_player.fall_damage = 9;
+                fall_player.snap_x = player_runtime_world_to_position(8);
+                fall_player.snap_z = player_runtime_world_to_position(10);
+                fall_player.snap_yaw = 0u;
+                if (!player_runtime_update_fall(
+                        &fall_player, &fall_input, &control_defaults, &game.math,
+                        &movement_state.runtime, &fall_inventory, &entity_damage,
+                        &game.game_link_catalog, &fall_audio, error, sizeof(error)) ||
+                    fall_player.snap_y != 1511 || fall_player.snap_y_velocity != 512 ||
+                    fall_player.fall_damage != 0 || fall_player.decelerate == 0u ||
+                    fall_audio.count != 1u || fall_audio.events[0u].sample_index != 6u ||
+                    fall_audio.events[0u].volume != 80u ||
+                    fall_audio.events[0u].source_id != UINT16_C(0xfff8)) {
+                    fprintf(stderr, "plr_Fall water-entry splash is inconsistent: %s\n", error);
+                    level_dynamic_state_destroy(&movement_state);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
             }
             write_be32(movement_state.level_bytes + 2u, 0u);
             write_be32(movement_state.level_bytes + 6u, 0u);

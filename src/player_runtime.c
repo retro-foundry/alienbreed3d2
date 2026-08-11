@@ -25,6 +25,8 @@ enum {
     PLAYER_FALL_WATER_TERMINAL_VELOCITY = 512,
     PLAYER_JUMP_SPEED_DRY = -1024,
     PLAYER_JUMP_SPEED_WATER = -512,
+    PLAYER_JETPACK_THRUST = -128,
+    PLAYER_JETPACK_SOURCE_FUEL_CAP = 250,
     PLAYER_MAX_ZONE_TRANSITIONS = 50,
     /* hires.s:SMALL_HEIGHT and its non-fullscreen View_* setup. */
     PLAYER_SMALL_VIEW_KEY_LOOK = 4,
@@ -857,11 +859,12 @@ static int player_runtime_emit_footstep(PlayerRuntime *player, const LevelZone *
                                                       error, error_size);
 }
 
-static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *input,
-                                     const GameControls *controls, const GameMath *math,
-                                     const LevelRuntime *runtime, const GameLink *game_link,
-                                     GameAudioEvents *audio_events,
-                                     char *error, size_t error_size)
+int player_runtime_update_fall(PlayerRuntime *player, const GameInput *input,
+                               const GameControls *controls, const GameMath *math,
+                               const LevelRuntime *runtime, GameInventory *inventory,
+                               uint8_t *entity_damage, const GameLink *game_link,
+                               GameAudioEvents *audio_events,
+                               char *error, size_t error_size)
 {
     LevelZone zone;
     int32_t target_y;
@@ -869,6 +872,13 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
     int32_t velocity;
     int32_t ceiling;
 
+    if (!player || !input || !controls || !math || !runtime || !inventory ||
+        !entity_damage || player->zone_index >= runtime->zone_count) {
+        player_runtime_set_error(
+            error, error_size,
+            "plr_Fall requires source player, controls, level, inventory, and entity state");
+        return 0;
+    }
     if (!level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
         return 0;
     }
@@ -885,9 +895,13 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
         y = player_runtime_add32(y, correction);
     } else if (target_y == y) {
         uint16_t walk_sound_accumulator;
+        int16_t landing_damage = player_runtime_add16(player->fall_damage, -100);
 
         /* LiftRoutine's signed word speed is applied as a 32-bit << 6 here. */
         velocity = (int32_t)player->floor_speed * 64;
+        if (landing_damage > 0) {
+            *entity_damage = (uint8_t)(*entity_damage + (uint8_t)landing_damage);
+        }
         player->decelerate = UINT8_MAX;
         /* plr_Fall consumes and then clears the previous airborne accumulation. */
         player->fall_damage = 0;
@@ -902,7 +916,7 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
             return 0;
         }
         if (game_input_is_control_down(input, controls, GAME_CONTROL_JUMP) &&
-            player->health != 0u) {
+            (int16_t)player->health > 0) {
             /* ZoneT_Water_l selects plr_Fall's shallow-water jump speed. */
             velocity = y >= zone.water ? PLAYER_JUMP_SPEED_WATER : PLAYER_JUMP_SPEED_DRY;
         }
@@ -912,9 +926,23 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
         y = player_runtime_add32(y, velocity);
     } else {
         /* modules/player.s:plr_Fall .above_ground through .still_above. */
-        player->decelerate = player_runtime_sub32(target_y, y) <=
-                PLAYER_FALL_NEAR_GROUND_DISTANCE ?
-            UINT8_MAX : 0u;
+        player->decelerate = 0u;
+        if (inventory->jetpack != 0u && inventory->jetpack_fuel != 0u) {
+            if (inventory->jetpack_fuel > PLAYER_JETPACK_SOURCE_FUEL_CAP) {
+                inventory->jetpack_fuel = PLAYER_JETPACK_SOURCE_FUEL_CAP;
+            }
+            player->decelerate = UINT8_MAX;
+            if (game_input_is_control_down(input, controls, GAME_CONTROL_JUMP)) {
+                --inventory->jetpack_fuel;
+                velocity = player_runtime_add32(velocity, PLAYER_JETPACK_THRUST);
+                player->fall_damage = 0;
+                player->bobble = game_math_wrap_angle_address(
+                    (uint16_t)(player->bobble + UINT16_C(40)));
+            }
+        }
+        if (player_runtime_sub32(target_y, y) <= PLAYER_FALL_NEAR_GROUND_DISTANCE) {
+            player->decelerate = UINT8_MAX;
+        }
         y = player_runtime_add32(y, velocity);
         if (target_y > y) {
             velocity = player_runtime_add32(velocity, PLAYER_FALL_ACCELERATION);
@@ -926,6 +954,12 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
              * accumulated 8.8 fixed-point velocity.
              */
             if (y >= zone.water) {
+                /* plr_OldHeight_l is source BSS and has no maintained writer. */
+                if (zone.water >= 0 &&
+                    !player_runtime_emit_relative_player_sound(
+                        player, math, audio_events, 6, 80, 0u, error, error_size)) {
+                    return 0;
+                }
                 player->decelerate = UINT8_MAX;
                 player->fall_damage = 0;
                 if (velocity >= PLAYER_FALL_WATER_TERMINAL_VELOCITY) {
@@ -934,6 +968,11 @@ static int player_runtime_apply_fall(PlayerRuntime *player, const GameInput *inp
             }
         } else {
             /* plr_Fall retains the crossed target Y and hands off FloorSpd. */
+            int16_t landing_damage = player_runtime_add16(player->fall_damage, -100);
+
+            if (landing_damage > 0) {
+                *entity_damage = (uint8_t)(*entity_damage + (uint8_t)landing_damage);
+            }
             player->fall_damage = 0;
             velocity = (int32_t)player->floor_speed * 64;
         }
@@ -1160,7 +1199,7 @@ int player_runtime_update_spatial_with_motion_and_audio(
     const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,
     LevelDynamicState *dynamic_state, ObjectMotionRuntime *motion_runtime,
     const PlayerObjectCollisionContext *object_collision,
-    const GameLink *game_link, GameAudioEvents *audio_events,
+    GameInventory *inventory, const GameLink *game_link, GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
     LevelZone zone;
@@ -1177,6 +1216,10 @@ int player_runtime_update_spatial_with_motion_and_audio(
     int teleported = 0;
     int16_t published_new_x;
     int16_t published_new_z;
+    uint8_t dummy_entity_damage = 0u;
+    uint8_t *fall_entity_damage = &dummy_entity_damage;
+    GameInventory empty_inventory = {0};
+    uint8_t *player_slot = NULL;
 
     if (!player || !input || !controls || !preferences || !math || !runtime ||
         player->zone_index >= runtime->zone_count) {
@@ -1191,13 +1234,27 @@ int player_runtime_update_spatial_with_motion_and_audio(
                                  "spatial update received a different mutable source level");
         return 0;
     }
+    if (inventory == NULL) {
+        inventory = &empty_inventory;
+    }
+    if (object_collision != NULL) {
+        if (!object_collision->objects || !object_runtime_get_player1_slot_bytes(
+                object_collision->objects, &player_slot)) {
+            player_runtime_set_error(error, error_size,
+                                     "Plr1_Control has no source player entity state");
+            return 0;
+        }
+        fall_entity_damage = player_slot + 19u;
+    }
+
     /* hires.s runs Plr1_MouseControl before the optional keyboard controller. */
     player_runtime_update_mouse_controls(player, input);
     player_runtime_update_keyboard_look(player, input, controls);
     if (!player_runtime_update_keyboard_motion(player, input, controls, preferences, math,
                                                error, error_size) ||
-        !player_runtime_apply_fall(player, input, controls, math, runtime, game_link,
-                                   audio_events, error, error_size) ||
+        !player_runtime_update_fall(player, input, controls, math, runtime, inventory,
+                                    fall_entity_damage, game_link, audio_events,
+                                    error, error_size) ||
         !level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
         return 0;
     }
@@ -1243,12 +1300,9 @@ int player_runtime_update_spatial_with_motion_and_audio(
     if (object_collision != NULL) {
         ObjectCollisionTrace collision = {0};
         LevelZone destination_zone;
-        uint8_t *player_slot;
         uint8_t hit_wall = 0u;
 
-        if (!object_collision->objects || !object_collision->source_a2_words ||
-            !object_runtime_get_player1_slot_bytes(
-                object_collision->objects, &player_slot)) {
+        if (!object_collision->source_a2_words) {
             player_runtime_set_error(error, error_size,
                                      "Plr1_Control has no source player collision state");
             return 0;
@@ -1386,7 +1440,7 @@ int player_runtime_update_spatial_with_motion(
 {
     return player_runtime_update_spatial_with_motion_and_audio(
         player, input, controls, preferences, math, runtime, dynamic_state, motion_runtime,
-        NULL, NULL, NULL, error, error_size);
+        NULL, NULL, NULL, NULL, error, error_size);
 }
 
 int player_runtime_update_spatial(PlayerRuntime *player, GameInput *input,

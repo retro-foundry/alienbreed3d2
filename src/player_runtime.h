@@ -142,6 +142,14 @@ int player_hazard_runtime_update(PlayerHazardRuntime *runtime, uint16_t frame_ti
                                  const GameLink *game_link, uint8_t *entity_damage,
                                  char *error, size_t error_size);
 
+/* Complete maintained modules/player.s:plr_Fall state transition. */
+int player_runtime_update_fall(PlayerRuntime *player, const GameInput *input,
+                               const GameControls *controls, const GameMath *math,
+                               const LevelRuntime *runtime, GameInventory *inventory,
+                               uint8_t *entity_damage, const GameLink *game_link,
+                               GameAudioEvents *audio_events,
+                               char *error, size_t error_size);
+
 /*
  * The non-spatial operate/crouch/fire branches of
  * modules/player.s:plr_KeyboardControl. Horizontal angle/motion remains out
@@ -188,7 +196,7 @@ int player_runtime_update_spatial_with_motion_and_audio(
     const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,
     LevelDynamicState *dynamic_state, ObjectMotionRuntime *motion_runtime,
     const PlayerObjectCollisionContext *object_collision,
-    const GameLink *game_link, GameAudioEvents *audio_events,
+    GameInventory *inventory, const GameLink *game_link, GameAudioEvents *audio_events,
     char *error, size_t error_size);
 
 #endif
