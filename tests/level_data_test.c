@@ -6814,6 +6814,8 @@ int main(int argc, char **argv)
         object_observation_init(&parent_observation);
         parent_observation.in_line[PARENT_TARGET_SLOT] = UINT8_MAX;
         parent_observation.distances[PARENT_TARGET_SLOT] = 50u;
+        parent_observation.rotated_x[PARENT_TARGET_SLOT] = 73;
+        parent_observation.rotated_z[PARENT_TARGET_SLOT] = -91;
         parent_player.height = 12 * 1024;
         parent_player.tmp_gun_selected = 0u;
         parent_player.tmp_fire = UINT8_MAX;
@@ -6837,6 +6839,9 @@ int main(int argc, char **argv)
             parent_audio.source_id_register != UINT16_C(0xfbab) ||
             parent_audio.events[0u].source_id != UINT16_C(0xfbab) ||
             parent_audio.events[0u].sample_index != parent_shoot.sound_effect ||
+            parent_audio.events[0u].world_x != 73 ||
+            parent_audio.events[0u].world_z != -91 ||
+            parent_audio.events[0u].listener_relative == 0u ||
             parent_inventory.ammunition[parent_shoot.bullet_type] !=
                 (uint16_t)(8u - parent_shoot.bullet_count) ||
             slot_bytes[PARENT_TARGET_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 19u] !=

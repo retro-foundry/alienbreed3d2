@@ -122,13 +122,43 @@ static int16_t player_shoot_add16(int16_t left, int16_t right)
 }
 
 static int16_t player_shoot_manual_vertical_speed(const PlayerRuntime *player,
-                                                  const GameBulletDefinition *bullet)
+                                                   const GameBulletDefinition *bullet)
 {
     uint16_t shift_count;
 
     /* Plr1_Shot:.no_auto_aim / .nothing_to_shoot, including ASR.W's count. */
     shift_count = (uint16_t)(UINT16_C(8) - (uint16_t)bullet->speed);
     return player_shoot_asr16_count((int16_t)player->aim_speed, shift_count);
+}
+
+static int player_shoot_emit_player_sound(
+    const ObjectRuntime *objects, const ObjectObservation *observation,
+    GameAudioEvents *audio_events, int16_t sample_index, int16_t volume,
+    uint8_t channel_pick, char *error, size_t error_size)
+{
+    uint8_t *player_slot;
+    uint16_t point_index;
+
+    if (!audio_events) {
+        return 1;
+    }
+    if (!objects || !observation ||
+        !object_runtime_get_player1_slot_bytes((ObjectRuntime *)objects, &player_slot)) {
+        player_shoot_set_error(error, error_size,
+                               "Plr1_Shot audio received invalid player source state");
+        return 0;
+    }
+    point_index = player_shoot_read_be16(player_slot + PLAYER_SHOOT_POINT_INDEX);
+    if (point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT) {
+        player_shoot_set_error(error, error_size,
+                               "Plr1_Shot audio point is outside ObjRotated state");
+        return 0;
+    }
+    game_audio_events_emit_relative_with_source_id_high_byte(
+        audio_events, sample_index, volume, observation->rotated_x[point_index],
+        observation->rotated_z[point_index], UINT8_C(0xfb),
+        GAME_AUDIO_RESTART_SOURCE, channel_pick, 0u);
+    return 1;
 }
 
 int player_shoot_find_target_single_player(const ObjectRuntime *objects,
@@ -330,12 +360,8 @@ int player_shoot_update_single_player_with_motion_and_audio(
     if (infinite_ammo == 0u && (int16_t)ammunition < (int16_t)shoot.bullet_count) {
         /* newplayershoot.s:Plr1_Shot no-ammunition MakeSomeNoise (slot 12). */
         player->noise_volume = 100;
-        game_audio_events_emit_with_source_id_high_byte(
-            audio_events, 12, 100,
-            player_runtime_position_to_world(player->x),
-            player_runtime_position_to_world(player->z),
-            UINT8_C(0xfb), GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
-        return 1;
+        return player_shoot_emit_player_sound(
+            objects, observation, audio_events, 12, 100, 0u, error, error_size);
     }
     if (objects->player1_slot > UINT32_MAX - 2u ||
         !object_runtime_get_slot_bytes(objects, objects->player1_slot + 2u, &weapon_slot)) {
@@ -354,11 +380,11 @@ int player_shoot_update_single_player_with_motion_and_audio(
     }
     /* newplayershoot.s:.okcanshoot emits ShootT_SFX_w at the player point. */
     player->noise_volume = 100;
-    game_audio_events_emit_with_source_id_high_byte(
-        audio_events, (int16_t)shoot.sound_effect, 300,
-        player_runtime_position_to_world(player->x),
-        player_runtime_position_to_world(player->z),
-        UINT8_C(0xfb), GAME_AUDIO_RESTART_SOURCE, 2u, 0u);
+    if (!player_shoot_emit_player_sound(
+            objects, observation, audio_events, (int16_t)shoot.sound_effect,
+            300, 2u, error, error_size)) {
+        return 0;
+    }
 
     vertical_speed = target.found != 0u ? target.vertical_speed :
         player_shoot_manual_vertical_speed(player, &bullet);

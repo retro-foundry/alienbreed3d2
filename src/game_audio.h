@@ -69,6 +69,11 @@ void game_audio_events_emit_with_source_id_high_byte(
     GameAudioEvents *events, int16_t sample_index, int16_t volume,
     int16_t world_x, int16_t world_z, uint8_t source_id_high_byte,
     uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
+/* Same source ID byte write when Aud_NoiseX/Z already contain ObjRotated coordinates. */
+void game_audio_events_emit_relative_with_source_id_high_byte(
+    GameAudioEvents *events, int16_t sample_index, int16_t volume,
+    int16_t relative_x, int16_t relative_z, uint8_t source_id_high_byte,
+    uint8_t suppress_if_playing, uint8_t channel_pick, uint8_t echo);
 /* MakeSomeNoise using the last value written to hires.s:Aud_SampleNum_w. */
 void game_audio_events_emit_current_sample(
     GameAudioEvents *events, int16_t volume, int16_t world_x, int16_t world_z,
