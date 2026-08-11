@@ -4937,6 +4937,76 @@ int main(int argc, char **argv)
         }
     }
     {
+        PlayerRuntime right_strafe_player = game.player;
+        GameInput right_strafe_input;
+        GamePreferences right_strafe_preferences = game.preferences;
+        const int32_t expected_right_velocity = 32767 * 3;
+
+        right_strafe_player.mouse_active = 0u;
+        right_strafe_player.yaw = 0u;
+        right_strafe_player.snap_yaw = 0u;
+        right_strafe_player.snap_yaw_speed = 0;
+        right_strafe_player.snap_x_speed = 0;
+        right_strafe_player.snap_z_speed = 0;
+        right_strafe_player.decelerate = UINT8_MAX;
+        right_strafe_player.snap_target_y = right_strafe_player.snap_y;
+        right_strafe_preferences.always_run = UINT8_MAX;
+        game_input_init(&right_strafe_input);
+        if (!game_input_set_raw_key(
+                &right_strafe_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_SIDESTEP_RIGHT], 1,
+                error, sizeof(error)) ||
+            !player_runtime_update_spatial(
+                &right_strafe_player, &right_strafe_input, &control_defaults,
+                &right_strafe_preferences, &game.math, &game.level_runtime,
+                NULL, error, sizeof(error)) ||
+            right_strafe_player.snap_x_speed != expected_right_velocity ||
+            right_strafe_player.snap_z_speed != 0) {
+            fprintf(stderr, "first-port right-strafe movement is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        PlayerRuntime forced_strafe_player = game.player;
+        GameInput forced_strafe_input;
+        GamePreferences forced_strafe_preferences = game.preferences;
+        const int32_t expected_right_velocity = 32767 * 3;
+
+        forced_strafe_player.mouse_active = 0u;
+        forced_strafe_player.yaw = 0u;
+        forced_strafe_player.snap_yaw = 0u;
+        forced_strafe_player.snap_yaw_speed = 0;
+        forced_strafe_player.snap_x_speed = 0;
+        forced_strafe_player.snap_z_speed = 0;
+        forced_strafe_player.decelerate = UINT8_MAX;
+        forced_strafe_player.snap_target_y = forced_strafe_player.snap_y;
+        forced_strafe_preferences.always_run = UINT8_MAX;
+        game_input_init(&forced_strafe_input);
+        if (!game_input_set_raw_key(
+                &forced_strafe_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_FORCE_SIDESTEP], 1,
+                error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &forced_strafe_input,
+                control_defaults.assigned_raw_keys[GAME_CONTROL_TURN_RIGHT], 1,
+                error, sizeof(error)) ||
+            !player_runtime_update_spatial(
+                &forced_strafe_player, &forced_strafe_input, &control_defaults,
+                &forced_strafe_preferences, &game.math, &game.level_runtime,
+                NULL, error, sizeof(error)) ||
+            forced_strafe_player.snap_yaw != 0u ||
+            forced_strafe_player.snap_yaw_speed != 0 ||
+            forced_strafe_player.snap_x_speed != expected_right_velocity ||
+            forced_strafe_player.snap_z_speed != 0) {
+            fprintf(stderr, "source force-sidestep movement is inconsistent: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
         PlayerRuntime weapon_selection_player = game.player;
         GameInput weapon_selection_input;
         GameInventory weapon_selection_inventory = {0};

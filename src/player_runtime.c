@@ -982,10 +982,10 @@ static int player_runtime_update_keyboard_motion(PlayerRuntime *player, const Ga
     int32_t speed_z;
     int16_t sine;
     int16_t cosine;
-    uint16_t left_binding = GAME_CONTROL_TURN_LEFT;
-    uint16_t right_binding = GAME_CONTROL_TURN_RIGHT;
-    uint16_t strafe_left_binding = GAME_CONTROL_SIDESTEP_LEFT;
-    uint16_t strafe_right_binding = GAME_CONTROL_SIDESTEP_RIGHT;
+    int turn_left_down;
+    int turn_right_down;
+    int strafe_left_down;
+    int strafe_right_down;
 
     if (preferences->always_run != 0u) {
         turn_limit = 60;
@@ -1014,17 +1014,26 @@ static int player_runtime_update_keyboard_motion(PlayerRuntime *player, const Ga
     if (player->decelerate != 0u) {
         angular_speed = (int16_t)(((int32_t)angular_speed * 3) / 4);
     }
+    turn_left_down = game_input_is_control_down(input, controls, GAME_CONTROL_TURN_LEFT);
+    turn_right_down = game_input_is_control_down(input, controls, GAME_CONTROL_TURN_RIGHT);
+    strafe_left_down = game_input_is_control_down(input, controls, GAME_CONTROL_SIDESTEP_LEFT);
+    strafe_right_down = game_input_is_control_down(input, controls, GAME_CONTROL_SIDESTEP_RIGHT);
     if (game_input_is_control_down(input, controls, GAME_CONTROL_FORCE_SIDESTEP)) {
-        left_binding = GAME_CONTROL_SIDESTEP_LEFT;
-        right_binding = GAME_CONTROL_SIDESTEP_RIGHT;
-        strafe_left_binding = GAME_CONTROL_TURN_LEFT;
-        strafe_right_binding = GAME_CONTROL_TURN_RIGHT;
+        /*
+         * modules/player.s and the first PC port remap only the turn keys to
+         * strafe while the modifier is held.  The dedicated strafe keys do
+         * not become turn keys; turning is disabled for this source tick.
+         */
+        strafe_left_down = turn_left_down;
+        strafe_right_down = turn_right_down;
+        turn_left_down = 0;
+        turn_right_down = 0;
     }
     if (player->decelerate != 0u) {
-        if (game_input_is_control_down(input, controls, left_binding)) {
+        if (turn_left_down) {
             angular_speed = (int16_t)((int32_t)angular_speed - turn_speed);
         }
-        if (game_input_is_control_down(input, controls, right_binding)) {
+        if (turn_right_down) {
             angular_speed = (int16_t)((int32_t)angular_speed + turn_speed);
         }
         if (angular_speed > turn_limit) {
@@ -1039,11 +1048,11 @@ static int player_runtime_update_keyboard_motion(PlayerRuntime *player, const Ga
     player->snap_yaw_speed = angular_speed;
 
     strafe = 0;
-    if (game_input_is_control_down(input, controls, strafe_left_binding)) {
+    if (strafe_left_down) {
         strafe = move_speed;
     }
-    if (game_input_is_control_down(input, controls, strafe_right_binding)) {
-        strafe = (int16_t)(UINT16_C(0) - (uint16_t)strafe);
+    if (strafe_right_down) {
+        strafe = (int16_t)(UINT16_C(0) - (uint16_t)move_speed);
     }
     forward = 0;
     if (game_input_is_control_down(input, controls, GAME_CONTROL_FORWARDS)) {
