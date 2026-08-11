@@ -3187,6 +3187,7 @@ int main(int argc, char **argv)
                         &game.level_runtime, &game.game_link_catalog,
                         &activatable_definition, activatable_collection_slot,
                         activatable_point, activatable_point_index,
+                        &game.object_observation,
                         &activatable_inventory, &game.inventory_limits,
                         &activatable_messages, UINT8_MAX, 0u, &activatable_audio,
                         &activatable_collected, error, sizeof(error))) {
@@ -3212,9 +3213,10 @@ int main(int argc, char **argv)
                           (uint16_t)activatable_definition.sound_effect ||
                       activatable_audio.events[0].volume != 80u ||
                       activatable_audio.events[0].world_x !=
-                          (int16_t)read_be16(activatable_point + 0u) ||
+                          game.object_observation.rotated_x[activatable_point_index] ||
                       activatable_audio.events[0].world_z !=
-                          (int16_t)read_be16(activatable_point + 4u) ||
+                          game.object_observation.rotated_z[activatable_point_index] ||
+                      activatable_audio.events[0].listener_relative == 0u ||
                       activatable_audio.events[0].source_id !=
                           activatable_point_index)) ||
                     (activatable_definition.sound_effect < 0 &&

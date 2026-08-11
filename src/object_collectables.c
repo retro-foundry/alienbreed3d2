@@ -143,6 +143,7 @@ int object_collectables_collect_item_single_player(
     const LevelRuntime *level, const GameLink *game_link,
     const GameObjectDefinition *definition, uint8_t *slot,
     const uint8_t *point_bytes, uint16_t point_index,
+    const ObjectObservation *observation,
     GameInventory *inventory, const GameInventoryConsumableLimits *limits,
     MessageRuntime *messages, uint8_t messages_enabled,
     uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
@@ -178,11 +179,19 @@ int object_collectables_collect_item_single_player(
         return 0;
     }
     game_inventory_apply_grant(inventory, &grant, limits);
-    /* newaliencontrol.s:Plr1_CollectItem ODefT_SFX_w (negative is silent). */
-    game_audio_events_emit(audio_events, definition->sound_effect, 80,
-                           (int16_t)(object_collectables_read_be32(point_bytes) >> 16),
-                           (int16_t)(object_collectables_read_be32(point_bytes + 4u) >> 16),
-                           point_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
+    /* Plr1_CollectItem copies the camera-relative ObjRotated point. */
+    if (audio_events) {
+        if (!observation || point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT) {
+            object_collectables_set_error(
+                error, error_size,
+                "Plr1_CollectItem audio point is outside ObjRotated state");
+            return 0;
+        }
+        game_audio_events_emit_relative(
+            audio_events, definition->sound_effect, 80,
+            observation->rotated_x[point_index], observation->rotated_z[point_index],
+            point_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
+    }
     *out_collected = UINT8_MAX;
     return 1;
 }
@@ -292,7 +301,7 @@ static int object_collectables_update_range_single_player(
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
     uint8_t messages_enabled, uint64_t message_time_milliseconds,
-    GameAudioEvents *audio_events,
+    const ObjectObservation *observation, GameAudioEvents *audio_events,
     uint32_t first_slot, uint32_t slot_limit,
     uint32_t *out_collected_count,
     char *error, size_t error_size)
@@ -377,6 +386,7 @@ static int object_collectables_update_range_single_player(
         }
         if (!object_collectables_collect_item_single_player(
                 level, game_link, &definition, slot, point_bytes, point_index,
+                observation,
                 inventory, limits, messages, messages_enabled,
                 message_time_milliseconds, audio_events, &collected,
                 error, error_size)) {
@@ -410,7 +420,7 @@ int object_collectables_update_single_player(
 {
     return object_collectables_update_range_single_player(
         objects, level, game_link, player, inventory, limits, messages, messages_enabled,
-        message_time_milliseconds, NULL, 0u,
+        message_time_milliseconds, NULL, NULL, 0u,
         objects ? objects->active_slot_count : 0u, out_collected_count, error, error_size);
 }
 
@@ -424,7 +434,8 @@ int object_collectables_update_slot_single_player(
 {
     return object_collectables_update_slot_single_player_with_audio(
         objects, slot_index, level, game_link, player, inventory, limits, messages,
-        messages_enabled, message_time_milliseconds, NULL, out_collected_count, error, error_size);
+        messages_enabled, message_time_milliseconds, NULL, NULL, out_collected_count,
+        error, error_size);
 }
 
 int object_collectables_update_slot_single_player_with_audio(
@@ -432,7 +443,8 @@ int object_collectables_update_slot_single_player_with_audio(
     const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
     uint8_t messages_enabled, uint64_t message_time_milliseconds,
-    GameAudioEvents *audio_events, uint32_t *out_collected_count,
+    const ObjectObservation *observation, GameAudioEvents *audio_events,
+    uint32_t *out_collected_count,
     char *error, size_t error_size)
 {
     if (!objects || slot_index >= objects->active_slot_count) {
@@ -442,7 +454,7 @@ int object_collectables_update_slot_single_player_with_audio(
     }
     return object_collectables_update_range_single_player(
         objects, level, game_link, player, inventory, limits, messages, messages_enabled,
-        message_time_milliseconds, audio_events,
+        message_time_milliseconds, observation, audio_events,
         slot_index, slot_index + 1u,
         out_collected_count, error, error_size);
 }

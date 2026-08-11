@@ -317,7 +317,8 @@ int object_handler_update_single_player(
             if (!object_collectables_update_slot_single_player_with_audio(
                     objects, slot_index, level, game_link, player, inventory, limits,
                     alien_context->messages, alien_context->preferences->show_messages,
-                    alien_context->message_time_milliseconds, alien_context->audio_events,
+                    alien_context->message_time_milliseconds, alien_context->observation,
+                    alien_context->audio_events,
                     &newly_collected, error, error_size)) {
                 return 0;
             }
@@ -333,7 +334,8 @@ int object_handler_update_single_player(
                        frame_ticks, alien_context->messages,
                        alien_context->preferences->show_messages,
                        alien_context->message_time_milliseconds,
-                       alien_context->audio_events, error, error_size)) {
+                       alien_context->observation, alien_context->audio_events,
+                       error, error_size)) {
             return 0;
         } else if ((definition.behaviour == OBJECT_BEHAVIOUR_DESTRUCTIBLE ||
                     definition.behaviour == OBJECT_BEHAVIOUR_DECORATION) &&

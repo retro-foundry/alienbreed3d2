@@ -179,7 +179,8 @@ static int object_activatables_update_range_single_player(
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint32_t first_slot, uint32_t slot_limit,
     uint16_t frame_ticks, MessageRuntime *messages, uint8_t messages_enabled,
-    uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
+    uint64_t message_time_milliseconds, const ObjectObservation *observation,
+    GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
     if (!objects || !level || !game_link || !player || !inventory || !limits || !messages ||
@@ -246,6 +247,7 @@ static int object_activatables_update_range_single_player(
                 /* Activatable ignores Plr1_CollectItem's result, as the source does. */
                 if (!object_collectables_collect_item_single_player(
                         level, game_link, &definition, slot, point_bytes, point_index,
+                        observation,
                         inventory, limits, messages, messages_enabled,
                         message_time_milliseconds, audio_events, &collected,
                         error, error_size)) {
@@ -279,13 +281,14 @@ int object_activatables_update_single_player(
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
     MessageRuntime *messages, uint8_t messages_enabled,
-    uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
+    uint64_t message_time_milliseconds, const ObjectObservation *observation,
+    GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
     return object_activatables_update_range_single_player(
         objects, level, game_link, player, inventory, limits, 0u,
         objects ? objects->active_slot_count : 0u, frame_ticks,
-        messages, messages_enabled, message_time_milliseconds, audio_events,
+        messages, messages_enabled, message_time_milliseconds, observation, audio_events,
         error, error_size);
 }
 
@@ -294,7 +297,8 @@ int object_activatables_update_slot_single_player(
     const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
     MessageRuntime *messages, uint8_t messages_enabled,
-    uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
+    uint64_t message_time_milliseconds, const ObjectObservation *observation,
+    GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
     if (!objects || slot_index >= objects->active_slot_count) {
@@ -304,6 +308,7 @@ int object_activatables_update_slot_single_player(
     }
     return object_activatables_update_range_single_player(
         objects, level, game_link, player, inventory, limits, slot_index, slot_index + 1u,
-        frame_ticks, messages, messages_enabled, message_time_milliseconds, audio_events,
+        frame_ticks, messages, messages_enabled, message_time_milliseconds,
+        observation, audio_events,
         error, error_size);
 }

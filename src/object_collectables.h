@@ -9,6 +9,7 @@
 #include "game_link.h"
 #include "level_runtime.h"
 #include "message_runtime.h"
+#include "object_observation.h"
 #include "object_runtime.h"
 #include "player_runtime.h"
 
@@ -17,6 +18,7 @@ int object_collectables_collect_item_single_player(
     const LevelRuntime *level, const GameLink *game_link,
     const GameObjectDefinition *definition, uint8_t *slot,
     const uint8_t *point_bytes, uint16_t point_index,
+    const ObjectObservation *observation,
     GameInventory *inventory, const GameInventoryConsumableLimits *limits,
     MessageRuntime *messages, uint8_t messages_enabled,
     uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
@@ -51,7 +53,8 @@ int object_collectables_update_slot_single_player_with_audio(
     const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, MessageRuntime *messages,
     uint8_t messages_enabled, uint64_t message_time_milliseconds,
-    GameAudioEvents *audio_events, uint32_t *out_collected_count,
+    const ObjectObservation *observation, GameAudioEvents *audio_events,
+    uint32_t *out_collected_count,
     char *error, size_t error_size);
 
 #endif
