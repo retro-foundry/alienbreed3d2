@@ -139,6 +139,54 @@ static int object_collectables_push_failed_message(uint8_t *slot, MessageRuntime
     return 1;
 }
 
+int object_collectables_collect_item_single_player(
+    const LevelRuntime *level, const GameLink *game_link,
+    const GameObjectDefinition *definition, uint8_t *slot,
+    const uint8_t *point_bytes, uint16_t point_index,
+    GameInventory *inventory, const GameInventoryConsumableLimits *limits,
+    MessageRuntime *messages, uint8_t messages_enabled,
+    uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
+    uint8_t *out_collected, char *error, size_t error_size)
+{
+    GameInventory grant;
+    int collectable;
+
+    if (out_collected) {
+        *out_collected = 0u;
+    }
+    if (!level || !game_link || !definition || !slot || !point_bytes || !inventory ||
+        !limits || !messages || !out_collected ||
+        slot[OBJECT_SLOT_ENTITY_TYPE] >= GAME_LINK_OBJECT_COUNT) {
+        object_collectables_set_error(error, error_size,
+                                      "Plr1_CollectItem received invalid source state");
+        return 0;
+    }
+    if (!game_link_get_object_inventory_grant(
+            game_link, slot[OBJECT_SLOT_ENTITY_TYPE], &grant, error, error_size)) {
+        return 0;
+    }
+    collectable =
+        object_collectables_read_be32(slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD) != 0u ||
+        game_inventory_can_collect_single_player(inventory, &grant, limits);
+    if (collectable == 0) {
+        return object_collectables_push_failed_message(
+            slot, messages, messages_enabled, message_time_milliseconds,
+            error, error_size);
+    }
+    if (!object_collectables_push_success_message(
+            level, game_link, slot, messages, messages_enabled, error, error_size)) {
+        return 0;
+    }
+    game_inventory_apply_grant(inventory, &grant, limits);
+    /* newaliencontrol.s:Plr1_CollectItem ODefT_SFX_w (negative is silent). */
+    game_audio_events_emit(audio_events, definition->sound_effect, 80,
+                           (int16_t)(object_collectables_read_be32(point_bytes) >> 16),
+                           (int16_t)(object_collectables_read_be32(point_bytes + 4u) >> 16),
+                           point_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
+    *out_collected = UINT8_MAX;
+    return 1;
+}
+
 /* 68000 ASR follows a negative value toward negative infinity. */
 static int32_t object_collectables_asr32(int32_t value, unsigned int count)
 {
@@ -269,8 +317,7 @@ static int object_collectables_update_range_single_player(
         uint8_t *point_bytes;
         LevelZone zone;
         int32_t floor_or_roof;
-        GameInventory grant;
-        int collectable;
+        uint8_t collected;
 
         if (!object_runtime_get_slot_bytes(objects, slot_index, &slot)) {
             object_collectables_set_error(error, error_size,
@@ -328,30 +375,16 @@ static int object_collectables_update_range_single_player(
         if (!object_collectables_player_hits_slot(player, slot, point_bytes, &definition)) {
             continue;
         }
-        if (!game_link_get_object_inventory_grant(game_link, entity_type, &grant,
-                                                  error, error_size)) {
+        if (!object_collectables_collect_item_single_player(
+                level, game_link, &definition, slot, point_bytes, point_index,
+                inventory, limits, messages, messages_enabled,
+                message_time_milliseconds, audio_events, &collected,
+                error, error_size)) {
             return 0;
         }
-        collectable = object_collectables_read_be32(slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD) != 0u ||
-            game_inventory_can_collect_single_player(inventory, &grant, limits);
-        if (!collectable) {
-            if (!object_collectables_push_failed_message(slot, messages, messages_enabled,
-                                                         message_time_milliseconds, error,
-                                                         error_size)) {
-                return 0;
-            }
+        if (collected == 0u) {
             continue;
         }
-        if (!object_collectables_push_success_message(level, game_link, slot, messages,
-                                                      messages_enabled, error, error_size)) {
-            return 0;
-        }
-        game_inventory_apply_grant(inventory, &grant, limits);
-        /* newaliencontrol.s:Plr1_CollectItem ODefT_SFX_w (negative is silent). */
-        game_audio_events_emit(audio_events, definition.sound_effect, 80,
-                               (int16_t)(object_collectables_read_be32(point_bytes) >> 16),
-                               (int16_t)(object_collectables_read_be32(point_bytes + 4u) >> 16),
-                               point_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
         /* Plr1_CollectItem / Collectable remove the source slot on success. */
         object_collectables_write_be16(slot + OBJECT_SLOT_ZONE_ID, UINT16_MAX);
         slot[OBJECT_SLOT_WORRY] = 0u;

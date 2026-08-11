@@ -12,6 +12,16 @@
 #include "object_runtime.h"
 #include "player_runtime.h"
 
+/* Exact single-player newaliencontrol.s:Plr1_CollectItem state transition. */
+int object_collectables_collect_item_single_player(
+    const LevelRuntime *level, const GameLink *game_link,
+    const GameObjectDefinition *definition, uint8_t *slot,
+    const uint8_t *point_bytes, uint16_t point_index,
+    GameInventory *inventory, const GameInventoryConsumableLimits *limits,
+    MessageRuntime *messages, uint8_t messages_enabled,
+    uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
+    uint8_t *out_collected, char *error, size_t error_size);
+
 /*
  * Focused single-player branch of newaliencontrol.s:ItsAnObject / Collectable
  * and Plr1_CheckObjectCollide, including the successful and failed collection

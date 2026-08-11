@@ -1910,6 +1910,7 @@ int main(int argc, char **argv)
     object_handler_context.dispatch_workspace = &game.alien_dispatch_workspace;
     object_handler_context.messages = &game.message_runtime;
     object_handler_context.preferences = &game.preferences;
+    object_handler_context.audio_events = &game.audio_events;
     object_handler_context.message_time_milliseconds = 0u;
     if (game.random.state != 234u) {
         fprintf(stderr, "Game_Start source random seed is inconsistent\n");
@@ -3123,8 +3124,14 @@ int main(int argc, char **argv)
             if (activatable_slot_index < game.object_runtime.active_slot_count) {
                 PlayerRuntime activatable_player = game.player;
                 GameInventory activatable_inventory = game.session.player1_inventory;
+                GameInventory activatable_expected_inventory;
+                GameInventory activatable_grant;
+                MessageRuntime activatable_messages = game.message_runtime;
+                GameAudioEvents activatable_audio;
                 LevelZone activatable_zone;
                 uint16_t activatable_point_index = read_be16(activatable_slot + 0u);
+                uint8_t activatable_collection_slot[OBJECT_RUNTIME_SLOT_BYTE_COUNT];
+                uint8_t activatable_collected = 0u;
 
                 if (!object_runtime_get_point_bytes(&game.object_runtime,
                                                     activatable_point_index,
@@ -3141,6 +3148,59 @@ int main(int argc, char **argv)
                     game_bootstrap_destroy(&game);
                     return 1;
                 }
+                memcpy(activatable_collection_slot, activatable_slot,
+                       sizeof(activatable_collection_slot));
+                /* A held lock makes Plr1_CollectItem take its unconditional success path. */
+                write_be32(activatable_collection_slot + 50u, 1u);
+                activatable_expected_inventory = activatable_inventory;
+                game_audio_events_init(&activatable_audio);
+                activatable_messages.redraw_count = 0u;
+                if (!game_link_get_object_inventory_grant(
+                        &game.game_link_catalog, activatable_slot[54u],
+                        &activatable_grant, error, sizeof(error)) ||
+                    !object_collectables_collect_item_single_player(
+                        &game.level_runtime, &game.game_link_catalog,
+                        &activatable_definition, activatable_collection_slot,
+                        activatable_point, activatable_point_index,
+                        &activatable_inventory, &game.inventory_limits,
+                        &activatable_messages, UINT8_MAX, 0u, &activatable_audio,
+                        &activatable_collected, error, sizeof(error))) {
+                    fprintf(stderr,
+                            "campaign level %u activatable Plr1_CollectItem failed: %s\n",
+                            level_index, error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                game_inventory_apply_grant(&activatable_expected_inventory,
+                                           &activatable_grant,
+                                           &game.inventory_limits);
+                if (activatable_collected != UINT8_MAX ||
+                    memcmp(&activatable_inventory, &activatable_expected_inventory,
+                           sizeof(activatable_inventory)) != 0 ||
+                    activatable_messages.redraw_count == 0u ||
+                    activatable_audio.source_sample_index !=
+                        activatable_definition.sound_effect ||
+                    activatable_audio.source_id_register != activatable_point_index ||
+                    (activatable_definition.sound_effect >= 0 &&
+                     (activatable_audio.count != 1u ||
+                      activatable_audio.events[0].sample_index !=
+                          (uint16_t)activatable_definition.sound_effect ||
+                      activatable_audio.events[0].volume != 80u ||
+                      activatable_audio.events[0].world_x !=
+                          (int16_t)read_be16(activatable_point + 0u) ||
+                      activatable_audio.events[0].world_z !=
+                          (int16_t)read_be16(activatable_point + 4u) ||
+                      activatable_audio.events[0].source_id !=
+                          activatable_point_index)) ||
+                    (activatable_definition.sound_effect < 0 &&
+                     activatable_audio.count != 0u)) {
+                    fprintf(stderr,
+                            "campaign level %u activatable collection side effects are inconsistent\n",
+                            level_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                activatable_inventory = game.session.player1_inventory;
                 write_be16(activatable_slot + 12u, activatable_player.zone_index);
                 write_be16(activatable_slot + 34u, 0u);
                 write_be16(activatable_slot + 40u, 0u);

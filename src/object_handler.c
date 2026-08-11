@@ -317,7 +317,10 @@ int object_handler_update_single_player(
         } else if (definition.behaviour == OBJECT_BEHAVIOUR_ACTIVATABLE &&
                    !object_activatables_update_slot_single_player(
                        objects, slot_index, level, game_link, player, inventory, limits,
-                       frame_ticks, error, error_size)) {
+                       frame_ticks, alien_context->messages,
+                       alien_context->preferences->show_messages,
+                       alien_context->message_time_milliseconds,
+                       alien_context->audio_events, error, error_size)) {
             return 0;
         } else if ((definition.behaviour == OBJECT_BEHAVIOUR_DESTRUCTIBLE ||
                     definition.behaviour == OBJECT_BEHAVIOUR_DECORATION) &&

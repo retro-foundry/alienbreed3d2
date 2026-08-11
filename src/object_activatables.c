@@ -3,6 +3,8 @@
 #include <limits.h>
 #include <stdio.h>
 
+#include "object_collectables.h"
+
 enum {
     /* defs.i ObjT/EntT/ShotT source offsets. */
     OBJECT_SLOT_POINT_INDEX = 0u,
@@ -16,7 +18,6 @@ enum {
     OBJECT_SLOT_CURRENT_ANGLE = 30u,
     OBJECT_SLOT_TIMER1 = 34u,
     OBJECT_SLOT_TIMER2 = 40u,
-    OBJECT_SLOT_DOORS_AND_LIFTS_HELD = 50u,
     OBJECT_SLOT_WORRY = 62u,
     OBJECT_SLOT_IN_UPPER_ZONE = 63u,
     OBJECT_TYPE_OBJECT = 1u,
@@ -38,12 +39,6 @@ static uint16_t object_activatables_read_be16(const uint8_t *source)
 static int16_t object_activatables_read_be16s(const uint8_t *source)
 {
     return (int16_t)object_activatables_read_be16(source);
-}
-
-static uint32_t object_activatables_read_be32(const uint8_t *source)
-{
-    return ((uint32_t)source[0] << 24) | ((uint32_t)source[1] << 16) |
-           ((uint32_t)source[2] << 8) | source[3];
 }
 
 static void object_activatables_write_be16(uint8_t *target, uint16_t value)
@@ -179,35 +174,15 @@ static int object_activatables_apply_animation(const GameLink *game_link,
     return 1;
 }
 
-static int object_activatables_collect_item(const GameLink *game_link, uint8_t *slot,
-                                            GameInventory *inventory,
-                                            const GameInventoryConsumableLimits *limits,
-                                            char *error, size_t error_size)
-{
-    GameInventory grant;
-    uint16_t object_type = slot[OBJECT_SLOT_ENTITY_TYPE];
-    int can_collect;
-
-    if (!game_link_get_object_inventory_grant(game_link, object_type, &grant,
-                                              error, error_size)) {
-        return 0;
-    }
-    can_collect = object_activatables_read_be32(slot + OBJECT_SLOT_DOORS_AND_LIFTS_HELD) != 0u ||
-        game_inventory_can_collect_single_player(inventory, &grant, limits);
-    if (can_collect != 0) {
-        game_inventory_apply_grant(inventory, &grant, limits);
-    }
-    return 1;
-}
-
 static int object_activatables_update_range_single_player(
     ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint32_t first_slot, uint32_t slot_limit,
-    uint16_t frame_ticks,
+    uint16_t frame_ticks, MessageRuntime *messages, uint8_t messages_enabled,
+    uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
-    if (!objects || !level || !game_link || !player || !inventory || !limits ||
+    if (!objects || !level || !game_link || !player || !inventory || !limits || !messages ||
         objects->active_slot_count > objects->slot_count || first_slot > slot_limit ||
         slot_limit > objects->active_slot_count ||
         player->zone_index >= level->zone_count) {
@@ -266,8 +241,14 @@ static int object_activatables_update_range_single_player(
                                                             &definition);
         if (active == 0) {
             if (player_hits != 0 && player->tmp_used != 0u) {
-                if (!object_activatables_collect_item(game_link, slot, inventory, limits,
-                                                      error, error_size)) {
+                uint8_t collected;
+
+                /* Activatable ignores Plr1_CollectItem's result, as the source does. */
+                if (!object_collectables_collect_item_single_player(
+                        level, game_link, &definition, slot, point_bytes, point_index,
+                        inventory, limits, messages, messages_enabled,
+                        message_time_milliseconds, audio_events, &collected,
+                        error, error_size)) {
                     return 0;
                 }
                 object_activatables_write_be16(slot + OBJECT_SLOT_TIMER1, 0u);
@@ -297,17 +278,23 @@ int object_activatables_update_single_player(
     ObjectRuntime *objects, const LevelRuntime *level, const GameLink *game_link,
     const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
+    MessageRuntime *messages, uint8_t messages_enabled,
+    uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
     return object_activatables_update_range_single_player(
         objects, level, game_link, player, inventory, limits, 0u,
-        objects ? objects->active_slot_count : 0u, frame_ticks, error, error_size);
+        objects ? objects->active_slot_count : 0u, frame_ticks,
+        messages, messages_enabled, message_time_milliseconds, audio_events,
+        error, error_size);
 }
 
 int object_activatables_update_slot_single_player(
     ObjectRuntime *objects, uint32_t slot_index, const LevelRuntime *level,
     const GameLink *game_link, const PlayerRuntime *player, GameInventory *inventory,
     const GameInventoryConsumableLimits *limits, uint16_t frame_ticks,
+    MessageRuntime *messages, uint8_t messages_enabled,
+    uint64_t message_time_milliseconds, GameAudioEvents *audio_events,
     char *error, size_t error_size)
 {
     if (!objects || slot_index >= objects->active_slot_count) {
@@ -317,5 +304,6 @@ int object_activatables_update_slot_single_player(
     }
     return object_activatables_update_range_single_player(
         objects, level, game_link, player, inventory, limits, slot_index, slot_index + 1u,
-        frame_ticks, error, error_size);
+        frame_ticks, messages, messages_enabled, message_time_milliseconds, audio_events,
+        error, error_size);
 }
