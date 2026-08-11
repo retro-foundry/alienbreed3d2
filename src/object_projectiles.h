@@ -11,6 +11,7 @@
 #include "lighting_runtime.h"
 #include "object_blast.h"
 #include "object_motion.h"
+#include "object_observation.h"
 #include "object_runtime.h"
 #include "object_visibility.h"
 
@@ -22,6 +23,7 @@ typedef struct {
     const AssetBlob *clips;
     GameRandom *random;
     GameAudioEvents *audio_events;
+    const ObjectObservation *observation;
 } ObjectProjectileSourceRuntime;
 
 /*

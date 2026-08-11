@@ -179,25 +179,34 @@ static void object_projectiles_mark_impact(uint8_t *slot)
 }
 
 static void object_projectiles_emit_impact_sound(
-    ObjectProjectileSourceRuntime *source_runtime, ObjectRuntime *objects,
-    uint32_t slot_index, const uint8_t *slot, const GameBulletDefinition *bullet)
+    ObjectProjectileSourceRuntime *source_runtime,
+    const uint8_t *slot, const GameBulletDefinition *bullet, uint8_t echo)
 {
-    uint8_t *point;
     uint16_t point_index;
+    uint32_t sample_index;
 
-    if (!source_runtime || !source_runtime->audio_events || !objects || !slot || !bullet) {
+    if (!source_runtime || !source_runtime->audio_events || !source_runtime->observation ||
+        !slot || !bullet) {
         return;
     }
     point_index = object_projectiles_read_be16(slot + OBJECT_PROJECTILE_POINT_INDEX);
-    if (!object_runtime_get_point_bytes(objects, point_index, &point)) {
+    if (point_index >= OBJECT_OBSERVATION_DISTANCE_COUNT) {
         return;
     }
-    /* newanims.s:ItsABullet writes BulT_ImpactSFX_l directly to Aud_SampleNum_w. */
-    game_audio_events_emit(source_runtime->audio_events, (int16_t)bullet->impact_sound_effect,
-                           200, object_projectiles_high_word(object_projectiles_read_be32s(point)),
-                           object_projectiles_high_word(
-                               object_projectiles_read_be32s(point + 4u)),
-                           (uint16_t)slot_index, GAME_AUDIO_RESTART_SOURCE, 0u, 0u);
+    /*
+     * Each ItsABullet impact branch subtracts one from the one-based BulT
+     * sample, then copies the already camera-relative ObjRotated point and
+     * the projectile's point index into the MakeSomeNoise registers.
+     */
+    sample_index = bullet->impact_sound_effect - 1u;
+    if ((int32_t)sample_index < 0) {
+        return;
+    }
+    game_audio_events_emit_relative(
+        source_runtime->audio_events, (int16_t)(uint16_t)sample_index, 200,
+        source_runtime->observation->rotated_x[point_index],
+        source_runtime->observation->rotated_z[point_index], point_index,
+        GAME_AUDIO_RESTART_SOURCE, 0u, echo);
 }
 
 static void object_projectiles_apply_animation_descriptor(
@@ -552,6 +561,7 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
     uint8_t moving = 0u;
     uint8_t timed_out = 0u;
     uint8_t direct_target_hit = 0u;
+    uint8_t projectile_echo;
     ObjectMotionRuntime *motion_runtime =
         source_runtime ? source_runtime->motion_runtime : NULL;
     ObjectMovementTrace trace = {0};
@@ -619,6 +629,8 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
                                 error, error_size)) {
         return 0;
     }
+    /* ItsABullet snapshots ZoneT_Echo_b into PlayEcho before MoveObject. */
+    projectile_echo = zone.echo;
     /* ZoneT+8 selects the upper floor/roof pair for an upper-layer projectile. */
     /* newanims.s:ItsABullet branches to .nohitroof when this distance is below 10*128. */
     if (object_projectiles_sub32(slot[OBJECT_PROJECTILE_IN_UPPER_ZONE] != 0u ?
@@ -647,8 +659,8 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
             }
         } else {
             object_projectiles_mark_impact(slot);
-            object_projectiles_emit_impact_sound(source_runtime, objects, slot_index, slot,
-                                                 &bullet);
+            object_projectiles_emit_impact_sound(source_runtime, slot, &bullet,
+                                                 projectile_echo);
             if (!object_projectiles_compute_blast(
                     source_runtime, objects, slot_index, dynamic_level, game_link, slot,
                     &bullet, UINT8_MAX, error, error_size)) {
@@ -683,8 +695,8 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
             }
         } else {
             object_projectiles_mark_impact(slot);
-            object_projectiles_emit_impact_sound(source_runtime, objects, slot_index, slot,
-                                                 &bullet);
+            object_projectiles_emit_impact_sound(source_runtime, slot, &bullet,
+                                                 projectile_echo);
             if (!object_projectiles_compute_blast(
                     source_runtime, objects, slot_index, dynamic_level, game_link, slot,
                     &bullet, UINT8_MAX, error, error_size)) {
@@ -832,7 +844,7 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
                                       (uint16_t)object_projectiles_asr32(trace.wall_hit_height,
                                                                          7u));
         object_projectiles_mark_impact(slot);
-        object_projectiles_emit_impact_sound(source_runtime, objects, slot_index, slot, &bullet);
+        object_projectiles_emit_impact_sound(source_runtime, slot, &bullet, projectile_echo);
         if (!object_projectiles_compute_blast(
                 source_runtime, objects, slot_index, dynamic_level, game_link, slot,
                 &bullet, UINT8_MAX, error, error_size)) {
@@ -841,7 +853,7 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
     }
     if (timed_out != 0u) {
         object_projectiles_mark_impact(slot);
-        object_projectiles_emit_impact_sound(source_runtime, objects, slot_index, slot, &bullet);
+        object_projectiles_emit_impact_sound(source_runtime, slot, &bullet, projectile_echo);
         if (!object_projectiles_compute_blast(
                 source_runtime, objects, slot_index, dynamic_level, game_link, slot,
                 &bullet, UINT8_MAX, error, error_size)) {
@@ -865,7 +877,7 @@ int object_projectiles_update_flight_animation_slot_with_source_state(
         return 0;
     }
     if (direct_target_hit != 0u) {
-        object_projectiles_emit_impact_sound(source_runtime, objects, slot_index, slot, &bullet);
+        object_projectiles_emit_impact_sound(source_runtime, slot, &bullet, projectile_echo);
         if (!object_projectiles_compute_blast(source_runtime, objects, slot_index, dynamic_level,
                                               game_link, slot, &bullet, 0u,
                                               error, error_size)) {

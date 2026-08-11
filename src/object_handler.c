@@ -213,6 +213,7 @@ int object_handler_update_single_player(
     projectile_source_runtime.clips = alien_context->clips;
     projectile_source_runtime.random = alien_context->random;
     projectile_source_runtime.audio_events = alien_context->audio_events;
+    projectile_source_runtime.observation = alien_context->observation;
     for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
         uint8_t *slot;
         GameObjectDefinition definition;

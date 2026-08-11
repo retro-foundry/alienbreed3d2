@@ -7643,6 +7643,7 @@ int main(int argc, char **argv)
             ObjectRuntime flight_objects = {0};
             ObjectMotionRuntime flight_motion;
             ObjectProjectileSourceRuntime flight_source = {0};
+            ObjectObservation flight_observation;
             GameAudioEvents flight_audio;
 
             if (!game_link_table(&game.game_link_catalog, GAME_LINK_TABLE_BULLET_DEFINITIONS,
@@ -7692,6 +7693,7 @@ int main(int argc, char **argv)
             write_be32(flight_level_bytes + 10u, 200000u);
             write_be32(flight_level_bytes + 14u, 100000u);
             write_be16(flight_level_bytes + 32u, 56u);
+            flight_level_bytes[37u] = 7u;
             write_be16(flight_level_bytes + 48u, UINT16_MAX);
             write_be16(flight_level_bytes + 56u, 0u);
             write_be16(flight_level_bytes + 58u, UINT16_MAX);
@@ -7713,9 +7715,13 @@ int main(int argc, char **argv)
             flight_objects.point_bytes = flight_point_bytes;
             flight_objects.point_count = 1u;
             object_motion_runtime_init(&flight_motion);
+            object_observation_init(&flight_observation);
+            flight_observation.rotated_x[0u] = 123;
+            flight_observation.rotated_z[0u] = -45;
             game_audio_events_init(&flight_audio);
             flight_source.motion_runtime = &flight_motion;
             flight_source.audio_events = &flight_audio;
+            flight_source.observation = &flight_observation;
             write_be16(flight_slot_bytes + 0u, 0u);
             write_be16(flight_slot_bytes + 12u, 0u);
             flight_slot_bytes[16u] = 2u;
@@ -7783,7 +7789,12 @@ int main(int argc, char **argv)
                     &flight_objects, 0u, &flight_dynamic, &game.lighting_runtime,
                     &flight_source, &flight_link, 1u, error, sizeof(error)) ||
                 flight_slot_bytes[30u] != 1u || flight_audio.count != 1u ||
-                flight_audio.events[0u].sample_index != 5u) {
+                flight_audio.events[0u].sample_index != 4u ||
+                flight_audio.events[0u].world_x != flight_observation.rotated_x[0u] ||
+                flight_audio.events[0u].world_z != flight_observation.rotated_z[0u] ||
+                flight_audio.events[0u].source_id != 0u ||
+                flight_audio.events[0u].listener_relative == 0u ||
+                flight_audio.events[0u].echo != 7u) {
                 fprintf(stderr,
                         "ItsABullet simultaneous wall/timeout impact is inconsistent: %s\n",
                         error);
