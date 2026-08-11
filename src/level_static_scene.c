@@ -125,8 +125,35 @@ static int32_t level_static_scene_flat_texture_coordinate(int16_t coordinate, in
         return coordinate >> (uint8_t)-scale;
     }
     return -((-(int32_t)coordinate +
-              (int32_t)((UINT32_C(1) << (uint8_t)-scale) - 1u)) >>
+             (int32_t)((UINT32_C(1) << (uint8_t)-scale) - 1u)) >>
              (uint8_t)-scale);
+}
+
+static int16_t level_static_scene_asr16_2(int16_t value)
+{
+    if (value >= 0) {
+        return (int16_t)(value / 4);
+    }
+    return (int16_t)-(((int32_t)-value + 3) / 4);
+}
+
+/*
+ * newanims.s:DoorRoutine writes the Draw_Flats +2 height directly from d3,
+ * then uses ASR.W #2 and MULS #256 to write every direct ZDoorWall +24
+ * boundary. The native solid must use that latter boundary for the controller
+ * plane as well: during a non-four-unit motion step the two source records
+ * differ by at most 192 units, which is invisible in the source column pass
+ * but becomes an actual open seam in a 3D mesh. This is presentation-only;
+ * the exact mutable source records remain unchanged.
+ */
+static int32_t level_static_scene_flat_world_y(const LevelStaticFlatScene *scene_flat,
+                                               int16_t source_height)
+{
+    if (scene_flat &&
+        scene_flat->dynamic_surface_kind == LEVEL_STATIC_DYNAMIC_SURFACE_DOOR) {
+        return (int32_t)level_static_scene_asr16_2(source_height) * 256;
+    }
+    return (int32_t)source_height * 64;
 }
 
 static void level_static_scene_set_wall_texture_window(LevelStaticWallScene *scene_wall,
@@ -860,7 +887,9 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                         scene_flat->point_brightness_selectors[point_index] =
                             (uint8_t)(raw_point_word >> 12u);
                         level_static_scene_set_vertex(&scene_flat->vertices[point_index],
-                                                      world_point.x, (int32_t)flat.height * 64,
+                                                      world_point.x,
+                                                      level_static_scene_flat_world_y(
+                                                          scene_flat, flat.height),
                                                       world_point.z,
                                                       level_static_scene_flat_texture_coordinate(
                                                           world_point.x, source_scale),
@@ -1057,7 +1086,8 @@ int level_static_scene_apply_runtime(LevelStaticScene *scene, const LevelRuntime
             scene_flat->point_brightness_selectors[point_index] =
                 (uint8_t)(raw_point_word >> 12u);
             level_static_scene_set_vertex(&scene_flat->vertices[point_index], world_point.x,
-                                          (int32_t)flat.height * 64, world_point.z,
+                                          level_static_scene_flat_world_y(scene_flat, flat.height),
+                                          world_point.z,
                                           level_static_scene_flat_texture_coordinate(
                                               world_point.x, source_scale),
                                           level_static_scene_flat_texture_coordinate(

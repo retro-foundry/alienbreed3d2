@@ -2139,6 +2139,10 @@ int main(int argc, char **argv)
         return 1;
     }
     for (level_index = 0; level_index < 16u; ++level_index) {
+        uint32_t dynamic_door_fixture_wall_offset = UINT32_MAX;
+        uint32_t dynamic_door_fixture_plane_offset = UINT32_MAX;
+        int32_t dynamic_door_fixture_boundary = 0;
+
         if (!game_session_select_level(&game.session, level_index, error, sizeof(error)) ||
             !game_bootstrap_start_selected_single_player(&game, argv[1], error, sizeof(error)) ||
             game.active_level_index != level_index ||
@@ -3712,6 +3716,7 @@ int main(int argc, char **argv)
             int32_t top;
             int32_t bottom;
             int32_t moved_bottom;
+            int16_t moved_plane;
 
             if (scene_wall->mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_DOOR ||
                 scene_wall->source_record_offset != scene_wall->mechanism_wall_source_offset ||
@@ -3735,12 +3740,7 @@ int main(int argc, char **argv)
             } else {
                 continue;
             }
-            /*
-             * DoorRoutine derives both fields from d3: Draw_Wall +24 is
-             * d3 << 8 while Draw_Flats +2 is d3 << 6.  Keep the artificial
-             * V-span fixture source-coherent so it continues to represent a
-             * closed controller mesh, rather than creating a false seam.
-             */
+            /* DoorRoutine writes the flat from d3 and its wall edge from d3 >> 2. */
             if ((moved_bottom % 64) != 0 || moved_bottom / 64 < INT16_MIN ||
                 moved_bottom / 64 > INT16_MAX) {
                 fprintf(stderr,
@@ -3749,8 +3749,19 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
-            write_be32(dynamic_door_bounds + 4u, (uint32_t)moved_bottom);
-            write_be16(dynamic_door_plane, (uint16_t)(int16_t)(moved_bottom / 64));
+            moved_plane = (int16_t)(moved_bottom / 64);
+            /* Exercise DoorRoutine's intermediate ASR.W #2 quantisation, not an endpoint. */
+            if ((moved_plane % 4) == 0) {
+                moved_plane = moved_plane == INT16_MAX ?
+                    (int16_t)(moved_plane - 1) : (int16_t)(moved_plane + 1);
+            }
+            write_be32(dynamic_door_bounds + 4u,
+                       (uint32_t)((int32_t)source_asr16_2(moved_plane) * 256));
+            write_be16(dynamic_door_plane, (uint16_t)moved_plane);
+            dynamic_door_fixture_wall_offset = scene_wall->mechanism_wall_source_offset;
+            dynamic_door_fixture_plane_offset = door.graphics_offset;
+            dynamic_door_fixture_boundary =
+                (int32_t)source_asr16_2(moved_plane) * 256;
             ++dynamic_wall_v_scale_fixture_count;
             break;
         }
@@ -3783,6 +3794,57 @@ int main(int argc, char **argv)
                     level_index, error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        if (dynamic_door_fixture_wall_offset != UINT32_MAX) {
+            uint32_t fixture_wall_count = 0u;
+            uint32_t fixture_plane_count = 0u;
+
+            for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
+                 ++static_wall_index) {
+                const LevelStaticWallScene *scene_wall =
+                    &game.static_scene.walls[static_wall_index];
+
+                if (scene_wall->source_record_offset != dynamic_door_fixture_wall_offset) {
+                    continue;
+                }
+                if (scene_wall->vertices[0].position.y != dynamic_door_fixture_boundary &&
+                    scene_wall->vertices[2].position.y != dynamic_door_fixture_boundary) {
+                    fprintf(stderr,
+                            "campaign level %u moving door wall did not retain its source boundary\n",
+                            level_index);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                ++fixture_wall_count;
+            }
+            for (static_flat_index = 0u; static_flat_index < game.static_scene.flat_count;
+                 ++static_flat_index) {
+                const LevelStaticFlatScene *scene_flat =
+                    &game.static_scene.flats[static_flat_index];
+
+                if (scene_flat->source_record_offset != dynamic_door_fixture_plane_offset) {
+                    continue;
+                }
+                for (uint16_t point_index = 0u; point_index < scene_flat->vertex_count;
+                     ++point_index) {
+                    if (scene_flat->vertices[point_index].position.y !=
+                        dynamic_door_fixture_boundary) {
+                        fprintf(stderr,
+                                "campaign level %u moving door plane does not seal its wall\n",
+                                level_index);
+                        game_bootstrap_destroy(&game);
+                        return 1;
+                    }
+                }
+                ++fixture_plane_count;
+            }
+            if (fixture_wall_count == 0u || fixture_plane_count == 0u) {
+                fprintf(stderr,
+                        "campaign level %u moving door fixture has no native closed mesh\n",
+                        level_index);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
         }
         for (static_wall_index = 0u; static_wall_index < game.static_scene.wall_count;
              ++static_wall_index) {
@@ -4076,6 +4138,7 @@ int main(int argc, char **argv)
             LevelDrawGraphRecord flat_record;
             uint8_t direct_dynamic_kind;
             uint16_t direct_dynamic_index;
+            int32_t expected_height;
 
             if (scene_flat->source_record_offset > game.dynamic_level.runtime.graphics_size ||
                 6u > game.dynamic_level.runtime.graphics_size - scene_flat->source_record_offset) {
@@ -4116,6 +4179,10 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            expected_height = scene_flat->dynamic_surface_kind ==
+                    LEVEL_STATIC_DYNAMIC_SURFACE_DOOR ?
+                (int32_t)source_asr16_2(draw_flat.height) * 256 :
+                (int32_t)draw_flat.height * 64;
             for (flat_point_index = 0u; flat_point_index < draw_flat.point_count;
                  ++flat_point_index) {
                 int32_t source_scale = (int32_t)draw_flat.texture_scale +
@@ -4132,7 +4199,7 @@ int main(int argc, char **argv)
                     (flat_raw_point_word >> 12u) >= LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT ||
                     scene_flat->vertices[flat_point_index].position.x != world_point.x ||
                     scene_flat->vertices[flat_point_index].position.y !=
-                        (int32_t)draw_flat.height * 64 ||
+                        expected_height ||
                     scene_flat->vertices[flat_point_index].position.z != world_point.z ||
                     source_scale < -31 || source_scale >= 32 ||
                     scene_flat->vertices[flat_point_index].texture_u !=

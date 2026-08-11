@@ -554,8 +554,10 @@ multiplayer work is planned.
   same-`EdgeT` counterpart faces use the controller only for doors when no
   exact source target exists. Every `DoorRoutine` direct `Draw_Flats +2`
   movement plane is submitted with those direct faces under the same dynamic
-  controller instance, so arbitrary authored door perimeters remain a single
-  moving closed mesh instead of separating from a static bottom plane. Lift
+  controller instance. Its presentation height follows the routine's
+  `ASR.W #2`/`MULS #256` direct-wall boundary during fractional source motion,
+  so arbitrary authored door perimeters remain a single moving closed mesh
+  rather than exposing the source records' sub-texel difference as a gap. Lift
   faces retain `LiftRoutine`'s live +20
   boundary and fixed +24 boundary beside the live `Draw_Flats` plane; no
   same-`EdgeT` shaft face follows a lift. For a complete graph's unlisted,
