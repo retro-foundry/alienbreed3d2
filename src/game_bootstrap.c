@@ -908,15 +908,17 @@ static int game_bootstrap_scene_sky_enabled(const GameBootstrap *game)
 }
 
 /*
- * modules/player.s:plr_Fall intentionally lets its fixed-point source state
- * cross SnapTYOff by up to one falling tick before it applies the next upward
- * correction. That is harmless in the source column renderer, but a true 3D
- * camera would briefly enter the sector floor. Keep simulation untouched and
- * constrain only the presented camera to the selected sector contact plane.
+ * modules/player.s adds its screen-space bob to PlrT_YOff_l before drawing.
+ * Retain that value for collision and the ENT_NEXT_2 companion, but remove it
+ * from the true 3D camera: moving the eye itself makes the entire world bob as
+ * if it were still the source column projection. plr_Fall can also let its
+ * fixed-point state cross SnapTYOff by one tick, so constrain the resulting
+ * presentation-only eye position to the selected sector contact plane.
  */
 static int game_bootstrap_scene_camera_y(const GameBootstrap *game, int32_t *out_y)
 {
     LevelZone zone;
+    int32_t camera_y;
     int32_t contact_y;
 
     if (!game || !out_y ||
@@ -924,9 +926,11 @@ static int game_bootstrap_scene_camera_y(const GameBootstrap *game, int32_t *out
                                 NULL, 0u)) {
         return 0;
     }
+    camera_y = (int32_t)((uint32_t)game->player.y -
+                         (uint32_t)game->player.bobble_y);
     contact_y = (game->player.stood_in_top != 0u ? zone.upper_floor : zone.floor) -
         game->player.height;
-    *out_y = game->player.y > contact_y ? contact_y : game->player.y;
+    *out_y = camera_y > contact_y ? contact_y : camera_y;
     return 1;
 }
 

@@ -5008,9 +5008,23 @@ int main(int argc, char **argv)
     }
     {
         int32_t source_player_y = game.player.y;
+        int32_t source_bobble_y = game.player.bobble_y;
+
+        /* Source bob still drives the companion, never the modern 3D eye. */
+        game.player.y = source_player_y - 4096 + 512;
+        game.player.bobble_y = 512;
+        scene_frame_begin(&frame);
+        if (!game_bootstrap_submit_scene_frame(&game, &frame) ||
+            frame.commands[0].data.camera.position.y != source_player_y - 4096) {
+            fprintf(stderr, "3D camera inherited source screen-space bob\n");
+            scene_frame_destroy(&frame);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
 
         /* The source fall step may briefly overshoot; its 3D presentation cannot. */
         game.player.y = zone.floor;
+        game.player.bobble_y = 0;
         scene_frame_begin(&frame);
         if (!game_bootstrap_submit_scene_frame(&game, &frame) ||
             frame.commands[0].data.camera.position.y != zone.floor - game.player.height) {
@@ -5020,6 +5034,7 @@ int main(int argc, char **argv)
             return 1;
         }
         game.player.y = source_player_y;
+        game.player.bobble_y = source_bobble_y;
     }
     saved_floor_override = game.level_floor_override;
     saved_wall_override = game.level_wall_overrides[game.static_scene.walls[0].material_id];
