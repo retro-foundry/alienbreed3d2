@@ -174,12 +174,10 @@ authority for all game behavior and data formats.
 - [x] Native direct play copies Alien Breed 3D I `src/display.c:display_init`:
   it queries SDL's active desktop mode and display bounds, then creates the
   same `SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_OPENGL` normal
-  window at those bounds. It removes only that normal window's decoration with
-  `SDL_SetWindowBordered(..., SDL_FALSE)`, completing the source port's
-  `g_release_borderless_desktop` presentation intent. It makes no fullscreen
-  request, so it never asks SDL to change the monitor mode. The hidden GPU
-  smoke path intentionally stays 1280x720 so its all-level validation remains
-  bounded and independent of monitor layout.
+  window at those bounds. It deliberately uses neither fullscreen nor
+  borderless SDL flags, so it never asks SDL to change the monitor mode. The
+  hidden GPU smoke path intentionally stays 1280x720 so its all-level
+  validation remains bounded and independent of monitor layout.
 - [x] Native presentation now relies on `renderer_opengl.c`'s requested
   `SDL_GL_SetSwapInterval(1)`/`SDL_GL_SwapWindow` boundary rather than a fixed
   16 ms `SDL_Delay`. This matches the first port's display-paced game loop:
