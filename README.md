@@ -57,7 +57,9 @@ any fullscreen or borderless SDL flag and without a monitor-mode change, then
 renders directly to the complete SDL drawable. Its main
 Windows build also carries the first port's `VS_DPI_AWARE OFF` manifest setting
 so the normal window's non-client geometry uses the same desktop coordinate
-space.
+space. Its Win32 presentation glue then positions that existing framed outer
+window so its client rectangle reaches the exact desktop bounds; this changes
+neither the window style nor the monitor mode.
 loop relies on the requested OpenGL swap interval rather than a fixed 16 ms
 sleep, so a supported 120 Hz-or-higher display can present the interpolated
 scene at its native refresh rate. The hidden GPU smoke test retains its
