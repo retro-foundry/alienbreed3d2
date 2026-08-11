@@ -81,7 +81,7 @@ int player_shoot_update_single_player_with_motion_and_audio(
     ObjectMotionRuntime *motion_runtime, GameInventory *inventory,
     const GameLink *game_link, const GamePreferences *preferences,
     const GameMath *math, GameRandom *random, uint16_t frame_ticks,
-    GameAudioEvents *audio_events, char *error, size_t error_size);
+    uint8_t infinite_ammo, GameAudioEvents *audio_events, char *error, size_t error_size);
 
 /*
  * newplayershoot.s:plr1_HitscanSucceded.  Creates the source impact ObjT

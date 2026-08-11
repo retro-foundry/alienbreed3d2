@@ -5868,6 +5868,19 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        parent_player.time_to_shoot = 0;
+        parent_player.noise_volume = 0;
+        if (!player_shoot_update_single_player_with_motion_and_audio(
+                &parent_objects, &game.dynamic_level, &parent_observation, &parent_player,
+                NULL, &parent_inventory, &game.game_link_catalog, &game.preferences, &game.math,
+                &parent_random, 1u, UINT8_MAX, NULL, error, sizeof(error)) ||
+            parent_player.time_to_shoot != (int16_t)parent_shoot.delay ||
+            parent_player.noise_volume != 100 ||
+            parent_inventory.ammunition[parent_shoot.bullet_type] != 0u) {
+            fprintf(stderr, "desktop infinite-ammo firing did not retain Plr1_Shot semantics\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     {
         uint8_t slot_bytes[(1u + OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT) *

@@ -361,9 +361,11 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
         fprintf(stdout, "[SETTINGS] No ab3d2.ini found; using documented defaults\n");
     }
     fprintf(stdout,
-            "[SETTINGS] start_level=%u infinite_health=%u all_weapons=%u volume=%u always_run=%u\n",
+            "[SETTINGS] start_level=%u infinite_health=%u infinite_ammo=%u all_weapons=%u "
+            "volume=%u always_run=%u\n",
             (unsigned)(app->desktop_settings.start_level_index + 1u),
             app->desktop_settings.infinite_health != 0u ? 1u : 0u,
+            app->desktop_settings.infinite_ammo != 0u ? 1u : 0u,
             app->desktop_settings.all_weapons != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.volume,
             app->desktop_settings.always_run != 0u ? 1u : 0u);

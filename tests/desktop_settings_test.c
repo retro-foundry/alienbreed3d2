@@ -3,11 +3,12 @@
 
 #include "desktop_settings.h"
 
-static int expect_settings(const DesktopSettings *settings, uint16_t level, int health,
+static int expect_settings(const DesktopSettings *settings, uint16_t level, int health, int ammo,
                            int weapons, int always_run, uint8_t volume)
 {
     return settings->start_level_index == level &&
         (settings->infinite_health != 0u) == health &&
+        (settings->infinite_ammo != 0u) == ammo &&
         (settings->all_weapons != 0u) == weapons &&
         (settings->always_run != 0u) == always_run && settings->volume == volume;
 }
@@ -18,6 +19,7 @@ int main(void)
         "# desktop session preferences\n"
         "start_level = 16\n"
         "infinite_health = yes\n"
+        "infinite_ammo = on\n"
         "all_weapons = true\n"
         "run_default = off\n"
         "volume = 37\n"
@@ -26,12 +28,12 @@ int main(void)
     char error[256] = {0};
 
     desktop_settings_default(&settings);
-    if (!expect_settings(&settings, 0u, 0, 0, 1, 100u)) {
+    if (!expect_settings(&settings, 0u, 0, 0, 0, 1, 100u)) {
         fprintf(stderr, "desktop settings defaults differ from the documented template\n");
         return 1;
     }
     if (!desktop_settings_parse(&settings, settings_text, strlen(settings_text), error, sizeof(error)) ||
-        !expect_settings(&settings, 15u, 1, 1, 0, 37u)) {
+        !expect_settings(&settings, 15u, 1, 1, 1, 0, 37u)) {
         fprintf(stderr, "desktop settings parser did not apply valid values: %s\n", error);
         return 1;
     }

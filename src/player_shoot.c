@@ -261,8 +261,8 @@ int player_shoot_update_single_player_with_motion_and_audio(
     const ObjectObservation *observation, PlayerRuntime *player,
     ObjectMotionRuntime *motion_runtime, GameInventory *inventory,
     const GameLink *game_link, const GamePreferences *preferences,
-    const GameMath *math, GameRandom *random, uint16_t frame_ticks, GameAudioEvents *audio_events,
-    char *error, size_t error_size)
+    const GameMath *math, GameRandom *random, uint16_t frame_ticks, uint8_t infinite_ammo,
+    GameAudioEvents *audio_events, char *error, size_t error_size)
 {
     GameShootDefinition shoot;
     GameBulletDefinition bullet;
@@ -307,7 +307,7 @@ int player_shoot_update_single_player_with_motion_and_audio(
         return 0;
     }
     ammunition = inventory->ammunition[shoot.bullet_type];
-    if ((int16_t)ammunition < (int16_t)shoot.bullet_count) {
+    if (infinite_ammo == 0u && (int16_t)ammunition < (int16_t)shoot.bullet_count) {
         /* newplayershoot.s:Plr1_Shot no-ammunition MakeSomeNoise (slot 12). */
         player->noise_volume = 100;
         game_audio_events_emit(audio_events, 12, 100,
@@ -325,8 +325,12 @@ int player_shoot_update_single_player_with_motion_and_audio(
     /* newplayershoot.s:.okcanshoot activates Plr1_Use's companion weapon ObjT. */
     player_shoot_write_be16(weapon_slot + PLAYER_SHOOT_ENTITY_TIMER1, 1u);
     player->time_to_shoot = (int16_t)shoot.delay;
-    inventory->ammunition[shoot.bullet_type] =
-        (uint16_t)(ammunition - shoot.bullet_count);
+    /* Match the first port's player.c desktop branch: preserve the source
+     * firing/cooldown sequence, but skip only this source ammunition debit. */
+    if (infinite_ammo == 0u) {
+        inventory->ammunition[shoot.bullet_type] =
+            (uint16_t)(ammunition - shoot.bullet_count);
+    }
     /* newplayershoot.s:.okcanshoot emits ShootT_SFX_w at the player point. */
     player->noise_volume = 100;
     game_audio_events_emit(audio_events, (int16_t)shoot.sound_effect, 300,
@@ -393,7 +397,7 @@ int player_shoot_update_single_player_with_motion(
 {
     return player_shoot_update_single_player_with_motion_and_audio(
         objects, dynamic_level, observation, player, motion_runtime, inventory, game_link,
-        preferences, math, random, frame_ticks, NULL, error, error_size);
+        preferences, math, random, frame_ticks, 0u, NULL, error, error_size);
 }
 
 int player_shoot_update_single_player(ObjectRuntime *objects,

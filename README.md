@@ -19,6 +19,8 @@ session. Supported keys are:
 - `start_level=1` through `start_level=16` for Levels A--P (one-indexed);
 - `infinite_health=0|1` restores the source inventory health limit after each
   completed source update;
+- `infinite_ammo=0|1` retains the source fire/cooldown path but skips its
+  empty-ammo check and ammunition debit;
 - `all_weapons=0|1` grants every source gun and a full legal supply of each
   ammunition class when the session begins;
 - `volume=0` through `volume=100` controls the master SDL mixer gain; and

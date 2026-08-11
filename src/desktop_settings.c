@@ -121,6 +121,14 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         }
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "infinite_ammo")) {
+        if (!desktop_settings_parse_bool(value, &settings->infinite_ammo)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: infinite_ammo must be a boolean", line_number);
+            return 0;
+        }
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "all_weapons")) {
         if (!desktop_settings_parse_bool(value, &settings->all_weapons)) {
             (void)snprintf(error, error_size,

@@ -453,8 +453,8 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
             &game->object_runtime, &game->dynamic_level, &game->object_observation,
             &game->player, &game->alien_runtime.motion, &game->session.player1_inventory,
             &game->game_link_catalog,
-            &game->preferences, &game->math, &game->random, 1u, &game->audio_events,
-            error, error_size) ||
+            &game->preferences, &game->math, &game->random, 1u,
+            game->desktop_settings.infinite_ammo, &game->audio_events, error, error_size) ||
         !object_handler_update_single_player(
             &game->object_runtime, &game->dynamic_level, &game->mechanism_runtime,
             &game->alien_runtime,

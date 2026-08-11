@@ -9,6 +9,7 @@ start_level=1
 
 # PC convenience options. They are off by default and do not alter source assets.
 infinite_health=0
+infinite_ammo=0
 all_weapons=0
 
 # Master SDL mixer volume, from 0 (silent) through 100.

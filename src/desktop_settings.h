@@ -13,6 +13,7 @@ typedef struct {
     /* ab3d2.ini is deliberately one-indexed for the A--P campaign. */
     uint16_t start_level_index;
     uint8_t infinite_health;
+    uint8_t infinite_ammo;
     uint8_t all_weapons;
     uint8_t always_run;
     /* Master mixer gain as a percentage, 0 through 100. */
