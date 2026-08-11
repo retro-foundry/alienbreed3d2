@@ -529,6 +529,18 @@ int player_runtime_update_discrete_controls(PlayerRuntime *player, GameInput *in
      */
     player->reset_weapon_animation = 0u;
 
+    /*
+     * hires.s's dead-player VBlank branch bypasses Plr1_KeyboardControl.
+     * Clear the transient actions it clears there and leave all held keys
+     * untouched for the host input layer; spatial update owns fall/friction.
+     */
+    if ((int16_t)player->health <= 0) {
+        player->used = 0u;
+        player->fire = 0u;
+        player->clicked = 0u;
+        return 1;
+    }
+
     /* modules/player.s only advances one owned weapon per next-weapon press. */
     if (game_input_is_control_down(input, controls, GAME_CONTROL_NEXT_WEAPON)) {
         if (player->previous_next_weapon_key_state == 0u) {
@@ -1233,15 +1245,36 @@ int player_runtime_update_spatial_with_motion_and_audio(
         fall_entity_damage = player_slot + 19u;
     }
 
-    /* hires.s runs Plr1_MouseControl before the optional keyboard controller. */
-    player_runtime_update_mouse_controls(player, input);
-    player_runtime_update_keyboard_look(player, input, controls);
-    if (!player_runtime_update_keyboard_motion(player, input, controls, preferences, math,
-                                               error, error_size) ||
-        !player_runtime_update_fall(player, input, controls, math, runtime, inventory,
-                                    fall_entity_damage, game_link, audio_events,
-                                    error, error_size) ||
-        !level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
+    if ((int16_t)player->health <= 0) {
+        GameInput dead_input;
+
+        /* hires.s:.propercontrol is skipped; Plr1_Fall precedes inertial decay. */
+        game_input_init(&dead_input);
+        player->fire = 0u;
+        player->clicked = 0u;
+        player->add_to_bobble = 0;
+        player->snap_height = PLAYER_CROUCH_HEIGHT;
+        player->look_offset = -PLAYER_SMALL_VIEW_LOOK_LIMIT;
+        if (!player_runtime_update_fall(player, input, controls, math, runtime, inventory,
+                                        fall_entity_damage, game_link, audio_events,
+                                        error, error_size) ||
+            !player_runtime_update_keyboard_motion(
+                player, &dead_input, controls, preferences, math, error, error_size)) {
+            return 0;
+        }
+    } else {
+        /* Requested first-port combined mouse+keyboard controller. */
+        player_runtime_update_mouse_controls(player, input);
+        player_runtime_update_keyboard_look(player, input, controls);
+        if (!player_runtime_update_keyboard_motion(player, input, controls, preferences, math,
+                                                   error, error_size) ||
+            !player_runtime_update_fall(player, input, controls, math, runtime, inventory,
+                                        fall_entity_damage, game_link, audio_events,
+                                        error, error_size)) {
+            return 0;
+        }
+    }
+    if (!level_runtime_get_zone(runtime, player->zone_index, &zone, error, error_size)) {
         return 0;
     }
 

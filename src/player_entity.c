@@ -195,11 +195,18 @@ int player_entity_sync_single_player(ObjectRuntime *objects, const LevelRuntime 
     if (objects->player1_slot > UINT32_MAX - PLAYER_ENTITY_WEAPON_SLOT_DISTANCE ||
         !object_runtime_get_slot_bytes(objects,
                                        objects->player1_slot + PLAYER_ENTITY_WEAPON_SLOT_DISTANCE,
-                                       &weapon_slot) ||
-        !game_link_get_gun_object_type(game_link, player->tmp_gun_selected, &gun_object_type,
-                                       error, error_size)) {
+                                       &weapon_slot)) {
         player_entity_set_error(error, error_size,
                                 "Plr1_Use companion weapon is outside owned source state");
+        return 0;
+    }
+    if ((int16_t)player->health <= 0) {
+        /* hires.s:Plr1_Use .notdead gate executes FREE_OBJ_2 and returns. */
+        player_entity_write_be16(weapon_slot + PLAYER_ENTITY_ZONE_ID_OFFSET, UINT16_MAX);
+        return 1;
+    }
+    if (!game_link_get_gun_object_type(game_link, player->tmp_gun_selected, &gun_object_type,
+                                       error, error_size)) {
         return 0;
     }
     weapon_point_index = player_entity_read_be16(weapon_slot + PLAYER_ENTITY_POINT_INDEX_OFFSET);

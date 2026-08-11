@@ -2974,6 +2974,31 @@ int main(int argc, char **argv)
                 game_bootstrap_destroy(&game);
                 return 1;
             }
+            {
+                PlayerRuntime dead_player = game.player;
+                GameInventory dead_inventory = game.session.player1_inventory;
+                GameRandom dead_random = game.random;
+                GameAudioEvents dead_audio;
+
+                dead_player.health = 0u;
+                dead_inventory.health = 0u;
+                game_audio_events_init(&dead_audio);
+                if (!player_entity_sync_single_player(
+                        &game.object_runtime, &game.dynamic_level.runtime,
+                        &game.game_link_catalog, &dead_player, &dead_inventory,
+                        &dead_random, &dead_audio, error, sizeof(error)) ||
+                    !object_runtime_get_slot_bytes(
+                        &game.object_runtime, game.object_runtime.player1_slot + 2u,
+                        &weapon_slot) ||
+                    read_be16(weapon_slot + 12u) != UINT16_MAX) {
+                    fprintf(stderr,
+                            "campaign level %u dead Plr1_Use retained its companion weapon\n",
+                            level_index);
+                    scene_frame_destroy(&weapon_scene);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+            }
             game.preferences.show_weapon = UINT8_MAX;
             scene_frame_begin(&weapon_scene);
             if (!game_bootstrap_submit_scene_frame(&game, &weapon_scene)) {
@@ -5750,6 +5775,48 @@ int main(int argc, char **argv)
             mouse_player.aim_speed != (int32_t)UINT16_C(0xff80) || mouse_input.mouse_y != 1 ||
             mouse_input.old_mouse_y != -1) {
             fprintf(stderr, "source inverted mouse control state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        PlayerRuntime dead_player = game.player;
+        GameInventory dead_inventory = game.session.player1_inventory;
+        GameInput dead_input;
+        int32_t original_x = dead_player.x;
+        int32_t original_z = dead_player.z;
+
+        dead_player.health = 0u;
+        dead_player.snap_x_speed = 0;
+        dead_player.snap_z_speed = 0;
+        dead_player.snap_yaw_speed = 0;
+        dead_player.used = UINT8_MAX;
+        dead_player.fire = UINT8_MAX;
+        dead_player.clicked = UINT8_MAX;
+        dead_inventory.health = 0u;
+        game_input_init(&dead_input);
+        if (!game_input_set_raw_key(
+                &dead_input, control_defaults.assigned_raw_keys[GAME_CONTROL_FORWARDS], 1,
+                error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &dead_input, control_defaults.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
+                error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &dead_input, control_defaults.assigned_raw_keys[GAME_CONTROL_OPERATE], 1,
+                error, sizeof(error)) ||
+            !player_runtime_update_discrete_controls(
+                &dead_player, &dead_input, &control_defaults, &game.level_runtime,
+                &dead_inventory, error, sizeof(error)) ||
+            !player_runtime_update_spatial_with_motion_and_audio(
+                &dead_player, &dead_input, &control_defaults, &game.preferences,
+                &game.math, &game.level_runtime, NULL, NULL, NULL,
+                &dead_inventory, &game.game_link_catalog, NULL, error, sizeof(error)) ||
+            dead_player.x != original_x || dead_player.z != original_z ||
+            dead_player.snap_x_speed != 0 || dead_player.snap_z_speed != 0 ||
+            dead_player.fire != 0u || dead_player.clicked != 0u || dead_player.used != 0u ||
+            dead_player.snap_height != 8 * 1024 || dead_player.look_offset != -80) {
+            fprintf(stderr, "dead-player fall/friction branch accepted live controls: %s\n",
+                    error);
             game_bootstrap_destroy(&game);
             return 1;
         }
