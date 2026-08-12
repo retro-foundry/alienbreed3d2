@@ -273,15 +273,6 @@ typedef struct {
     uint16_t presentation_previous_frame_index;
     float presentation_frame_interpolation_alpha;
     uint8_t presentation_interpolate_vector_frame;
-    /*
-     * `ItsABullet` advances a ShotT before the next source frame is drawn.
-     * A newly live record therefore has no previous SceneSprite to
-     * interpolate from. Preserve the exact pre-update source point so
-     * presentation can bridge this one source update without changing either
-     * simulation endpoint.
-     */
-    SceneWorldPoint source_previous_position;
-    uint8_t has_source_previous_position;
     uint16_t yaw;
     uint16_t source_brightness;
     int16_t source_light_level;
@@ -410,10 +401,8 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source);
  * Blend two completed source-frame snapshots for one host presentation frame.
  * The `current` frame supplies all non-continuous source state. Camera,
  * matching geometry, and matching source object records interpolate only
- * values that represent a continuous source state. A spawned projectile is
- * the one exception: its retained pre-`ItsABullet` endpoint bridges the
- * source update that made the record live. Removed or structurally changed
- * commands remain at their current endpoint.
+ * values that represent a continuous source state. A spawned, removed, or
+ * structurally changed command is deliberately left at its current endpoint.
  */
 int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
                             const SceneFrame *current, float alpha);
