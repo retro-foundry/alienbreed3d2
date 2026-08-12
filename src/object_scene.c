@@ -16,9 +16,13 @@ enum {
     OBJECT_SCENE_FRAME = 11u,
     OBJECT_SCENE_ZONE_ID = 12u,
     OBJECT_SCENE_TYPE_ID = 16u,
+    OBJECT_SCENE_PROJECTILE_VELOCITY_X = 18u,
+    OBJECT_SCENE_PROJECTILE_VELOCITY_Z = 22u,
     OBJECT_SCENE_CURRENT_ANGLE = 30u,
     /* ShotT_Status_b aliases EntT_CurrentAngle_w's high byte. */
     OBJECT_SCENE_PROJECTILE_STATUS = 30u,
+    OBJECT_SCENE_PROJECTILE_VELOCITY_Y = 42u,
+    OBJECT_SCENE_PROJECTILE_ACCUMULATED_Y = 44u,
     OBJECT_SCENE_AUX_OFFSET_X = 44u,
     OBJECT_SCENE_AUX_OFFSET_Y = 46u,
     OBJECT_SCENE_ENTITY_TYPE = 54u,
@@ -53,6 +57,14 @@ static int16_t object_scene_read_be16s(const uint8_t *source)
     return (int16_t)object_scene_read_be16(source);
 }
 
+static int32_t object_scene_read_be32s(const uint8_t *source)
+{
+    return (int32_t)(((uint32_t)source[0] << 24u) |
+                     ((uint32_t)source[1] << 16u) |
+                     ((uint32_t)source[2] << 8u) |
+                     (uint32_t)source[3]);
+}
+
 static int16_t object_scene_add16(int16_t left, int16_t right)
 {
     return (int16_t)((uint16_t)left + (uint16_t)right);
@@ -77,6 +89,11 @@ static int32_t object_scene_asr32(int32_t value, unsigned int shift)
         return value >> shift;
     }
     return (int32_t)(((uint32_t)value >> shift) | (UINT32_MAX << (32u - shift)));
+}
+
+static int32_t object_scene_sub32(int32_t left, int32_t right)
+{
+    return (int32_t)((uint32_t)left - (uint32_t)right);
 }
 
 static int8_t object_scene_asr8(int8_t value, unsigned int shift)
@@ -585,6 +602,27 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
         sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE;
         if (slot[OBJECT_SCENE_PROJECTILE_STATUS] != 0u) {
             sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE_CONTACT;
+        } else {
+            int32_t spawn_x = object_scene_sub32(
+                object_scene_read_be32s(point + 0u),
+                object_scene_read_be32s(slot + OBJECT_SCENE_PROJECTILE_VELOCITY_X));
+            int32_t spawn_z = object_scene_sub32(
+                object_scene_read_be32s(point + 4u),
+                object_scene_read_be32s(slot + OBJECT_SCENE_PROJECTILE_VELOCITY_Z));
+            int32_t spawn_y = object_scene_sub32(
+                object_scene_read_be32s(slot + OBJECT_SCENE_PROJECTILE_ACCUMULATED_Y),
+                object_scene_read_be16s(slot + OBJECT_SCENE_PROJECTILE_VELOCITY_Y));
+
+            /*
+             * Reverse the one `ItsABullet` movement that produced this
+             * source endpoint, including Vec2L's fractional carry. For a
+             * fresh `firefive` record this is its player launch point.
+             */
+            sprite.source_previous_position.x = (int16_t)((uint32_t)spawn_x >> 16u);
+            sprite.source_previous_position.y =
+                (int32_t)(int16_t)object_scene_asr32(spawn_y, 7u) * 128;
+            sprite.source_previous_position.z = (int16_t)((uint32_t)spawn_z >> 16u);
+            sprite.has_source_previous_position = UINT8_MAX;
         }
     }
     if (sprite.source_zone_index >= level->zone_count ||

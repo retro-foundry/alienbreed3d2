@@ -1537,6 +1537,46 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        {
+            const SceneSprite *presentation_projectile;
+
+            /*
+             * firefive creates the ShotT at the player before ItsABullet
+             * moves it.  No previous scene command can describe that source
+             * endpoint. The retained source predecessor is authoritative for
+             * this one presentation interval.
+             */
+            memset(&previous_sprite, 0, sizeof(previous_sprite));
+            memset(&current_sprite, 0, sizeof(current_sprite));
+            previous_sprite.type = SCENE_COMMAND_SPRITE_INSTANCE;
+            previous_sprite.data.sprite_instance.acceleration_class =
+                SCENE_ACCELERATION_CLASS_DYNAMIC;
+            previous_sprite.data.sprite_instance.sprite.source_record_id = 7u;
+            previous_sprite.data.sprite_instance.sprite.position =
+                (SceneWorldPoint){100, 200, 300};
+            current_sprite = previous_sprite;
+            current_sprite.data.sprite_instance.sprite.source_record_id = 8u;
+            current_sprite.data.sprite_instance.sprite.flags = SCENE_SPRITE_FLAG_PROJECTILE;
+            current_sprite.data.sprite_instance.sprite.source_previous_position =
+                (SceneWorldPoint){4, 8, 12};
+            current_sprite.data.sprite_instance.sprite.has_source_previous_position = UINT8_MAX;
+            current_sprite.data.sprite_instance.sprite.position =
+                (SceneWorldPoint){20, 40, 60};
+            previous.commands[2u] = previous_sprite;
+            current.commands[2u] = current_sprite;
+            if (!scene_frame_interpolate(&presentation, &previous, &current, 0.25f) ||
+                !(presentation_projectile =
+                      &presentation.commands[2u].data.sprite_instance.sprite) ||
+                presentation_projectile->position.x != 8 ||
+                presentation_projectile->position.y != 16 ||
+                presentation_projectile->position.z != 24) {
+                fprintf(stderr, "projectile launch presentation interpolation is inconsistent\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                return 1;
+            }
+        }
         scene_frame_destroy(&presentation);
         scene_frame_destroy(&current);
         scene_frame_destroy(&previous);
@@ -7884,6 +7924,11 @@ int main(int argc, char **argv)
             if (!projectile_sprite ||
                 (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) == 0u ||
                 (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) != 0u ||
+                projectile_sprite->has_source_previous_position == 0u ||
+                projectile_sprite->source_previous_position.x != projectile_start_x ||
+                projectile_sprite->source_previous_position.y !=
+                    (int32_t)(int16_t)source_asr32_7(projectile_launch_y) * 128 ||
+                projectile_sprite->source_previous_position.z != projectile_start_z ||
                 projectile_sprite->source_width != (uint8_t)(projectile_frame.word_2 >> 8u) ||
                 projectile_sprite->source_height != (uint8_t)projectile_frame.word_2) {
                 fprintf(stderr, "ItsABullet source scene projectile handoff is inconsistent\n");

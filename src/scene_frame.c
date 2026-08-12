@@ -427,6 +427,30 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
             destination_sprite->presentation_interpolate_vector_frame = 0u;
         }
         if (!previous_command) {
+            if (destination_command->type == SCENE_COMMAND_SPRITE_INSTANCE) {
+                SceneSprite *destination_sprite =
+                    &destination_command->data.sprite_instance.sprite;
+
+                if ((destination_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) == 0u ||
+                    destination_sprite->has_source_previous_position == 0u) {
+                    continue;
+                }
+                /*
+                 * A source ShotT is born at `firefive`'s launch point and
+                 * reaches the current endpoint during the same 50 Hz update.
+                 * It cannot have a matching previous command, so bridge that
+                 * unrepresented source interval from the retained endpoint.
+                 */
+                destination_sprite->position.x = scene_frame_interpolate_i32(
+                    destination_sprite->source_previous_position.x,
+                    current_command->data.sprite_instance.sprite.position.x, alpha);
+                destination_sprite->position.y = scene_frame_interpolate_i32(
+                    destination_sprite->source_previous_position.y,
+                    current_command->data.sprite_instance.sprite.position.y, alpha);
+                destination_sprite->position.z = scene_frame_interpolate_i32(
+                    destination_sprite->source_previous_position.z,
+                    current_command->data.sprite_instance.sprite.position.z, alpha);
+            }
             continue;
         }
         if (destination_command->type == SCENE_COMMAND_CAMERA) {
