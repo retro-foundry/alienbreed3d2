@@ -177,6 +177,13 @@ struct RendererOpenGL {
     uint8_t measure_view_weapon_coverage;
 };
 
+/* Defined beside the vector point decoder because the muzzle is derived from
+ * the active authored vector-model frame, not from a per-weapon host table. */
+static int renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
+    const SceneSprite *sprite, const SceneSprite *weapon, const SceneCamera *camera,
+    const RenderView *view, float drawable_aspect, float *in_out_center_x,
+    float *in_out_center_y, float *in_out_center_z, char *error, size_t error_size);
+
 static void renderer_opengl_set_error(char *error, size_t error_size, const char *message)
 {
     if (error && error_size > 0u) {
@@ -2461,7 +2468,9 @@ static int renderer_opengl_draw_geometry_instance(
 }
 
 static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSprite *sprite,
-                                       const SceneCamera *camera, char *error,
+                                       const SceneCamera *camera, const RenderView *view,
+                                       const SceneSprite *view_weapon,
+                                       float drawable_aspect, char *error,
                                        size_t error_size)
 {
     RendererOpenGLVertex vertices[6];
@@ -2489,7 +2498,7 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
     int transient_texture;
     int result;
 
-    if (!sprite || !camera) {
+    if (!sprite || !camera || !view) {
         renderer_opengl_set_error(error, error_size, "scene sprite has no camera or descriptor");
         return 0;
     }
@@ -2538,6 +2547,12 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
          */
         center_x -= sinf(yaw) * renderer_opengl_projectile_contact_surface_epsilon;
         center_z -= cosf(yaw) * renderer_opengl_projectile_contact_surface_epsilon;
+    }
+    if (sprite->presentation_spawn_from_player_weapon != 0u &&
+        !renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
+            sprite, view_weapon, camera, view, drawable_aspect,
+            &center_x, &center_y, &center_z, error, error_size)) {
+        return 0;
     }
     half_width = (float)sprite->source_width;
     half_height = (float)sprite->source_height;
@@ -2632,13 +2647,14 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
  */
 static int renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
     RendererOpenGL *renderer, const SceneSprite *sprite, const SceneCamera *camera,
+    const RenderView *view, const SceneSprite *view_weapon, float drawable_aspect,
     int drawable_width, int drawable_height, char *error, size_t error_size)
 {
     uint8_t *before_pixels = NULL;
     size_t pixel_byte_count = 0u;
     int result;
 
-    if (!renderer || !sprite || !camera) {
+    if (!renderer || !sprite || !camera || !view) {
         renderer_opengl_set_error(error, error_size, "source projectile coverage draw is invalid");
         return 0;
     }
@@ -2665,7 +2681,8 @@ static int renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
             return 0;
         }
     }
-    result = renderer_opengl_draw_sprite(renderer, sprite, camera, error, error_size);
+    result = renderer_opengl_draw_sprite(renderer, sprite, camera, view, view_weapon,
+                                         drawable_aspect, error, error_size);
     if (before_pixels) {
         uint8_t *after_pixels = malloc(pixel_byte_count);
 
@@ -2953,6 +2970,196 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     out_vertex->source_red = 1.0f;
     out_vertex->source_green = 1.0f;
     out_vertex->source_blue = 1.0f;
+    return 1;
+}
+
+/*
+ * `firefive` places a player ShotT at the source player point, not at a
+ * separate 3D muzzle transform. That is exact source simulation. On the
+ * Amiga the bitmap projection and the camera-space ENT_NEXT_2 weapon advance
+ * together, so the first visible interval still reads as a barrel launch.
+ *
+ * The host camera is deliberately variable-rate. For a newly created player
+ * shot, derive the active weapon's forward-most authored point plane in the
+ * same eye-space transform used to draw it, then move only the *presented*
+ * billboard along the current camera plane. Its completed source flight
+ * position and direction remain unchanged; the offset decays over the one
+ * source interval that `ItsABullet` has already advanced.
+ */
+static int renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
+    const SceneSprite *sprite, const SceneSprite *weapon, const SceneCamera *camera,
+    const RenderView *view, float drawable_aspect, float *in_out_center_x,
+    float *in_out_center_y, float *in_out_center_z, char *error, size_t error_size)
+{
+    RendererOpenGLVectorFrame current_frame;
+    RendererOpenGLVectorFrame previous_frame;
+    const uint8_t *previous_point_data = NULL;
+    float frame_interpolation_alpha = 1.0f;
+    float muzzle_x = 0.0f;
+    float muzzle_y = 0.0f;
+    float muzzle_z = 0.0f;
+    float nearest_z = 0.0f;
+    uint32_t muzzle_point_count = 0u;
+    float weapon_projection[16];
+    float muzzle_ndc_x;
+    float muzzle_ndc_y;
+    float camera_x;
+    float camera_y;
+    float camera_z;
+    float forward_x;
+    float forward_y;
+    float forward_z;
+    float yaw;
+    float right_x;
+    float right_z;
+    float up_x;
+    float up_y;
+    float up_z;
+    float relative_x;
+    float relative_y;
+    float relative_z;
+    float depth;
+    float current_right;
+    float current_up;
+    float target_right;
+    float target_up;
+    float focal_length;
+    float blend;
+
+    if (!sprite || !camera || !view || !in_out_center_x || !in_out_center_y ||
+        !in_out_center_z) {
+        renderer_opengl_set_error(error, error_size,
+                                  "projectile muzzle presentation received invalid state");
+        return 0;
+    }
+    /* Weapon drawing can be disabled or absent in a synthetic scene. The
+     * source endpoint is still valid; there is simply no visible barrel to
+     * pair with it. */
+    if (!weapon) {
+        return 1;
+    }
+    if (weapon->presentation != SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON ||
+        weapon->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
+        !weapon->source_bytes || drawable_aspect <= 0.0f) {
+        renderer_opengl_set_error(error, error_size,
+                                  "player projectile has an invalid companion weapon scene descriptor");
+        return 0;
+    }
+    if (!renderer_opengl_vector_model_frame(
+            weapon->source_bytes, weapon->source_byte_count, weapon->frame_index,
+            &current_frame, error, error_size) ||
+        !source_vector_make_view_weapon_matrix(
+            &weapon->view_weapon_projection, drawable_aspect, weapon_projection)) {
+        if (!error || error_size == 0u || error[0] == '\0') {
+            renderer_opengl_set_error(error, error_size,
+                                      "player projectile could not resolve the companion weapon muzzle");
+        }
+        return 0;
+    }
+    if (weapon->presentation_interpolate_vector_frame != 0u) {
+        if (!renderer_opengl_vector_model_frame(
+                weapon->source_bytes, weapon->source_byte_count,
+                weapon->presentation_previous_frame_index, &previous_frame,
+                error, error_size) ||
+            previous_frame.point_count != current_frame.point_count) {
+            renderer_opengl_set_error(error, error_size,
+                                      "interpolated companion weapon has incompatible source point frames");
+            return 0;
+        }
+        previous_point_data = weapon->source_bytes + previous_frame.point_data_offset;
+        frame_interpolation_alpha = weapon->presentation_frame_interpolation_alpha;
+    }
+    for (uint16_t point_index = 0u; point_index < current_frame.point_count; ++point_index) {
+        RendererOpenGLVertex point;
+
+        if (!renderer_opengl_vector_model_point(
+                weapon, camera, view,
+                weapon->source_bytes + current_frame.point_data_offset +
+                    (size_t)point_index * 6u,
+                previous_point_data ? previous_point_data + (size_t)point_index * 6u : NULL,
+                frame_interpolation_alpha, 1, &point)) {
+            renderer_opengl_set_error(error, error_size,
+                                      "companion weapon muzzle point is outside its source model");
+            return 0;
+        }
+        if (muzzle_point_count == 0u || point.z < nearest_z) {
+            nearest_z = point.z;
+            muzzle_point_count = 1u;
+        }
+    }
+    if (muzzle_point_count == 0u || nearest_z >= -renderer_opengl_near_plane) {
+        renderer_opengl_set_error(error, error_size,
+                                  "companion weapon has no forward source muzzle plane");
+        return 0;
+    }
+    /* A frame's maximum forward depth is normally a flat barrel opening. The
+     * source rotation is integer-based, so retain all points on that exact
+     * transformed plane rather than picking an arbitrary vertex. */
+    muzzle_point_count = 0u;
+    for (uint16_t point_index = 0u; point_index < current_frame.point_count; ++point_index) {
+        RendererOpenGLVertex point;
+
+        if (!renderer_opengl_vector_model_point(
+                weapon, camera, view,
+                weapon->source_bytes + current_frame.point_data_offset +
+                    (size_t)point_index * 6u,
+                previous_point_data ? previous_point_data + (size_t)point_index * 6u : NULL,
+                frame_interpolation_alpha, 1, &point)) {
+            renderer_opengl_set_error(error, error_size,
+                                      "companion weapon muzzle point is outside its source model");
+            return 0;
+        }
+        if (fabsf(point.z - nearest_z) <= 0.5f) {
+            muzzle_x += point.x;
+            muzzle_y += point.y;
+            muzzle_z += point.z;
+            ++muzzle_point_count;
+        }
+    }
+    if (muzzle_point_count == 0u) {
+        renderer_opengl_set_error(error, error_size,
+                                  "companion weapon forward source plane is empty");
+        return 0;
+    }
+    muzzle_x /= (float)muzzle_point_count;
+    muzzle_y /= (float)muzzle_point_count;
+    muzzle_z /= (float)muzzle_point_count;
+    muzzle_ndc_x = weapon_projection[0u] * muzzle_x / -muzzle_z;
+    muzzle_ndc_y = weapon_projection[5u] * muzzle_y / -muzzle_z;
+
+    renderer_opengl_camera_point(camera, &camera_x, &camera_y, &camera_z);
+    renderer_opengl_camera_forward(camera, view, &forward_x, &forward_y, &forward_z);
+    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi /
+                                 renderer_opengl_source_angle_full_turn);
+    right_x = cosf(yaw);
+    right_z = -sinf(yaw);
+    up_x = right_z * forward_y;
+    up_y = forward_z * right_x - forward_x * right_z;
+    up_z = -right_x * forward_y;
+    relative_x = *in_out_center_x - camera_x;
+    relative_y = *in_out_center_y - camera_y;
+    relative_z = *in_out_center_z - camera_z;
+    depth = relative_x * forward_x + relative_y * forward_y + relative_z * forward_z;
+    if (depth <= renderer_opengl_near_plane) {
+        return 1;
+    }
+    current_right = relative_x * right_x + relative_z * right_z;
+    current_up = relative_x * up_x + relative_y * up_y + relative_z * up_z;
+    focal_length = 16.0f / (15.0f * renderer_opengl_source_fullscreen_depth_scale);
+    target_right = muzzle_ndc_x * depth * drawable_aspect / focal_length;
+    target_up = muzzle_ndc_y * depth / focal_length;
+    blend = 1.0f - sprite->presentation_spawn_interpolation_alpha;
+    if (blend <= 0.0f) {
+        return 1;
+    }
+    if (blend > 1.0f) {
+        blend = 1.0f;
+    }
+    *in_out_center_x += (target_right - current_right) * blend * right_x +
+                        (target_up - current_up) * blend * up_x;
+    *in_out_center_y += (target_up - current_up) * blend * up_y;
+    *in_out_center_z += (target_right - current_right) * blend * right_z +
+                        (target_up - current_up) * blend * up_z;
     return 1;
 }
 
@@ -4086,11 +4293,13 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
 {
     const SceneCamera *camera = NULL;
     const SceneEnvironment *environment = NULL;
+    const SceneSprite *view_weapon = NULL;
     RendererOpenGLSpriteOrder *additive_sprites = NULL;
     size_t additive_count = 0u;
     float view_projection[16];
     int drawable_width;
     int drawable_height;
+    float drawable_aspect;
 
     if (!renderer || !renderer->window || !renderer->context || !frame || !view) {
         renderer_opengl_set_error(error, error_size, "OpenGL presenter received invalid state");
@@ -4105,6 +4314,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             camera = &frame->commands[index].data.camera;
         } else if (frame->commands[index].type == SCENE_COMMAND_ENVIRONMENT) {
             environment = &frame->commands[index].data.environment;
+        } else if (frame->commands[index].type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                   frame->commands[index].data.sprite_instance.sprite.presentation ==
+                       SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
+            view_weapon = &frame->commands[index].data.sprite_instance.sprite;
         }
     }
     if (!camera) {
@@ -4115,8 +4328,8 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
     if (drawable_width <= 0 || drawable_height <= 0) {
         return 1;
     }
-    renderer_opengl_view_projection(view_projection, camera, view,
-                                    (float)drawable_width / (float)drawable_height);
+    drawable_aspect = (float)drawable_width / (float)drawable_height;
+    renderer_opengl_view_projection(view_projection, camera, view, drawable_aspect);
     glViewport(0, 0, drawable_width, drawable_height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     renderer->gl.use_program(renderer->program);
@@ -4173,13 +4386,12 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             } else if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
                                                            view_projection,
-                                                           (float)drawable_width /
-                                                               (float)drawable_height,
+                                                           drawable_aspect,
                                                            error, error_size)) ||
                        (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
-                            renderer, sprite, camera, drawable_width, drawable_height,
-                            error, error_size))) {
+                            renderer, sprite, camera, view, view_weapon, drawable_aspect,
+                            drawable_width, drawable_height, error, error_size))) {
                 free(additive_sprites);
                 return 0;
             }
@@ -4193,13 +4405,12 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
                                                 view_projection,
-                                                (float)drawable_width /
-                                                    (float)drawable_height,
+                                                drawable_aspect,
                                                 error, error_size)) ||
             (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
-                 renderer, sprite, camera, drawable_width, drawable_height,
-                 error, error_size))) {
+                 renderer, sprite, camera, view, view_weapon, drawable_aspect,
+                 drawable_width, drawable_height, error, error_size))) {
             free(additive_sprites);
             return 0;
         }

@@ -585,6 +585,15 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
         sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE;
         if (slot[OBJECT_SCENE_PROJECTILE_STATUS] != 0u) {
             sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE_CONTACT;
+        } else if (slot_index >= objects->player_shot_first_slot &&
+                   slot_index - objects->player_shot_first_slot <
+                       OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT) {
+            /*
+             * Only Plr1_Shot's bounded ShotT pool is paired with the local
+             * ENT_NEXT_2 companion. Alien shots and death fragments retain
+             * their ordinary source-world presentation.
+             */
+            sprite.presentation_anchor_to_player_weapon = UINT8_MAX;
         }
     }
     if (sprite.source_zone_index >= level->zone_count ||

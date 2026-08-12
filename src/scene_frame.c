@@ -425,8 +425,29 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
             destination_sprite->presentation_previous_frame_index = 0u;
             destination_sprite->presentation_frame_interpolation_alpha = 0.0f;
             destination_sprite->presentation_interpolate_vector_frame = 0u;
+            destination_sprite->presentation_spawn_from_player_weapon = 0u;
+            destination_sprite->presentation_spawn_interpolation_alpha = 1.0f;
         }
         if (!previous_command) {
+            if (destination_command->type == SCENE_COMMAND_SPRITE_INSTANCE) {
+                SceneSprite *destination_sprite =
+                    &destination_command->data.sprite_instance.sprite;
+
+                /*
+                 * `newanims.s:objmoveanim` calls Plr1_Shot before
+                 * ObjectHandler. ItsABullet therefore advances a fresh
+                 * firefive record to its first flight endpoint before this
+                 * completed source frame exists. A new source slot has no
+                 * prior scene command, so mark that one unrepresented 50 Hz
+                 * interval for the renderer; do not rewind its source point.
+                 */
+                if ((destination_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u &&
+                    (destination_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) == 0u &&
+                    destination_sprite->presentation_anchor_to_player_weapon != 0u) {
+                    destination_sprite->presentation_spawn_from_player_weapon = UINT8_MAX;
+                    destination_sprite->presentation_spawn_interpolation_alpha = alpha;
+                }
+            }
             continue;
         }
         if (destination_command->type == SCENE_COMMAND_CAMERA) {

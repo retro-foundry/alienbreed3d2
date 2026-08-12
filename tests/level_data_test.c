@@ -1537,6 +1537,45 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        /*
+         * A new firefive ShotT has no source-frame predecessor because
+         * ItsABullet advances it in the same ObjMoveAnim update. The scene
+         * keeps its completed source position but marks this sole first
+         * presentation interval for the camera-space weapon muzzle handoff.
+         */
+        current_sprite = previous_sprite;
+        current_sprite.data.sprite_instance.sprite.source_record_id = 99u;
+        current_sprite.data.sprite_instance.sprite.presentation =
+            SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+        current_sprite.data.sprite_instance.sprite.flags = SCENE_SPRITE_FLAG_PROJECTILE;
+        current_sprite.data.sprite_instance.sprite.presentation_anchor_to_player_weapon = UINT8_MAX;
+        current_sprite.data.sprite_instance.sprite.position = (SceneWorldPoint){40, 60, 80};
+        current.commands[2u] = current_sprite;
+        if (!scene_frame_interpolate(&presentation, &previous, &current, 0.25f) ||
+            presentation.commands[2u].data.sprite_instance.sprite.position.x != 40 ||
+            presentation.commands[2u].data.sprite_instance.sprite.position.y != 60 ||
+            presentation.commands[2u].data.sprite_instance.sprite.position.z != 80 ||
+            presentation.commands[2u].data.sprite_instance.sprite
+                .presentation_spawn_from_player_weapon == 0u ||
+            presentation.commands[2u].data.sprite_instance.sprite
+                .presentation_spawn_interpolation_alpha != 0.25f) {
+            fprintf(stderr, "fresh player projectile presentation handoff is inconsistent\n");
+            scene_frame_destroy(&presentation);
+            scene_frame_destroy(&current);
+            scene_frame_destroy(&previous);
+            return 1;
+        }
+        current_sprite.data.sprite_instance.sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE_CONTACT;
+        current.commands[2u] = current_sprite;
+        if (!scene_frame_interpolate(&presentation, &previous, &current, 0.25f) ||
+            presentation.commands[2u].data.sprite_instance.sprite
+                .presentation_spawn_from_player_weapon != 0u) {
+            fprintf(stderr, "projectile contact incorrectly received a weapon muzzle handoff\n");
+            scene_frame_destroy(&presentation);
+            scene_frame_destroy(&current);
+            scene_frame_destroy(&previous);
+            return 1;
+        }
         scene_frame_destroy(&presentation);
         scene_frame_destroy(&current);
         scene_frame_destroy(&previous);
@@ -7884,6 +7923,7 @@ int main(int argc, char **argv)
             if (!projectile_sprite ||
                 (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) == 0u ||
                 (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) != 0u ||
+                projectile_sprite->presentation_anchor_to_player_weapon == 0u ||
                 projectile_sprite->source_width != (uint8_t)(projectile_frame.word_2 >> 8u) ||
                 projectile_sprite->source_height != (uint8_t)projectile_frame.word_2) {
                 fprintf(stderr, "ItsABullet source scene projectile handoff is inconsistent\n");
