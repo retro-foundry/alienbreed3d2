@@ -3033,6 +3033,67 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        if (level_index == 2u) {
+            /*
+             * LEVEL_C Zone 70 is the first authored two-storey bridge: its
+             * upper floor at zero joins the ordinary zero-height room in
+             * Zone 69. Exercise Plr1_Control's complete MoveObject handoff at
+             * that real edge so the layer flag and upper-floor snap target
+             * cannot regress independently of the synthetic wall fixtures.
+             */
+            enum {
+                LEVEL_C_BRIDGE_ENTRY_ZONE = 69u,
+                LEVEL_C_BRIDGE_ZONE = 70u,
+                LEVEL_C_PLAYER_HEIGHT = 12 * 1024
+            };
+            LevelDynamicState bridge_state = {0};
+            LevelZone bridge_zone;
+            PlayerRuntime bridge_player = {0};
+            GameInput bridge_input;
+
+            game_input_init(&bridge_input);
+            bridge_player.x = player_runtime_world_to_position(3376);
+            bridge_player.z = player_runtime_world_to_position(-2288);
+            bridge_player.snap_x = player_runtime_world_to_position(3472);
+            bridge_player.snap_z = player_runtime_world_to_position(-2384);
+            bridge_player.y = -LEVEL_C_PLAYER_HEIGHT;
+            bridge_player.snap_y = bridge_player.y;
+            bridge_player.snap_target_y = bridge_player.y;
+            bridge_player.height = LEVEL_C_PLAYER_HEIGHT;
+            bridge_player.snap_height = LEVEL_C_PLAYER_HEIGHT;
+            bridge_player.snap_target_height = LEVEL_C_PLAYER_HEIGHT;
+            bridge_player.snap_squished_height = LEVEL_C_PLAYER_HEIGHT;
+            bridge_player.zone_index = LEVEL_C_BRIDGE_ENTRY_ZONE;
+            bridge_player.health = 100u;
+            if (!level_dynamic_state_init(&bridge_state, &game.dynamic_level.runtime,
+                                          error, sizeof(error)) ||
+                !level_runtime_get_zone(&bridge_state.runtime, LEVEL_C_BRIDGE_ZONE,
+                                        &bridge_zone, error, sizeof(error)) ||
+                bridge_zone.floor != 36864 || bridge_zone.roof != 4096 ||
+                bridge_zone.upper_floor != 0 || bridge_zone.upper_roof != -32768 ||
+                !player_runtime_update_spatial(
+                    &bridge_player, &bridge_input, &control_defaults,
+                    &game.preferences, &game.math, &bridge_state.runtime,
+                    &bridge_state, error, sizeof(error)) ||
+                bridge_player.zone_index != LEVEL_C_BRIDGE_ZONE ||
+                bridge_player.stood_in_top == 0u ||
+                bridge_player.snap_target_y !=
+                    bridge_zone.upper_floor - LEVEL_C_PLAYER_HEIGHT ||
+                player_runtime_position_to_world(bridge_player.x) != 3472 ||
+                player_runtime_position_to_world(bridge_player.z) != -2384) {
+                fprintf(stderr,
+                        "LEVEL_C player bridge/upper-room collision is inconsistent: "
+                        "zone=%u top=%u target_y=%d x=%d z=%d: %s\n",
+                        bridge_player.zone_index, bridge_player.stood_in_top,
+                        bridge_player.snap_target_y,
+                        player_runtime_position_to_world(bridge_player.x),
+                        player_runtime_position_to_world(bridge_player.z), error);
+                level_dynamic_state_destroy(&bridge_state);
+                game_bootstrap_destroy(&game);
+                return 1;
+            }
+            level_dynamic_state_destroy(&bridge_state);
+        }
         {
         size_t geometry_instance_count = 0u;
         size_t first_sprite_command = SIZE_MAX;
@@ -13377,6 +13438,8 @@ int main(int argc, char **argv)
         GameInput player_collision_input;
         PlayerRuntime player_collision_player = {0};
         uint16_t edge_flags = 0u;
+        uint32_t other_edge_count = 0u;
+        uint32_t other_edge_index = UINT32_MAX;
 
         movement_level.level_bytes = level_bytes;
         movement_level.level_size = sizeof(level_bytes);
@@ -13406,6 +13469,18 @@ int main(int argc, char **argv)
         write_be16(level_bytes + 206u, UINT16_C(0xffec));
         write_be16(level_bytes + 208u, UINT16_MAX);
         write_be16(level_bytes + 210u, 20u);
+        if (!level_runtime_get_zone_extended_edge_count(
+                &movement_level, 0u, &other_edge_count, error, sizeof(error)) ||
+            other_edge_count != 1u ||
+            !level_runtime_get_zone_extended_edge_index(
+                &movement_level, 0u, 0u, &other_edge_index, error, sizeof(error)) ||
+            other_edge_index != 0u) {
+            fprintf(stderr,
+                    "MoveObject checkotherwalls did not restart its source edge list: %s\n",
+                    error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
         if (!level_dynamic_state_init(&movement_state, &movement_level,
                                       error, sizeof(error))) {
             fprintf(stderr, "could not initialize MoveObject source fixture: %s\n", error);
@@ -13464,7 +13539,7 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
-        if (player_runtime_position_to_world(player_collision_player.x) != 12 ||
+        if (player_runtime_position_to_world(player_collision_player.x) != 11 ||
             player_runtime_position_to_world(player_collision_player.z) != 10 ||
             !level_dynamic_state_get_edge_flags(&movement_state, 0u, &edge_flags) ||
             edge_flags != 0x0100u) {
@@ -13995,6 +14070,34 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        /*
+         * The same joined edge at the upper opening must select StoodInTop,
+         * not reject the two-storey room or snap back to its lower floor.
+         */
+        write_be32(movement_state.level_bytes + 110u, (uint32_t)-20000);
+        write_be32(movement_state.level_bytes + 114u, (uint32_t)-50000);
+        memset(&movement_trace, 0, sizeof(movement_trace));
+        movement_trace.zone_index = 0u;
+        movement_trace.old_x = 0;
+        movement_trace.old_z = 10;
+        movement_trace.new_x = 20;
+        movement_trace.new_z = 10;
+        movement_trace.old_y = -30000;
+        movement_trace.new_y = -30000;
+        movement_trace.thing_height = 12000;
+        movement_trace.step_up = 40 * 256;
+        if (!object_movement_trace_zero_extension(&movement_state, &movement_trace,
+                                                  error, sizeof(error)) ||
+            movement_trace.hit_wall != 0u || movement_trace.zone_index != 1u ||
+            movement_trace.stood_in_top != UINT8_MAX || movement_trace.new_x != 20 ||
+            movement_trace.new_z != 10) {
+            fprintf(stderr, "MoveObject upper-zone crossing is inconsistent: %s\n", error);
+            level_dynamic_state_destroy(&movement_state);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        write_be32(movement_state.level_bytes + 110u, 10000u);
+        write_be32(movement_state.level_bytes + 114u, 0u);
         /*
          * objectmove.s:checkotherwalls is reached only when Obj_ExtLen_w is
          * non-zero. Give zone 0 an empty primary list followed by its

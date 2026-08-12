@@ -149,9 +149,10 @@ static int level_runtime_get_primary_zone_edge_list(const LevelRuntime *runtime,
 
 /*
  * The maintained MoveObject primary pass stops at its first negative list
- * word.  When Obj_ExtLen_w is non-zero it continues reading from that point,
- * ignores negative markers, and terminates only at -2.  Keep the resulting
- * non-negative indexes separate: callers need to preserve the two different
+ * word. When Obj_ExtLen_w is non-zero, checkotherwalls restarts at the start
+ * of the list, processes every non-negative entry (including the primary
+ * entries), ignores negative separators, and terminates only at -2. Keep that
+ * second-pass sequence separate: callers need to preserve the two different
  * collision calculations used by the source routine.
  */
 static int level_runtime_get_extended_zone_edge_list(const LevelRuntime *runtime,
@@ -166,7 +167,6 @@ static int level_runtime_get_extended_zone_edge_list(const LevelRuntime *runtime
     int64_t list_offset;
     uint32_t count = 0u;
     uint32_t highest_edge_index = 0u;
-    int found_primary_terminator = 0;
 
     if (!runtime || !runtime->level_bytes || !runtime->graphics_bytes ||
         zone_index >= runtime->zone_count) {
@@ -197,21 +197,6 @@ static int level_runtime_get_extended_zone_edge_list(const LevelRuntime *runtime
         int16_t edge_index = level_runtime_read_be16s(runtime->level_bytes + list_offset);
 
         list_offset += sizeof(uint16_t);
-        if (!found_primary_terminator) {
-            if (edge_index < 0) {
-                found_primary_terminator = 1;
-                if (edge_index == -2) {
-                    if (out_count) {
-                        *out_count = 0u;
-                    }
-                    if (out_highest_edge_index) {
-                        *out_highest_edge_index = 0u;
-                    }
-                    return 1;
-                }
-            }
-            continue;
-        }
         if (edge_index == -2) {
             if (out_count) {
                 *out_count = count;

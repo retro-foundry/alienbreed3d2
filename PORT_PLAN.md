@@ -384,8 +384,9 @@ sound effects and music now play through the SDL WAV backend.
   source's inclusive `TLBT_NumPoints` final index, the eight-byte control-point
   records used by source AI navigation, and the `EdgeT` collision records
   reached by each zone's primary edge-index list exactly through the first
-  negative source marker; its distinct extended-edge sequence is likewise
-  exposed for `MoveObject` callers with a non-zero `Obj_ExtLen_w`. It also
+  negative source marker; its distinct `checkotherwalls` view restarts at the
+  list beginning and exposes every nonnegative entry through `-2` for
+  `MoveObject` callers with a non-zero `Obj_ExtLen_w`. It also
   exposes every lower/upper draw-graph stream
   root from `TLGT_ZoneGraphAddsOffset_l`; these roots are complete-level scene
   inputs, not PVS traversal state.
@@ -453,11 +454,14 @@ sound effects and music now play through the SDL WAV backend.
   pulled one speed-6 tick back to the player for presentation.
   `src/object_movement.*`
   now translates `objectmove.s:MoveObject`'s primary and non-zero-`Obj_ExtLen_w`
-  extended-edge passes: source height-opening checks, edge flag writes,
+  extended-edge passes: the latter correctly revisits primary entries before
+  crossing the `-1` separator, while source height-opening checks, edge flag writes,
   exit-first contact coordinates, and bounded joined-zone/layer transitions all
   retain the source word/long arithmetic. Its regression covers a solid
   exit-first impact, a passable joined-zone crossing, and the authored first
-  alien-girth extension (`40`) through `checkotherwalls`. The explicit
+  alien-girth extension (`40`) through `checkotherwalls`. An authored Level C
+  bridge regression crosses from lower Zone 69 into Zone 70's upper room and
+  verifies both `StoodInTop` and the upper-floor player snap target. The explicit
   zero-extension wrapper remains the bounded `newplayershoot.s` caller.
   `src/player_shoot.*` now also translates
   `plr1_HitscanFailed` itself: the no-target branch advances `GetRand` once
