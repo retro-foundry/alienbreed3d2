@@ -155,6 +155,17 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->volume = (uint8_t)number;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "world_light_tessellation")) {
+        if (!desktop_settings_parse_unsigned(value, 8u, &number) ||
+            (number != 1u && number != 2u && number != 4u && number != 8u)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: world_light_tessellation must be 1, 2, 4, or 8",
+                           line_number);
+            return 0;
+        }
+        settings->world_light_tessellation = (uint8_t)number;
+        return 1;
+    }
     return 1;
 }
 
@@ -166,6 +177,7 @@ void desktop_settings_default(DesktopSettings *settings)
     memset(settings, 0, sizeof(*settings));
     settings->always_run = UINT8_MAX;
     settings->volume = 100u;
+    settings->world_light_tessellation = 4u;
 }
 
 int desktop_settings_parse(DesktopSettings *settings, const char *text, size_t text_size,

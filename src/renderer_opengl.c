@@ -2,6 +2,7 @@
 
 #include "bitmap_source_decode.h"
 #include "source_vector_projection.h"
+#include "world_light_tessellation.h"
 
 #include <limits.h>
 #include <math.h>
@@ -175,6 +176,7 @@ struct RendererOpenGL {
     size_t last_projectile_coverage;
     uint64_t last_frame_rgb_checksum;
     uint8_t measure_view_weapon_coverage;
+    uint8_t world_light_tessellation;
 };
 
 /* Defined beside the vector point decoder because the muzzle is derived from
@@ -360,13 +362,11 @@ static int renderer_opengl_normal_bitmap_palette_row(const SceneSprite *sprite,
  * neutral row once; the continuous inverse row coordinate retains the live
  * source light range in the filtered GPU presentation.
  */
-static float renderer_opengl_world_palette_light(const SceneVertex *source_vertex,
+static float renderer_opengl_world_palette_light(float point_x, float point_z,
+                                                 float source_light_level,
                                                  const SceneCamera *camera,
                                                  SceneGeometryPrimitive primitive)
 {
-    float point_x;
-    float point_y;
-    float point_z;
     float camera_x;
     float camera_y;
     float camera_z;
@@ -375,9 +375,7 @@ static float renderer_opengl_world_palette_light(const SceneVertex *source_verte
     float shade;
     float row_count;
 
-    renderer_opengl_world_point(&source_vertex->position, &point_x, &point_y, &point_z);
     renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
-    (void)point_y;
     (void)camera_y;
     yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
     forward_depth = (point_x - camera_x) * sinf(yaw) + (point_z - camera_z) * cosf(yaw);
@@ -387,13 +385,11 @@ static float renderer_opengl_world_palette_light(const SceneVertex *source_verte
 
     if (primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
         /* hiresgourwall.s: (2 * point_delta + (depth >> 7)) >> 1. */
-        shade = (float)source_vertex->source_light_level - 300.0f +
-            forward_depth / 256.0f;
+        shade = source_light_level - 300.0f + forward_depth / 256.0f;
         row_count = 32.0f;
     } else {
         /* hires.s:goursides/dofloorGOUR: point delta plus the /512 depth term. */
-        shade = (float)source_vertex->source_light_level - 300.0f +
-            forward_depth / 512.0f;
+        shade = source_light_level - 300.0f + forward_depth / 512.0f;
         row_count = 31.0f;
     }
 
@@ -429,7 +425,27 @@ static void renderer_opengl_make_vertex(RendererOpenGLVertex *out_vertex,
                                 &out_vertex->z);
     out_vertex->u = texture_u;
     out_vertex->v = texture_v;
-    out_vertex->source_light = renderer_opengl_world_palette_light(source_vertex, camera, primitive);
+    out_vertex->source_light = renderer_opengl_world_palette_light(
+        out_vertex->x, out_vertex->z, (float)source_vertex->source_light_level,
+        camera, primitive);
+    out_vertex->source_red = 1.0f;
+    out_vertex->source_green = 1.0f;
+    out_vertex->source_blue = 1.0f;
+}
+
+static void renderer_opengl_make_tessellated_vertex(
+    RendererOpenGLVertex *out_vertex,
+    const WorldLightTessellationVertex *source_vertex,
+    float texture_u_scale, float texture_v_scale, float texture_v_offset,
+    const SceneCamera *camera, SceneGeometryPrimitive primitive)
+{
+    out_vertex->x = source_vertex->position_x;
+    out_vertex->y = -source_vertex->position_y * renderer_opengl_source_y_unit;
+    out_vertex->z = source_vertex->position_z;
+    out_vertex->u = source_vertex->texture_u * texture_u_scale;
+    out_vertex->v = (source_vertex->texture_v + texture_v_offset) * texture_v_scale;
+    out_vertex->source_light = renderer_opengl_world_palette_light(
+        out_vertex->x, out_vertex->z, source_vertex->source_light_level, camera, primitive);
     out_vertex->source_red = 1.0f;
     out_vertex->source_green = 1.0f;
     out_vertex->source_blue = 1.0f;
@@ -2383,7 +2399,35 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_FALSE);
     }
-    if (geometry->topology == SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST) {
+    if (renderer->world_light_tessellation > 1u) {
+        WorldLightTessellationMesh tessellated_mesh = {0};
+
+        if (!world_light_tessellate(geometry, renderer->world_light_tessellation,
+                                    &tessellated_mesh, error, error_size)) {
+            return 0;
+        }
+        if ((size_t)tessellated_mesh.vertex_count > SIZE_MAX / sizeof(*vertices)) {
+            world_light_tessellation_mesh_release(&tessellated_mesh);
+            renderer_opengl_set_error(error, error_size,
+                                      "world-light GPU vertex allocation is too large");
+            return 0;
+        }
+        vertices = malloc((size_t)tessellated_mesh.vertex_count * sizeof(*vertices));
+        if (!vertices) {
+            world_light_tessellation_mesh_release(&tessellated_mesh);
+            renderer_opengl_set_error(error, error_size,
+                                      "world-light GPU vertex allocation failed");
+            return 0;
+        }
+        for (uint32_t index = 0u; index < tessellated_mesh.vertex_count; ++index) {
+            renderer_opengl_make_tessellated_vertex(
+                &vertices[index], &tessellated_mesh.vertices[index],
+                texture_u_scale, texture_v_scale, texture_v_offset, camera,
+                geometry->primitive);
+        }
+        vertex_count = tessellated_mesh.vertex_count;
+        world_light_tessellation_mesh_release(&tessellated_mesh);
+    } else if (geometry->topology == SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST) {
         if (geometry->vertex_count == 0u || geometry->vertex_count % 3u != 0u ||
             (size_t)geometry->vertex_count > SIZE_MAX / sizeof(*vertices)) {
             renderer_opengl_set_error(error, error_size, "scene triangle list is malformed");
@@ -4025,6 +4069,7 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
                                        const char *window_title,
                                        int desktop_window,
                                        int hidden_window,
+                                       uint8_t world_light_tessellation,
                                        char *error, size_t error_size)
 {
     RendererOpenGL *renderer;
@@ -4033,7 +4078,8 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     Uint32 window_flags;
 
     if (!window_title || window_width < RENDERER_OPENGL_WINDOW_MINIMUM_SIZE ||
-        window_height < RENDERER_OPENGL_WINDOW_MINIMUM_SIZE) {
+        window_height < RENDERER_OPENGL_WINDOW_MINIMUM_SIZE ||
+        !world_light_tessellation_factor_valid(world_light_tessellation)) {
         renderer_opengl_set_error(error, error_size, "OpenGL window configuration is invalid");
         return NULL;
     }
@@ -4063,6 +4109,7 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
     }
     /* The opt-in hidden window is the GPU smoke path, not the game loop. */
     renderer->measure_view_weapon_coverage = hidden_window != 0 ? 1u : 0u;
+    renderer->world_light_tessellation = world_light_tessellation;
     window_flags = SDL_WINDOW_OPENGL |
                    (hidden_window != 0 ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) |
                    SDL_WINDOW_RESIZABLE;

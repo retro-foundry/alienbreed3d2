@@ -23,13 +23,17 @@ session. Supported keys are:
   empty-ammo check and ammunition debit;
 - `all_weapons=0|1` grants every source gun and a full legal supply of each
   ammunition class when the session begins;
-- `volume=0` through `volume=100` controls the master SDL mixer gain; and
-- `always_run=0|1` makes run the default controller mode. Hold Shift to walk.
+- `volume=0` through `volume=100` controls the master SDL mixer gain;
+- `always_run=0|1` makes run the default controller mode. Hold Shift to walk;
+  and
+- `world_light_tessellation=1|2|4|8` controls presentation-only world-light
+  subdivision. The default is `4`; `1` retains the strict source mesh.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
 port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
 An explicit `--level A` through `--level P` command-line option overrides
-`start_level`.
+`start_level`. `--world-light-tessellation 1|2|4|8` likewise provides a
+one-run override for renderer validation.
 
 Weapon selection retains the source controls: number keys `1`--`0` directly
 select their owned weapon, while Backslash and the right mouse button advance

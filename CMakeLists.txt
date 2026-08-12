@@ -99,6 +99,7 @@ set(AB3D2_CORE_SOURCES
   src/render_view.c
   src/scene_frame.c
   src/source_vector_projection.c
+  src/world_light_tessellation.c
   # Reused =SB= decoder from the first PC port. It matches
   # modules/file_io.s:io_HandlePacked, which calls the original unLHA code.
   src/sb_decompress.c
@@ -106,6 +107,9 @@ set(AB3D2_CORE_SOURCES
 
 add_library(ab3d2_core STATIC ${AB3D2_CORE_SOURCES})
 target_include_directories(ab3d2_core PUBLIC src)
+if(NOT MSVC)
+  target_link_libraries(ab3d2_core PUBLIC m)
+endif()
 
 # Development-only exporter for the decoded source samples and packed tracker
 # module.  The committed WAVs are generated from this instead of treating the
@@ -224,6 +228,12 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_link_libraries(ab3d2_desktop_settings_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_desktop_settings_test PRIVATE src)
   add_test(NAME ab3d2_desktop_settings_test COMMAND ab3d2_desktop_settings_test)
+  add_executable(ab3d2_world_light_tessellation_test
+                 tests/world_light_tessellation_test.c)
+  target_link_libraries(ab3d2_world_light_tessellation_test PRIVATE ab3d2_core)
+  target_include_directories(ab3d2_world_light_tessellation_test PRIVATE src)
+  add_test(NAME ab3d2_world_light_tessellation_test
+           COMMAND ab3d2_world_light_tessellation_test)
   add_executable(ab3d2_level_data_test tests/level_data_test.c)
   target_link_libraries(ab3d2_level_data_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_level_data_test PRIVATE src)

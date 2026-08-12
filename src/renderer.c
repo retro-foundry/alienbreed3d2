@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "renderer_opengl.h"
+#include "world_light_tessellation.h"
 
 struct Renderer {
     RendererBackend backend;
@@ -23,7 +24,8 @@ Renderer *renderer_create(const RendererConfig *config, char *error, size_t erro
     Renderer *renderer;
 
     if (!config || !config->window_title || config->window_width <= 0 ||
-        config->window_height <= 0) {
+        config->window_height <= 0 ||
+        !world_light_tessellation_factor_valid(config->world_light_tessellation)) {
         renderer_set_error(error, error_size, "renderer configuration is invalid");
         return NULL;
     }
@@ -39,6 +41,7 @@ Renderer *renderer_create(const RendererConfig *config, char *error, size_t erro
                                                   config->window_title,
                                                   config->desktop_window,
                                                   config->hidden_window,
+                                                  config->world_light_tessellation,
                                                   error, error_size);
         break;
     default:

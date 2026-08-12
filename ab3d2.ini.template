@@ -18,3 +18,7 @@ volume=100
 # Run by default; hold Shift to walk. run_default is also accepted for parity
 # with the first port's INI.
 always_run=1
+
+# Presentation-only subdivisions per source world edge. 1 keeps the strict
+# source mesh; 2, 4, and 8 reconstruct progressively smoother light gradients.
+world_light_tessellation=4

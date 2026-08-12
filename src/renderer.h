@@ -30,6 +30,8 @@ typedef struct {
     int desktop_window;
     /* Opt-in validation path: an SDL hidden window still exercises real GL. */
     int hidden_window;
+    /* Presentation-only source-mesh subdivision: 1, 2, 4, or 8. */
+    uint8_t world_light_tessellation;
 } RendererConfig;
 
 typedef struct Renderer Renderer;

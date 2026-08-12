@@ -208,6 +208,8 @@ typedef struct {
     char data_root[1024];
     uint16_t selected_level_index;
     uint8_t selected_level_from_command_line;
+    uint8_t world_light_tessellation_from_command_line;
+    uint8_t has_world_light_tessellation_from_command_line;
     DesktopSettings desktop_settings;
     GameBootstrap game;
     /* Completed source-frame endpoints retained for high-rate presentation. */
@@ -297,6 +299,22 @@ static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
             }
             app->gpu_smoke = 1;
             app->selected_level_from_command_line = UINT8_MAX;
+        } else if (strcmp(argv[argument_index], "--world-light-tessellation") == 0 &&
+                   !app->has_world_light_tessellation_from_command_line) {
+            const char *value = argv[argument_index + 1];
+
+            if (strcmp(value, "1") == 0) {
+                app->world_light_tessellation_from_command_line = 1u;
+            } else if (strcmp(value, "2") == 0) {
+                app->world_light_tessellation_from_command_line = 2u;
+            } else if (strcmp(value, "4") == 0) {
+                app->world_light_tessellation_from_command_line = 4u;
+            } else if (strcmp(value, "8") == 0) {
+                app->world_light_tessellation_from_command_line = 8u;
+            } else {
+                return 0;
+            }
+            app->has_world_light_tessellation_from_command_line = UINT8_MAX;
         } else {
             return 0;
         }
@@ -367,13 +385,14 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
     }
     fprintf(stdout,
             "[SETTINGS] start_level=%u infinite_health=%u infinite_ammo=%u all_weapons=%u "
-            "volume=%u always_run=%u\n",
+            "volume=%u always_run=%u world_light_tessellation=%u\n",
             (unsigned)(app->desktop_settings.start_level_index + 1u),
             app->desktop_settings.infinite_health != 0u ? 1u : 0u,
             app->desktop_settings.infinite_ammo != 0u ? 1u : 0u,
             app->desktop_settings.all_weapons != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.volume,
-            app->desktop_settings.always_run != 0u ? 1u : 0u);
+            app->desktop_settings.always_run != 0u ? 1u : 0u,
+            (unsigned)app->desktop_settings.world_light_tessellation);
     return 1;
 }
 
@@ -384,7 +403,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
 
     if (!app || !game_app_parse_arguments(app, argc, argv)) {
         fprintf(stderr,
-                "usage: %s [--data-root <directory>] [--level <A-P>] [--gpu-smoke <A-P|all>]\n",
+                "usage: %s [--data-root <directory>] [--level <A-P>] [--gpu-smoke <A-P|all>] "
+                "[--world-light-tessellation <1|2|4|8>]\n",
                 argv[0]);
         return 0;
     }
@@ -458,6 +478,12 @@ static int game_app_init(GameApp *app, int argc, char **argv)
      */
     renderer_config.desktop_window = app->gpu_smoke ? 0 : 1;
     renderer_config.hidden_window = app->gpu_smoke;
+    renderer_config.world_light_tessellation =
+        app->has_world_light_tessellation_from_command_line != 0u ?
+        app->world_light_tessellation_from_command_line :
+        app->desktop_settings.world_light_tessellation;
+    fprintf(stdout, "[RENDER] world_light_tessellation=%u\n",
+            (unsigned)renderer_config.world_light_tessellation);
     app->mouse_present_width = renderer_config.window_width;
     app->mouse_present_height = renderer_config.window_height;
     app->renderer = renderer_create(&renderer_config, error, sizeof(error));
