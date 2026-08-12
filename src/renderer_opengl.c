@@ -179,7 +179,7 @@ struct RendererOpenGL {
 
 /* Defined beside the vector point decoder because the muzzle is derived from
  * the active authored vector-model frame, not from a per-weapon host table. */
-static int renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
+static int renderer_opengl_anchor_player_projectile_to_weapon_muzzle(
     const SceneSprite *sprite, const SceneSprite *weapon, const SceneCamera *camera,
     const RenderView *view, float drawable_aspect, float *in_out_center_x,
     float *in_out_center_y, float *in_out_center_z, char *error, size_t error_size);
@@ -2548,8 +2548,8 @@ static int renderer_opengl_draw_sprite(RendererOpenGL *renderer, const SceneSpri
         center_x -= sinf(yaw) * renderer_opengl_projectile_contact_surface_epsilon;
         center_z -= cosf(yaw) * renderer_opengl_projectile_contact_surface_epsilon;
     }
-    if (sprite->presentation_spawn_from_player_weapon != 0u &&
-        !renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
+    if (sprite->presentation_anchor_to_player_weapon != 0u &&
+        !renderer_opengl_anchor_player_projectile_to_weapon_muzzle(
             sprite, view_weapon, camera, view, drawable_aspect,
             &center_x, &center_y, &center_z, error, error_size)) {
         return 0;
@@ -2975,18 +2975,19 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
 
 /*
  * `firefive` places a player ShotT at the source player point, not at a
- * separate 3D muzzle transform. That is exact source simulation. On the
- * Amiga the bitmap projection and the camera-space ENT_NEXT_2 weapon advance
- * together, so the first visible interval still reads as a barrel launch.
+ * separate 3D muzzle transform. That remains the exact source simulation.
+ * `hires.s:Plr1_Use` then independently supplies the ENT_NEXT_2 companion
+ * for the source's fixed-angle view. The host presentation is free-look, so
+ * it must explicitly pair that visual companion with the player shot path.
  *
- * The host camera is deliberately variable-rate. For a newly created player
- * shot, derive the active weapon's forward-most authored point plane in the
- * same eye-space transform used to draw it, then move only the *presented*
- * billboard along the current camera plane. Its completed source flight
- * position and direction remain unchanged; the offset decays over the one
- * source interval that `ItsABullet` has already advanced.
+ * The host camera is deliberately variable-rate. Derive the active weapon's
+ * forward-most authored point plane in the same eye-space transform used to
+ * draw it. `firefive`'s first source movement vector defines the parallel
+ * camera-plane translation from the body-origin source path to that muzzle.
+ * The translation remains for the projectile's flight, so the path visibly
+ * continues from the barrel without changing its source direction.
  */
-static int renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
+static int renderer_opengl_anchor_player_projectile_to_weapon_muzzle(
     const SceneSprite *sprite, const SceneSprite *weapon, const SceneCamera *camera,
     const RenderView *view, float drawable_aspect, float *in_out_center_x,
     float *in_out_center_y, float *in_out_center_z, char *error, size_t error_size)
@@ -3003,9 +3004,6 @@ static int renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
     float weapon_projection[16];
     float muzzle_ndc_x;
     float muzzle_ndc_y;
-    float camera_x;
-    float camera_y;
-    float camera_z;
     float forward_x;
     float forward_y;
     float forward_z;
@@ -3015,16 +3013,15 @@ static int renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
     float up_x;
     float up_y;
     float up_z;
-    float relative_x;
-    float relative_y;
-    float relative_z;
-    float depth;
-    float current_right;
-    float current_up;
+    float first_step_x;
+    float first_step_y;
+    float first_step_z;
+    float first_step_depth;
+    float first_step_right;
+    float first_step_up;
     float target_right;
     float target_up;
     float focal_length;
-    float blend;
 
     if (!sprite || !camera || !view || !in_out_center_x || !in_out_center_y ||
         !in_out_center_z) {
@@ -3127,7 +3124,6 @@ static int renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
     muzzle_ndc_x = weapon_projection[0u] * muzzle_x / -muzzle_z;
     muzzle_ndc_y = weapon_projection[5u] * muzzle_y / -muzzle_z;
 
-    renderer_opengl_camera_point(camera, &camera_x, &camera_y, &camera_z);
     renderer_opengl_camera_forward(camera, view, &forward_x, &forward_y, &forward_z);
     yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi /
                                  renderer_opengl_source_angle_full_turn);
@@ -3136,30 +3132,34 @@ static int renderer_opengl_anchor_fresh_projectile_to_weapon_muzzle(
     up_x = right_z * forward_y;
     up_y = forward_z * right_x - forward_x * right_z;
     up_z = -right_x * forward_y;
-    relative_x = *in_out_center_x - camera_x;
-    relative_y = *in_out_center_y - camera_y;
-    relative_z = *in_out_center_z - camera_z;
-    depth = relative_x * forward_x + relative_y * forward_y + relative_z * forward_z;
-    if (depth <= renderer_opengl_near_plane) {
+    /*
+     * `firefive` starts X/Z at the player point, uses Plr1_YOff + 30*128,
+     * and writes these three velocity values. `ItsABullet` advances that
+     * exact vector before rendering. Use that first source endpoint as the
+     * physical reference plane for the visible muzzle; retaining the same
+     * plane translation afterwards preserves the projectile's flight vector.
+     */
+    first_step_x = (float)((double)sprite->presentation_projectile_velocity_x_16_16 /
+                           65536.0);
+    first_step_y = -30.0f -
+        (float)sprite->presentation_projectile_velocity_y / 128.0f;
+    first_step_z = (float)((double)sprite->presentation_projectile_velocity_z_16_16 /
+                           65536.0);
+    first_step_depth = first_step_x * forward_x + first_step_y * forward_y +
+        first_step_z * forward_z;
+    if (first_step_depth <= renderer_opengl_near_plane) {
         return 1;
     }
-    current_right = relative_x * right_x + relative_z * right_z;
-    current_up = relative_x * up_x + relative_y * up_y + relative_z * up_z;
+    first_step_right = first_step_x * right_x + first_step_z * right_z;
+    first_step_up = first_step_x * up_x + first_step_y * up_y + first_step_z * up_z;
     focal_length = 16.0f / (15.0f * renderer_opengl_source_fullscreen_depth_scale);
-    target_right = muzzle_ndc_x * depth * drawable_aspect / focal_length;
-    target_up = muzzle_ndc_y * depth / focal_length;
-    blend = 1.0f - sprite->presentation_spawn_interpolation_alpha;
-    if (blend <= 0.0f) {
-        return 1;
-    }
-    if (blend > 1.0f) {
-        blend = 1.0f;
-    }
-    *in_out_center_x += (target_right - current_right) * blend * right_x +
-                        (target_up - current_up) * blend * up_x;
-    *in_out_center_y += (target_up - current_up) * blend * up_y;
-    *in_out_center_z += (target_right - current_right) * blend * right_z +
-                        (target_up - current_up) * blend * up_z;
+    target_right = muzzle_ndc_x * first_step_depth * drawable_aspect / focal_length;
+    target_up = muzzle_ndc_y * first_step_depth / focal_length;
+    *in_out_center_x += (target_right - first_step_right) * right_x +
+                        (target_up - first_step_up) * up_x;
+    *in_out_center_y += (target_up - first_step_up) * up_y;
+    *in_out_center_z += (target_right - first_step_right) * right_z +
+                        (target_up - first_step_up) * up_z;
     return 1;
 }
 

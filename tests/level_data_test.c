@@ -1537,18 +1537,20 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
-        /*
-         * A new firefive ShotT has no source-frame predecessor because
-         * ItsABullet advances it in the same ObjMoveAnim update. The scene
-         * keeps its completed source position but marks this sole first
-         * presentation interval for the camera-space weapon muzzle handoff.
-         */
+        /* `firefive` owns a player projectile's first movement vector. The
+         * scene must retain that raw source data while leaving its completed
+         * source position available to ordinary frame interpolation. */
         current_sprite = previous_sprite;
         current_sprite.data.sprite_instance.sprite.source_record_id = 99u;
         current_sprite.data.sprite_instance.sprite.presentation =
             SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
         current_sprite.data.sprite_instance.sprite.flags = SCENE_SPRITE_FLAG_PROJECTILE;
         current_sprite.data.sprite_instance.sprite.presentation_anchor_to_player_weapon = UINT8_MAX;
+        current_sprite.data.sprite_instance.sprite.presentation_projectile_velocity_x_16_16 =
+            INT32_C(0x00100000);
+        current_sprite.data.sprite_instance.sprite.presentation_projectile_velocity_z_16_16 =
+            INT32_C(0x00200000);
+        current_sprite.data.sprite_instance.sprite.presentation_projectile_velocity_y = -256;
         current_sprite.data.sprite_instance.sprite.position = (SceneWorldPoint){40, 60, 80};
         current.commands[2u] = current_sprite;
         if (!scene_frame_interpolate(&presentation, &previous, &current, 0.25f) ||
@@ -1556,21 +1558,26 @@ int main(int argc, char **argv)
             presentation.commands[2u].data.sprite_instance.sprite.position.y != 60 ||
             presentation.commands[2u].data.sprite_instance.sprite.position.z != 80 ||
             presentation.commands[2u].data.sprite_instance.sprite
-                .presentation_spawn_from_player_weapon == 0u ||
+                .presentation_anchor_to_player_weapon == 0u ||
             presentation.commands[2u].data.sprite_instance.sprite
-                .presentation_spawn_interpolation_alpha != 0.25f) {
-            fprintf(stderr, "fresh player projectile presentation handoff is inconsistent\n");
+                .presentation_projectile_velocity_x_16_16 != INT32_C(0x00100000) ||
+            presentation.commands[2u].data.sprite_instance.sprite
+                .presentation_projectile_velocity_z_16_16 != INT32_C(0x00200000) ||
+            presentation.commands[2u].data.sprite_instance.sprite
+                .presentation_projectile_velocity_y != -256) {
+            fprintf(stderr, "player projectile muzzle presentation state is inconsistent\n");
             scene_frame_destroy(&presentation);
             scene_frame_destroy(&current);
             scene_frame_destroy(&previous);
             return 1;
         }
         current_sprite.data.sprite_instance.sprite.flags |= SCENE_SPRITE_FLAG_PROJECTILE_CONTACT;
+        current_sprite.data.sprite_instance.sprite.presentation_anchor_to_player_weapon = 0u;
         current.commands[2u] = current_sprite;
         if (!scene_frame_interpolate(&presentation, &previous, &current, 0.25f) ||
             presentation.commands[2u].data.sprite_instance.sprite
-                .presentation_spawn_from_player_weapon != 0u) {
-            fprintf(stderr, "projectile contact incorrectly received a weapon muzzle handoff\n");
+                .presentation_anchor_to_player_weapon != 0u) {
+            fprintf(stderr, "projectile contact incorrectly retained a weapon muzzle handoff\n");
             scene_frame_destroy(&presentation);
             scene_frame_destroy(&current);
             scene_frame_destroy(&previous);
@@ -7924,6 +7931,12 @@ int main(int argc, char **argv)
                 (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE) == 0u ||
                 (projectile_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) != 0u ||
                 projectile_sprite->presentation_anchor_to_player_weapon == 0u ||
+                projectile_sprite->presentation_projectile_velocity_x_16_16 !=
+                    (int32_t)read_be32(slot_bytes + 18u) ||
+                projectile_sprite->presentation_projectile_velocity_z_16_16 !=
+                    (int32_t)read_be32(slot_bytes + 22u) ||
+                projectile_sprite->presentation_projectile_velocity_y !=
+                    (int16_t)read_be16(slot_bytes + 42u) ||
                 projectile_sprite->source_width != (uint8_t)(projectile_frame.word_2 >> 8u) ||
                 projectile_sprite->source_height != (uint8_t)projectile_frame.word_2) {
                 fprintf(stderr, "ItsABullet source scene projectile handoff is inconsistent\n");
@@ -7960,7 +7973,8 @@ int main(int argc, char **argv)
                 }
             }
             if (!contact_sprite ||
-                (contact_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) == 0u) {
+                (contact_sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) == 0u ||
+                contact_sprite->presentation_anchor_to_player_weapon != 0u) {
                 fprintf(stderr, "ItsABullet stationary contact flag is inconsistent\n");
                 scene_frame_destroy(&projectile_scene);
                 game_bootstrap_destroy(&game);

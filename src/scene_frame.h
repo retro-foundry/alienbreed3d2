@@ -274,16 +274,15 @@ typedef struct {
     float presentation_frame_interpolation_alpha;
     uint8_t presentation_interpolate_vector_frame;
     /*
-     * `newplayershoot.s:firefive` owns a player projectile's source-space
-     * launch point, while `hires.s:Plr1_Use` owns the camera-space companion
-     * weapon.  The source camera has no host-rate free-look interval between
-     * those two states.  Retain the association here so the presenter can
-     * bridge only a newly-created player shot from the visible weapon muzzle
-     * to its completed source flight endpoint, without altering ShotT state.
+     * `newplayershoot.s:firefive` owns the source projectile point and
+     * velocity, while `hires.s:Plr1_Use` owns the camera-space companion.
+     * Preserve the first source movement vector so the presenter can place
+     * the visual path at the companion muzzle without changing ShotT state.
      */
     uint8_t presentation_anchor_to_player_weapon;
-    uint8_t presentation_spawn_from_player_weapon;
-    float presentation_spawn_interpolation_alpha;
+    int32_t presentation_projectile_velocity_x_16_16;
+    int32_t presentation_projectile_velocity_z_16_16;
+    int16_t presentation_projectile_velocity_y;
     uint16_t yaw;
     uint16_t source_brightness;
     int16_t source_light_level;

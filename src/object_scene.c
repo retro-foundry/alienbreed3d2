@@ -16,9 +16,12 @@ enum {
     OBJECT_SCENE_FRAME = 11u,
     OBJECT_SCENE_ZONE_ID = 12u,
     OBJECT_SCENE_TYPE_ID = 16u,
+    OBJECT_SCENE_PROJECTILE_VELOCITY_X = 18u,
+    OBJECT_SCENE_PROJECTILE_VELOCITY_Z = 22u,
     OBJECT_SCENE_CURRENT_ANGLE = 30u,
     /* ShotT_Status_b aliases EntT_CurrentAngle_w's high byte. */
     OBJECT_SCENE_PROJECTILE_STATUS = 30u,
+    OBJECT_SCENE_PROJECTILE_VELOCITY_Y = 42u,
     OBJECT_SCENE_AUX_OFFSET_X = 44u,
     OBJECT_SCENE_AUX_OFFSET_Y = 46u,
     OBJECT_SCENE_ENTITY_TYPE = 54u,
@@ -51,6 +54,14 @@ static uint16_t object_scene_read_be16(const uint8_t *source)
 static int16_t object_scene_read_be16s(const uint8_t *source)
 {
     return (int16_t)object_scene_read_be16(source);
+}
+
+static int32_t object_scene_read_be32s(const uint8_t *source)
+{
+    return (int32_t)(((uint32_t)source[0] << 24u) |
+                     ((uint32_t)source[1] << 16u) |
+                     ((uint32_t)source[2] << 8u) |
+                     (uint32_t)source[3]);
 }
 
 static int16_t object_scene_add16(int16_t left, int16_t right)
@@ -594,6 +605,12 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
              * their ordinary source-world presentation.
              */
             sprite.presentation_anchor_to_player_weapon = UINT8_MAX;
+            sprite.presentation_projectile_velocity_x_16_16 =
+                object_scene_read_be32s(slot + OBJECT_SCENE_PROJECTILE_VELOCITY_X);
+            sprite.presentation_projectile_velocity_z_16_16 =
+                object_scene_read_be32s(slot + OBJECT_SCENE_PROJECTILE_VELOCITY_Z);
+            sprite.presentation_projectile_velocity_y =
+                object_scene_read_be16s(slot + OBJECT_SCENE_PROJECTILE_VELOCITY_Y);
         }
     }
     if (sprite.source_zone_index >= level->zone_count ||
