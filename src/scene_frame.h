@@ -353,7 +353,7 @@ typedef enum {
 typedef enum {
     /* Top-left position on the command's renderer-neutral reference canvas. */
     SCENE_HUD_LAYOUT_REFERENCE_POSITION,
-    /* Horizontally centred at y reference pixels from the drawable top. */
+    /* Centred after the first-port safe top margin plus y reference pixels. */
     SCENE_HUD_LAYOUT_TOP_CENTER,
     /* Alien Breed 3D I display_hud_stats_sdl_overlay health placement. */
     SCENE_HUD_LAYOUT_FIRST_PORT_HEALTH,

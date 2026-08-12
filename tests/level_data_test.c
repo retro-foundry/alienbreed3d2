@@ -1637,7 +1637,7 @@ int main(int argc, char **argv)
                    text_line, 4u) != 0 ||
             message_frame.commands[0u].data.hud_text.text_byte_count != 4u ||
             message_frame.commands[0u].data.hud_text.x != 0 ||
-            message_frame.commands[0u].data.hud_text.y != 4 ||
+            message_frame.commands[0u].data.hud_text.y != 0 ||
             message_frame.commands[0u].data.hud_text.reference_width != 320u ||
             message_frame.commands[0u].data.hud_text.reference_height != 256u ||
             message_frame.commands[0u].data.hud_text.font !=

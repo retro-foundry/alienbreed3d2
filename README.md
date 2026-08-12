@@ -51,7 +51,8 @@ complete AI route enters through `newanims.s:ObjectHandler` only when its
 source worry byte is set. Source death, successful collectable, and
 destructible narratives enter the GPU-neutral small-screen message ring and
 are submitted through retained renderer-neutral text commands. The visible
-lines are independently centred at the top of the drawable, retain the source
+lines are independently centred below the first port's resolution-relative
+safe top margin, retain the source
 message-tag colours, and age through `c/message.c:Msg_Tick`'s exact one-line,
 2000 ms null insertion until they are replaced or disappear. Failed inventory pickups retain their
 source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
@@ -174,7 +175,8 @@ original requests. The source default music toggle starts the looped module at
   ammunition is clamped to the same three-digit 999 limit, leading zeroes are
   suppressed identically, and the four-key row remains reserved in the
   bottom-right layout without being drawn. In-game flavour text uses that
-  renderer-neutral atlas path at the top centre while preserving AB3D2's
+  renderer-neutral atlas path at the top centre, below the first port's
+  resolution-relative safe margin, while preserving AB3D2's
   five-slot message ring, four source tag pens, and 2000 ms expiry cadence.
   Every live source object now emits an
   unprojected bitmap/vector/glare descriptor in source slot order, with its

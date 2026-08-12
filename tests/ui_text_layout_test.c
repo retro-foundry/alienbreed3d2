@@ -99,7 +99,7 @@ int main(void)
             fprintf(stderr, "top-centred message command setup failed\n");
             return 1;
         }
-        command.data.hud_text.y = 4;
+        command.data.hud_text.y = 0;
         command.data.hud_text.reference_width = 320u;
         command.data.hud_text.reference_height = 256u;
         command.data.hud_text.style_id = 2u;
@@ -110,10 +110,10 @@ int main(void)
                                   error, sizeof(error)) ||
             glyph_count != 2u || glyphs[0u].glyph_index != 33u ||
             glyphs[0u].style_id != 2u ||
-            glyphs[0u].x != 616 || glyphs[0u].y != 8 ||
+            glyphs[0u].x != 616 || glyphs[0u].y != 30 ||
             glyphs[0u].width != 16 || glyphs[0u].height != 26 ||
             glyphs[1u].glyph_index != 34u || glyphs[1u].x != 648 ||
-            glyphs[1u].y != 8) {
+            glyphs[1u].y != 30) {
             fprintf(stderr, "top-centred first-port message layout is inconsistent: %s\n",
                     error);
             return 1;

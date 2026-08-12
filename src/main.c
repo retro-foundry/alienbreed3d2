@@ -964,7 +964,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 app->exit_code = 1;
                 return 0;
             }
-            message_command.data.hud_text.y = 4;
+            message_command.data.hud_text.y = 0;
             message_command.data.hud_text.reference_width = 320u;
             message_command.data.hud_text.reference_height = 256u;
             message_command.data.hud_text.style_id = level_index & 3u;

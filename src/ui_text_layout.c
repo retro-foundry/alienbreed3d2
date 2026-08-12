@@ -38,6 +38,19 @@ static int32_t ui_text_layout_round_scale(int32_t value, int32_t scale_numerator
     return (int32_t)((product + scale_denominator / 2) / scale_denominator);
 }
 
+static int32_t ui_text_layout_margin_for_extent(int32_t extent)
+{
+    int32_t margin = extent / 24;
+
+    /* Alien Breed 3D I display.c:display_text_margin_for_extent. */
+    if (margin < 8) margin = 8;
+    if (margin > 64) margin = 64;
+    if (extent < margin * 2 + 1) {
+        margin = extent > 2 ? extent / 8 : 0;
+    }
+    return margin;
+}
+
 static int ui_text_layout_append(UiTextGlyph *glyphs, size_t glyph_capacity,
                                  size_t *glyph_count, const UiTextGlyph *glyph,
                                  char *error, size_t error_size)
@@ -225,7 +238,8 @@ static int ui_text_layout_top_center_text(const SceneHudText *text,
     if (advance < 1) advance = 1;
     text_width = (int32_t)text->text_byte_count * advance;
     pen_x = (drawable_width - text_width) / 2;
-    pen_y = ui_text_layout_round_scale(text->y, scale_numerator, scale_denominator);
+    pen_y = ui_text_layout_margin_for_extent(drawable_height) +
+        ui_text_layout_round_scale(text->y, scale_numerator, scale_denominator);
 
     for (uint16_t index = 0u; index < text->text_byte_count; ++index) {
         uint8_t character = (uint8_t)text->text[index];

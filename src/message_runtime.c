@@ -7,7 +7,6 @@ enum {
     /* c/screen.h, c/draw.h, and c/message.c small-screen constants. */
     MESSAGE_RUNTIME_SCREEN_WIDTH = 320u,
     MESSAGE_RUNTIME_HUD_BORDER_WIDTH = 16u,
-    MESSAGE_RUNTIME_DRAW_TEXT_MARGIN = 4u,
     MESSAGE_RUNTIME_DRAW_MSG_CHAR_WIDTH = 8u,
     MESSAGE_RUNTIME_MAX_PROP_CHAR_WIDTH = 7u,
     /* Alien Breed 3D I display.c:DISPLAY_ASCII_LINE_ADVANCE. */
@@ -306,7 +305,7 @@ int message_runtime_submit_hud(const MessageRuntime *runtime, SceneFrame *frame)
 {
     uint8_t first;
     uint8_t line;
-    uint16_t y = MESSAGE_RUNTIME_DRAW_TEXT_MARGIN;
+    uint16_t y = 0u;
     uint8_t visible = 0u;
 
     if (!runtime || !frame) {
