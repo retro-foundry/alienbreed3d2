@@ -1631,10 +1631,19 @@ int main(int argc, char **argv)
             !message_runtime_submit_hud(&messages, &message_frame) ||
             message_frame.count != 1u ||
             message_frame.commands[0u].type != SCENE_COMMAND_HUD_TEXT ||
-            message_frame.commands[0u].data.hud_text.text != (const char *)text_line ||
+            (const void *)message_frame.commands[0u].data.hud_text.text ==
+                (const void *)text_line ||
+            memcmp(message_frame.commands[0u].data.hud_text.text,
+                   text_line, sizeof(text_line)) != 0 ||
             message_frame.commands[0u].data.hud_text.text_byte_count != sizeof(text_line) ||
             message_frame.commands[0u].data.hud_text.x != 20 ||
             message_frame.commands[0u].data.hud_text.y != 164 ||
+            message_frame.commands[0u].data.hud_text.reference_width != 320u ||
+            message_frame.commands[0u].data.hud_text.reference_height != 256u ||
+            message_frame.commands[0u].data.hud_text.font !=
+                SCENE_HUD_FONT_FIRST_PORT_ASCII ||
+            message_frame.commands[0u].data.hud_text.layout !=
+                SCENE_HUD_LAYOUT_REFERENCE_POSITION ||
             message_frame.commands[0u].data.hud_text.style_id != MESSAGE_RUNTIME_TAG_OPTIONS) {
             fprintf(stderr, "c/message.c source line-ring handoff is inconsistent: %s\n", error);
             return 1;
@@ -1778,9 +1787,15 @@ int main(int argc, char **argv)
         asset_blob_release(&level_data);
         return 1;
     }
+    memset(&command, 0, sizeof(command));
     command.type = SCENE_COMMAND_HUD_TEXT;
-    command.data.hud_text.text = "test";
-    command.data.hud_text.text_byte_count = 4u;
+    if (!scene_hud_text_set(&command.data.hud_text, "test", 4u)) {
+        fprintf(stderr, "retained scene HUD text initialization failed\n");
+        scene_frame_destroy(&frame);
+        asset_blob_release(&graphics_data);
+        asset_blob_release(&level_data);
+        return 1;
+    }
     command.data.hud_text.x = 0;
     command.data.hud_text.y = 0;
     command.data.hud_text.style_id = 0;
@@ -2877,13 +2892,23 @@ int main(int argc, char **argv)
             !game_bootstrap_submit_scene_frame(&game, &frame) ||
             !scene_frame_find_instance_layout(&frame, &geometry_instance_count,
                                               &first_sprite_command) ||
-            frame.count != 3u + geometry_instance_count + active_sprite_count ||
+            frame.count != 5u + geometry_instance_count + active_sprite_count ||
             first_sprite_command == SIZE_MAX ||
             !scene_sprite_commands_match_source(
                 &frame, first_sprite_command, &game, active_sprite_count, error, sizeof(error)) ||
             frame.commands[0u].type != SCENE_COMMAND_CAMERA ||
             frame.commands[1u].type != SCENE_COMMAND_LIGHTING ||
-            frame.commands[2u].type != SCENE_COMMAND_ENVIRONMENT) {
+            frame.commands[2u].type != SCENE_COMMAND_ENVIRONMENT ||
+            frame.commands[frame.count - 2u].type != SCENE_COMMAND_HUD_TEXT ||
+            frame.commands[frame.count - 2u].data.hud_text.font !=
+                SCENE_HUD_FONT_FIRST_PORT_HEALTH_DIGITS ||
+            frame.commands[frame.count - 2u].data.hud_text.layout !=
+                SCENE_HUD_LAYOUT_FIRST_PORT_HEALTH ||
+            frame.commands[frame.count - 1u].type != SCENE_COMMAND_HUD_TEXT ||
+            frame.commands[frame.count - 1u].data.hud_text.font !=
+                SCENE_HUD_FONT_FIRST_PORT_AMMO_DIGITS ||
+            frame.commands[frame.count - 1u].data.hud_text.layout !=
+                SCENE_HUD_LAYOUT_FIRST_PORT_AMMUNITION) {
             fprintf(stderr, "campaign level %u source-object scene handoff is invalid: %s\n",
                     level_index, error);
             scene_frame_destroy(&frame);

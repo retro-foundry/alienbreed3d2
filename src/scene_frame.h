@@ -336,13 +336,40 @@ typedef struct {
     SceneSprite sprite;
 } SceneSpriteInstance;
 
+enum {
+    /* c/message.c's longest authored record; commands retain their own copy. */
+    SCENE_HUD_TEXT_CAPACITY = 160u
+};
+
+typedef enum {
+    /* Alien Breed 3D I fonts/ascii_font printable-ASCII atlas. */
+    SCENE_HUD_FONT_FIRST_PORT_ASCII,
+    /* Alien Breed 3D I fonts/health_digits.png. */
+    SCENE_HUD_FONT_FIRST_PORT_HEALTH_DIGITS,
+    /* Alien Breed 3D I fonts/ammo_digits.png. */
+    SCENE_HUD_FONT_FIRST_PORT_AMMO_DIGITS
+} SceneHudFont;
+
+typedef enum {
+    /* Top-left position on the command's renderer-neutral reference canvas. */
+    SCENE_HUD_LAYOUT_REFERENCE_POSITION,
+    /* Alien Breed 3D I display_hud_stats_sdl_overlay health placement. */
+    SCENE_HUD_LAYOUT_FIRST_PORT_HEALTH,
+    /* Alien Breed 3D I display_hud_stats_sdl_overlay ammunition placement. */
+    SCENE_HUD_LAYOUT_FIRST_PORT_AMMUNITION
+} SceneHudLayout;
+
 typedef struct {
-    /* Exact source bytes; consumers must not require a trailing NUL. */
-    const char *text;
+    /* Retained command-owned bytes; consumers must use text_byte_count. */
+    char text[SCENE_HUD_TEXT_CAPACITY];
     uint16_t text_byte_count;
     int16_t x;
     int16_t y;
+    uint16_t reference_width;
+    uint16_t reference_height;
     uint32_t style_id;
+    SceneHudFont font;
+    SceneHudLayout layout;
 } SceneHudText;
 
 typedef enum {
@@ -392,6 +419,8 @@ void scene_frame_begin(SceneFrame *frame);
 int scene_frame_reserve(SceneFrame *frame, size_t command_capacity);
 int scene_frame_reserve_mesh_surfaces(SceneFrame *frame, size_t surface_capacity);
 int scene_frame_submit(SceneFrame *frame, const SceneCommand *command);
+/* Copy exact, not-necessarily-NUL-terminated text into a retained HUD command. */
+int scene_hud_text_set(SceneHudText *destination, const void *text, size_t text_byte_count);
 
 /*
  * Reserve producer-owned contiguous surfaces for one SceneMesh. The caller

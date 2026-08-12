@@ -113,6 +113,19 @@ int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderVi
     }
 }
 
+size_t renderer_last_ui_coverage(const Renderer *renderer)
+{
+    if (!renderer) {
+        return 0u;
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_OPENGL:
+        return renderer_opengl_last_ui_coverage(renderer->opengl);
+    default:
+        return 0u;
+    }
+}
+
 size_t renderer_last_view_weapon_coverage(const Renderer *renderer)
 {
     if (!renderer) {

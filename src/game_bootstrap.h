@@ -143,7 +143,7 @@ int game_bootstrap_load_level_definition(GameBootstrap *game, const char *data_r
                                          char *error, size_t error_size);
 void game_bootstrap_destroy(GameBootstrap *game);
 
-/* Emits the complete source-authored gameplay scene; HUD/messages stay in simulation. */
+/* Emits the complete gameplay scene plus GPU-neutral message/status UI commands. */
 int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame);
 
 #endif

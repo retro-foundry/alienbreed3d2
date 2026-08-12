@@ -44,6 +44,8 @@ void renderer_request_quit(Renderer *renderer);
 int renderer_get_presentation_size(const Renderer *renderer, int *out_width, int *out_height);
 int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderView *view,
                      char *error, size_t error_size);
+/* Nonzero only when hidden GPU smoke rendered visible UI glyph pixels. */
+size_t renderer_last_ui_coverage(const Renderer *renderer);
 /* Nonzero only for the hidden GPU-smoke frame's rendered Player 1 weapon. */
 size_t renderer_last_view_weapon_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the camera-space weapon's changed RGB pixels. */

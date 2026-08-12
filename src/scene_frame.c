@@ -322,6 +322,20 @@ int scene_frame_submit(SceneFrame *frame, const SceneCommand *command)
     return 1;
 }
 
+int scene_hud_text_set(SceneHudText *destination, const void *text, size_t text_byte_count)
+{
+    if (!destination || (text_byte_count != 0u && !text) ||
+        text_byte_count > SCENE_HUD_TEXT_CAPACITY || text_byte_count > UINT16_MAX) {
+        return 0;
+    }
+    memset(destination->text, 0, sizeof(destination->text));
+    if (text_byte_count != 0u) {
+        memcpy(destination->text, text, text_byte_count);
+    }
+    destination->text_byte_count = (uint16_t)text_byte_count;
+    return 1;
+}
+
 SceneMeshSurface *scene_frame_allocate_mesh_surfaces(SceneFrame *frame,
                                                      uint32_t surface_count)
 {

@@ -50,7 +50,7 @@ weapon, object/mechanism (including source-held door/lift locks), worry, and
 complete AI route enters through `newanims.s:ObjectHandler` only when its
 source worry byte is set. Source death, successful collectable, and
 destructible narratives enter the GPU-neutral small-screen message ring and
-remain simulation-only; no HUD commands are submitted. Failed inventory pickups retain their
+are submitted through retained renderer-neutral text commands. Failed inventory pickups retain their
 source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
 active presentation path is an OpenGL 2.1 / GLES 2 renderer behind the
 API-neutral `renderer.h` boundary, so the same scene producers can later feed
@@ -64,7 +64,7 @@ and Player 1's live companion weapon. World and vector materials are converted
 once to true colour with per-source-texel continuous linear-light responses,
 so source brightness retains its authored hue shift without runtime palette
 row selection. This is original source art with a continuous lighting
-presentation—not a PBR conversion. HUD text, menus, and
+presentation—not a PBR conversion. Menus and
 multiplayer are not included. The
 detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live
@@ -161,6 +161,16 @@ original requests. The source default music toggle starts the looped module at
   materials for the other side of the wall;
 - defines a GPU-neutral frame command interface for cameras, lighting,
   environment, static/dynamic mesh instances, and source-object instances.
+  It also carries retained bitmap-text commands with explicit font and layout
+  identities, so UI production has no dependency on SDL, OpenGL, or a future
+  renderer API. The current status producer submits health and selected-weapon
+  ammunition only; key indicators are deliberately deferred. OpenGL/WebGL
+  consumes the same renderer-independent glyph layout using the exact
+  `health_digits.png`, `ammo_digits.png`, and printable-ASCII atlas from the
+  Alien Breed 3D I port. Health is rounded to the same 0--100 percentage,
+  ammunition is clamped to the same three-digit 999 limit, leading zeroes are
+  suppressed identically, and the four-key row remains reserved in the
+  bottom-right layout without being drawn.
   Every live source object now emits an
   unprojected bitmap/vector/glare descriptor in source slot order, with its
   selected raw WAD/PTR/vector asset bytes, palette, frame data, source draw
@@ -280,8 +290,8 @@ original requests. The source default music toggle starts the looped module at
   source-backed desktop audio are live;
 - opens an SDL OpenGL window that draws the direct-play world with depth
   testing: source sky, complete authored geometry, smooth source light,
-  animated water, source bitmap/glare/vector objects, and the live view weapon.
-  It intentionally draws no text or UI.
+  animated water, source bitmap/glare/vector objects, the live view weapon,
+  source messages, and the first-port health/ammunition bitmap UI.
 
 Single-player is the only intended PC mode. The original serial master/slave
 multiplayer flow is intentionally not ported.

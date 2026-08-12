@@ -289,15 +289,22 @@ int message_runtime_submit_hud(const MessageRuntime *runtime, SceneFrame *frame)
         if (source->text) {
             SceneCommand command;
 
+            memset(&command, 0, sizeof(command));
             command.type = SCENE_COMMAND_HUD_TEXT;
-            command.data.hud_text.text = (const char *)source->text;
-            command.data.hud_text.text_byte_count =
-                (uint16_t)(source->length_and_tag & MESSAGE_RUNTIME_LENGTH_MASK);
+            if (!scene_hud_text_set(
+                    &command.data.hud_text, source->text,
+                    (uint16_t)(source->length_and_tag & MESSAGE_RUNTIME_LENGTH_MASK))) {
+                return 0;
+            }
             command.data.hud_text.x =
                 (int16_t)(MESSAGE_RUNTIME_DRAW_TEXT_MARGIN + MESSAGE_RUNTIME_HUD_BORDER_WIDTH);
             command.data.hud_text.y = (int16_t)y;
+            command.data.hud_text.reference_width = MESSAGE_RUNTIME_SCREEN_WIDTH;
+            command.data.hud_text.reference_height = 256u;
             command.data.hud_text.style_id =
                 (uint32_t)(source->length_and_tag >> MESSAGE_RUNTIME_TAG_SHIFT);
+            command.data.hud_text.font = SCENE_HUD_FONT_FIRST_PORT_ASCII;
+            command.data.hud_text.layout = SCENE_HUD_LAYOUT_REFERENCE_POSITION;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }

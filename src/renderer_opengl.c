@@ -2,6 +2,7 @@
 
 #include "bitmap_source_decode.h"
 #include "source_vector_projection.h"
+#include "ui_text_layout.h"
 #include "world_light_tessellation.h"
 
 #include <limits.h>
@@ -10,6 +11,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 #include <SDL.h>
 #if defined(__EMSCRIPTEN__)
@@ -26,6 +30,7 @@ enum {
     RENDERER_OPENGL_SOURCE_COLOR_ATTRIBUTE = 3,
     RENDERER_OPENGL_TEXTURE_CACHE_INITIAL_CAPACITY = 64,
     RENDERER_OPENGL_WINDOW_MINIMUM_SIZE = 1,
+    RENDERER_OPENGL_UI_FONT_COUNT = 3,
     /* objdrawhires.s:predoglare selects a distinct cached vector conversion. */
     RENDERER_OPENGL_VECTOR_SOURCE_EFFECT_GLARE = 1
 };
@@ -161,6 +166,9 @@ struct RendererOpenGL {
     GLuint program;
     GLuint vertex_buffer;
     GLuint white_texture;
+    GLuint ui_font_textures[RENDERER_OPENGL_UI_FONT_COUNT];
+    uint16_t ui_font_widths[RENDERER_OPENGL_UI_FONT_COUNT];
+    uint16_t ui_font_heights[RENDERER_OPENGL_UI_FONT_COUNT];
     GLint view_projection_uniform;
     GLint point_size_uniform;
     GLint texture_uniform;
@@ -171,6 +179,7 @@ struct RendererOpenGL {
     RendererOpenGLTexture *textures;
     size_t texture_count;
     size_t texture_capacity;
+    size_t last_ui_coverage;
     size_t last_view_weapon_coverage;
     uint64_t last_view_weapon_rgb_checksum;
     size_t last_projectile_coverage;
@@ -1587,6 +1596,80 @@ static int renderer_opengl_create_texture(const uint8_t *pixels, uint16_t width,
     return 1;
 }
 
+static int renderer_opengl_load_ui_font(RendererOpenGL *renderer, SceneHudFont font,
+                                        const char *relative_path,
+                                        uint16_t expected_width, uint16_t expected_height,
+                                        char *error, size_t error_size)
+{
+    char *base_path;
+    char path[1024];
+    uint8_t *pixels = NULL;
+    int width = 0;
+    int height = 0;
+    int components = 0;
+    int written;
+
+    if (!renderer || (int)font < 0 || (int)font >= RENDERER_OPENGL_UI_FONT_COUNT ||
+        !relative_path || !*relative_path) {
+        renderer_opengl_set_error(error, error_size, "UI font descriptor is invalid");
+        return 0;
+    }
+    base_path = SDL_GetBasePath();
+    if (base_path) {
+        written = snprintf(path, sizeof(path), "%s%s", base_path, relative_path);
+        if (written > 0 && (size_t)written < sizeof(path)) {
+            pixels = stbi_load(path, &width, &height, &components, 4);
+        }
+        SDL_free(base_path);
+    }
+    if (!pixels) {
+        pixels = stbi_load(relative_path, &width, &height, &components, 4);
+    }
+    if (!pixels) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size, "UI font %s could not be decoded: %s",
+                           relative_path,
+                           stbi_failure_reason() ? stbi_failure_reason() : "unknown PNG error");
+        }
+        return 0;
+    }
+    if (width != expected_width || height != expected_height ||
+        width > UINT16_MAX || height > UINT16_MAX) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "UI font %s is %dx%d, expected %ux%u",
+                           relative_path, width, height, expected_width, expected_height);
+        }
+        stbi_image_free(pixels);
+        return 0;
+    }
+    if (!renderer_opengl_create_texture(
+            pixels, (uint16_t)width, (uint16_t)height, 0, 0, 0,
+            &renderer->ui_font_textures[font], error, error_size)) {
+        stbi_image_free(pixels);
+        return 0;
+    }
+    stbi_image_free(pixels);
+    renderer->ui_font_widths[font] = (uint16_t)width;
+    renderer->ui_font_heights[font] = (uint16_t)height;
+    return 1;
+}
+
+static int renderer_opengl_load_ui_fonts(RendererOpenGL *renderer,
+                                         char *error, size_t error_size)
+{
+    return renderer_opengl_load_ui_font(
+               renderer, SCENE_HUD_FONT_FIRST_PORT_ASCII,
+               "fonts/ascii_font/ascii_font_green_black_atlas_v2.png",
+               192u, 102u, error, error_size) &&
+        renderer_opengl_load_ui_font(
+               renderer, SCENE_HUD_FONT_FIRST_PORT_HEALTH_DIGITS,
+               "fonts/health_digits.png", 108u, 11u, error, error_size) &&
+        renderer_opengl_load_ui_font(
+               renderer, SCENE_HUD_FONT_FIRST_PORT_AMMO_DIGITS,
+               "fonts/ammo_digits.png", 108u, 11u, error, error_size);
+}
+
 static int renderer_opengl_texture_cache_reserve(RendererOpenGL *renderer, size_t capacity,
                                                  char *error, size_t error_size)
 {
@@ -2285,6 +2368,189 @@ static int renderer_opengl_draw_vertices(RendererOpenGL *renderer,
     if (glGetError() != GL_NO_ERROR) {
         renderer_opengl_set_error(error, error_size, "OpenGL draw command failed");
         return 0;
+    }
+    return 1;
+}
+
+static void renderer_opengl_make_hud_vertex(RendererOpenGLVertex *vertex,
+                                            float x, float y, float u, float v)
+{
+    *vertex = (RendererOpenGLVertex){x, y, 0.0f, u, v, 1.0f, 1.0f, 1.0f, 1.0f};
+}
+
+static int renderer_opengl_draw_ui(RendererOpenGL *renderer, const SceneFrame *frame,
+                                   int drawable_width, int drawable_height,
+                                   char *error, size_t error_size)
+{
+    size_t glyph_capacity;
+    size_t glyph_count = 0u;
+    UiTextGlyph *glyphs;
+    float identity[16];
+
+    glyph_capacity = ui_text_layout_glyph_capacity(frame);
+    if (glyph_capacity == 0u) {
+        return 1;
+    }
+    if (glyph_capacity == SIZE_MAX || glyph_capacity > SIZE_MAX / sizeof(*glyphs)) {
+        renderer_opengl_set_error(error, error_size, "UI glyph allocation is too large");
+        return 0;
+    }
+    glyphs = malloc(glyph_capacity * sizeof(*glyphs));
+    if (!glyphs) {
+        renderer_opengl_set_error(error, error_size, "UI glyph allocation failed");
+        return 0;
+    }
+    if (!ui_text_layout_frame(frame, drawable_width, drawable_height,
+                              glyphs, glyph_capacity, &glyph_count,
+                              error, error_size)) {
+        free(glyphs);
+        return 0;
+    }
+
+    renderer_opengl_identity(identity);
+    renderer->gl.uniform_matrix_4fv(renderer->view_projection_uniform, 1, GL_FALSE, identity);
+    renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
+    renderer_opengl_use_default_light_response(renderer);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(GL_FALSE);
+    glDisable(GL_CULL_FACE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    for (size_t index = 0u; index < glyph_count; ++index) {
+        const UiTextGlyph *glyph = &glyphs[index];
+        RendererOpenGLVertex vertices[6];
+        float left;
+        float right;
+        float top;
+        float bottom;
+        float u0;
+        float v0;
+        float u1;
+        float v1;
+        uint16_t texture_width;
+        uint16_t texture_height;
+
+        if ((int)glyph->font < 0 || (int)glyph->font >= RENDERER_OPENGL_UI_FONT_COUNT ||
+            renderer->ui_font_textures[glyph->font] == 0u ||
+            glyph->width < 1 || glyph->height < 1) {
+            free(glyphs);
+            glDisable(GL_BLEND);
+            glDepthMask(GL_TRUE);
+            glEnable(GL_DEPTH_TEST);
+            renderer_opengl_set_error(error, error_size, "UI glyph has invalid renderer state");
+            return 0;
+        }
+        texture_width = renderer->ui_font_widths[glyph->font];
+        texture_height = renderer->ui_font_heights[glyph->font];
+        if ((uint32_t)glyph->source_x + glyph->source_width > texture_width ||
+            (uint32_t)glyph->source_y + glyph->source_height > texture_height) {
+            free(glyphs);
+            glDisable(GL_BLEND);
+            glDepthMask(GL_TRUE);
+            glEnable(GL_DEPTH_TEST);
+            renderer_opengl_set_error(error, error_size, "UI glyph exceeds its bitmap atlas");
+            return 0;
+        }
+        left = -1.0f + 2.0f * (float)glyph->x / (float)drawable_width;
+        right = -1.0f + 2.0f * (float)(glyph->x + glyph->width) /
+            (float)drawable_width;
+        top = 1.0f - 2.0f * (float)glyph->y / (float)drawable_height;
+        bottom = 1.0f - 2.0f * (float)(glyph->y + glyph->height) /
+            (float)drawable_height;
+        u0 = (float)glyph->source_x / (float)texture_width;
+        v0 = (float)glyph->source_y / (float)texture_height;
+        u1 = (float)(glyph->source_x + glyph->source_width) / (float)texture_width;
+        v1 = (float)(glyph->source_y + glyph->source_height) / (float)texture_height;
+
+        renderer_opengl_make_hud_vertex(&vertices[0], left, top, u0, v0);
+        renderer_opengl_make_hud_vertex(&vertices[1], left, bottom, u0, v1);
+        renderer_opengl_make_hud_vertex(&vertices[2], right, bottom, u1, v1);
+        vertices[3] = vertices[0];
+        vertices[4] = vertices[2];
+        renderer_opengl_make_hud_vertex(&vertices[5], right, top, u1, v0);
+        renderer->gl.active_texture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, renderer->ui_font_textures[glyph->font]);
+        if (!renderer_opengl_draw_vertices(renderer, vertices, 6u, GL_TRIANGLES,
+                                           error, error_size)) {
+            free(glyphs);
+            glDisable(GL_BLEND);
+            glDepthMask(GL_TRUE);
+            glEnable(GL_DEPTH_TEST);
+            return 0;
+        }
+    }
+    free(glyphs);
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+    return 1;
+}
+
+static int renderer_opengl_draw_ui_with_coverage(RendererOpenGL *renderer,
+                                                  const SceneFrame *frame,
+                                                  int drawable_width,
+                                                  int drawable_height,
+                                                  char *error,
+                                                  size_t error_size)
+{
+    uint8_t *before_pixels = NULL;
+    size_t pixel_byte_count = 0u;
+
+    if (renderer->measure_view_weapon_coverage != 0u &&
+        ui_text_layout_glyph_capacity(frame) != 0u) {
+        if ((size_t)drawable_width > SIZE_MAX / (size_t)drawable_height / 4u) {
+            renderer_opengl_set_error(error, error_size,
+                                      "UI GPU coverage buffer is too large");
+            return 0;
+        }
+        pixel_byte_count = (size_t)drawable_width * (size_t)drawable_height * 4u;
+        before_pixels = malloc(pixel_byte_count);
+        if (!before_pixels) {
+            renderer_opengl_set_error(error, error_size,
+                                      "UI GPU coverage buffer allocation failed");
+            return 0;
+        }
+        glReadPixels(0, 0, drawable_width, drawable_height, GL_RGBA, GL_UNSIGNED_BYTE,
+                     before_pixels);
+        if (glGetError() != GL_NO_ERROR) {
+            free(before_pixels);
+            renderer_opengl_set_error(error, error_size,
+                                      "UI GPU coverage readback before draw failed");
+            return 0;
+        }
+    }
+    if (!renderer_opengl_draw_ui(renderer, frame, drawable_width, drawable_height,
+                                 error, error_size)) {
+        free(before_pixels);
+        return 0;
+    }
+    if (before_pixels) {
+        uint8_t *after_pixels = malloc(pixel_byte_count);
+
+        if (!after_pixels) {
+            free(before_pixels);
+            renderer_opengl_set_error(error, error_size,
+                                      "UI GPU coverage buffer allocation failed");
+            return 0;
+        }
+        glReadPixels(0, 0, drawable_width, drawable_height, GL_RGBA, GL_UNSIGNED_BYTE,
+                     after_pixels);
+        if (glGetError() != GL_NO_ERROR) {
+            free(after_pixels);
+            free(before_pixels);
+            renderer_opengl_set_error(error, error_size,
+                                      "UI GPU coverage readback after draw failed");
+            return 0;
+        }
+        for (size_t pixel_offset = 0u; pixel_offset < pixel_byte_count;
+             pixel_offset += 4u) {
+            if (memcmp(before_pixels + pixel_offset, after_pixels + pixel_offset, 4u) != 0) {
+                ++renderer->last_ui_coverage;
+            }
+        }
+        free(after_pixels);
+        free(before_pixels);
     }
     return 1;
 }
@@ -4184,6 +4450,10 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
             return NULL;
         }
     }
+    if (!renderer_opengl_load_ui_fonts(renderer, error, error_size)) {
+        renderer_opengl_destroy(renderer);
+        return NULL;
+    }
     renderer->gl.use_program(renderer->program);
     renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_POSITION_ATTRIBUTE);
     renderer->gl.enable_vertex_attrib_array(RENDERER_OPENGL_TEXTURE_COORDINATE_ATTRIBUTE);
@@ -4229,6 +4499,12 @@ void renderer_opengl_destroy(RendererOpenGL *renderer)
         if (renderer->white_texture != 0u) {
             glDeleteTextures(1, &renderer->white_texture);
         }
+        for (size_t font_index = 0u;
+             font_index < RENDERER_OPENGL_UI_FONT_COUNT; ++font_index) {
+            if (renderer->ui_font_textures[font_index] != 0u) {
+                glDeleteTextures(1, &renderer->ui_font_textures[font_index]);
+            }
+        }
         if (renderer->vertex_buffer != 0u && renderer->gl.delete_buffers) {
             renderer->gl.delete_buffers(1, &renderer->vertex_buffer);
         }
@@ -4263,6 +4539,11 @@ int renderer_opengl_get_presentation_size(const RendererOpenGL *renderer,
 size_t renderer_opengl_last_view_weapon_coverage(const RendererOpenGL *renderer)
 {
     return renderer ? renderer->last_view_weapon_coverage : 0u;
+}
+
+size_t renderer_opengl_last_ui_coverage(const RendererOpenGL *renderer)
+{
+    return renderer ? renderer->last_ui_coverage : 0u;
 }
 
 uint64_t renderer_opengl_last_view_weapon_rgb_checksum(const RendererOpenGL *renderer)
@@ -4353,6 +4634,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         return 0;
     }
     renderer->last_view_weapon_coverage = 0u;
+    renderer->last_ui_coverage = 0u;
     renderer->last_view_weapon_rgb_checksum = UINT64_C(0);
     renderer->last_projectile_coverage = 0u;
     renderer->last_frame_rgb_checksum = UINT64_C(0);
@@ -4549,6 +4831,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                 free(before_pixels);
             }
         }
+    }
+    if (!renderer_opengl_draw_ui_with_coverage(renderer, frame, drawable_width,
+                                               drawable_height, error, error_size)) {
+        return 0;
     }
     if (renderer->measure_view_weapon_coverage != 0u) {
         size_t pixel_byte_count;

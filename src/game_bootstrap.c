@@ -1,5 +1,7 @@
 #include "game_bootstrap.h"
 
+#include "game_hud.h"
+
 #include <stdio.h>
 #include <limits.h>
 #include <string.h>
@@ -916,6 +918,7 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
 {
     SceneCommand command;
     size_t primitive_count;
+    size_t hud_command_count;
     uint32_t sprite_count;
     size_t required_commands;
     size_t static_surface_count = 0u;
@@ -930,12 +933,14 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         return 0;
     }
     primitive_count = (size_t)game->static_scene.wall_count + game->static_scene.flat_count;
+    hud_command_count = 2u + message_runtime_visible_line_count(&game->message_runtime);
     if (!object_scene_count_active(&game->object_runtime, &sprite_count, NULL, 0u) ||
-        primitive_count > (SIZE_MAX - 3u) / 2u ||
-        sprite_count > SIZE_MAX - (3u + primitive_count * 2u)) {
+        hud_command_count > SIZE_MAX - 3u ||
+        primitive_count > (SIZE_MAX - 3u - hud_command_count) / 2u ||
+        sprite_count > SIZE_MAX - (3u + hud_command_count + primitive_count * 2u)) {
         return 0;
     }
-    required_commands = 3u + primitive_count * 2u + sprite_count;
+    required_commands = 3u + primitive_count * 2u + sprite_count + hud_command_count;
     if (!scene_frame_reserve(frame, required_commands)) {
         return 0;
     }
@@ -1104,6 +1109,13 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
                                         &game->lighting_runtime, &game->math, &game->preferences,
                                         game->player.y, game->player.yaw,
                                         frame, NULL, 0u)) {
+            return 0;
+        }
+        if (!message_runtime_submit_hud(&game->message_runtime, frame) ||
+            !game_hud_submit_first_port_status(
+                &game->player, &game->session.player1_inventory,
+                &game->game_link_catalog, game->desktop_settings.infinite_ammo,
+                frame, NULL, 0u)) {
             return 0;
         }
     }

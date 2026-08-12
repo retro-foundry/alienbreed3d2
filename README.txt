@@ -30,7 +30,9 @@ Edit ab3d2.ini beside the executable before starting the game. It supports:
 
 With always_run=1, hold Shift to walk. With always_run=0, hold Shift to run.
 
-Keep ab3d2.exe, ab3d2.ini, and the data directory together. The executable
+Keep ab3d2.exe, ab3d2.ini, and the data and fonts directories together. The executable
 will report an error and stop if a required original game asset is missing.
 
-This gameplay-first port currently has no menus, HUD, or multiplayer.
+Health and selected-weapon ammunition use the Alien Breed 3D I port's bitmap
+HUD at the bottom right. Key indicators are not rendered yet. Source gameplay
+messages use its bitmap text renderer. Menus and multiplayer are not included.

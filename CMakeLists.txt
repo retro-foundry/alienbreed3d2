@@ -53,6 +53,7 @@ set(AB3D2_CORE_SOURCES
   src/game_audio.c
   src/game_bootstrap.c
   src/game_controls.c
+  src/game_hud.c
   src/game_input.c
   src/game_inventory.c
   src/game_link.c
@@ -99,6 +100,7 @@ set(AB3D2_CORE_SOURCES
   src/render_view.c
   src/scene_frame.c
   src/source_vector_projection.c
+  src/ui_text_layout.c
   src/world_light_tessellation.c
   # Reused =SB= decoder from the first PC port. It matches
   # modules/file_io.s:io_HandlePacked, which calls the original unLHA code.
@@ -130,7 +132,7 @@ target_link_libraries(ab3d2 PRIVATE ab3d2_core)
 if(NOT EMSCRIPTEN)
   target_link_libraries(ab3d2 PRIVATE SDL2-static OpenGL::GL)
 endif()
-target_include_directories(ab3d2 PRIVATE src)
+target_include_directories(ab3d2 PRIVATE src "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 
 # Match the first port's Windows manifest.  Its desktop-sized normal SDL
 # window is intentionally DPI-unaware; without this, Windows can apply a
@@ -160,6 +162,14 @@ if(EMSCRIPTEN)
     COMMENT "Stage converted AB3D2 WAV audio for WebAudio preload"
   )
   add_dependencies(ab3d2 ab3d2_web_audio)
+  set(AB3D2_WEB_FONT_DIR "${CMAKE_CURRENT_BINARY_DIR}/web_fonts")
+  add_custom_target(ab3d2_web_fonts
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "${AB3D2_WEB_FONT_DIR}"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/fonts"
+            "${AB3D2_WEB_FONT_DIR}"
+    COMMENT "Stage first-port bitmap fonts for WebGL preload"
+  )
+  add_dependencies(ab3d2 ab3d2_web_fonts)
   target_compile_options(ab3d2 PRIVATE "SHELL:-sUSE_SDL=2")
   target_link_options(ab3d2 PRIVATE
     "SHELL:-sUSE_SDL=2"
@@ -168,6 +178,7 @@ if(EMSCRIPTEN)
     "SHELL:-sMAX_WEBGL_VERSION=2"
     "SHELL:-sALLOW_MEMORY_GROWTH=1"
     "SHELL:--preload-file=${AB3D2_WEB_DATA_DIR}@/data"
+    "SHELL:--preload-file=${AB3D2_WEB_FONT_DIR}@/fonts"
   )
   set_target_properties(ab3d2 PROPERTIES SUFFIX ".html")
 else()
@@ -177,6 +188,8 @@ else()
             --destination "$<TARGET_FILE_DIR:ab3d2>/data"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
             "$<TARGET_FILE_DIR:ab3d2>/data/audio"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/fonts"
+            "$<TARGET_FILE_DIR:ab3d2>/fonts"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${CMAKE_CURRENT_SOURCE_DIR}/README.txt"
             "$<TARGET_FILE_DIR:ab3d2>/README.txt"
@@ -234,6 +247,10 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_include_directories(ab3d2_world_light_tessellation_test PRIVATE src)
   add_test(NAME ab3d2_world_light_tessellation_test
            COMMAND ab3d2_world_light_tessellation_test)
+  add_executable(ab3d2_ui_text_layout_test tests/ui_text_layout_test.c)
+  target_link_libraries(ab3d2_ui_text_layout_test PRIVATE ab3d2_core)
+  target_include_directories(ab3d2_ui_text_layout_test PRIVATE src)
+  add_test(NAME ab3d2_ui_text_layout_test COMMAND ab3d2_ui_text_layout_test)
   add_executable(ab3d2_level_data_test tests/level_data_test.c)
   target_link_libraries(ab3d2_level_data_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_level_data_test PRIVATE src)

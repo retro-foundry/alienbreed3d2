@@ -940,6 +940,13 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
+        if (renderer_last_ui_coverage(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] GPU smoke health/ammo UI changed no visible pixels in Level %c\n",
+                    (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
         /*
          * Drive Plr1_Shot and ObjectHandler against the loaded room.  This
          * is intentionally separate from the isolated asset conversion
