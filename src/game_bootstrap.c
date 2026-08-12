@@ -223,6 +223,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     memset(&game->level_runtime, 0, sizeof(game->level_runtime));
     object_runtime_destroy(&game->object_runtime);
     object_observation_init(&game->object_observation);
+    object_handler_view_weapon_animation_init(&game->view_weapon_animation_runtime);
     level_static_scene_destroy(&game->static_scene);
     memset(&game->player, 0, sizeof(game->player));
 }
@@ -496,6 +497,7 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
     alien_context.messages = &game->message_runtime;
     alien_context.preferences = &game->preferences;
     alien_context.audio_events = &game->audio_events;
+    alien_context.view_weapon_animation = &game->view_weapon_animation_runtime;
     alien_context.message_time_milliseconds = game->message_time_milliseconds;
     if (!player_shoot_update_single_player_with_motion_and_audio(
             &game->object_runtime, &game->dynamic_level, &game->object_observation,

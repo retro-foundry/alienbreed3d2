@@ -1,6 +1,7 @@
 #include "object_handler.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "object_activatables.h"
 #include "object_collectables.h"
@@ -76,12 +77,12 @@ static void object_handler_or_held_mechanism_locks(MechanismRuntime *runtime,
  * Player 1's ENT_NEXT_2 companion.  The display descriptor belongs to the
  * live object slot: rendering must not guess a separate PC weapon state.
  */
-static int object_handler_apply_active_object_animation(
+static int object_handler_apply_active_object_animation_frame(
     const GameLink *game_link, const GameObjectDefinition *definition, uint8_t *slot,
+    uint16_t frame_index, int advance_timer,
     char *error, size_t error_size)
 {
     GameObjectAnimationFrame frame;
-    uint16_t frame_index = object_handler_read_be16(slot + OBJECT_SLOT_TIMER1);
     int16_t vertical_adjustment;
 
     if (!game_link_get_object_animation_frame(
@@ -115,7 +116,56 @@ static int object_handler_apply_active_object_animation(
         slot + OBJECT_SLOT_VERTICAL_POSITION,
         (uint16_t)((uint32_t)object_handler_read_be16(
             slot + OBJECT_SLOT_VERTICAL_POSITION) + (uint16_t)vertical_adjustment));
-    object_handler_write_be16(slot + OBJECT_SLOT_TIMER1, frame.next_timer1);
+    if (advance_timer != 0) {
+        object_handler_write_be16(slot + OBJECT_SLOT_TIMER1, frame.next_timer1);
+    }
+    return 1;
+}
+
+void object_handler_view_weapon_animation_init(
+    ObjectHandlerViewWeaponAnimationRuntime *runtime)
+{
+    if (runtime) {
+        memset(runtime, 0, sizeof(*runtime));
+    }
+}
+
+static int object_handler_apply_view_weapon_animation(
+    const GameLink *game_link, const GameObjectDefinition *definition, uint8_t *slot,
+    ObjectHandlerViewWeaponAnimationRuntime *runtime,
+    char *error, size_t error_size)
+{
+    uint16_t timer1;
+    int advance_timer;
+
+    if (!runtime) {
+        return object_handler_apply_active_object_animation_frame(
+            game_link, definition, slot,
+            object_handler_read_be16(slot + OBJECT_SLOT_TIMER1), 1,
+            error, error_size);
+    }
+    timer1 = object_handler_read_be16(slot + OBJECT_SLOT_TIMER1);
+    advance_timer = runtime->initialized == 0u ||
+        runtime->object_type != slot[OBJECT_SLOT_ENTITY_TYPE] ||
+        runtime->expected_timer1 != timer1;
+    if (advance_timer == 0) {
+        ++runtime->held_ticks;
+        if (runtime->held_ticks >= OBJECT_HANDLER_VIEW_WEAPON_FRAME_TICKS) {
+            advance_timer = 1;
+        }
+    }
+    if (advance_timer != 0) {
+        runtime->displayed_frame_index = timer1;
+        runtime->held_ticks = 0u;
+    }
+    if (!object_handler_apply_active_object_animation_frame(
+            game_link, definition, slot, runtime->displayed_frame_index,
+            advance_timer, error, error_size)) {
+        return 0;
+    }
+    runtime->expected_timer1 = object_handler_read_be16(slot + OBJECT_SLOT_TIMER1);
+    runtime->object_type = slot[OBJECT_SLOT_ENTITY_TYPE];
+    runtime->initialized = UINT8_MAX;
     return 1;
 }
 
@@ -178,8 +228,10 @@ int object_handler_apply_active_object_animation_slot(
                                  "ACTANIMOBJ live object is not a source collectable");
         return 0;
     }
-    return object_handler_apply_active_object_animation(game_link, &definition, slot,
-                                                        error, error_size);
+    return object_handler_apply_active_object_animation_frame(
+        game_link, &definition, slot,
+        object_handler_read_be16(slot + OBJECT_SLOT_TIMER1), 1,
+        error, error_size);
 }
 
 int object_handler_update_single_player(
@@ -302,8 +354,15 @@ int object_handler_update_single_player(
         if (definition.behaviour == OBJECT_BEHAVIOUR_COLLECTABLE &&
             slot[OBJECT_SLOT_WHICH_ANIMATION] != 0u) {
             /* newaliencontrol.s:Collectable:GUNHELD -> ACTANIMOBJ -> return. */
-            if (!object_handler_apply_active_object_animation_slot(
-                    objects, slot_index, game_link, error, error_size)) {
+            if (slot_index == objects->player1_slot + 2u &&
+                alien_context->view_weapon_animation != NULL) {
+                if (!object_handler_apply_view_weapon_animation(
+                        game_link, &definition, slot,
+                        alien_context->view_weapon_animation, error, error_size)) {
+                    return 0;
+                }
+            } else if (!object_handler_apply_active_object_animation_slot(
+                           objects, slot_index, game_link, error, error_size)) {
                 return 0;
             }
             continue;

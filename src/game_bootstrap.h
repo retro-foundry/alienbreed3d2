@@ -30,6 +30,7 @@
 #include "object_runtime.h"
 #include "object_animation.h"
 #include "object_explosion.h"
+#include "object_handler.h"
 #include "object_observation.h"
 #include "player_runtime.h"
 #include "scene_frame.h"
@@ -91,6 +92,8 @@ typedef struct {
     MechanismRuntime mechanism_runtime;
     ObjectRuntime object_runtime;
     ObjectObservation object_observation;
+    /* Presentation-only 4x duration clock for Player 1's companion gun poses. */
+    ObjectHandlerViewWeaponAnimationRuntime view_weapon_animation_runtime;
     /* c/message.c:Msg_Init/Msg_PushLine's per-level source line ring. */
     MessageRuntime message_runtime;
     /* c/message.c Sys_FrameTimeECV_q[0], supplied by the native platform boundary. */

@@ -24,6 +24,27 @@
 #include "object_runtime.h"
 #include "player_runtime.h"
 
+enum {
+    /* Host presentation enhancement requested for the first-person gun model. */
+    OBJECT_HANDLER_VIEW_WEAPON_FRAME_TICKS = 4u
+};
+
+/*
+ * Renderer-independent clock for Player 1's ENT_NEXT_2 companion model.
+ * Gameplay and Plr1_Shot continue to run on every 50 Hz source tick; this
+ * state only holds each authored ACTANIMOBJ display frame for four ticks.
+ */
+typedef struct {
+    uint16_t displayed_frame_index;
+    uint16_t expected_timer1;
+    uint8_t object_type;
+    uint8_t held_ticks;
+    uint8_t initialized;
+} ObjectHandlerViewWeaponAnimationRuntime;
+
+void object_handler_view_weapon_animation_init(
+    ObjectHandlerViewWeaponAnimationRuntime *runtime);
+
 /* Explicit source tick inputs established before newanims.s:ObjectHandler enters ItsAnAlien. */
 typedef struct {
     ObjectAnimationRuntime *animation_runtime;
@@ -39,6 +60,8 @@ typedef struct {
     MessageRuntime *messages;
     const GamePreferences *preferences;
     GameAudioEvents *audio_events;
+    /* Optional: NULL retains strict one-ACTANIMOBJ-frame-per-source-tick behavior. */
+    ObjectHandlerViewWeaponAnimationRuntime *view_weapon_animation;
     /* c/message.c Sys_FrameTimeECV_q[0], represented as native monotonic milliseconds. */
     uint64_t message_time_milliseconds;
 } ObjectHandlerAlienContext;

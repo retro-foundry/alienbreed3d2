@@ -939,7 +939,12 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
     uint32_t baseline_asset_id = 0u;
     uint16_t baseline_frame_index = 0u;
     uint16_t baseline_timer1 = 0u;
+    uint32_t fired_pose_asset_id = 0u;
+    uint16_t fired_pose_frame_index = 0u;
+    uint16_t fired_pose_timer1 = 0u;
     uint8_t baseline_captured = 0u;
+    uint8_t fired_pose_captured = 0u;
+    uint8_t saw_four_tick_pose_advance = 0u;
     uint8_t saw_shotgun_action = 0u;
     uint8_t saw_shotgun_frame_blend = 0u;
     uint8_t succeeded = 0u;
@@ -1034,6 +1039,41 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
                 fprintf(stderr, "Shotgun companion lost its source view-weapon identity\n");
                 goto cleanup;
             }
+            /*
+             * The fire write is an immediate animation restart at VBlank 2.
+             * Its selected display pose must then survive three more source
+             * ticks and advance on the fourth, independently of present rate.
+             */
+            if (source_vblanks == 2u) {
+                fired_pose_asset_id = source_weapon->source_asset_id;
+                fired_pose_frame_index = source_weapon->frame_index;
+                fired_pose_timer1 = timer1;
+                fired_pose_captured = UINT8_MAX;
+                if (game.view_weapon_animation_runtime.held_ticks != 0u) {
+                    fprintf(stderr, "Shotgun 4x animation clock did not restart on fire\n");
+                    goto cleanup;
+                }
+            } else if (source_vblanks >= 3u && source_vblanks <= 5u) {
+                if (fired_pose_captured == 0u ||
+                    source_weapon->source_asset_id != fired_pose_asset_id ||
+                    source_weapon->frame_index != fired_pose_frame_index ||
+                    timer1 != fired_pose_timer1 ||
+                    game.view_weapon_animation_runtime.held_ticks !=
+                        (uint8_t)(source_vblanks - 2u)) {
+                    fprintf(stderr,
+                            "Shotgun authored pose was not held for four source ticks\n");
+                    goto cleanup;
+                }
+            } else if (source_vblanks == 6u) {
+                if (fired_pose_captured == 0u ||
+                    game.view_weapon_animation_runtime.held_ticks != 0u ||
+                    timer1 == fired_pose_timer1) {
+                    fprintf(stderr,
+                            "Shotgun authored pose did not advance at 4x duration\n");
+                    goto cleanup;
+                }
+                saw_four_tick_pose_advance = UINT8_MAX;
+            }
             if (baseline_captured == 0u) {
                 baseline_asset_id = source_weapon->source_asset_id;
                 baseline_frame_index = source_weapon->frame_index;
@@ -1094,7 +1134,7 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
     }
     if (source_vblanks != 50u || vblank_clock.remainder_counter_units != 0u ||
         baseline_captured == 0u || saw_shotgun_action == 0u ||
-        saw_shotgun_frame_blend == 0u) {
+        saw_shotgun_frame_blend == 0u || saw_four_tick_pose_advance == 0u) {
         fprintf(stderr,
                 "Shotgun animation did not complete its fixed 50 Hz source trace\n");
         goto cleanup;

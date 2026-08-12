@@ -89,8 +89,11 @@ source-authored pose is interpolated. The renderer blends completed source-frame
 50 Hz VBlank remainder. This uses SDL's high-resolution performance counter,
 so the source companion weapon/action sequence advances only at its fixed PAL
 cadence while camera, mutable world geometry, sprites, and source light
-samples present smoothly at the host frame rate. Native direct play copies the
-first port's `display_init` desktop presentation: it queries the active desktop
+samples present smoothly at the host frame rate. The first-person gun
+presentation deliberately holds each authored companion pose
+for four 50 Hz ticks (4x its former duration); firing, ammunition, cooldowns,
+projectiles, and all other gameplay still update on every source tick. Native
+direct play copies the first port's `display_init` desktop presentation: it queries the active desktop
 bounds and creates the same normal shown/resizable OpenGL window there, without
 any fullscreen or borderless SDL flag and without a monitor-mode change, then
 renders directly to the complete SDL drawable. Its main
