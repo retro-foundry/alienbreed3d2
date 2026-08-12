@@ -36,3 +36,5 @@ will report an error and stop if a required original game asset is missing.
 Health and selected-weapon ammunition use the Alien Breed 3D I port's bitmap
 HUD at the bottom right. Key indicators are not rendered yet. Source gameplay
 messages use its bitmap text renderer. Menus and multiplayer are not included.
+In-game messages appear at the top centre and scroll out at the original
+two-second-per-line cadence as newer messages replace them.

@@ -410,6 +410,17 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
         return 1;
     }
     game->message_time_milliseconds = message_time_milliseconds;
+    /*
+     * c/screen.c:Vid_Present calls Msg_Tick after drawing the prior source
+     * frame. Apply that mutation on entry to the next 50 Hz update, before
+     * this frame's gameplay can push replacement text.
+     */
+    if (!message_runtime_tick(&game->message_runtime,
+                              game->preferences.show_messages,
+                              game->message_time_milliseconds,
+                              error, error_size)) {
+        return 0;
+    }
     game_audio_events_begin(&game->audio_events);
     player_collision.objects = &game->object_runtime;
     player_collision.source_a2_words = &game->alien_runtime.team_workspace[0u][0u];

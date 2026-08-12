@@ -59,11 +59,13 @@ static int ui_text_layout_validate_command(const SceneHudText *text,
                                  "scene HUD text exceeds its retained command capacity");
         return 0;
     }
-    if (text->layout == SCENE_HUD_LAYOUT_REFERENCE_POSITION) {
+    if (text->layout == SCENE_HUD_LAYOUT_REFERENCE_POSITION ||
+        text->layout == SCENE_HUD_LAYOUT_TOP_CENTER) {
         if (text->font != SCENE_HUD_FONT_FIRST_PORT_ASCII ||
-            text->reference_width == 0u || text->reference_height == 0u) {
+            text->reference_width == 0u || text->reference_height == 0u ||
+            text->style_id > 3u) {
             ui_text_layout_set_error(error, error_size,
-                                     "reference-position HUD text has invalid font or canvas");
+                                     "positioned HUD text has invalid font or reference canvas");
             return 0;
         }
     } else if ((text->layout == SCENE_HUD_LAYOUT_FIRST_PORT_HEALTH &&
@@ -149,6 +151,7 @@ static int ui_text_layout_reference_text(const SceneHudText *text,
 
             memset(&glyph, 0, sizeof(glyph));
             glyph.font = SCENE_HUD_FONT_FIRST_PORT_ASCII;
+            glyph.style_id = text->style_id;
             glyph.glyph_index = glyph_index;
             glyph.x = pen_x;
             glyph.y = pen_y;
@@ -169,6 +172,89 @@ static int ui_text_layout_reference_text(const SceneHudText *text,
             ui_text_layout_set_error(error, error_size,
                                      "reference-position HUD text exceeds drawable coordinates");
             return 0;
+        }
+        pen_x += advance;
+    }
+    return 1;
+}
+
+static int ui_text_layout_top_center_text(const SceneHudText *text,
+                                          int32_t drawable_width,
+                                          int32_t drawable_height,
+                                          UiTextGlyph *glyphs,
+                                          size_t glyph_capacity,
+                                          size_t *glyph_count,
+                                          char *error, size_t error_size)
+{
+    int32_t scale_numerator;
+    int32_t scale_denominator = 256;
+    int32_t pen_x;
+    int32_t pen_y;
+    int32_t draw_width;
+    int32_t draw_height;
+    int32_t advance;
+    int32_t text_width;
+
+    scale_numerator = (int32_t)((int64_t)drawable_width * scale_denominator /
+                                text->reference_width);
+    {
+        int32_t height_scale = (int32_t)((int64_t)drawable_height * scale_denominator /
+                                         text->reference_height);
+        if (height_scale < scale_numerator) {
+            scale_numerator = height_scale;
+        }
+    }
+    if (scale_numerator < 1) {
+        scale_numerator = 1;
+    }
+    if (scale_numerator > 4 * scale_denominator) {
+        scale_numerator = 4 * scale_denominator;
+    }
+    /* Alien Breed 3D I display.c:display_text_crisp_scale_q. */
+    if (scale_numerator > scale_denominator) {
+        scale_numerator = (scale_numerator / scale_denominator) * scale_denominator;
+    }
+    draw_width = ui_text_layout_round_scale(UI_TEXT_ASCII_DRAW_WIDTH,
+                                             scale_numerator, scale_denominator);
+    draw_height = ui_text_layout_round_scale(UI_TEXT_ASCII_DRAW_HEIGHT,
+                                              scale_numerator, scale_denominator);
+    advance = ui_text_layout_round_scale(UI_TEXT_ASCII_ADVANCE,
+                                          scale_numerator, scale_denominator);
+    if (draw_width < 1) draw_width = 1;
+    if (draw_height < 1) draw_height = 1;
+    if (advance < 1) advance = 1;
+    text_width = (int32_t)text->text_byte_count * advance;
+    pen_x = (drawable_width - text_width) / 2;
+    pen_y = ui_text_layout_round_scale(text->y, scale_numerator, scale_denominator);
+
+    for (uint16_t index = 0u; index < text->text_byte_count; ++index) {
+        uint8_t character = (uint8_t)text->text[index];
+
+        if (character < UI_TEXT_ASCII_FIRST || character > UI_TEXT_ASCII_LAST) {
+            character = (uint8_t)'?';
+        }
+        if (character != (uint8_t)' ') {
+            uint16_t glyph_index = (uint16_t)(character - UI_TEXT_ASCII_FIRST);
+            UiTextGlyph glyph;
+
+            memset(&glyph, 0, sizeof(glyph));
+            glyph.font = SCENE_HUD_FONT_FIRST_PORT_ASCII;
+            glyph.style_id = text->style_id;
+            glyph.glyph_index = glyph_index;
+            glyph.x = pen_x;
+            glyph.y = pen_y;
+            glyph.width = draw_width;
+            glyph.height = draw_height;
+            glyph.source_x = (uint16_t)((glyph_index % UI_TEXT_ASCII_COLUMNS) *
+                                        UI_TEXT_ASCII_CELL_WIDTH + UI_TEXT_ASCII_DRAW_X);
+            glyph.source_y = (uint16_t)((glyph_index / UI_TEXT_ASCII_COLUMNS) *
+                                        UI_TEXT_ASCII_CELL_HEIGHT + UI_TEXT_ASCII_DRAW_Y);
+            glyph.source_width = UI_TEXT_ASCII_DRAW_WIDTH;
+            glyph.source_height = UI_TEXT_ASCII_DRAW_HEIGHT;
+            if (!ui_text_layout_append(glyphs, glyph_capacity, glyph_count, &glyph,
+                                       error, error_size)) {
+                return 0;
+            }
         }
         pen_x += advance;
     }
@@ -400,6 +486,12 @@ int ui_text_layout_frame(const SceneFrame *frame, int32_t drawable_width,
                 return 0;
             }
             ammunition = text;
+        } else if (text->layout == SCENE_HUD_LAYOUT_TOP_CENTER) {
+            if (!ui_text_layout_top_center_text(
+                    text, drawable_width, drawable_height, glyphs, glyph_capacity,
+                    &glyph_count, error, error_size)) {
+                return 0;
+            }
         } else if (!ui_text_layout_reference_text(
                        text, drawable_width, drawable_height, glyphs, glyph_capacity,
                        &glyph_count, error, error_size)) {

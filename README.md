@@ -50,7 +50,10 @@ weapon, object/mechanism (including source-held door/lift locks), worry, and
 complete AI route enters through `newanims.s:ObjectHandler` only when its
 source worry byte is set. Source death, successful collectable, and
 destructible narratives enter the GPU-neutral small-screen message ring and
-are submitted through retained renderer-neutral text commands. Failed inventory pickups retain their
+are submitted through retained renderer-neutral text commands. The visible
+lines are independently centred at the top of the drawable, retain the source
+message-tag colours, and age through `c/message.c:Msg_Tick`'s exact one-line,
+2000 ms null insertion until they are replaced or disappear. Failed inventory pickups retain their
 source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
 active presentation path is an OpenGL 2.1 / GLES 2 renderer behind the
 API-neutral `renderer.h` boundary, so the same scene producers can later feed
@@ -170,7 +173,9 @@ original requests. The source default music toggle starts the looped module at
   Alien Breed 3D I port. Health is rounded to the same 0--100 percentage,
   ammunition is clamped to the same three-digit 999 limit, leading zeroes are
   suppressed identically, and the four-key row remains reserved in the
-  bottom-right layout without being drawn.
+  bottom-right layout without being drawn. In-game flavour text uses that
+  renderer-neutral atlas path at the top centre while preserving AB3D2's
+  five-slot message ring, four source tag pens, and 2000 ms expiry cadence.
   Every live source object now emits an
   unprojected bitmap/vector/glare descriptor in source slot order, with its
   selected raw WAD/PTR/vector asset bytes, palette, frame data, source draw

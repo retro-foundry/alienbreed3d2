@@ -6,13 +6,13 @@
 enum {
     /* c/screen.h, c/draw.h, and c/message.c small-screen constants. */
     MESSAGE_RUNTIME_SCREEN_WIDTH = 320u,
-    MESSAGE_RUNTIME_SMALL_HEIGHT = 160u,
     MESSAGE_RUNTIME_HUD_BORDER_WIDTH = 16u,
     MESSAGE_RUNTIME_DRAW_TEXT_MARGIN = 4u,
     MESSAGE_RUNTIME_DRAW_MSG_CHAR_WIDTH = 8u,
-    MESSAGE_RUNTIME_DRAW_MSG_CHAR_HEIGHT = 8u,
-    MESSAGE_RUNTIME_DRAW_TEXT_Y_SPACING = 2u,
-    MESSAGE_RUNTIME_MAX_PROP_CHAR_WIDTH = 7u
+    MESSAGE_RUNTIME_MAX_PROP_CHAR_WIDTH = 7u,
+    /* Alien Breed 3D I display.c:DISPLAY_ASCII_LINE_ADVANCE. */
+    MESSAGE_RUNTIME_FIRST_PORT_LINE_ADVANCE = 14u,
+    MESSAGE_RUNTIME_PRESENTATION_REFERENCE_HEIGHT = 256u
 };
 
 static void message_runtime_set_error(char *error, size_t error_size, const char *message)
@@ -251,6 +251,37 @@ int message_runtime_push_line_dedup_last(MessageRuntime *runtime, const uint8_t 
     return 1;
 }
 
+int message_runtime_tick(MessageRuntime *runtime, uint8_t messages_enabled,
+                         uint64_t current_time_milliseconds,
+                         char *error, size_t error_size)
+{
+    if (!runtime || !runtime->glyph_spacing) {
+        message_runtime_set_error(error, error_size,
+                                  "Msg_Tick received invalid source state");
+        return 0;
+    }
+    /* c/screen.c:Vid_Present does not call Msg_Tick while messages are disabled. */
+    if (messages_enabled == 0u ||
+        current_time_milliseconds < runtime->next_scroll_time_milliseconds) {
+        return 1;
+    }
+    if (current_time_milliseconds >
+        UINT64_MAX - MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS) {
+        message_runtime_set_error(error, error_size,
+                                  "Msg_Tick source clock cannot schedule its next period");
+        return 0;
+    }
+    /*
+     * c/message.c:Msg_Tick schedules from the current EClock and inserts only
+     * one null line, even if more than one period elapsed between calls.
+     */
+    runtime->next_scroll_time_milliseconds =
+        current_time_milliseconds + MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS;
+    message_runtime_push_raw(runtime, NULL, 0u);
+    runtime->redraw_count = 1u;
+    return 1;
+}
+
 size_t message_runtime_visible_line_count(const MessageRuntime *runtime)
 {
     uint8_t first;
@@ -275,7 +306,7 @@ int message_runtime_submit_hud(const MessageRuntime *runtime, SceneFrame *frame)
 {
     uint8_t first;
     uint8_t line;
-    uint16_t y = (uint16_t)(MESSAGE_RUNTIME_SMALL_HEIGHT + MESSAGE_RUNTIME_DRAW_TEXT_MARGIN);
+    uint16_t y = MESSAGE_RUNTIME_DRAW_TEXT_MARGIN;
     uint8_t visible = 0u;
 
     if (!runtime || !frame) {
@@ -288,28 +319,35 @@ int message_runtime_submit_hud(const MessageRuntime *runtime, SceneFrame *frame)
 
         if (source->text) {
             SceneCommand command;
+            uint16_t source_length =
+                (uint16_t)(source->length_and_tag & MESSAGE_RUNTIME_LENGTH_MASK);
+            uint16_t rendered_length = 0u;
+
+            /* c/draw.c:Draw_ChunkyTextProp stops at NUL even before maxLen. */
+            while (rendered_length < source_length &&
+                   source->text[rendered_length] != 0u) {
+                ++rendered_length;
+            }
 
             memset(&command, 0, sizeof(command));
             command.type = SCENE_COMMAND_HUD_TEXT;
             if (!scene_hud_text_set(
-                    &command.data.hud_text, source->text,
-                    (uint16_t)(source->length_and_tag & MESSAGE_RUNTIME_LENGTH_MASK))) {
+                    &command.data.hud_text, source->text, rendered_length)) {
                 return 0;
             }
-            command.data.hud_text.x =
-                (int16_t)(MESSAGE_RUNTIME_DRAW_TEXT_MARGIN + MESSAGE_RUNTIME_HUD_BORDER_WIDTH);
+            command.data.hud_text.x = 0;
             command.data.hud_text.y = (int16_t)y;
             command.data.hud_text.reference_width = MESSAGE_RUNTIME_SCREEN_WIDTH;
-            command.data.hud_text.reference_height = 256u;
+            command.data.hud_text.reference_height =
+                MESSAGE_RUNTIME_PRESENTATION_REFERENCE_HEIGHT;
             command.data.hud_text.style_id =
                 (uint32_t)(source->length_and_tag >> MESSAGE_RUNTIME_TAG_SHIFT);
             command.data.hud_text.font = SCENE_HUD_FONT_FIRST_PORT_ASCII;
-            command.data.hud_text.layout = SCENE_HUD_LAYOUT_REFERENCE_POSITION;
+            command.data.hud_text.layout = SCENE_HUD_LAYOUT_TOP_CENTER;
             if (!scene_frame_submit(frame, &command)) {
                 return 0;
             }
-            y = (uint16_t)(y + MESSAGE_RUNTIME_DRAW_MSG_CHAR_HEIGHT +
-                           MESSAGE_RUNTIME_DRAW_TEXT_Y_SPACING);
+            y = (uint16_t)(y + MESSAGE_RUNTIME_FIRST_PORT_LINE_ADVANCE);
             ++visible;
         }
         line = message_runtime_next_line(runtime, line);

@@ -1643,6 +1643,24 @@ static int renderer_opengl_load_ui_font(RendererOpenGL *renderer, SceneHudFont f
         stbi_image_free(pixels);
         return 0;
     }
+    if (font == SCENE_HUD_FONT_FIRST_PORT_ASCII) {
+        size_t pixel_count = (size_t)width * (size_t)height;
+
+        /*
+         * Preserve the first port atlas's transparent/black outline, but
+         * turn its green foreground into a white mask. c/message.c's exact
+         * msg_TagPens colour can then be applied per retained text command.
+         */
+        for (size_t pixel_index = 0u; pixel_index < pixel_count; ++pixel_index) {
+            uint8_t *pixel = pixels + pixel_index * 4u;
+
+            if (pixel[3u] != 0u && (pixel[0u] != 0u || pixel[1u] != 0u || pixel[2u] != 0u)) {
+                pixel[0u] = UINT8_MAX;
+                pixel[1u] = UINT8_MAX;
+                pixel[2u] = UINT8_MAX;
+            }
+        }
+    }
     if (!renderer_opengl_create_texture(
             pixels, (uint16_t)width, (uint16_t)height, 0, 0, 0,
             &renderer->ui_font_textures[font], error, error_size)) {
@@ -2373,12 +2391,14 @@ static int renderer_opengl_draw_vertices(RendererOpenGL *renderer,
 }
 
 static void renderer_opengl_make_hud_vertex(RendererOpenGLVertex *vertex,
-                                            float x, float y, float u, float v)
+                                            float x, float y, float u, float v,
+                                            float red, float green, float blue)
 {
-    *vertex = (RendererOpenGLVertex){x, y, 0.0f, u, v, 1.0f, 1.0f, 1.0f, 1.0f};
+    *vertex = (RendererOpenGLVertex){x, y, 0.0f, u, v, 1.0f, red, green, blue};
 }
 
 static int renderer_opengl_draw_ui(RendererOpenGL *renderer, const SceneFrame *frame,
+                                   const SceneEnvironment *environment,
                                    int drawable_width, int drawable_height,
                                    char *error, size_t error_size)
 {
@@ -2430,6 +2450,9 @@ static int renderer_opengl_draw_ui(RendererOpenGL *renderer, const SceneFrame *f
         float v1;
         uint16_t texture_width;
         uint16_t texture_height;
+        float red = 1.0f;
+        float green = 1.0f;
+        float blue = 1.0f;
 
         if ((int)glyph->font < 0 || (int)glyph->font >= RENDERER_OPENGL_UI_FONT_COUNT ||
             renderer->ui_font_textures[glyph->font] == 0u ||
@@ -2443,6 +2466,28 @@ static int renderer_opengl_draw_ui(RendererOpenGL *renderer, const SceneFrame *f
         }
         texture_width = renderer->ui_font_widths[glyph->font];
         texture_height = renderer->ui_font_heights[glyph->font];
+        if (glyph->font == SCENE_HUD_FONT_FIRST_PORT_ASCII) {
+            static const uint8_t message_tag_pens[4] = {255u, 254u, 125u, 252u};
+            uint8_t source_color[4];
+
+            if (!environment || glyph->style_id >= 4u ||
+                !renderer_opengl_display_color(
+                    environment->source_display_palette_bytes,
+                    environment->source_display_palette_byte_count,
+                    message_tag_pens[glyph->style_id], source_color)) {
+                free(glyphs);
+                glDisable(GL_BLEND);
+                glDepthMask(GL_TRUE);
+                glEnable(GL_DEPTH_TEST);
+                renderer_opengl_set_error(
+                    error, error_size,
+                    "source message glyph has no valid display-palette colour");
+                return 0;
+            }
+            red = (float)source_color[0u] / 255.0f;
+            green = (float)source_color[1u] / 255.0f;
+            blue = (float)source_color[2u] / 255.0f;
+        }
         if ((uint32_t)glyph->source_x + glyph->source_width > texture_width ||
             (uint32_t)glyph->source_y + glyph->source_height > texture_height) {
             free(glyphs);
@@ -2463,12 +2508,16 @@ static int renderer_opengl_draw_ui(RendererOpenGL *renderer, const SceneFrame *f
         u1 = (float)(glyph->source_x + glyph->source_width) / (float)texture_width;
         v1 = (float)(glyph->source_y + glyph->source_height) / (float)texture_height;
 
-        renderer_opengl_make_hud_vertex(&vertices[0], left, top, u0, v0);
-        renderer_opengl_make_hud_vertex(&vertices[1], left, bottom, u0, v1);
-        renderer_opengl_make_hud_vertex(&vertices[2], right, bottom, u1, v1);
+        renderer_opengl_make_hud_vertex(&vertices[0], left, top, u0, v0,
+                                        red, green, blue);
+        renderer_opengl_make_hud_vertex(&vertices[1], left, bottom, u0, v1,
+                                        red, green, blue);
+        renderer_opengl_make_hud_vertex(&vertices[2], right, bottom, u1, v1,
+                                        red, green, blue);
         vertices[3] = vertices[0];
         vertices[4] = vertices[2];
-        renderer_opengl_make_hud_vertex(&vertices[5], right, top, u1, v0);
+        renderer_opengl_make_hud_vertex(&vertices[5], right, top, u1, v0,
+                                        red, green, blue);
         renderer->gl.active_texture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, renderer->ui_font_textures[glyph->font]);
         if (!renderer_opengl_draw_vertices(renderer, vertices, 6u, GL_TRIANGLES,
@@ -2489,6 +2538,7 @@ static int renderer_opengl_draw_ui(RendererOpenGL *renderer, const SceneFrame *f
 
 static int renderer_opengl_draw_ui_with_coverage(RendererOpenGL *renderer,
                                                   const SceneFrame *frame,
+                                                  const SceneEnvironment *environment,
                                                   int drawable_width,
                                                   int drawable_height,
                                                   char *error,
@@ -2520,8 +2570,8 @@ static int renderer_opengl_draw_ui_with_coverage(RendererOpenGL *renderer,
             return 0;
         }
     }
-    if (!renderer_opengl_draw_ui(renderer, frame, drawable_width, drawable_height,
-                                 error, error_size)) {
+    if (!renderer_opengl_draw_ui(renderer, frame, environment,
+                                 drawable_width, drawable_height, error, error_size)) {
         free(before_pixels);
         return 0;
     }
@@ -4832,8 +4882,9 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             }
         }
     }
-    if (!renderer_opengl_draw_ui_with_coverage(renderer, frame, drawable_width,
-                                               drawable_height, error, error_size)) {
+    if (!renderer_opengl_draw_ui_with_coverage(renderer, frame, environment,
+                                               drawable_width, drawable_height,
+                                               error, error_size)) {
         return 0;
     }
     if (renderer->measure_view_weapon_coverage != 0u) {

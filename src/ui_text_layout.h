@@ -9,6 +9,8 @@
 /* Renderer-independent atlas identity. Backends own decoding and upload. */
 typedef struct {
     SceneHudFont font;
+    /* c/message.c tag identity; non-text atlases leave this unused. */
+    uint32_t style_id;
     uint16_t glyph_index;
     int32_t x;
     int32_t y;

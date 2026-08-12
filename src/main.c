@@ -913,6 +913,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
     for (uint16_t level_index = first_level; level_index <= last_level; ++level_index) {
         SceneCommand source_effect_camera;
         uint64_t source_effect_background_checksum;
+        uint64_t source_text_background_checksum;
         uint64_t source_lighting_checksum;
         uint64_t source_weapon_lighting_checksum;
         if (level_index != first_level &&
@@ -946,6 +947,48 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     (char)('A' + level_index));
             app->exit_code = 1;
             return 0;
+        }
+        source_text_background_checksum = renderer_last_frame_rgb_checksum(app->renderer);
+        {
+            SceneCommand message_command;
+            static const char message_text[] = "GPU TEXT";
+
+            memset(&message_command, 0, sizeof(message_command));
+            message_command.type = SCENE_COMMAND_HUD_TEXT;
+            if (!scene_hud_text_set(&message_command.data.hud_text,
+                                    message_text, sizeof(message_text) - 1u) ||
+                !scene_frame_reserve(&app->frame, app->frame.count + 1u)) {
+                fprintf(stderr,
+                        "[SCENE] GPU source-message smoke setup failed for Level %c\n",
+                        (char)('A' + level_index));
+                app->exit_code = 1;
+                return 0;
+            }
+            message_command.data.hud_text.y = 4;
+            message_command.data.hud_text.reference_width = 320u;
+            message_command.data.hud_text.reference_height = 256u;
+            message_command.data.hud_text.style_id = level_index & 3u;
+            message_command.data.hud_text.font = SCENE_HUD_FONT_FIRST_PORT_ASCII;
+            message_command.data.hud_text.layout = SCENE_HUD_LAYOUT_TOP_CENTER;
+            if (!scene_frame_submit(&app->frame, &message_command) ||
+                !renderer_present(app->renderer, &app->frame, &app->view,
+                                  error, sizeof(error))) {
+                fprintf(stderr,
+                        "[RENDER] GPU source-message smoke failed for Level %c: %s\n",
+                        (char)('A' + level_index), error);
+                app->exit_code = 1;
+                return 0;
+            }
+            if (renderer_last_frame_rgb_checksum(app->renderer) ==
+                source_text_background_checksum) {
+                fprintf(stderr,
+                        "[RENDER] GPU source-message tag %u changed no visible pixels "
+                        "in Level %c\n",
+                        (unsigned)message_command.data.hud_text.style_id,
+                        (char)('A' + level_index));
+                app->exit_code = 1;
+                return 0;
+            }
         }
         /*
          * Drive Plr1_Shot and ObjectHandler against the loaded room.  This

@@ -19,6 +19,8 @@ enum {
     MESSAGE_RUNTIME_LEVEL_MESSAGE_COUNT = 10u,
     MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH = 160u,
     MESSAGE_RUNTIME_GLYPH_SPACING_BYTE_COUNT = 256u,
+    /* c/message.h:MSG_SCROLL_PERIOD_MS. */
+    MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS = 2000u,
     /* c/message.h:MSG_DEDUPLICATION_PERIOD_MS. */
     MESSAGE_RUNTIME_DEDUPLICATION_PERIOD_MILLISECONDS = 2000u
 };
@@ -29,9 +31,10 @@ typedef struct {
 } MessageRuntimeLine;
 
 /*
- * c/message.c's small-screen Msg_Init/Msg_PushLine state. Game_Begin forces
- * Vid_FullScreen_b clear before this is initialized, so the current native
- * gameplay path preserves that source mode without choosing a GPU layout.
+ * c/message.c's small-screen Msg_Init/Msg_PushLine/Msg_Tick state. Game_Begin
+ * forces Vid_FullScreen_b clear before this is initialized, so the native
+ * gameplay path preserves its five-slot ring and source EClock timing. Its
+ * presentation command uses the port's renderer-neutral top-centred layout.
  */
 typedef struct {
     MessageRuntimeLine lines[MESSAGE_RUNTIME_LINE_COUNT];
@@ -40,6 +43,8 @@ typedef struct {
     uint8_t redraw_count;
     uint8_t lines_visible;
     uint8_t line_number;
+    /* c/message.c:msg_Buffer.nextTickECV, expressed in native monotonic ms. */
+    uint64_t next_scroll_time_milliseconds;
     /* c/message.c:msg_Buffer's deduplication state, expressed in native monotonic ms. */
     const uint8_t *last_message;
     uint64_t next_duplicate_time_milliseconds;
@@ -61,7 +66,12 @@ int message_runtime_push_line_dedup_last(MessageRuntime *runtime, const uint8_t 
                                          uint64_t current_time_milliseconds,
                                          char *error, size_t error_size);
 
-/* c/message.c's small-screen render ordering, published as GPU-neutral HUD commands. */
+/* c/message.c:Msg_Tick. One null line is pushed per elapsed source period. */
+int message_runtime_tick(MessageRuntime *runtime, uint8_t messages_enabled,
+                         uint64_t current_time_milliseconds,
+                         char *error, size_t error_size);
+
+/* c/message.c's ring ordering, published as top-centred GPU-neutral text commands. */
 int message_runtime_submit_hud(const MessageRuntime *runtime, SceneFrame *frame);
 size_t message_runtime_visible_line_count(const MessageRuntime *runtime);
 

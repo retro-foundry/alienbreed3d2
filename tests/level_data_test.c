@@ -1602,7 +1602,7 @@ int main(int argc, char **argv)
         uint8_t level_messages[MESSAGE_RUNTIME_LEVEL_MESSAGE_COUNT *
                                MESSAGE_RUNTIME_LEVEL_MESSAGE_LENGTH] = {0};
         uint8_t glyph_spacing[MESSAGE_RUNTIME_GLYPH_SPACING_BYTE_COUNT];
-        static const uint8_t text_line[] = {'H', 'U', 'D', '!'};
+        static const uint8_t text_line[] = {'H', 'U', 'D', '!', 0u, 'X'};
         MessageRuntime messages;
         SceneFrame message_frame;
 
@@ -1634,16 +1634,16 @@ int main(int argc, char **argv)
             (const void *)message_frame.commands[0u].data.hud_text.text ==
                 (const void *)text_line ||
             memcmp(message_frame.commands[0u].data.hud_text.text,
-                   text_line, sizeof(text_line)) != 0 ||
-            message_frame.commands[0u].data.hud_text.text_byte_count != sizeof(text_line) ||
-            message_frame.commands[0u].data.hud_text.x != 20 ||
-            message_frame.commands[0u].data.hud_text.y != 164 ||
+                   text_line, 4u) != 0 ||
+            message_frame.commands[0u].data.hud_text.text_byte_count != 4u ||
+            message_frame.commands[0u].data.hud_text.x != 0 ||
+            message_frame.commands[0u].data.hud_text.y != 4 ||
             message_frame.commands[0u].data.hud_text.reference_width != 320u ||
             message_frame.commands[0u].data.hud_text.reference_height != 256u ||
             message_frame.commands[0u].data.hud_text.font !=
                 SCENE_HUD_FONT_FIRST_PORT_ASCII ||
             message_frame.commands[0u].data.hud_text.layout !=
-                SCENE_HUD_LAYOUT_REFERENCE_POSITION ||
+                SCENE_HUD_LAYOUT_TOP_CENTER ||
             message_frame.commands[0u].data.hud_text.style_id != MESSAGE_RUNTIME_TAG_OPTIONS) {
             fprintf(stderr, "c/message.c source line-ring handoff is inconsistent: %s\n", error);
             return 1;
@@ -1673,6 +1673,50 @@ int main(int argc, char **argv)
             messages.line_number != 2u) {
             fprintf(stderr, "c/message.c source deduplication timing is inconsistent: %s\n",
                     error);
+            return 1;
+        }
+        if (!message_runtime_init(&messages, level_messages, sizeof(level_messages),
+                                  glyph_spacing, sizeof(glyph_spacing), error, sizeof(error)) ||
+            !message_runtime_tick(&messages, 0u, 0u, error, sizeof(error)) ||
+            messages.line_number != MESSAGE_RUNTIME_LINE_COUNT - 1u ||
+            messages.next_scroll_time_milliseconds != 0u ||
+            !message_runtime_tick(&messages, UINT8_MAX, 0u, error, sizeof(error)) ||
+            messages.line_number != 0u ||
+            messages.next_scroll_time_milliseconds !=
+                MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS ||
+            !message_runtime_push_line(
+                &messages, text_line,
+                (uint16_t)(sizeof(text_line) |
+                           (MESSAGE_RUNTIME_TAG_NARRATIVE << MESSAGE_RUNTIME_TAG_SHIFT)),
+                UINT8_MAX, error, sizeof(error)) ||
+            messages.line_number != 1u ||
+            message_runtime_visible_line_count(&messages) != 1u ||
+            !message_runtime_tick(
+                &messages, UINT8_MAX,
+                MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS - 1u,
+                error, sizeof(error)) ||
+            messages.line_number != 1u) {
+            fprintf(stderr, "c/message.c disabled/initial Msg_Tick timing is inconsistent: %s\n",
+                    error);
+            return 1;
+        }
+        for (uint64_t tick_time = MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS;
+             tick_time <= MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS * 5u;
+             tick_time += MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS) {
+            if (!message_runtime_tick(&messages, UINT8_MAX, tick_time,
+                                      error, sizeof(error)) ||
+                (tick_time < MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS * 5u &&
+                 message_runtime_visible_line_count(&messages) != 1u)) {
+                fprintf(stderr, "c/message.c Msg_Tick scroll progression is inconsistent: %s\n",
+                        error);
+                return 1;
+            }
+        }
+        if (messages.line_number != 1u ||
+            message_runtime_visible_line_count(&messages) != 0u ||
+            messages.next_scroll_time_milliseconds !=
+                MESSAGE_RUNTIME_SCROLL_PERIOD_MILLISECONDS * 6u) {
+            fprintf(stderr, "c/message.c Msg_Tick did not expire its oldest line\n");
             return 1;
         }
     }
