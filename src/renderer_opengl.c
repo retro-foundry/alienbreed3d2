@@ -208,6 +208,23 @@ static void renderer_opengl_camera_point(const SceneCamera *camera, float *out_x
     }
 }
 
+/* Keep translucent ordering on the identical eye ray used by the view matrix. */
+static void renderer_opengl_camera_forward(const SceneCamera *camera, const RenderView *view,
+                                           float *out_x, float *out_y, float *out_z)
+{
+    float yaw;
+    float pitch;
+
+    if (!camera || !view || !out_x || !out_y || !out_z) {
+        return;
+    }
+    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
+    pitch = view->pitch_degrees * (renderer_opengl_pi / 180.0f);
+    *out_x = sinf(yaw) * cosf(pitch);
+    *out_y = sinf(pitch);
+    *out_z = cosf(yaw) * cosf(pitch);
+}
+
 /*
  * display_init in the first port requests a desktop-sized normal window.  On
  * a framed desktop window, its top/left non-client pixels remain visible at
@@ -1844,18 +1861,21 @@ static void renderer_opengl_view_projection(float out_matrix[16], const SceneCam
      * camera-space axes as x' = cos(x) - sin(z), z' = sin(x) + cos(z).
      */
     float yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
-    float pitch = view->pitch_degrees * (renderer_opengl_pi / 180.0f);
-    float forward_x = sinf(yaw) * cosf(pitch);
-    float forward_y = sinf(pitch);
-    float forward_z = cosf(yaw) * cosf(pitch);
+    float forward_x = 0.0f;
+    float forward_y = 0.0f;
+    float forward_z = 0.0f;
     float right_x = cosf(yaw);
     float right_z = -sinf(yaw);
-    float up_x = right_z * forward_y;
-    float up_y = forward_z * right_x - forward_x * right_z;
-    float up_z = -right_x * forward_y;
+    float up_x;
+    float up_y;
+    float up_z;
     float field_of_view = 70.0f * (renderer_opengl_pi / 180.0f);
     float focal_length = 1.0f / tanf(field_of_view * 0.5f);
 
+    renderer_opengl_camera_forward(camera, view, &forward_x, &forward_y, &forward_z);
+    up_x = right_z * forward_y;
+    up_y = forward_z * right_x - forward_x * right_z;
+    up_z = -right_x * forward_y;
     renderer_opengl_camera_point(camera, &eye_x, &eye_y, &eye_z);
     renderer_opengl_identity(projection);
     projection[0] = focal_length / aspect;
@@ -3999,6 +4019,7 @@ uint64_t renderer_opengl_last_frame_rgb_checksum(const RendererOpenGL *renderer)
 typedef struct {
     const SceneSprite *sprite;
     float depth;
+    size_t source_command_index;
 } RendererOpenGLSpriteOrder;
 
 static int renderer_opengl_compare_sprite_order(const void *left, const void *right)
@@ -4006,9 +4027,42 @@ static int renderer_opengl_compare_sprite_order(const void *left, const void *ri
     const RendererOpenGLSpriteOrder *left_sprite = left;
     const RendererOpenGLSpriteOrder *right_sprite = right;
 
-    /* Far-to-near additive blending, matching the source's visible effect layering. */
+    /* Far-to-near blend order; preserve SceneFrame order for equal depths. */
     return left_sprite->depth < right_sprite->depth ? 1 :
-           left_sprite->depth > right_sprite->depth ? -1 : 0;
+           left_sprite->depth > right_sprite->depth ? -1 :
+           left_sprite->source_command_index < right_sprite->source_command_index ? -1 :
+           left_sprite->source_command_index > right_sprite->source_command_index ? 1 : 0;
+}
+
+static float renderer_opengl_additive_sprite_depth(const SceneSprite *sprite,
+                                                    const SceneCamera *camera,
+                                                    const RenderView *view)
+{
+    float sprite_x;
+    float sprite_y;
+    float sprite_z;
+    float camera_x;
+    float camera_y;
+    float camera_z;
+    float forward_x;
+    float forward_y;
+    float forward_z;
+    float yaw;
+
+    if (!sprite || !camera || !view) {
+        return 0.0f;
+    }
+    renderer_opengl_world_point(&sprite->position, &sprite_x, &sprite_y, &sprite_z);
+    renderer_opengl_camera_point(camera, &camera_x, &camera_y, &camera_z);
+    /* Match draw_Bitmap's eye-relative billboard anchor before projection. */
+    yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
+    sprite_x += cosf(yaw) * (float)sprite->source_aux_offset_x;
+    sprite_z -= sinf(yaw) * (float)sprite->source_aux_offset_x;
+    sprite_y -= (float)sprite->source_aux_offset_y;
+    renderer_opengl_camera_forward(camera, view, &forward_x, &forward_y, &forward_z);
+    return (sprite_x - camera_x) * forward_x +
+           (sprite_y - camera_y) * forward_y +
+           (sprite_z - camera_z) * forward_z;
 }
 
 static int renderer_opengl_sprite_is_additive_effect(const SceneSprite *sprite)
@@ -4101,20 +4155,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                 continue;
             }
             if (renderer_opengl_sprite_is_additive_effect(sprite)) {
-                float sprite_x;
-                float sprite_y;
-                float sprite_z;
-                float camera_x;
-                float camera_y;
-                float camera_z;
-                float yaw = (float)camera->yaw *
-                    (2.0f * renderer_opengl_pi / 8192.0f);
-
-                renderer_opengl_world_point(&sprite->position, &sprite_x, &sprite_y, &sprite_z);
-                renderer_opengl_world_point(&camera->position, &camera_x, &camera_y, &camera_z);
                 additive_sprites[additive_count].sprite = sprite;
                 additive_sprites[additive_count].depth =
-                    (sprite_x - camera_x) * sinf(yaw) + (sprite_z - camera_z) * cosf(yaw);
+                    renderer_opengl_additive_sprite_depth(sprite, camera, view);
+                additive_sprites[additive_count].source_command_index = index;
                 ++additive_count;
             } else if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                         !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
