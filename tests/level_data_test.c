@@ -6312,12 +6312,13 @@ int main(int argc, char **argv)
             !source_vector_transform_view_weapon_interpolated_point(
                 &projection, 4.5f, -1.5f, 5.5f, &interpolated_point) ||
             !source_vector_make_view_weapon_matrix(
-                &projection, 16.0f / 9.0f, matrix) ||
+                &projection, 16.0f / 9.0f, 24, matrix) ||
             point.x != 255.0f || point.y != 0.0f || point.z != -5.0f ||
             interpolated_point.x < 287.9f || interpolated_point.x > 288.1f ||
             interpolated_point.y != -32.0f ||
             interpolated_point.z < -5.8f || interpolated_point.z > -5.7f ||
             matrix[0] < 0.00780f || matrix[0] > 0.00782f ||
+            matrix[9] < -0.2001f || matrix[9] > -0.1999f ||
             matrix[5] < 0.01388f || matrix[5] > 0.01390f) {
             fprintf(stderr, "source vector decoding/projection is inconsistent: %s\n",
                     error);

@@ -3551,7 +3551,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     }
     if (camera_space != 0) {
         if (!source_vector_make_view_weapon_matrix(
-                &sprite->view_weapon_projection, drawable_aspect,
+                &sprite->view_weapon_projection, drawable_aspect, view->look_offset,
                 view_weapon_projection)) {
             renderer_opengl_set_error(error, error_size,
                                       "source view weapon projection is invalid");

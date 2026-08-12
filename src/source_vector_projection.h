@@ -35,10 +35,12 @@ int source_vector_transform_view_weapon_interpolated_point(
 /*
  * Perspective matrix for the source-authored weapon projection.  The source
  * vertical scale is retained while the horizontal scale is fitted to the
- * actual desktop aspect ratio, avoiding widescreen stretching.
+ * actual desktop aspect ratio, avoiding widescreen stretching. `look_offset`
+ * is the source STOPOFFSET: fullscreen `draw_PolygonModel` centres the weapon
+ * at Vid_CentreY, which is the native source centre minus that offset.
  */
 int source_vector_make_view_weapon_matrix(
-    const SceneViewWeaponProjection *projection, float drawable_aspect,
+    const SceneViewWeaponProjection *projection, float drawable_aspect, int16_t look_offset,
     float out_matrix[16]);
 
 #endif
