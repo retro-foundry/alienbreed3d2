@@ -4050,12 +4050,19 @@ static int renderer_opengl_vector_face_is_front_facing(
         (x[0u] - x[1u]) * (y[2u] - y[1u]) < 0.0f;
 }
 
+typedef enum {
+    RENDERER_OPENGL_VECTOR_PASS_ALL = 0,
+    RENDERER_OPENGL_VECTOR_PASS_OPAQUE,
+    RENDERER_OPENGL_VECTOR_PASS_ADDITIVE
+} RendererOpenGLVectorPass;
+
 static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                               const SceneSprite *sprite,
                                               const SceneCamera *camera,
                                               const RenderView *view,
                                               const float view_projection[16],
                                               float drawable_aspect,
+                                              RendererOpenGLVectorPass pass,
                                               char *error, size_t error_size)
 {
     const uint8_t *bytes;
@@ -4215,6 +4222,26 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 uint8_t minimum_v = UINT8_MAX;
                 uint8_t maximum_v = 0u;
                 const RendererOpenGLTexture *texture;
+
+                /*
+                 * World vector models participate in both renderer passes.
+                 * predoglare does not write depth, so drawing it inline lets
+                 * an opaque object submitted later overwrite a nearer glow.
+                 * The Amiga painter draws it against the completed pixels at
+                 * its sorted point; on the GPU the equivalent is to finish
+                 * opaque depth first and defer every glare face together.
+                 */
+                if ((pass == RENDERER_OPENGL_VECTOR_PASS_OPAQUE && source_glare != 0) ||
+                    (pass == RENDERER_OPENGL_VECTOR_PASS_ADDITIVE && source_glare == 0)) {
+                    part_offset += polygon_byte_count;
+                    if (part_offset > size || 2u > size - part_offset) {
+                        renderer_opengl_set_error(
+                            error, error_size,
+                            "source vector polygon extends outside the asset");
+                        goto done;
+                    }
+                    continue;
+                }
 
                 /* Each four-byte source polygon entry is point index, U, V. */
                 for (uint32_t corner = 0u; corner < polygon_point_count; ++corner) {
@@ -4756,21 +4783,33 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             if (sprite->presentation == SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
                 continue;
             }
-            if (renderer_opengl_sprite_is_additive_effect(sprite)) {
+            if (sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL) {
+                if (!renderer_opengl_draw_vector_sprite(
+                        renderer, sprite, camera, view, view_projection,
+                        drawable_aspect, RENDERER_OPENGL_VECTOR_PASS_OPAQUE,
+                        error, error_size)) {
+                    free(additive_sprites);
+                    return 0;
+                }
+                /*
+                 * A source vector can mix ordinary and predoglare faces.
+                 * Queue the same descriptor for its additive-only pass; the
+                 * parser cheaply skips models which contain no glare faces.
+                 */
                 additive_sprites[additive_count].sprite = sprite;
                 additive_sprites[additive_count].depth =
                     renderer_opengl_additive_sprite_depth(sprite, camera, view);
                 additive_sprites[additive_count].source_command_index = index;
                 ++additive_count;
-            } else if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-                        !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
-                                                           view_projection,
-                                                           drawable_aspect,
-                                                           error, error_size)) ||
-                       (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
-                        !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
-                            renderer, sprite, camera, view, view_weapon, drawable_aspect,
-                            drawable_width, drawable_height, error, error_size))) {
+            } else if (renderer_opengl_sprite_is_additive_effect(sprite)) {
+                additive_sprites[additive_count].sprite = sprite;
+                additive_sprites[additive_count].depth =
+                    renderer_opengl_additive_sprite_depth(sprite, camera, view);
+                additive_sprites[additive_count].source_command_index = index;
+                ++additive_count;
+            } else if (!renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
+                           renderer, sprite, camera, view, view_weapon, drawable_aspect,
+                           drawable_width, drawable_height, error, error_size)) {
                 free(additive_sprites);
                 return 0;
             }
@@ -4783,9 +4822,10 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
 
         if ((sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_vector_sprite(renderer, sprite, camera, view,
-                                                view_projection,
-                                                drawable_aspect,
-                                                error, error_size)) ||
+                                                 view_projection,
+                                                 drawable_aspect,
+                                                 RENDERER_OPENGL_VECTOR_PASS_ADDITIVE,
+                                                 error, error_size)) ||
             (sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
              !renderer_opengl_draw_bitmap_sprite_with_projectile_coverage(
                  renderer, sprite, camera, view, view_weapon, drawable_aspect,
@@ -4840,6 +4880,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                     renderer, &command->data.sprite_instance.sprite, camera, view,
                     view_projection,
                     (float)drawable_width / (float)drawable_height,
+                    RENDERER_OPENGL_VECTOR_PASS_ALL,
                     error, error_size)) {
                 glDepthMask(GL_TRUE);
                 glEnable(GL_DEPTH_TEST);
