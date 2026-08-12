@@ -5,8 +5,8 @@
 
 /*
  * Native presentation-only camera adjustment.  SceneCamera retains the
- * source game's yaw and small-screen look value; this state supplies the
- * explicitly requested real 3D pitch to every hardware backend.
+ * source game's yaw and small-screen aim state; this state supplies the
+ * source-projectile-aligned real 3D pitch to every hardware backend.
  */
 typedef struct {
     /*
@@ -16,10 +16,16 @@ typedef struct {
      */
     uint16_t pending_mouse_yaw;
     int16_t transition_mouse_yaw;
+    /* modules/player.s PlrT_AimSpeed_l low word and STOPOFFSET. */
+    int16_t aim_speed;
+    int16_t look_offset;
     float pitch_degrees;
 } RenderView;
 
 void render_view_init(RenderView *view);
+/* Synchronize with the completed modules/player.s mouse/keyboard look state. */
+void render_view_set_source_look(RenderView *view, int32_t source_aim_speed,
+                                 int16_t source_look_offset);
 void render_view_add_mouse_motion(RenderView *view, int32_t delta_y, uint8_t invert_mouse);
 /* c/system.c:Sys_ReadMouse horizontal path, applied immediately for host presentation. */
 void render_view_add_mouse_yaw(RenderView *view, int32_t delta_x);
