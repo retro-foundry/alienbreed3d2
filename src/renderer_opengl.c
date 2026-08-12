@@ -1890,14 +1890,6 @@ static void renderer_opengl_view_projection(float out_matrix[16], const SceneCam
     renderer_opengl_identity(projection);
     projection[0] = focal_length / aspect;
     projection[5] = focal_length;
-    /*
-     * `draw_Bitmap` and `draw_PolygonModel` both add Vid_CentreY after their
-     * source projection. modules/player.s sets it to TOTHEMIDDLE -
-     * STOPOFFSET. Apply the matching post-perspective shift to the world
-     * pass, so host-rate look moves its projectile imagery and the dedicated
-     * camera-space weapon as one source viewport.
-     */
-    projection[9] = -(float)view->look_offset / 120.0f;
     projection[10] = (renderer_opengl_far_plane + renderer_opengl_near_plane) /
         (renderer_opengl_near_plane - renderer_opengl_far_plane);
     projection[11] = -1.0f;
@@ -3559,7 +3551,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     }
     if (camera_space != 0) {
         if (!source_vector_make_view_weapon_matrix(
-                &sprite->view_weapon_projection, drawable_aspect, view->look_offset,
+                &sprite->view_weapon_projection, drawable_aspect,
                 view_weapon_projection)) {
             renderer_opengl_set_error(error, error_size,
                                       "source view weapon projection is invalid");

@@ -98,7 +98,7 @@ int source_vector_transform_view_weapon_interpolated_point(
 }
 
 int source_vector_make_view_weapon_matrix(
-    const SceneViewWeaponProjection *projection, float drawable_aspect, int16_t look_offset,
+    const SceneViewWeaponProjection *projection, float drawable_aspect,
     float out_matrix[16])
 {
     const float near_plane = 0.5f;
@@ -120,17 +120,9 @@ int source_vector_make_view_weapon_matrix(
      * between 4:3 and the drawable.  Derive horizontal scale from the source
      * vertical scale and the real drawable aspect: at 4:3 this is exactly the
      * original 5/(3*160), while widescreen retains square weapon geometry.
-     */
+    */
     out_matrix[0] = vertical_scale / drawable_aspect;
     out_matrix[5] = vertical_scale;
-    /*
-     * objdrawhires.s:draw_PolygonModel uses Vid_CentreY for every camera-space
-     * weapon point. modules/player.s keeps that centre at
-     * TOTHEMIDDLE - STOPOFFSET.  In a conventional OpenGL perspective matrix
-     * a Y translation after perspective division is represented by the Z
-     * column: eye-space Z is negative and clip W is -Z.
-     */
-    out_matrix[9] = -(float)look_offset / (float)projection->centre_y;
     out_matrix[10] = (far_plane + near_plane) / (near_plane - far_plane);
     out_matrix[11] = -1.0f;
     out_matrix[14] = (2.0f * far_plane * near_plane) / (near_plane - far_plane);
