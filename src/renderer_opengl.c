@@ -41,6 +41,17 @@ static const float renderer_opengl_near_plane = 0.05f;
 static const float renderer_opengl_far_plane = 8192.0f;
 static const float renderer_opengl_source_angle_full_turn = 8192.0f;
 /*
+ * Full-screen object projection is not the old provisional 70-degree
+ * desktop lens.  transform.s:RotateObjectPtsFullScreen turns the forward
+ * coordinate into 2 * (85 / 256), then objdrawhires.s:draw_Bitmap applies
+ * its authored 927 / 1024 full-screen depth correction.  The X numerator is
+ * the same routine's x << 7.  Resolving those source factors against the
+ * 320x240 viewport gives this vertical focal length; the viewport aspect is
+ * still applied at presentation time below.
+ */
+static const float renderer_opengl_source_fullscreen_depth_scale =
+    4.0f * (32767.0f / 65536.0f) * (85.0f / 256.0f) * (927.0f / 1024.0f);
+/*
  * `Draw_Objects` paints a live ShotT after the source room columns.  A GPU
  * depth buffer otherwise rejects an impact/blood frame whose centre lies
  * exactly on its collision wall, floor, or ceiling.  Keep this as a tiny
@@ -1869,8 +1880,7 @@ static void renderer_opengl_view_projection(float out_matrix[16], const SceneCam
     float up_x;
     float up_y;
     float up_z;
-    float field_of_view = 70.0f * (renderer_opengl_pi / 180.0f);
-    float focal_length = 1.0f / tanf(field_of_view * 0.5f);
+    float focal_length = 16.0f / (15.0f * renderer_opengl_source_fullscreen_depth_scale);
 
     renderer_opengl_camera_forward(camera, view, &forward_x, &forward_y, &forward_z);
     up_x = right_z * forward_y;
