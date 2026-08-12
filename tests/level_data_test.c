@@ -14113,6 +14113,19 @@ int main(int argc, char **argv)
         RenderView view;
 
         render_view_init(&view);
+        render_view_set_source_yaw(&view, 8180u);
+        render_view_add_mouse_yaw(&view, 5);
+        if (render_view_yaw(&view) != 8u) {
+            fprintf(stderr, "native host-rate view yaw does not wrap source angles\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        render_view_add_mouse_yaw(&view, 2);
+        if (render_view_yaw(&view) != 16u) {
+            fprintf(stderr, "native host-rate view yaw depends on source-tick reconciliation\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
         render_view_add_mouse_motion(&view, -100, 0u);
         if (view.pitch_degrees < 32.00f || view.pitch_degrees > 32.01f ||
             view.aim_speed != -10240 || view.look_offset != -80) {
@@ -14138,35 +14151,6 @@ int main(int argc, char **argv)
         if (view.pitch_degrees < 14.03f || view.pitch_degrees > 14.04f ||
             view.aim_speed != -4096 || view.look_offset != -8) {
             fprintf(stderr, "source committed aim reconciliation is inconsistent\n");
-            game_bootstrap_destroy(&game);
-            return 1;
-        }
-        render_view_add_mouse_yaw(&view, 5);
-        render_view_commit_mouse_yaw(&view, 5);
-        /*
-         * Source moved from 8180 to 32: 20 angle bytes of mouse plus 24 of
-         * authored keyboard turn. Mouse stays fully presented while only
-         * the keyboard component interpolates.
-         */
-        if (render_view_presentation_yaw(&view, 8180u, 0.0f) != 8u ||
-            render_view_presentation_yaw(&view, 10u, 0.5f) != 20u ||
-            render_view_presentation_yaw(&view, 32u, 1.0f) != 32u) {
-            fprintf(stderr, "native full-rate mouse/source yaw interpolation is inconsistent\n");
-            game_bootstrap_destroy(&game);
-            return 1;
-        }
-        /* The same offset on camera and ENT_NEXT_2 preserves the authored relative angle. */
-        if ((uint16_t)((render_view_presentation_yaw(&view, 10u, 0.5f) -
-                        (uint16_t)((4106u +
-                            render_view_yaw_offset(&view, 0.5f)) & UINT16_C(8190))) &
-                       UINT16_C(8190)) != 4096u) {
-            fprintf(stderr, "native full-rate mouse yaw detaches the view weapon\n");
-            game_bootstrap_destroy(&game);
-            return 1;
-        }
-        render_view_add_mouse_yaw(&view, 2);
-        if (render_view_presentation_yaw(&view, 10u, 0.5f) != 28u) {
-            fprintf(stderr, "native pending mouse yaw is not presented at host rate\n");
             game_bootstrap_destroy(&game);
             return 1;
         }

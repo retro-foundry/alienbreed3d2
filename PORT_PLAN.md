@@ -30,13 +30,11 @@ authority for all game behavior and data formats.
   culling. Those are optional native renderer optimisations, not parity
   requirements.
 - Native real mouse-look is explicitly requested presentation behavior: source
-  mouse X still owns source yaw and input state. `RenderView` mirrors its raw
-  X delta immediately for host-rate display yaw, fades that already-presented
-  component out while the completed source tick is interpolated, and applies
-  the same temporary yaw to the camera-space weapon companion. Source keyboard
-  yaw therefore remains interpolated with player position. `RenderView` also
-  owns a clamped pitch from mouse Y. It must not rewrite source player aiming
-  or replace the retained small-screen look state.
+  mouse input still owns gameplay yaw and aim state, while `RenderView` owns a
+  separate host-rate yaw/pitch camera that never writes back into simulation.
+  Its mouse-Y scale and limits mirror the source small-screen aim path so the
+  initial sight line agrees with projectile aim. The camera-space weapon is
+  already eye-relative; its source pose is interpolated at presentation rate.
 
 ## Current OpenGL/WebGL presentation milestone
 

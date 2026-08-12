@@ -479,6 +479,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     /* hires.s:Game_Begin's mt_init begins the source-selected packedtest module. */
     audio_sdl_set_music_enabled(app->audio, app->game.preferences.play_music);
     render_view_init(&app->view);
+    render_view_set_source_yaw(&app->view, app->game.player.yaw);
     render_view_set_source_look(&app->view, app->game.player.aim_speed,
                                 app->game.player.look_offset);
     scene_frame_begin(&app->source_frame);
@@ -522,7 +523,6 @@ static int game_app_capture_source_frame(GameApp *app)
 static int game_app_build_presentation_frame(GameApp *app)
 {
     float interpolation_alpha;
-    uint16_t yaw_offset;
 
     if (!app) {
         return 0;
@@ -535,24 +535,11 @@ static int game_app_build_presentation_frame(GameApp *app)
         return 0;
     }
     /*
-     * Keep source/keyboard yaw interpolated with player position. Only mouse
-     * X runs ahead at host cadence, and Plr1_Use's ENT_NEXT_2 companion must
-     * inherit that identical temporary offset so its source-relative angle
-     * remains constant while the camera turns.
+     * RenderView is host-rate presentation state. The Player 1 companion is
+     * already in eye space (objdrawhires.s:rotate_object), while its action
+     * frame and authored offset were interpolated with the scene above.
      */
-    yaw_offset = render_view_yaw_offset(&app->view, interpolation_alpha);
-    app->frame.commands[0u].data.camera.yaw = (uint16_t)(
-        (app->frame.commands[0u].data.camera.yaw + yaw_offset) & UINT16_C(8190));
-    for (size_t index = 1u; index < app->frame.count; ++index) {
-        SceneCommand *command = &app->frame.commands[index];
-
-        if (command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
-            command->data.sprite_instance.sprite.presentation ==
-                SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
-            command->data.sprite_instance.sprite.yaw = (uint16_t)(
-                (command->data.sprite_instance.sprite.yaw + yaw_offset) & UINT16_C(8190));
-        }
-    }
+    app->frame.commands[0u].data.camera.yaw = render_view_yaw(&app->view);
     return 1;
 }
 
@@ -637,9 +624,6 @@ static void game_app_tick(GameApp *app)
      */
     source_vblanks = game_vblank_clock_advance(&app->vblank_clock, SDL_GetPerformanceCounter());
     for (uint32_t vblank_index = 0u; vblank_index < source_vblanks; ++vblank_index) {
-        int16_t consumed_mouse_x = app->game.player.mouse_active != 0u ?
-            game_input_peek_mouse_x(&app->game.input) : 0;
-
         if (!scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
             fprintf(stderr, "[SCENE] unable to snapshot the previous source frame\n");
             app->exit_code = 1;
@@ -652,9 +636,6 @@ static void game_app_tick(GameApp *app)
             renderer_request_quit(app->renderer);
             return;
         }
-        render_view_commit_mouse_yaw(&app->view, consumed_mouse_x);
-        render_view_set_source_look(&app->view, app->game.player.aim_speed,
-                                    app->game.player.look_offset);
         audio_sdl_consume_events(app->audio, &app->game.audio_events, &app->game.player,
                                  app->game.player.yaw);
         if (!game_app_capture_source_frame(app)) {
