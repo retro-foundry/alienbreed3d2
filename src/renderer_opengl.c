@@ -4329,7 +4329,12 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                         }
                         triangle_vertices[corner] = vertex;
                     }
-                    {
+                    /*
+                     * Opaque faces retain doapoly's source winding test.
+                     * Additive predoglare is deliberately double-sided, so
+                     * both windings reach the depth-tested blend pass.
+                     */
+                    if (source_glare == 0) {
                         int front_facing = renderer_opengl_vector_face_is_front_facing(
                             triangle_vertices, draw_projection);
 

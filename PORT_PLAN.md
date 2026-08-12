@@ -95,9 +95,11 @@ authority for all game behavior and data formats.
   face colour. The camera-space weapon clears only the completed world's depth
   before its pass; it retains depth testing within its own live vector model,
   preventing rear/internal textured faces from overwriting its visible faces.
-  `doapoly`'s source-screen front-face test is retained per vector face before
-  GPU submission, rather than applying a global winding rule to the distinct
-  wall and object source formats. The all-level hidden GPU smoke forces a
+  `doapoly`'s source-screen front-face test is retained for opaque vector faces
+  before GPU submission, rather than applying a global winding rule to the
+  distinct wall and object source formats. Additive `predoglare` faces are a
+  deliberate double-sided presentation exception: both authored windings are
+  submitted with depth writes disabled. The all-level hidden GPU smoke forces a
   bright source state, requires visible companion-vector coverage, and confirms
   that source brightness changes its rendered RGB output, catching an inverted
   face test, a weapon pass that drops every textured polygon, or a lost
