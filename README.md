@@ -70,8 +70,12 @@ detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live
 integration.
 
-Mouse input is delivered to the source controller, but `RenderView` owns a
-separate host-rate camera yaw and pitch and never writes back into gameplay.
+`RenderView` owns the host-rate camera yaw. Horizontal mouse input updates it
+immediately and samples that exact heading into Player 1 before the next 50 Hz
+movement/fire update; source keyboard and inertial turns are committed back to
+the same view after every completed tick. The camera and player therefore share
+one direction while gameplay remains fixed-step. Camera pitch remains
+presentation state derived from the source aim fields.
 Mouse Y uses the source `PlrT_AimSpeed_l`/`STOPOFFSET` scale, so its initial
 sight line agrees with source projectile aim while preserving the small-screen
 `View_LookMin/Max` bounds and invert-mouse preference. Player movement,

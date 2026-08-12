@@ -14170,6 +14170,7 @@ int main(int argc, char **argv)
     }
     {
         RenderView view;
+        PlayerRuntime camera_player = game.player;
 
         render_view_init(&view);
         render_view_set_source_yaw(&view, 8180u);
@@ -14179,9 +14180,22 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        player_runtime_set_camera_yaw(&camera_player, render_view_yaw(&view));
+        if (camera_player.yaw != render_view_yaw(&view) ||
+            camera_player.snap_yaw != render_view_yaw(&view)) {
+            fprintf(stderr, "host-rate camera yaw is not the player heading\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
         render_view_add_mouse_yaw(&view, 2);
         if (render_view_yaw(&view) != 16u) {
             fprintf(stderr, "native host-rate view yaw depends on source-tick reconciliation\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        player_runtime_set_camera_yaw(&camera_player, UINT16_MAX);
+        if (camera_player.yaw != 8190u || camera_player.snap_yaw != 8190u) {
+            fprintf(stderr, "camera-owned player yaw does not wrap source angles\n");
             game_bootstrap_destroy(&game);
             return 1;
         }

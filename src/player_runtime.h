@@ -150,6 +150,13 @@ int player_runtime_init_single_player(const LevelBootstrap *level,
                                       PlayerRuntime *out_player,
                                       char *error, size_t error_size);
 
+/*
+ * Native camera boundary for c/system.c:Sys_ReadMouse's Vis_AngPos_w.
+ * Horizontal host-rate look owns the current heading, while movement,
+ * collision, and firing continue to consume it only on the next source tick.
+ */
+void player_runtime_set_camera_yaw(PlayerRuntime *player, uint16_t camera_yaw);
+
 void player_hazard_runtime_init(PlayerHazardRuntime *runtime);
 /* hires.s:dosomething's maintained floor/liquid contact damage for Player 1. */
 int player_hazard_runtime_update(PlayerHazardRuntime *runtime, uint16_t frame_ticks,

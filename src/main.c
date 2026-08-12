@@ -617,10 +617,16 @@ static void game_app_tick(GameApp *app)
                 event.motion.yrel, MOUSE_REFERENCE_HEIGHT, app->mouse_present_height,
                 &app->mouse_remainder_y);
 
-            game_input_add_mouse_motion(&app->game.input, mouse_x, mouse_y);
-            /* Native real look is presentation state; source mouse input stays intact. */
+            /*
+             * Sys_MouseY remains a source-controller accumulator. Horizontal
+             * Sys_ReadMouse is applied once by the host-rate view below, then
+             * sampled as the exact heading for the next 50 Hz gameplay tick.
+             */
+            game_input_add_mouse_motion(&app->game.input, 0, mouse_y);
             if (app->game.player.mouse_active != 0u) {
                 render_view_add_mouse_yaw(&app->view, mouse_x);
+                player_runtime_set_camera_yaw(
+                    &app->game.player, render_view_yaw(&app->view));
                 render_view_add_mouse_motion(&app->view, mouse_y,
                                              app->game.player.invert_mouse);
             }
@@ -662,6 +668,8 @@ static void game_app_tick(GameApp *app)
             renderer_request_quit(app->renderer);
             return;
         }
+        /* Keyboard/inertial source turns become the same host-rate heading. */
+        render_view_set_source_yaw(&app->view, app->game.player.yaw);
         audio_sdl_consume_events(app->audio, &app->game.audio_events, &app->game.player,
                                  app->game.player.yaw);
         if (!game_app_capture_source_frame(app)) {

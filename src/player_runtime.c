@@ -1195,6 +1195,18 @@ static void player_runtime_update_mouse_controls(PlayerRuntime *player, GameInpu
     player->look_offset = look_offset;
 }
 
+void player_runtime_set_camera_yaw(PlayerRuntime *player, uint16_t camera_yaw)
+{
+    uint16_t source_yaw;
+
+    if (!player) {
+        return;
+    }
+    source_yaw = game_math_wrap_angle_address(camera_yaw);
+    player->yaw = source_yaw;
+    player->snap_yaw = source_yaw;
+}
+
 int player_runtime_update_spatial_with_motion_and_audio(
     PlayerRuntime *player, GameInput *input, const GameControls *controls,
     const GamePreferences *preferences, const GameMath *math, const LevelRuntime *runtime,

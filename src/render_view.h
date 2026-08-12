@@ -4,8 +4,9 @@
 #include <stdint.h>
 
 /*
- * Native presentation-only camera state. Source ticks retain authority over
- * gameplay yaw and aim; this host-rate state is never fed back into them.
+ * Native host-rate camera state. Its yaw is the current player heading sampled
+ * by the next source tick; pitch remains presentation state derived from the
+ * source aim fields.
  */
 typedef struct {
     /* c/system.c:Sys_ReadMouse angle units, updated at host presentation rate. */
