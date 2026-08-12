@@ -30,7 +30,9 @@ enum {
     OBJECT_BEHAVIOUR_COLLECTABLE = 0u,
     OBJECT_BEHAVIOUR_ACTIVATABLE = 1u,
     OBJECT_BEHAVIOUR_DESTRUCTIBLE = 2u,
-    OBJECT_BEHAVIOUR_DECORATION = 3u
+    OBJECT_BEHAVIOUR_DECORATION = 3u,
+    /* GLFT_GunNames_l entry three is the source Assault Rifle (RAWKEY_4). */
+    OBJECT_HANDLER_ASSAULT_RIFLE_GUN_INDEX = 3u
 };
 
 static void object_handler_set_error(char *error, size_t error_size, const char *message)
@@ -355,7 +357,8 @@ int object_handler_update_single_player(
             slot[OBJECT_SLOT_WHICH_ANIMATION] != 0u) {
             /* newaliencontrol.s:Collectable:GUNHELD -> ACTANIMOBJ -> return. */
             if (slot_index == objects->player1_slot + 2u &&
-                alien_context->view_weapon_animation != NULL) {
+                alien_context->view_weapon_animation != NULL &&
+                player->tmp_gun_selected != OBJECT_HANDLER_ASSAULT_RIFLE_GUN_INDEX) {
                 if (!object_handler_apply_view_weapon_animation(
                         game_link, &definition, slot,
                         alien_context->view_weapon_animation, error, error_size)) {
@@ -364,6 +367,17 @@ int object_handler_update_single_player(
             } else if (!object_handler_apply_active_object_animation_slot(
                            objects, slot_index, game_link, error, error_size)) {
                 return 0;
+            }
+            if (slot_index == objects->player1_slot + 2u &&
+                alien_context->view_weapon_animation != NULL &&
+                player->tmp_gun_selected == OBJECT_HANDLER_ASSAULT_RIFLE_GUN_INDEX) {
+                /*
+                 * GLFT_ShootDefs_l gives this automatic weapon a two-tick
+                 * delay. Holding its poses for four ticks lets every shot
+                 * restart Timer1 at frame one before frame two is displayed.
+                 */
+                object_handler_view_weapon_animation_init(
+                    alien_context->view_weapon_animation);
             }
             continue;
         }

@@ -32,7 +32,8 @@ enum {
 /*
  * Renderer-independent clock for Player 1's ENT_NEXT_2 companion model.
  * Gameplay and Plr1_Shot continue to run on every 50 Hz source tick; this
- * state only holds each authored ACTANIMOBJ display frame for four ticks.
+ * state holds each authored ACTANIMOBJ display frame for four ticks, except
+ * the source Assault Rifle whose short automatic-fire loop advances per tick.
  */
 typedef struct {
     uint16_t displayed_frame_index;

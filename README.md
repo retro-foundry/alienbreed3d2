@@ -92,7 +92,9 @@ cadence while camera, mutable world geometry, sprites, and source light
 samples present smoothly at the host frame rate. The first-person gun
 presentation deliberately holds each authored companion pose
 for four 50 Hz ticks (4x its former duration); firing, ammunition, cooldowns,
-projectiles, and all other gameplay still update on every source tick. Native
+projectiles, and all other gameplay still update on every source tick. The
+source Assault Rifle is exempt because its two-tick automatic-fire restart
+requires its companion action pose to advance on every tick. Native
 direct play copies the first port's `display_init` desktop presentation: it queries the active desktop
 bounds and creates the same normal shown/resizable OpenGL window there, without
 any fullscreen or borderless SDL flag and without a monitor-mode change, then

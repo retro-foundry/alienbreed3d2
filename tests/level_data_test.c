@@ -881,6 +881,9 @@ enum {
     /* modules/player.s: RAWKEY_1 selects ShootT/GLFT gun entry zero. */
     LEVEL_DATA_SHOTGUN_GUN_INDEX = 0u,
     LEVEL_DATA_SHOTGUN_RAW_KEY = 1u,
+    /* GLFT_GunNames_l entry three is "Assault Rifle"; RAWKEY_4 selects it. */
+    LEVEL_DATA_ASSAULT_RIFLE_GUN_INDEX = 3u,
+    LEVEL_DATA_ASSAULT_RIFLE_RAW_KEY = 4u,
     /* newaliencontrol.s:Collectable:GUNHELD draws Plr1_Use's ENT_NEXT_2. */
     LEVEL_DATA_VIEW_WEAPON_TIMER1_OFFSET = 34u
 };
@@ -934,6 +937,7 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
     SceneFrame source = {0};
     SceneFrame presentation = {0};
     GameShootDefinition shotgun_shoot;
+    GameShootDefinition assault_rifle_shoot;
     uint64_t source_trace = UINT64_C(1469598103934665603);
     uint32_t source_vblanks = 0u;
     uint32_t baseline_asset_id = 0u;
@@ -942,11 +946,16 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
     uint32_t fired_pose_asset_id = 0u;
     uint16_t fired_pose_frame_index = 0u;
     uint16_t fired_pose_timer1 = 0u;
+    uint32_t assault_rifle_asset_id = 0u;
+    uint16_t assault_rifle_frame_index = 0u;
+    uint16_t assault_rifle_timer1 = 0u;
     uint8_t baseline_captured = 0u;
     uint8_t fired_pose_captured = 0u;
     uint8_t saw_four_tick_pose_advance = 0u;
     uint8_t saw_shotgun_action = 0u;
     uint8_t saw_shotgun_frame_blend = 0u;
+    uint8_t assault_rifle_pose_captured = 0u;
+    uint8_t saw_assault_rifle_per_tick_advance = 0u;
     uint8_t succeeded = 0u;
     char error[256] = {0};
 
@@ -961,8 +970,15 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
         !game_link_get_shoot_definition(
             &game.game_link_catalog, LEVEL_DATA_SHOTGUN_GUN_INDEX, &shotgun_shoot,
             error, sizeof(error)) ||
+        !game_link_get_shoot_definition(
+            &game.game_link_catalog, LEVEL_DATA_ASSAULT_RIFLE_GUN_INDEX,
+            &assault_rifle_shoot, error, sizeof(error)) ||
         shotgun_shoot.bullet_type >= GAME_INVENTORY_AMMUNITION_COUNT ||
         shotgun_shoot.bullet_count == 0u || shotgun_shoot.bullet_count > 1000u ||
+        assault_rifle_shoot.bullet_type >= GAME_INVENTORY_AMMUNITION_COUNT ||
+        assault_rifle_shoot.bullet_type == shotgun_shoot.bullet_type ||
+        assault_rifle_shoot.delay != 2u || assault_rifle_shoot.bullet_count == 0u ||
+        assault_rifle_shoot.bullet_count > 500u ||
         !scene_frame_init(&previous_source, 8u) || !scene_frame_init(&source, 8u) ||
         !scene_frame_init(&presentation, 8u)) {
         fprintf(stderr, "could not initialize Shotgun present-rate regression: %s\n", error);
@@ -970,6 +986,7 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
     }
     /* Keep the source ammo comparison positive while exercising one real shot. */
     game.session.player1_inventory.weapons[LEVEL_DATA_SHOTGUN_GUN_INDEX] = UINT8_MAX;
+    game.session.player1_inventory.weapons[LEVEL_DATA_ASSAULT_RIFLE_GUN_INDEX] = UINT8_MAX;
     for (uint16_t ammunition_index = 0u;
          ammunition_index < GAME_INVENTORY_AMMUNITION_COUNT; ++ammunition_index) {
         game.session.player1_inventory.ammunition[ammunition_index] = 1000u;
@@ -981,7 +998,8 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
         goto cleanup;
     }
     game_vblank_clock_reset(&vblank_clock, 0u, host_counter_frequency);
-    for (uint64_t present_index = 1u; present_index <= host_present_rate; ++present_index) {
+    for (uint64_t present_index = 1u;
+         present_index <= (uint64_t)host_present_rate * 2u; ++present_index) {
         uint64_t host_counter =
             present_index * host_counter_frequency / (uint64_t)host_present_rate;
         uint32_t elapsed_source_vblanks =
@@ -1015,6 +1033,31 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
                            &game.input, game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 0,
                            error, sizeof(error))) {
                 fprintf(stderr, "could not release Shotgun fire key: %s\n", error);
+                goto cleanup;
+            } else if (source_vblanks == 60u) {
+                if (!game_input_set_raw_key(
+                        &game.input, LEVEL_DATA_ASSAULT_RIFLE_RAW_KEY,
+                        1, error, sizeof(error))) {
+                    fprintf(stderr, "could not press Assault Rifle selection key: %s\n", error);
+                    goto cleanup;
+                }
+            } else if (source_vblanks == 61u) {
+                if (!game_input_set_raw_key(
+                        &game.input, LEVEL_DATA_ASSAULT_RIFLE_RAW_KEY,
+                        0, error, sizeof(error)) ||
+                    !game_input_set_raw_key(
+                        &game.input, game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
+                        error, sizeof(error))) {
+                    fprintf(stderr,
+                            "could not fire Assault Rifle in present-rate regression: %s\n",
+                            error);
+                    goto cleanup;
+                }
+            } else if (source_vblanks == 65u &&
+                       !game_input_set_raw_key(
+                           &game.input, game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 0,
+                           error, sizeof(error))) {
+                fprintf(stderr, "could not release Assault Rifle fire key: %s\n", error);
                 goto cleanup;
             }
             if (!scene_frame_clone(&previous_source, &source) ||
@@ -1073,6 +1116,29 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
                     goto cleanup;
                 }
                 saw_four_tick_pose_advance = UINT8_MAX;
+            } else if (source_vblanks == 61u) {
+                assault_rifle_asset_id = source_weapon->source_asset_id;
+                assault_rifle_frame_index = source_weapon->frame_index;
+                assault_rifle_timer1 = timer1;
+                assault_rifle_pose_captured = UINT8_MAX;
+                if (game.player.tmp_gun_selected != LEVEL_DATA_ASSAULT_RIFLE_GUN_INDEX ||
+                    game.view_weapon_animation_runtime.initialized != 0u) {
+                    fprintf(stderr,
+                            "Assault Rifle incorrectly retained the 4x animation clock\n");
+                    goto cleanup;
+                }
+            } else if (source_vblanks == 62u) {
+                if (assault_rifle_pose_captured == 0u ||
+                    game.player.tmp_gun_selected != LEVEL_DATA_ASSAULT_RIFLE_GUN_INDEX ||
+                    game.view_weapon_animation_runtime.initialized != 0u ||
+                    source_weapon->source_asset_id != assault_rifle_asset_id ||
+                    source_weapon->frame_index == assault_rifle_frame_index ||
+                    timer1 == assault_rifle_timer1) {
+                    fprintf(stderr,
+                            "Assault Rifle action pose did not advance on the next source tick\n");
+                    goto cleanup;
+                }
+                saw_assault_rifle_per_tick_advance = UINT8_MAX;
             }
             if (baseline_captured == 0u) {
                 baseline_asset_id = source_weapon->source_asset_id;
@@ -1132,9 +1198,10 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
             }
         }
     }
-    if (source_vblanks != 50u || vblank_clock.remainder_counter_units != 0u ||
+    if (source_vblanks != 100u || vblank_clock.remainder_counter_units != 0u ||
         baseline_captured == 0u || saw_shotgun_action == 0u ||
-        saw_shotgun_frame_blend == 0u || saw_four_tick_pose_advance == 0u) {
+        saw_shotgun_frame_blend == 0u || saw_four_tick_pose_advance == 0u ||
+        saw_assault_rifle_per_tick_advance == 0u) {
         fprintf(stderr,
                 "Shotgun animation did not complete its fixed 50 Hz source trace\n");
         goto cleanup;
@@ -1142,6 +1209,11 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
     if (game.session.player1_inventory.ammunition[shotgun_shoot.bullet_type] !=
         (uint16_t)(1000u - shotgun_shoot.bullet_count)) {
         fprintf(stderr, "Shotgun present-rate regression did not fire exactly once\n");
+        goto cleanup;
+    }
+    if (game.session.player1_inventory.ammunition[assault_rifle_shoot.bullet_type] !=
+        (uint16_t)(1000u - assault_rifle_shoot.bullet_count * 2u)) {
+        fprintf(stderr, "Assault Rifle present-rate regression did not fire exactly twice\n");
         goto cleanup;
     }
     *out_source_trace = source_trace;
