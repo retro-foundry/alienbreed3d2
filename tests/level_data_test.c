@@ -14115,14 +14115,14 @@ int main(int argc, char **argv)
         render_view_init(&view);
         render_view_add_mouse_motion(&view, -100, 0u);
         if (view.pitch_degrees < 32.00f || view.pitch_degrees > 32.01f ||
-            view.aim_speed != -10240 || view.look_offset != -20) {
+            view.aim_speed != -10240 || view.look_offset != -80) {
             fprintf(stderr, "source projectile-aligned upward pitch is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;
         }
         render_view_add_mouse_motion(&view, 1000, 0u);
         if (view.pitch_degrees > -32.00f || view.pitch_degrees < -32.01f ||
-            view.aim_speed != 10240 || view.look_offset != 20) {
+            view.aim_speed != 10240 || view.look_offset != 80) {
             fprintf(stderr, "source projectile-aligned lower clamp is inconsistent\n");
             game_bootstrap_destroy(&game);
             return 1;

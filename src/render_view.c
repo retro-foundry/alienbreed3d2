@@ -5,8 +5,8 @@
 enum {
     /* modules/player.s:plr_MouseControl's small-view source branch. */
     RENDER_VIEW_MOUSE_AIM_UNITS_PER_PIXEL = 128,
-    RENDER_VIEW_LOOK_LIMIT = 20,
-    RENDER_VIEW_AIM_SPEED_LIMIT = 512 * RENDER_VIEW_LOOK_LIMIT,
+    RENDER_VIEW_LOOK_LIMIT = 160 / 2,
+    RENDER_VIEW_AIM_SPEED_LIMIT = 512 * 20,
     /*
      * newplayershoot.s launches horizontal velocity as SinCosTable<<BulletSpd
      * and vertical velocity as AimSpeed>>(8-BulletSpd).  SinCosTable's peak

@@ -71,11 +71,12 @@ its raw delta immediately for high-frame-rate presentation. As the next
 completed source tick is interpolated, that already-presented mouse component
 is faded out of the presentation offset while source keyboard yaw stays in
 lockstep with interpolated player position. The identical temporary offset is
-applied to `Plr1_Use`'s camera-space weapon companion. Mouse Y drives the
-native `RenderView` pitch for real 3D mouse-look (clamped to +/-85 degrees and
-respecting the source invert-mouse preference); both presentation adjustments
-are isolated from source player state and do not replace the original aim/look
-state. The renderer blends completed source-frame scene snapshots using the
+applied to `Plr1_Use`'s camera-space weapon companion. Mouse Y mirrors the
+source `PlrT_AimSpeed_l`/`STOPOFFSET` path for real 3D mouse-look: its pitch
+matches the source projectile trajectory and preserves the small-screen
+`View_LookMin/Max` bounds and invert-mouse preference. Both presentation
+adjustments are isolated from source player state and do not replace the
+original aim/look state. The renderer blends completed source-frame scene snapshots using the
 50 Hz VBlank remainder. This uses SDL's high-resolution performance counter,
 so the source companion weapon/action sequence advances only at its fixed PAL
 cadence while camera, mutable world geometry, sprites, and source light
