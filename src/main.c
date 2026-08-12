@@ -882,6 +882,11 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
 
 static int game_app_run_gpu_smoke(GameApp *app)
 {
+    enum {
+        /* test.lnk: GLFT gun entry six -> object 24 -> vectobj/rocketlauncher. */
+        GAME_APP_ROCKET_LAUNCHER_GUN_INDEX = 5u,
+        GAME_APP_ROCKET_LAUNCHER_VECTOR_ASSET = 17u
+    };
     char error[256];
     uint16_t first_level = app->selected_level_index;
     uint16_t last_level = app->gpu_smoke_all_levels != 0 ? 15u : first_level;
@@ -982,6 +987,79 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 app->exit_code = 1;
                 return 0;
             }
+        }
+        /*
+         * modules/player.s selects entry five for RAWKEY_6. Exercise the
+         * complete input -> Plr1_Use -> Collectable:GUNHELD -> renderer path:
+         * the Rocket Launcher is a multi-part vector model, so malformed
+         * later parts cannot be hidden by a successful first draw.
+         */
+        app->game.session.player1_inventory.weapons[GAME_APP_ROCKET_LAUNCHER_GUN_INDEX] =
+            UINT8_MAX;
+        if (!game_input_set_raw_key(&app->game.input, 6u, 1, error, sizeof(error)) ||
+            !game_bootstrap_update_single_player_at_time(
+                &app->game, (uint64_t)level_index * 20u + 41u, error, sizeof(error)) ||
+            !game_input_set_raw_key(&app->game.input, 6u, 0, error, sizeof(error)) ||
+            !game_bootstrap_update_single_player_at_time(
+                &app->game, (uint64_t)level_index * 20u + 61u, error, sizeof(error))) {
+            fprintf(stderr, "[GAME] GPU smoke could not select the Rocket Launcher in Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        for (uint16_t zone_index = 0u;
+             zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
+            for (uint16_t point_index = 0u;
+                 point_index < LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT; ++point_index) {
+                app->game.lighting_runtime.current_point_brightness[zone_index][point_index] = 200;
+            }
+        }
+        scene_frame_begin(&app->frame);
+        if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame)) {
+            fprintf(stderr, "[SCENE] GPU Rocket Launcher scene submission failed for Level %c\n",
+                    (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
+        {
+            uint8_t saw_rocket_launcher = 0u;
+
+            for (size_t command_index = 0u; command_index < app->frame.count; ++command_index) {
+                const SceneCommand *command = &app->frame.commands[command_index];
+
+                if (command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                    command->data.sprite_instance.sprite.source_record_id ==
+                        app->game.object_runtime.player1_slot + 2u &&
+                    command->data.sprite_instance.sprite.presentation ==
+                        SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON &&
+                    command->data.sprite_instance.sprite.source ==
+                        SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
+                    command->data.sprite_instance.sprite.source_asset_id ==
+                        GAME_APP_ROCKET_LAUNCHER_VECTOR_ASSET) {
+                    saw_rocket_launcher = UINT8_MAX;
+                    break;
+                }
+            }
+            if (saw_rocket_launcher == 0u) {
+                fprintf(stderr,
+                        "[SCENE] GPU smoke selected the wrong key-six companion in Level %c\n",
+                        (char)('A' + level_index));
+                app->exit_code = 1;
+                return 0;
+            }
+        }
+        if (!renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
+            fprintf(stderr, "[RENDER] GPU Rocket Launcher smoke failed for Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] GPU Rocket Launcher smoke changed no visible pixels in Level %c\n",
+                    (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
         }
         /*
          * Compare two explicit source states.  A level can legitimately

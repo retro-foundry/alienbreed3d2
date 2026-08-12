@@ -96,6 +96,13 @@ typedef struct {
 } RendererOpenGLVertex;
 
 typedef struct {
+    uint32_t source_part_index;
+    int16_t relative_offset;
+    int16_t sort_point_offset;
+    int32_t source_sort_key;
+} RendererOpenGLVectorPart;
+
+typedef struct {
     GLuint texture;
     const uint8_t *source_bytes;
     size_t source_byte_count;
@@ -2827,6 +2834,102 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     return 1;
 }
 
+static int32_t renderer_opengl_source_asr32(int32_t value, unsigned int shift)
+{
+    if (shift == 0u) {
+        return value;
+    }
+    if (value >= 0) {
+        return value >> shift;
+    }
+    return (int32_t)-((-(int64_t)value + (((int64_t)1 << shift) - 1)) >> shift);
+}
+
+static int32_t renderer_opengl_source_muls_word_square(int32_t value)
+{
+    int32_t source_word = (int16_t)(uint16_t)value;
+
+    return (int32_t)((uint32_t)(source_word * source_word));
+}
+
+static int renderer_opengl_compare_view_weapon_parts(const void *left, const void *right)
+{
+    const RendererOpenGLVectorPart *first = left;
+    const RendererOpenGLVectorPart *second = right;
+
+    /* objdrawhires.s:PutinParts inserts larger distance keys first. */
+    if (first->source_sort_key > second->source_sort_key) {
+        return -1;
+    }
+    if (first->source_sort_key < second->source_sort_key) {
+        return 1;
+    }
+    /* Equal keys insert before the existing entry in the source buffer. */
+    if (first->source_part_index > second->source_part_index) {
+        return -1;
+    }
+    if (first->source_part_index < second->source_part_index) {
+        return 1;
+    }
+    return 0;
+}
+
+/*
+ * objdrawhires.s:PutinParts indexes the already transformed 10-byte point
+ * records through the second word of a vector part-list entry, squares the
+ * source X/Y/Z components, and paints the most distant part first. The
+ * Player 1 companion is camera-space, so keep that source painter ordering
+ * rather than replacing it with modern depth-buffer self-occlusion.
+ */
+static int renderer_opengl_sort_view_weapon_parts(
+    const SceneSprite *sprite, const SceneCamera *camera, const RenderView *view,
+    const uint8_t *bytes, size_t size, size_t point_data_offset, uint16_t point_count,
+    RendererOpenGLVectorPart *parts, uint32_t part_count, char *error, size_t error_size)
+{
+    if (!sprite || !camera || !view || !bytes || !parts || point_count == 0u) {
+        renderer_opengl_set_error(error, error_size, "source view weapon part order is invalid");
+        return 0;
+    }
+    for (uint32_t part_index = 0u; part_index < part_count; ++part_index) {
+        RendererOpenGLVertex point;
+        int32_t source_x;
+        int32_t source_y;
+        int32_t source_z;
+        int32_t source_x_short;
+        int32_t source_y_short;
+        size_t point_index;
+
+        if (parts[part_index].sort_point_offset < 0 ||
+            parts[part_index].sort_point_offset % 10 != 0) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source view weapon part has an invalid sort point");
+            return 0;
+        }
+        point_index = (size_t)parts[part_index].sort_point_offset / 10u;
+        if (point_index >= point_count || point_data_offset > size ||
+            point_index > (size - point_data_offset) / 6u ||
+            !renderer_opengl_vector_model_point(
+                sprite, camera, view, bytes + point_data_offset + point_index * 6u,
+                1, &point)) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source view weapon part sort point is outside the model");
+            return 0;
+        }
+        /* renderer_opengl_vector_model_point reverses source screen Y/Z for GL. */
+        source_x = (int32_t)point.x;
+        source_y = (int32_t)-point.y;
+        source_z = (int32_t)-point.z;
+        source_x_short = renderer_opengl_source_asr32(source_x, 7u);
+        source_y_short = renderer_opengl_source_asr32(source_y, 7u);
+        parts[part_index].source_sort_key = (int32_t)(
+            (uint32_t)renderer_opengl_source_muls_word_square(source_x_short) +
+            (uint32_t)renderer_opengl_source_muls_word_square(source_y_short) +
+            (uint32_t)renderer_opengl_source_muls_word_square(source_z));
+    }
+    qsort(parts, part_count, sizeof(*parts), renderer_opengl_compare_view_weapon_parts);
+    return 1;
+}
+
 static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
                                                      const uint8_t *polygon_angle_bytes,
                                                      size_t polygon_angle_byte_count,
@@ -2954,6 +3057,8 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
         !sprite->source_light_palette_bytes || !sprite->source_display_palette_bytes ||
         source_map_offset >= sprite->source_palette_byte_count ||
         (size_t)width > SIZE_MAX / (size_t)height / 4u ||
+        sprite->source_light_palette_byte_count <
+            (size_t)(VECTOR_LIGHT_PALETTE_BASE_ROW + 1u) * VECTOR_LIGHT_PALETTE_ROW_WIDTH ||
         (glare == 0 && sprite->source_light_palette_byte_count <
             (size_t)(VECTOR_LIGHT_PALETTE_BASE_ROW + 32u) * VECTOR_LIGHT_PALETTE_ROW_WIDTH)) {
         renderer_opengl_set_error(error, error_size, "source vector texture descriptor is invalid");
@@ -3029,21 +3134,36 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                  * palette index. Resolve the row over palette entry zero for
                  * the modern additive-emission texture, just as the bitmap
                  * glare path does.
+                 *
+                 * The first 32 source palette rows are the only authored
+                 * glare/specular rows (bss/draw_bss.s).  Some Rocket Launcher
+                 * faces use an ordinary texture colour here instead.  The
+                 * original 68000 routine then reads outside the loaded
+                 * 64-by-256 palette asset.  Do not turn that legacy
+                 * out-of-asset read into a truncated model: retain the valid
+                 * glare lookup, and use the authored neutral material row
+                 * (row 32) for the non-glare texels.
                  */
                 if (source_texel == 0u) {
                     memset(pixels + pixel_offset, 0, 4u);
                     continue;
                 }
-                source_light_palette_offset = (size_t)(source_texel - 1u) * 512u;
-                if (source_light_palette_offset > sprite->source_light_palette_byte_count ||
-                    256u > sprite->source_light_palette_byte_count -
-                               source_light_palette_offset) {
-                    free(pixels);
-                    free(exponent_pixels);
-                    free(floor_pixels);
-                    renderer_opengl_set_error(error, error_size,
-                                              "source vector glare palette is outside its asset");
-                    return 0;
+                if (source_texel <= 32u) {
+                    source_light_palette_offset = (size_t)(source_texel - 1u) * 512u;
+                    if (source_light_palette_offset > sprite->source_light_palette_byte_count ||
+                        256u > sprite->source_light_palette_byte_count -
+                                   source_light_palette_offset) {
+                        free(pixels);
+                        free(exponent_pixels);
+                        free(floor_pixels);
+                        renderer_opengl_set_error(error, error_size,
+                                                  "source vector glare palette is outside its asset");
+                        return 0;
+                    }
+                } else {
+                    source_light_palette_offset =
+                        (size_t)VECTOR_LIGHT_PALETTE_BASE_ROW * VECTOR_LIGHT_PALETTE_ROW_WIDTH +
+                        source_texel;
                 }
                 source_colour = sprite->source_light_palette_bytes[source_light_palette_offset];
                 if (!renderer_opengl_write_palette_texel(
@@ -3258,6 +3378,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     size_t polygon_angle_offset;
     size_t point_data_offset;
     uint32_t on_off;
+    RendererOpenGLVectorPart parts[32u];
+    uint32_t part_count = 0u;
     RendererOpenGLVertex *vertices = NULL;
     uint32_t vertex_count = 0u;
     uint32_t vertex_capacity = 0u;
@@ -3330,7 +3452,6 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     for (uint32_t part_index = 0u; ; ++part_index) {
         size_t list_offset = lines_offset + (size_t)part_index * 4u;
         int16_t part_relative;
-        size_t part_offset;
 
         if (list_offset > size || 4u > size - list_offset) {
             renderer_opengl_set_error(error, error_size, "source vector model has no part-list terminator");
@@ -3343,7 +3464,20 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
         if (part_index >= 32u || (on_off & (UINT32_C(1) << part_index)) == 0u) {
             continue;
         }
-        part_offset = start_offset + (uint16_t)part_relative;
+        parts[part_count].source_part_index = part_index;
+        parts[part_count].relative_offset = part_relative;
+        parts[part_count].sort_point_offset = renderer_opengl_read_be16s(bytes + list_offset + 2u);
+        ++part_count;
+    }
+    if (camera_space != 0 && renderer_opengl_read_be16s(bytes) != 0 &&
+        !renderer_opengl_sort_view_weapon_parts(
+            sprite, camera, view, bytes, size, point_data_offset, point_count,
+            parts, part_count, error, error_size)) {
+        goto done;
+    }
+    for (uint32_t part_order = 0u; part_order < part_count; ++part_order) {
+        size_t part_offset = start_offset + (uint16_t)parts[part_order].relative_offset;
+
         if (part_offset > size || 2u > size - part_offset) {
             renderer_opengl_set_error(error, error_size, "source vector model part is outside the asset");
             goto done;
@@ -3481,9 +3615,13 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                         }
                         triangle_vertices[corner] = vertex;
                     }
-                    if (!renderer_opengl_vector_face_is_front_facing(
-                            triangle_vertices, draw_projection)) {
-                        continue;
+                    {
+                        int front_facing = renderer_opengl_vector_face_is_front_facing(
+                            triangle_vertices, draw_projection);
+
+                        if (!front_facing) {
+                            continue;
+                        }
                     }
                     if (clip_to_sector != 0) {
                         clipped_vertex_count = renderer_opengl_clip_vector_triangle_to_sector(
@@ -3520,15 +3658,18 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     renderer_opengl_use_texture_light_response(renderer, texture);
                 }
                 renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
-                result = renderer_opengl_draw_vertices(renderer, vertices + face_vertex_start,
-                                                        vertex_count - face_vertex_start,
-                                                        GL_TRIANGLES, error, error_size);
+                if (!renderer_opengl_draw_vertices(renderer, vertices + face_vertex_start,
+                                                   vertex_count - face_vertex_start,
+                                                   GL_TRIANGLES, error, error_size)) {
+                    if (source_glare != 0) {
+                        glDepthMask(GL_TRUE);
+                        glDisable(GL_BLEND);
+                    }
+                    goto done;
+                }
                 if (source_glare != 0) {
                     glDepthMask(GL_TRUE);
                     glDisable(GL_BLEND);
-                }
-                if (result == 0) {
-                    goto done;
                 }
                 free(vertices);
                 vertices = NULL;
@@ -3952,23 +4093,27 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
                 }
             }
             /*
-             * The companion is a camera-space model, so it must not be
-             * rejected by world depth.  Do not disable depth testing though:
-             * that lets its back and internal textured polygons paint over
-             * the visible faces in source part order.  A fresh depth buffer
-             * keeps the weapon in front of the world while preserving normal
-             * per-fragment self-occlusion for the modern 3D presentation.
+             * objdrawhires.s:PutinParts followed by doapoly is a painter's
+             * algorithm. The companion must therefore paint its sorted source
+             * parts directly, rather than let GPU depth testing reduce the
+             * Rocket Launcher to whichever near face happens to win.
              */
             glClear(GL_DEPTH_BUFFER_BIT);
+            glDisable(GL_DEPTH_TEST);
+            glDepthMask(GL_FALSE);
             if (command->data.sprite_instance.sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
                 !renderer_opengl_draw_vector_sprite(
                     renderer, &command->data.sprite_instance.sprite, camera, view,
                     view_projection,
                     (float)drawable_width / (float)drawable_height,
                     error, error_size)) {
+                glDepthMask(GL_TRUE);
+                glEnable(GL_DEPTH_TEST);
                 free(before_pixels);
                 return 0;
             }
+            glDepthMask(GL_TRUE);
+            glEnable(GL_DEPTH_TEST);
             if (before_pixels) {
                 uint8_t *after_pixels = malloc(pixel_byte_count);
 
