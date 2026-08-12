@@ -103,6 +103,14 @@ typedef struct {
 } RendererOpenGLVectorPart;
 
 typedef struct {
+    uint16_t point_count;
+    size_t lines_offset;
+    size_t frame_offset;
+    size_t polygon_angle_offset;
+    size_t point_data_offset;
+} RendererOpenGLVectorFrame;
+
+typedef struct {
     GLuint texture;
     const uint8_t *source_bytes;
     size_t source_byte_count;
@@ -2668,6 +2676,51 @@ static int16_t renderer_opengl_read_be16s(const uint8_t *source)
     return (int16_t)renderer_opengl_read_be16(source);
 }
 
+/* Resolve one authored model frame without accepting a malformed second endpoint. */
+static int renderer_opengl_vector_model_frame(const uint8_t *bytes, size_t size,
+                                              uint16_t frame_index,
+                                              RendererOpenGLVectorFrame *out_frame,
+                                              char *error, size_t error_size)
+{
+    const size_t start_offset = 2u;
+    const size_t pointer_table_offset = 6u;
+    uint16_t frame_count;
+    size_t frame_pointer_offset;
+
+    if (!bytes || !out_frame || size < pointer_table_offset) {
+        renderer_opengl_set_error(error, error_size, "source vector sprite descriptor is invalid");
+        return 0;
+    }
+    out_frame->point_count = renderer_opengl_read_be16(bytes + 2u);
+    frame_count = renderer_opengl_read_be16(bytes + 4u);
+    if (out_frame->point_count == 0u || frame_count == 0u || frame_index >= frame_count ||
+        (size_t)frame_count > (size - pointer_table_offset) / 4u) {
+        renderer_opengl_set_error(error, error_size, "source vector model header or frame is invalid");
+        return 0;
+    }
+    out_frame->lines_offset = pointer_table_offset + (size_t)frame_count * 4u;
+    frame_pointer_offset = pointer_table_offset + (size_t)frame_index * 4u;
+    out_frame->frame_offset = start_offset + renderer_opengl_read_be16(
+        bytes + frame_pointer_offset);
+    out_frame->polygon_angle_offset = start_offset + renderer_opengl_read_be16(
+        bytes + frame_pointer_offset + 2u);
+    if (out_frame->frame_offset > size || 4u > size - out_frame->frame_offset ||
+        out_frame->polygon_angle_offset >= size) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector model frame points or polygon angles are outside the asset");
+        return 0;
+    }
+    out_frame->point_data_offset = out_frame->frame_offset + 4u +
+        (size_t)out_frame->point_count + (out_frame->point_count & 1u);
+    if (out_frame->point_data_offset > size ||
+        (size_t)out_frame->point_count >
+            (size - out_frame->point_data_offset) / 6u) {
+        renderer_opengl_set_error(error, error_size, "source vector model point table is malformed");
+        return 0;
+    }
+    return 1;
+}
+
 static int renderer_opengl_vector_append(RendererOpenGLVertex **vertices,
                                          uint32_t *vertex_count, uint32_t *vertex_capacity,
                                          const RendererOpenGLVertex *vertex,
@@ -2783,10 +2836,15 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
                                                const SceneCamera *camera,
                                                const RenderView *view,
                                                const uint8_t *point_bytes,
+                                               const uint8_t *previous_point_bytes,
+                                               float frame_interpolation_alpha,
                                                int camera_space,
                                                RendererOpenGLVertex *out_vertex)
 {
     RendererOpenGLVectorPoint source_point;
+    float source_x;
+    float source_y;
+    float source_z;
 
     if (!sprite || !camera || !view || !point_bytes || !out_vertex) {
         return 0;
@@ -2794,6 +2852,33 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
     source_point.x = renderer_opengl_read_be16s(point_bytes);
     source_point.y = renderer_opengl_read_be16s(point_bytes + 2u);
     source_point.z = renderer_opengl_read_be16s(point_bytes + 4u);
+    if (previous_point_bytes &&
+        (frame_interpolation_alpha < 0.0f || frame_interpolation_alpha > 1.0f)) {
+        return 0;
+    }
+    source_x = (float)source_point.x;
+    source_y = (float)source_point.y;
+    source_z = (float)source_point.z;
+    if (previous_point_bytes) {
+        RendererOpenGLVectorPoint previous_point;
+
+        previous_point.x = renderer_opengl_read_be16s(previous_point_bytes);
+        previous_point.y = renderer_opengl_read_be16s(previous_point_bytes + 2u);
+        previous_point.z = renderer_opengl_read_be16s(previous_point_bytes + 4u);
+        if (frame_interpolation_alpha <= 0.0f) {
+            source_point = previous_point;
+            source_x = (float)source_point.x;
+            source_y = (float)source_point.y;
+            source_z = (float)source_point.z;
+        } else if (frame_interpolation_alpha < 1.0f) {
+            source_x = (float)previous_point.x +
+                ((float)source_point.x - (float)previous_point.x) * frame_interpolation_alpha;
+            source_y = (float)previous_point.y +
+                ((float)source_point.y - (float)previous_point.y) * frame_interpolation_alpha;
+            source_z = (float)previous_point.z +
+                ((float)source_point.z - (float)previous_point.z) * frame_interpolation_alpha;
+        }
+    }
     if (camera_space != 0) {
         SourceVectorEyePoint eye_point;
 
@@ -2802,9 +2887,16 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
          * position is not a world transform, so do not approximate it with a
          * guessed metres-per-source-unit scale or a near-camera placement.
          */
-        if (!source_vector_transform_view_weapon_point(
-                &sprite->view_weapon_projection,
-                source_point.x, source_point.y, source_point.z, &eye_point)) {
+        if (!previous_point_bytes || frame_interpolation_alpha <= 0.0f ||
+            frame_interpolation_alpha >= 1.0f) {
+            if (!source_vector_transform_view_weapon_point(
+                    &sprite->view_weapon_projection,
+                    source_point.x, source_point.y, source_point.z, &eye_point)) {
+                return 0;
+            }
+        } else if (!source_vector_transform_view_weapon_interpolated_point(
+                       &sprite->view_weapon_projection,
+                       source_x, source_y, source_z, &eye_point)) {
             return 0;
         }
         out_vertex->x = eye_point.x;
@@ -2816,9 +2908,9 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
         float center_z;
         float yaw = (float)sprite->yaw * (2.0f * renderer_opengl_pi /
                                           renderer_opengl_source_angle_full_turn);
-        float local_x = (float)source_point.x * 0.5f;
-        float local_y = -(float)source_point.y * 0.25f;
-        float local_z = (float)source_point.z * 0.5f;
+        float local_x = source_x * 0.5f;
+        float local_y = -source_y * 0.25f;
+        float local_z = source_z * 0.5f;
 
         renderer_opengl_world_point(&sprite->position, &center_x, &center_y, &center_z);
         out_vertex->x = center_x + cosf(yaw) * local_x - sinf(yaw) * local_z;
@@ -2883,7 +2975,9 @@ static int renderer_opengl_compare_view_weapon_parts(const void *left, const voi
  */
 static int renderer_opengl_sort_view_weapon_parts(
     const SceneSprite *sprite, const SceneCamera *camera, const RenderView *view,
-    const uint8_t *bytes, size_t size, size_t point_data_offset, uint16_t point_count,
+    const uint8_t *bytes, size_t size, size_t point_data_offset,
+    const uint8_t *previous_point_data, float frame_interpolation_alpha,
+    uint16_t point_count,
     RendererOpenGLVectorPart *parts, uint32_t part_count, char *error, size_t error_size)
 {
     if (!sprite || !camera || !view || !bytes || !parts || point_count == 0u) {
@@ -2910,6 +3004,8 @@ static int renderer_opengl_sort_view_weapon_parts(
             point_index > (size - point_data_offset) / 6u ||
             !renderer_opengl_vector_model_point(
                 sprite, camera, view, bytes + point_data_offset + point_index * 6u,
+                previous_point_data ? previous_point_data + point_index * 6u : NULL,
+                frame_interpolation_alpha,
                 1, &point)) {
             renderer_opengl_set_error(error, error_size,
                                       "source view weapon part sort point is outside the model");
@@ -3366,17 +3462,11 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                                               char *error, size_t error_size)
 {
     const uint8_t *bytes;
+    const uint8_t *previous_point_data = NULL;
     size_t size;
-    uint16_t point_count;
-    uint16_t frame_count;
-    uint16_t frame_index;
     size_t start_offset = 2u;
-    size_t pointer_table_offset = 6u;
-    size_t frame_pointer_offset;
-    size_t lines_offset;
-    size_t frame_offset;
-    size_t polygon_angle_offset;
-    size_t point_data_offset;
+    RendererOpenGLVectorFrame frame;
+    RendererOpenGLVectorFrame previous_frame;
     uint32_t on_off;
     RendererOpenGLVectorPart parts[32u];
     uint32_t part_count = 0u;
@@ -3412,29 +3502,22 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     }
     bytes = sprite->source_bytes;
     size = sprite->source_byte_count;
-    point_count = renderer_opengl_read_be16(bytes + 2u);
-    frame_count = renderer_opengl_read_be16(bytes + 4u);
-    frame_index = sprite->frame_index;
-    if (point_count == 0u || frame_count == 0u || frame_index >= frame_count ||
-        (size_t)frame_count > (size - pointer_table_offset) / 4u) {
-        renderer_opengl_set_error(error, error_size, "source vector model header or frame is invalid");
+    if (!renderer_opengl_vector_model_frame(
+            bytes, size, sprite->frame_index, &frame, error, error_size)) {
         return 0;
     }
-    lines_offset = pointer_table_offset + (size_t)frame_count * 4u;
-    frame_pointer_offset = pointer_table_offset + (size_t)frame_index * 4u;
-    frame_offset = start_offset + renderer_opengl_read_be16(bytes + frame_pointer_offset);
-    polygon_angle_offset = start_offset + renderer_opengl_read_be16(
-        bytes + frame_pointer_offset + 2u);
-    if (frame_offset > size || 4u > size - frame_offset ||
-        polygon_angle_offset >= size) {
-        renderer_opengl_set_error(error, error_size,
-                                  "source vector model frame points or polygon angles are outside the asset");
-        return 0;
-    }
-    point_data_offset = frame_offset + 4u + (size_t)point_count + (point_count & 1u);
-    if (point_data_offset > size || (size_t)point_count > (size - point_data_offset) / 6u) {
-        renderer_opengl_set_error(error, error_size, "source vector model point table is malformed");
-        return 0;
+    if (sprite->presentation_interpolate_vector_frame != 0u) {
+        if (sprite->presentation_frame_interpolation_alpha < 0.0f ||
+            sprite->presentation_frame_interpolation_alpha > 1.0f ||
+            !renderer_opengl_vector_model_frame(
+                bytes, size, sprite->presentation_previous_frame_index,
+                &previous_frame, error, error_size) ||
+            previous_frame.point_count != frame.point_count) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source vector model interpolation endpoints are incompatible");
+            return 0;
+        }
+        previous_point_data = bytes + previous_frame.point_data_offset;
     }
     if (camera_space != 0) {
         if (!source_vector_make_view_weapon_matrix(
@@ -3448,9 +3531,9 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
         renderer->gl.uniform_matrix_4fv(renderer->view_projection_uniform, 1, GL_FALSE,
                                         draw_projection);
     }
-    on_off = renderer_opengl_read_be32(bytes + frame_offset);
+    on_off = renderer_opengl_read_be32(bytes + frame.frame_offset);
     for (uint32_t part_index = 0u; ; ++part_index) {
-        size_t list_offset = lines_offset + (size_t)part_index * 4u;
+        size_t list_offset = frame.lines_offset + (size_t)part_index * 4u;
         int16_t part_relative;
 
         if (list_offset > size || 4u > size - list_offset) {
@@ -3471,7 +3554,9 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     }
     if (camera_space != 0 && renderer_opengl_read_be16s(bytes) != 0 &&
         !renderer_opengl_sort_view_weapon_parts(
-            sprite, camera, view, bytes, size, point_data_offset, point_count,
+            sprite, camera, view, bytes, size, frame.point_data_offset,
+            previous_point_data, sprite->presentation_frame_interpolation_alpha,
+            frame.point_count,
             parts, part_count, error, error_size)) {
         goto done;
     }
@@ -3538,7 +3623,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 for (uint32_t corner = 0u; corner < polygon_point_count; ++corner) {
                     const uint8_t *source_corner = polygon_point_bytes + (size_t)corner * 4u;
 
-                    if (renderer_opengl_read_be16(source_corner) >= point_count) {
+                    if (renderer_opengl_read_be16(source_corner) >= frame.point_count) {
                         renderer_opengl_set_error(error, error_size,
                                                   "source vector polygon references an invalid point");
                         goto done;
@@ -3557,7 +3642,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     }
                 }
                 if (!renderer_opengl_vector_face_texture_info(
-                        sprite, bytes + polygon_angle_offset, size - polygon_angle_offset,
+                        sprite, bytes + frame.polygon_angle_offset,
+                        size - frame.polygon_angle_offset,
                         face_bytes, &source_map_offset, &source_light,
                         error, error_size) ||
                     !renderer_opengl_find_vector_face_texture(
@@ -3582,7 +3668,10 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
 
                         if (!renderer_opengl_vector_model_point(
                                 sprite, camera, view,
-                                bytes + point_data_offset + (size_t)point_index * 6u,
+                                bytes + frame.point_data_offset + (size_t)point_index * 6u,
+                                previous_point_data ?
+                                    previous_point_data + (size_t)point_index * 6u : NULL,
+                                sprite->presentation_frame_interpolation_alpha,
                                 camera_space,
                                 &vertex)) {
                             renderer_opengl_set_error(error, error_size,
@@ -3591,7 +3680,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                         }
                         if (source_gouraud &&
                             !renderer_opengl_vector_point_source_light(
-                                sprite, bytes + frame_offset + 4u, point_count, point_index,
+                                sprite, bytes + frame.frame_offset + 4u, frame.point_count,
+                                point_index,
                                 &vertex.source_light, error, error_size)) {
                             goto done;
                         }

@@ -418,6 +418,14 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
         const SceneCommand *previous_command = scene_frame_find_previous_command(
             previous, current_command, index);
 
+        if (destination_command->type == SCENE_COMMAND_SPRITE_INSTANCE) {
+            SceneSprite *destination_sprite = &destination_command->data.sprite_instance.sprite;
+
+            /* Source-submitted frames never carry presentation state. */
+            destination_sprite->presentation_previous_frame_index = 0u;
+            destination_sprite->presentation_frame_interpolation_alpha = 0.0f;
+            destination_sprite->presentation_interpolate_vector_frame = 0u;
+        }
         if (!previous_command) {
             continue;
         }
@@ -525,6 +533,25 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
                         previous_sprite->source_point_and_polygon_brightness[brightness_index],
                         current_sprite->source_point_and_polygon_brightness[brightness_index],
                         alpha);
+            }
+            /*
+             * Do not create source frames at host display rate.  The action
+             * frame selected by ACTANIMOBJ remains the current endpoint; the
+             * renderer receives the preceding frame only when both completed
+             * snapshots describe the same Player 1 vector model.
+             */
+            if (destination_sprite->presentation ==
+                    SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON &&
+                previous_sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
+                current_sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
+                previous_sprite->source_asset_id == current_sprite->source_asset_id &&
+                previous_sprite->source_bytes == current_sprite->source_bytes &&
+                previous_sprite->source_byte_count == current_sprite->source_byte_count &&
+                previous_sprite->frame_index != current_sprite->frame_index) {
+                destination_sprite->presentation_previous_frame_index =
+                    previous_sprite->frame_index;
+                destination_sprite->presentation_frame_interpolation_alpha = alpha;
+                destination_sprite->presentation_interpolate_vector_frame = UINT8_MAX;
             }
         }
     }

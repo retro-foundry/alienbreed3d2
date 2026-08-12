@@ -164,7 +164,12 @@ authority for all game behavior and data formats.
   while the same enemy transform remains interpolated. Its accumulator is
   based on SDL's high-resolution performance counter, keeping
   `hires.s:dosomething` companion/action frames at fixed PAL 50 Hz even when
-  presentation is 120 Hz or higher.
+  presentation is 120 Hz or higher. For the Player 1 vector companion only,
+  adjacent frames of the same authored model now retain both point tables at
+  this boundary: the renderer linearly blends matching vertices and its
+  source part-sort point by the same VBlank remainder. It keeps the exact
+  `objdrawhires.s:rotate_object` transform at either source endpoint and
+  never advances `newaliencontrol.s:ACTANIMOBJ` from a display frame.
   Spawned/removed source records remain discrete.
   Raw mouse-X display yaw is applied at host cadence. After the source
   `c/system.c:Sys_ReadMouse`/`modules/player.s:plr_MouseControl` tick consumes

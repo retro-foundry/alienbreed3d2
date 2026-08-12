@@ -878,9 +878,9 @@ static int object_inventory_grant_matches_source(const GameInventory *grant,
 }
 
 enum {
-    /* modules/player.s: RAWKEY_6 selects ShootT/GLFT gun entry five. */
-    LEVEL_DATA_ROCKET_LAUNCHER_GUN_INDEX = 5u,
-    LEVEL_DATA_ROCKET_LAUNCHER_RAW_KEY = 6u,
+    /* modules/player.s: RAWKEY_1 selects ShootT/GLFT gun entry zero. */
+    LEVEL_DATA_SHOTGUN_GUN_INDEX = 0u,
+    LEVEL_DATA_SHOTGUN_RAW_KEY = 1u,
     /* newaliencontrol.s:Collectable:GUNHELD draws Plr1_Use's ENT_NEXT_2. */
     LEVEL_DATA_VIEW_WEAPON_TIMER1_OFFSET = 34u
 };
@@ -923,9 +923,9 @@ static uint64_t level_data_hash_view_weapon_source_tick(uint64_t hash,
  * only interpolate completed source snapshots: increasing present rate must
  * neither run Plr1_Shot/ACTANIMOBJ more often nor synthesize a weapon frame.
  */
-static int level_data_run_rocket_animation_present_rate(const char *data_root,
-                                                        uint32_t host_present_rate,
-                                                        uint64_t *out_source_trace)
+static int level_data_run_shotgun_animation_present_rate(const char *data_root,
+                                                         uint32_t host_present_rate,
+                                                         uint64_t *out_source_trace)
 {
     const uint64_t host_counter_frequency = UINT64_C(720000);
     GameBootstrap game = {0};
@@ -933,19 +933,20 @@ static int level_data_run_rocket_animation_present_rate(const char *data_root,
     SceneFrame previous_source = {0};
     SceneFrame source = {0};
     SceneFrame presentation = {0};
-    GameShootDefinition rocket_shoot;
+    GameShootDefinition shotgun_shoot;
     uint64_t source_trace = UINT64_C(1469598103934665603);
     uint32_t source_vblanks = 0u;
     uint32_t baseline_asset_id = 0u;
     uint16_t baseline_frame_index = 0u;
     uint16_t baseline_timer1 = 0u;
     uint8_t baseline_captured = 0u;
-    uint8_t saw_rocket_action = 0u;
+    uint8_t saw_shotgun_action = 0u;
+    uint8_t saw_shotgun_frame_blend = 0u;
     uint8_t succeeded = 0u;
     char error[256] = {0};
 
     if (!data_root || host_present_rate == 0u || !out_source_trace) {
-        fprintf(stderr, "Rocket Launcher present-rate regression received invalid arguments\n");
+        fprintf(stderr, "Shotgun present-rate regression received invalid arguments\n");
         return 0;
     }
     if (!game_bootstrap_init(&game, data_root, error, sizeof(error)) ||
@@ -953,17 +954,17 @@ static int level_data_run_rocket_animation_present_rate(const char *data_root,
         !game_session_select_level(&game.session, 0u, error, sizeof(error)) ||
         !game_bootstrap_start_selected_single_player(&game, data_root, error, sizeof(error)) ||
         !game_link_get_shoot_definition(
-            &game.game_link_catalog, LEVEL_DATA_ROCKET_LAUNCHER_GUN_INDEX, &rocket_shoot,
+            &game.game_link_catalog, LEVEL_DATA_SHOTGUN_GUN_INDEX, &shotgun_shoot,
             error, sizeof(error)) ||
-        rocket_shoot.bullet_type >= GAME_INVENTORY_AMMUNITION_COUNT ||
-        rocket_shoot.bullet_count == 0u || rocket_shoot.bullet_count > 1000u ||
+        shotgun_shoot.bullet_type >= GAME_INVENTORY_AMMUNITION_COUNT ||
+        shotgun_shoot.bullet_count == 0u || shotgun_shoot.bullet_count > 1000u ||
         !scene_frame_init(&previous_source, 8u) || !scene_frame_init(&source, 8u) ||
         !scene_frame_init(&presentation, 8u)) {
-        fprintf(stderr, "could not initialize Rocket Launcher present-rate regression: %s\n", error);
+        fprintf(stderr, "could not initialize Shotgun present-rate regression: %s\n", error);
         goto cleanup;
     }
     /* Keep the source ammo comparison positive while exercising one real shot. */
-    game.session.player1_inventory.weapons[LEVEL_DATA_ROCKET_LAUNCHER_GUN_INDEX] = UINT8_MAX;
+    game.session.player1_inventory.weapons[LEVEL_DATA_SHOTGUN_GUN_INDEX] = UINT8_MAX;
     for (uint16_t ammunition_index = 0u;
          ammunition_index < GAME_INVENTORY_AMMUNITION_COUNT; ++ammunition_index) {
         game.session.player1_inventory.ammunition[ammunition_index] = 1000u;
@@ -971,7 +972,7 @@ static int level_data_run_rocket_animation_present_rate(const char *data_root,
     scene_frame_begin(&source);
     if (!game_bootstrap_submit_scene_frame(&game, &source) ||
         !scene_frame_clone(&previous_source, &source)) {
-        fprintf(stderr, "could not capture initial Rocket Launcher source frame\n");
+        fprintf(stderr, "could not capture initial Shotgun source frame\n");
         goto cleanup;
     }
     game_vblank_clock_reset(&vblank_clock, 0u, host_counter_frequency);
@@ -989,18 +990,18 @@ static int level_data_run_rocket_animation_present_rate(const char *data_root,
 
             ++source_vblanks;
             if (source_vblanks == 1u) {
-                if (!game_input_set_raw_key(&game.input, LEVEL_DATA_ROCKET_LAUNCHER_RAW_KEY,
+                if (!game_input_set_raw_key(&game.input, LEVEL_DATA_SHOTGUN_RAW_KEY,
                                             1, error, sizeof(error))) {
-                    fprintf(stderr, "could not press Rocket Launcher selection key: %s\n", error);
+                    fprintf(stderr, "could not press Shotgun selection key: %s\n", error);
                     goto cleanup;
                 }
             } else if (source_vblanks == 2u) {
-                if (!game_input_set_raw_key(&game.input, LEVEL_DATA_ROCKET_LAUNCHER_RAW_KEY,
+                if (!game_input_set_raw_key(&game.input, LEVEL_DATA_SHOTGUN_RAW_KEY,
                                             0, error, sizeof(error)) ||
                     !game_input_set_raw_key(
                         &game.input, game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
                         error, sizeof(error))) {
-                    fprintf(stderr, "could not fire Rocket Launcher in present-rate regression: %s\n",
+                    fprintf(stderr, "could not fire Shotgun in present-rate regression: %s\n",
                             error);
                     goto cleanup;
                 }
@@ -1008,13 +1009,13 @@ static int level_data_run_rocket_animation_present_rate(const char *data_root,
                        !game_input_set_raw_key(
                            &game.input, game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 0,
                            error, sizeof(error))) {
-                fprintf(stderr, "could not release Rocket Launcher fire key: %s\n", error);
+                fprintf(stderr, "could not release Shotgun fire key: %s\n", error);
                 goto cleanup;
             }
             if (!scene_frame_clone(&previous_source, &source) ||
                 !game_bootstrap_update_single_player_at_time(
                     &game, (uint64_t)source_vblanks * 20u, error, sizeof(error))) {
-                fprintf(stderr, "Rocket Launcher source VBlank update failed: %s\n", error);
+                fprintf(stderr, "Shotgun source VBlank update failed: %s\n", error);
                 goto cleanup;
             }
             scene_frame_begin(&source);
@@ -1024,13 +1025,13 @@ static int level_data_run_rocket_animation_present_rate(const char *data_root,
                     &weapon_slot) ||
                 !(source_weapon = level_data_find_player1_view_weapon(
                     &source, game.object_runtime.player1_slot))) {
-                fprintf(stderr, "Rocket Launcher companion is missing from source scene\n");
+                fprintf(stderr, "Shotgun companion is missing from source scene\n");
                 goto cleanup;
             }
             timer1 = read_be16(weapon_slot + LEVEL_DATA_VIEW_WEAPON_TIMER1_OFFSET);
             if (source_weapon->presentation != SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON ||
                 source_weapon->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL) {
-                fprintf(stderr, "Rocket Launcher companion lost its source view-weapon identity\n");
+                fprintf(stderr, "Shotgun companion lost its source view-weapon identity\n");
                 goto cleanup;
             }
             if (baseline_captured == 0u) {
@@ -1041,12 +1042,13 @@ static int level_data_run_rocket_animation_present_rate(const char *data_root,
             } else if (source_weapon->source_asset_id != baseline_asset_id ||
                        source_weapon->frame_index != baseline_frame_index ||
                        timer1 != baseline_timer1) {
-                saw_rocket_action = UINT8_MAX;
+                saw_shotgun_action = UINT8_MAX;
             }
             source_trace = level_data_hash_view_weapon_source_tick(
                 source_trace, source_weapon, timer1);
         }
         if (source_vblanks != 0u) {
+            const SceneSprite *previous_weapon;
             const SceneSprite *source_weapon;
             const SceneSprite *presentation_weapon;
 
@@ -1060,20 +1062,46 @@ static int level_data_run_rocket_animation_present_rate(const char *data_root,
                 presentation_weapon->source_asset_id != source_weapon->source_asset_id ||
                 presentation_weapon->frame_index != source_weapon->frame_index) {
                 fprintf(stderr,
-                        "Rocket Launcher interpolation changed a source animation endpoint\n");
+                        "Shotgun interpolation changed a source animation endpoint "
+                        "(source asset=%u frame=%u, presentation asset=%u frame=%u)\n",
+                        source_weapon ? source_weapon->source_asset_id : 0u,
+                        source_weapon ? source_weapon->frame_index : 0u,
+                        presentation_weapon ? presentation_weapon->source_asset_id : 0u,
+                        presentation_weapon ? presentation_weapon->frame_index : 0u);
                 goto cleanup;
+            }
+            previous_weapon = level_data_find_player1_view_weapon(
+                &previous_source, game.object_runtime.player1_slot);
+            if (previous_weapon &&
+                previous_weapon->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
+                source_weapon->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
+                previous_weapon->source_asset_id == source_weapon->source_asset_id &&
+                previous_weapon->source_bytes == source_weapon->source_bytes &&
+                previous_weapon->source_byte_count == source_weapon->source_byte_count &&
+                previous_weapon->frame_index != source_weapon->frame_index) {
+                if (presentation_weapon->presentation_interpolate_vector_frame == 0u ||
+                    presentation_weapon->presentation_previous_frame_index !=
+                        previous_weapon->frame_index ||
+                    presentation_weapon->presentation_frame_interpolation_alpha !=
+                        game_vblank_clock_interpolation_alpha(&vblank_clock)) {
+                    fprintf(stderr,
+                            "Shotgun presentation did not retain its two source animation frames\n");
+                    goto cleanup;
+                }
+                saw_shotgun_frame_blend = UINT8_MAX;
             }
         }
     }
     if (source_vblanks != 50u || vblank_clock.remainder_counter_units != 0u ||
-        baseline_captured == 0u || saw_rocket_action == 0u) {
+        baseline_captured == 0u || saw_shotgun_action == 0u ||
+        saw_shotgun_frame_blend == 0u) {
         fprintf(stderr,
-                "Rocket Launcher animation did not complete its fixed 50 Hz source trace\n");
+                "Shotgun animation did not complete its fixed 50 Hz source trace\n");
         goto cleanup;
     }
-    if (game.session.player1_inventory.ammunition[rocket_shoot.bullet_type] !=
-        (uint16_t)(1000u - rocket_shoot.bullet_count)) {
-        fprintf(stderr, "Rocket Launcher present-rate regression did not fire exactly once\n");
+    if (game.session.player1_inventory.ammunition[shotgun_shoot.bullet_type] !=
+        (uint16_t)(1000u - shotgun_shoot.bullet_count)) {
+        fprintf(stderr, "Shotgun present-rate regression did not fire exactly once\n");
         goto cleanup;
     }
     *out_source_trace = source_trace;
@@ -1087,7 +1115,7 @@ cleanup:
     return succeeded != 0u;
 }
 
-static int level_data_verify_rocket_animation_present_rates(const char *data_root)
+static int level_data_verify_shotgun_animation_present_rates(const char *data_root)
 {
     static const uint32_t host_present_rates[] = {60u, 120u, 144u, 240u};
     uint64_t expected_source_trace = 0u;
@@ -1097,7 +1125,7 @@ static int level_data_verify_rocket_animation_present_rates(const char *data_roo
          ++rate_index) {
         uint64_t source_trace = 0u;
 
-        if (!level_data_run_rocket_animation_present_rate(
+        if (!level_data_run_shotgun_animation_present_rate(
                 data_root, host_present_rates[rate_index], &source_trace)) {
             return 0;
         }
@@ -1105,7 +1133,7 @@ static int level_data_verify_rocket_animation_present_rates(const char *data_roo
             expected_source_trace = source_trace;
         } else if (source_trace != expected_source_trace) {
             fprintf(stderr,
-                    "Rocket Launcher animation trace differs at %u Hz presentation\n",
+                    "Shotgun animation trace differs at %u Hz presentation\n",
                     host_present_rates[rate_index]);
             return 0;
         }
@@ -1310,7 +1338,7 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    if (!level_data_verify_rocket_animation_present_rates(argv[1])) {
+    if (!level_data_verify_shotgun_animation_present_rates(argv[1])) {
         return 1;
     }
     {
@@ -1457,6 +1485,57 @@ int main(int argc, char **argv)
             scene_frame_destroy(&current);
             scene_frame_destroy(&previous);
             return 1;
+        }
+        {
+            static const uint8_t shotgun_vector_model[] = {0u};
+            const SceneSprite *presentation_weapon;
+
+            /*
+             * newaliencontrol.s:ACTANIMOBJ changes the PLAYER1 companion's
+             * authored frame on a source VBlank.  Presentation must retain
+             * both matching endpoints for the renderer to blend its vertices,
+             * without replacing the current discrete source frame.
+             */
+            previous_sprite.data.sprite_instance.source_mesh_id = 4u;
+            previous_sprite.data.sprite_instance.sprite.source_record_id = 7u;
+            previous_sprite.data.sprite_instance.sprite.source =
+                SCENE_SPRITE_SOURCE_VECTOR_MODEL;
+            previous_sprite.data.sprite_instance.sprite.presentation =
+                SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON;
+            previous_sprite.data.sprite_instance.sprite.source_asset_id = 4u;
+            previous_sprite.data.sprite_instance.sprite.source_bytes = shotgun_vector_model;
+            previous_sprite.data.sprite_instance.sprite.source_byte_count =
+                sizeof(shotgun_vector_model);
+            previous_sprite.data.sprite_instance.sprite.frame_index = 1u;
+            current_sprite = previous_sprite;
+            current_sprite.data.sprite_instance.sprite.frame_index = 2u;
+            previous.commands[2u] = previous_sprite;
+            current.commands[2u] = current_sprite;
+            if (!scene_frame_interpolate(&presentation, &previous, &current, 0.25f) ||
+                !(presentation_weapon = &presentation.commands[2u].data.sprite_instance.sprite) ||
+                presentation_weapon->frame_index != 2u ||
+                presentation_weapon->presentation_previous_frame_index != 1u ||
+                presentation_weapon->presentation_frame_interpolation_alpha != 0.25f ||
+                presentation_weapon->presentation_interpolate_vector_frame == 0u) {
+                fprintf(stderr,
+                        "view-weapon source-frame presentation interpolation is inconsistent\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                return 1;
+            }
+            current_sprite.data.sprite_instance.sprite.source_asset_id = 5u;
+            current.commands[2u] = current_sprite;
+            if (!scene_frame_interpolate(&presentation, &previous, &current, 0.25f) ||
+                presentation.commands[2u].data.sprite_instance.sprite
+                    .presentation_interpolate_vector_frame != 0u) {
+                fprintf(stderr,
+                        "view-weapon interpolation crossed a source-model boundary\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                return 1;
+            }
         }
         scene_frame_destroy(&presentation);
         scene_frame_destroy(&current);
@@ -6209,6 +6288,7 @@ int main(int argc, char **argv)
     {
         SceneViewWeaponProjection projection = {0};
         SourceVectorEyePoint point;
+        SourceVectorEyePoint interpolated_point;
         float matrix[16];
 
         /* objdrawhires.s:rotate_object applies one common transform to every model. */
@@ -6224,9 +6304,14 @@ int main(int argc, char **argv)
             source_vector_texture_coordinate(0x56u, 0x80u) != (int16_t)UINT16_C(0x8056) ||
             !source_vector_transform_view_weapon_point(
                 &projection, 4, -2, 6, &point) ||
+            !source_vector_transform_view_weapon_interpolated_point(
+                &projection, 4.5f, -1.5f, 5.5f, &interpolated_point) ||
             !source_vector_make_view_weapon_matrix(
                 &projection, 16.0f / 9.0f, matrix) ||
             point.x != 255.0f || point.y != 0.0f || point.z != -5.0f ||
+            interpolated_point.x < 287.9f || interpolated_point.x > 288.1f ||
+            interpolated_point.y != -32.0f ||
+            interpolated_point.z < -5.8f || interpolated_point.z > -5.7f ||
             matrix[0] < 0.00780f || matrix[0] > 0.00782f ||
             matrix[5] < 0.01388f || matrix[5] > 0.01390f) {
             fprintf(stderr, "source vector decoding/projection is inconsistent: %s\n",

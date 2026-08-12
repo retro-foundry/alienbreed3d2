@@ -73,6 +73,30 @@ int source_vector_transform_view_weapon_point(
     return 1;
 }
 
+int source_vector_transform_view_weapon_interpolated_point(
+    const SceneViewWeaponProjection *projection,
+    float source_x, float source_y, float source_z,
+    SourceVectorEyePoint *out_point)
+{
+    if (!projection || !out_point || projection->depth_bias <= 0) {
+        return 0;
+    }
+
+    /*
+     * This runs only for 0 < presentation alpha < 1.  It is the continuous
+     * equivalent of objdrawhires.s:rotate_object, applied after the source
+     * chose its two discrete 50 Hz action frames.  The exact integer routine
+     * above still handles both endpoints.
+     */
+    out_point->x = (source_x * (float)projection->sine -
+                    source_z * (float)projection->cosine) / 512.0f;
+    out_point->y = -(source_y * 64.0f + (float)projection->y_offset);
+    out_point->z = -((source_z * (float)projection->sine +
+                      source_x * (float)projection->cosine) / 65536.0f +
+                     (float)projection->depth_bias);
+    return 1;
+}
+
 int source_vector_make_view_weapon_matrix(
     const SceneViewWeaponProjection *projection, float drawable_aspect,
     float out_matrix[16])

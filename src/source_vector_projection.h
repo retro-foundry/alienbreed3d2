@@ -22,6 +22,17 @@ int source_vector_transform_view_weapon_point(
     SourceVectorEyePoint *out_point);
 
 /*
+ * Presentation-only counterpart used between two valid source vector frames.
+ * Endpoint rendering continues to use source_vector_transform_view_weapon_point
+ * so the original 68000 fixed-point result remains authoritative at every
+ * 50 Hz VBlank snapshot.
+ */
+int source_vector_transform_view_weapon_interpolated_point(
+    const SceneViewWeaponProjection *projection,
+    float source_x, float source_y, float source_z,
+    SourceVectorEyePoint *out_point);
+
+/*
  * Perspective matrix for the source-authored weapon projection.  The source
  * vertical scale is retained while the horizontal scale is fitted to the
  * actual desktop aspect ratio, avoiding widescreen stretching.

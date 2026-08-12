@@ -263,6 +263,16 @@ typedef struct {
     uint32_t source_asset_id;
     uint32_t source_record_id;
     uint16_t frame_index;
+    /*
+     * Presentation-only source-frame blend. hires.s:VBlankInterrupt calls
+     * dosomething at 50 Hz and newaliencontrol.s:ACTANIMOBJ selects one
+     * discrete companion action frame per source update.  A host presentation
+     * between two completed snapshots retains that source cadence and blends
+     * only the matching vector-model vertices for PLAYER1_VIEW_WEAPON.
+     */
+    uint16_t presentation_previous_frame_index;
+    float presentation_frame_interpolation_alpha;
+    uint8_t presentation_interpolate_vector_frame;
     uint16_t yaw;
     uint16_t source_brightness;
     int16_t source_light_level;
