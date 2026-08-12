@@ -5311,25 +5311,30 @@ int main(int argc, char **argv)
         int32_t source_player_y = game.player.y;
         int32_t source_bobble_y = game.player.bobble_y;
 
-        /* Source bob still drives the companion, never the modern 3D eye. */
+        /*
+         * hires.s places Plr1_YOff_l directly in Plr_YOff_l before drawing.
+         * newplayershoot.s launches from that same bobbed coordinate, so any
+         * presentation-only removal would pull the projectile away from the
+         * weapon's source-space bore.
+         */
         game.player.y = source_player_y - 4096 + 512;
         game.player.bobble_y = 512;
         scene_frame_begin(&frame);
         if (!game_bootstrap_submit_scene_frame(&game, &frame) ||
-            frame.commands[0].data.camera.position.y != source_player_y - 4096) {
-            fprintf(stderr, "3D camera inherited source screen-space bob\n");
+            frame.commands[0].data.camera.position.y != game.player.y) {
+            fprintf(stderr, "3D camera does not preserve the source eye coordinate\n");
             scene_frame_destroy(&frame);
             game_bootstrap_destroy(&game);
             return 1;
         }
 
-        /* The source fall step may briefly overshoot; its 3D presentation cannot. */
+        /* Preserve even the source fall-step overshoot; it shares the shot frame. */
         game.player.y = zone.floor;
         game.player.bobble_y = 0;
         scene_frame_begin(&frame);
         if (!game_bootstrap_submit_scene_frame(&game, &frame) ||
-            frame.commands[0].data.camera.position.y != zone.floor - game.player.height) {
-            fprintf(stderr, "3D camera floor contact is inconsistent\n");
+            frame.commands[0].data.camera.position.y != zone.floor) {
+            fprintf(stderr, "3D camera altered the source fall coordinate\n");
             scene_frame_destroy(&frame);
             game_bootstrap_destroy(&game);
             return 1;

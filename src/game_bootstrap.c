@@ -912,40 +912,12 @@ static int game_bootstrap_scene_sky_enabled(const GameBootstrap *game)
             (uint8_t)(1u << (game->player.zone_index & 7u))) == 0u;
 }
 
-/*
- * modules/player.s adds its screen-space bob to PlrT_YOff_l before drawing.
- * Retain that value for collision and the ENT_NEXT_2 companion, but remove it
- * from the true 3D camera: moving the eye itself makes the entire world bob as
- * if it were still the source column projection. plr_Fall can also let its
- * fixed-point state cross SnapTYOff by one tick, so constrain the resulting
- * presentation-only eye position to the selected sector contact plane.
- */
-static int game_bootstrap_scene_camera_y(const GameBootstrap *game, int32_t *out_y)
-{
-    LevelZone zone;
-    int32_t camera_y;
-    int32_t contact_y;
-
-    if (!game || !out_y ||
-        !level_runtime_get_zone(&game->dynamic_level.runtime, game->player.zone_index, &zone,
-                                NULL, 0u)) {
-        return 0;
-    }
-    camera_y = (int32_t)((uint32_t)game->player.y -
-                         (uint32_t)game->player.bobble_y);
-    contact_y = (game->player.stood_in_top != 0u ? zone.upper_floor : zone.floor) -
-        game->player.height;
-    *out_y = camera_y > contact_y ? contact_y : camera_y;
-    return 1;
-}
-
 int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
 {
     SceneCommand command;
     size_t primitive_count;
     uint32_t sprite_count;
     size_t required_commands;
-    int32_t scene_camera_y;
     size_t static_surface_count = 0u;
     GameBootstrapDynamicMeshGroup dynamic_groups[
         GAME_BOOTSTRAP_DYNAMIC_MESH_GROUP_CAPACITY] = {{0}};
@@ -996,13 +968,18 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
             !scene_frame_reserve_mesh_surfaces(frame, primitive_count)) {
             return 0;
         }
-        if (!game_bootstrap_refresh_scene_lighting(game) ||
-            !game_bootstrap_scene_camera_y(game, &scene_camera_y)) {
+        if (!game_bootstrap_refresh_scene_lighting(game)) {
             return 0;
         }
         command.type = SCENE_COMMAND_CAMERA;
         command.data.camera.position.x = player_runtime_position_to_world(game->player.x);
-        command.data.camera.position.y = scene_camera_y;
+        /*
+         * hires.s installs this exact Plr1_YOff_l value in Plr_YOff_l before
+         * drawing.  newplayershoot.s uses the same value for every launch
+         * height, so the eye, projectile and camera-space weapon must retain
+         * this shared (including bobbed) source coordinate frame.
+         */
+        command.data.camera.position.y = game->player.y;
         command.data.camera.position.z = player_runtime_position_to_world(game->player.z);
         command.data.camera.source_position_x_16_16 = game->player.presentation_x;
         command.data.camera.source_position_z_16_16 = game->player.presentation_z;
