@@ -276,10 +276,11 @@ typedef struct {
     float presentation_frame_interpolation_alpha;
     uint8_t presentation_interpolate_vector_frame;
     /*
-     * Nonzero only for world vector aliens driven by hires.s:DOALLANIMS.
-     * It is the authored number of 50 Hz ticks between pose selections, not a
-     * renderer timing constant. SceneVectorPoseHistory uses it to retain the
-     * preceding compiled frame for the complete source interval.
+     * Nonzero only for world vector alien parts driven by hires.s:DOALLANIMS.
+     * This includes an authored OBJ_PREV auxiliary part. It is the number of
+     * 50 Hz ticks between pose selections, not a renderer timing constant.
+     * SceneVectorPoseHistory retains the preceding compiled frame for that
+     * complete source interval.
      */
     uint8_t presentation_vector_frame_interval_ticks;
     /*

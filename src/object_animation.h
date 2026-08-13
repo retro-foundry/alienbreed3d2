@@ -47,6 +47,15 @@ uint8_t *object_animation_runtime_workspace(ObjectAnimationRuntime *runtime,
                                             uint32_t slot_index);
 
 /*
+ * Presentation cadence owned by hires.s:DOALLANIMS. Alien records and a live
+ * vector AUX record immediately preceding its alien are selected by the same
+ * five-tick pass. Other ObjT records return zero because their art cadence is
+ * owned by a different source path.
+ */
+uint8_t object_animation_source_frame_interval_ticks_for_slot(
+    const ObjectRuntime *objects, uint32_t slot_index);
+
+/*
  * hires.s:DOALLANIMS, called first by hires.s:dosomething.  It preserves the
  * source five-tick low-byte counter, live ObjT sentinel/zone/worry gates, and
  * alien timer/action/special-frame state.  The source MakeSomeNoise call at

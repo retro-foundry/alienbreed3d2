@@ -529,7 +529,8 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                     SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON :
                     SCENE_SPRITE_PRESENTATION_WORLD_OBJECT) ||
                 sprite->presentation_vector_frame_interval_ticks !=
-                    ((int8_t)slot[16u] < 1 ? OBJECT_ANIMATION_SOURCE_FRAME_TICKS : 0u) ||
+                    object_animation_source_frame_interval_ticks_for_slot(
+                        &game->object_runtime, slot_index) ||
                 sprite->source_width != 0u || sprite->source_height != 0u ||
                 sprite->source_effect != 0u || sprite->flags != expected_flags ||
                 sprite->frame_metrics.pointer_table_index != 0u ||
@@ -611,6 +612,119 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
         ++command_count;
     }
     return command_count == expected_count;
+}
+
+static int source_vector_enemy_catalog_is_interpolatable(
+    const GameBootstrap *game, uint32_t *out_vector_enemy_count,
+    char *error, size_t error_size)
+{
+    /* hires.s:DOALLANIMS maps EntT_WhichAnim 0..3 to these four option tables. */
+    static const uint8_t source_options[] = {0u, 8u, 9u, 10u};
+    uint32_t vector_enemy_count = 0u;
+
+    if (!game || !out_vector_enemy_count) {
+        (void)snprintf(error, error_size,
+                       "vector-enemy catalog check received invalid state");
+        return 0;
+    }
+    for (uint16_t alien_index = 0u; alien_index < GAME_LINK_ALIEN_COUNT;
+         ++alien_index) {
+        GameAlienDefinition definition;
+        uint16_t source_asset_id = UINT16_MAX;
+        int has_pose_transition = 0;
+
+        if (!game_link_get_alien_definition(
+                &game->game_link_catalog, alien_index, &definition,
+                error, error_size)) {
+            return 0;
+        }
+        /* modules/ai.s:ai_DoWalkAnim's AI_VecObj_w == 1 vector branch. */
+        if (definition.graphics_type != 1u) {
+            continue;
+        }
+        ++vector_enemy_count;
+        for (size_t option_list_index = 0u;
+             option_list_index < sizeof(source_options) / sizeof(source_options[0u]);
+             ++option_list_index) {
+            uint8_t option = source_options[option_list_index];
+            uint16_t previous_model_frame = UINT16_MAX;
+            uint16_t option_frame_count = 0u;
+
+            for (uint16_t source_frame_index = 0u;
+                 source_frame_index < GAME_LINK_ALIEN_ANIMATION_FRAME_COUNT;
+                 ++source_frame_index) {
+                GameAlienAnimationFrame source_frame;
+                int16_t display_frame;
+                uint16_t model_frame;
+                int16_t minimum_y;
+                int16_t maximum_y;
+
+                if (!game_link_get_alien_animation_frame(
+                        &game->game_link_catalog, alien_index, option,
+                        source_frame_index, &source_frame, error, error_size)) {
+                    return 0;
+                }
+                /* DOALLANIMS uses a negative first byte as the sequence sentinel. */
+                if ((int8_t)source_frame.bytes[0u] < 0) {
+                    break;
+                }
+                display_frame = (int8_t)source_frame.bytes[1u];
+                if (display_frame <= 0) {
+                    display_frame = (int16_t)-display_frame;
+                }
+                if (display_frame == 0) {
+                    (void)snprintf(error, error_size,
+                                   "vector alien %u option %u has source frame zero",
+                                   alien_index, option);
+                    return 0;
+                }
+                model_frame = (uint16_t)(display_frame - 1);
+                if (source_asset_id == UINT16_MAX) {
+                    source_asset_id = source_frame.bytes[0u];
+                } else if (source_asset_id != source_frame.bytes[0u]) {
+                    (void)snprintf(
+                        error, error_size,
+                        "vector alien %u changes compiled assets inside its animation",
+                        alien_index);
+                    return 0;
+                }
+                if (source_asset_id >= game->shared_resources.vector_count ||
+                    !game->shared_resources.vector_models[source_asset_id].bytes ||
+                    !source_vector_model_frame_y_bounds(
+                        game->shared_resources.vector_models[source_asset_id].bytes,
+                        game->shared_resources.vector_models[source_asset_id].size,
+                        model_frame, &minimum_y, &maximum_y)) {
+                    (void)snprintf(
+                        error, error_size,
+                        "vector alien %u option %u references invalid model frame %u",
+                        alien_index, option, model_frame);
+                    return 0;
+                }
+                (void)minimum_y;
+                (void)maximum_y;
+                if (previous_model_frame != UINT16_MAX &&
+                    previous_model_frame != model_frame) {
+                    has_pose_transition = 1;
+                }
+                previous_model_frame = model_frame;
+                ++option_frame_count;
+            }
+            if (option_frame_count == 0u) {
+                (void)snprintf(error, error_size,
+                               "vector alien %u has no option %u animation",
+                               alien_index, option);
+                return 0;
+            }
+        }
+        if (!has_pose_transition) {
+            (void)snprintf(error, error_size,
+                           "vector alien %u has no interpolatable pose transition",
+                           alien_index);
+            return 0;
+        }
+    }
+    *out_vector_enemy_count = vector_enemy_count;
+    return 1;
 }
 
 static int scene_frame_find_instance_layout(const SceneFrame *frame,
@@ -1823,6 +1937,33 @@ int main(int argc, char **argv)
         scene_frame_destroy(&current);
         scene_frame_destroy(&previous);
     }
+    {
+        uint8_t slot_bytes[2u * OBJECT_RUNTIME_SLOT_BYTE_COUNT] = {0};
+        ObjectRuntime cadence_objects = {0};
+
+        cadence_objects.slot_bytes = slot_bytes;
+        cadence_objects.slot_count = 2u;
+        cadence_objects.active_slot_count = 2u;
+        slot_bytes[16u] = 3u; /* defs.i:OBJ_TYPE_AUX / modules/ai.s:OBJ_PREV. */
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 0u;
+        write_be16(slot_bytes + OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u, 1u);
+        if (object_animation_source_frame_interval_ticks_for_slot(
+                &cadence_objects, 0u) != OBJECT_ANIMATION_SOURCE_FRAME_TICKS ||
+            object_animation_source_frame_interval_ticks_for_slot(
+                &cadence_objects, 1u) != OBJECT_ANIMATION_SOURCE_FRAME_TICKS) {
+            fprintf(stderr,
+                    "DOALLANIMS did not associate an alien and its AUX pose cadence\n");
+            return 1;
+        }
+        slot_bytes[OBJECT_RUNTIME_SLOT_BYTE_COUNT + 16u] = 1u;
+        if (object_animation_source_frame_interval_ticks_for_slot(
+                &cadence_objects, 0u) != 0u ||
+            object_animation_source_frame_interval_ticks_for_slot(
+                &cadence_objects, 1u) != 0u) {
+            fprintf(stderr, "non-alien ObjT records inherited alien pose cadence\n");
+            return 1;
+        }
+    }
     alien_runtime_init(&alien_runtime);
     if (alien_runtime.no_enemies != 0u) {
         fprintf(stderr, "source AI_NoEnemies BSS initialization is inconsistent\n");
@@ -2718,6 +2859,26 @@ int main(int argc, char **argv)
                 0u, -300 * 128, &mantis_projectile_adjustment) ||
             mantis_projectile_adjustment != 20512) {
             fprintf(stderr, "Mantis rocket/model launch attachment is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+    }
+    {
+        uint32_t vector_enemy_count = 0u;
+
+        /*
+         * Exercise every compiled frame referenced by every source vector
+         * AlienT across walk, attack, hit and death. The original catalog has
+         * Wasp, Mantis and Crab bosses; keeping this count explicit prevents a
+         * later per-enemy special case from silently omitting one of them.
+         */
+        if (!source_vector_enemy_catalog_is_interpolatable(
+                &game, &vector_enemy_count, error, sizeof(error)) ||
+            vector_enemy_count != 3u) {
+            fprintf(stderr,
+                    "source vector-enemy animation catalog is inconsistent "
+                    "(count=%u): %s\n",
+                    vector_enemy_count, error);
             game_bootstrap_destroy(&game);
             return 1;
         }

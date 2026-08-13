@@ -15,7 +15,8 @@ enum {
     OBJECT_ANIMATION_SLOT_ENTITY_TYPE = 54u,
     OBJECT_ANIMATION_SLOT_WHICH_ANIMATION = 55u,
     OBJECT_ANIMATION_SLOT_WORRY = 62u,
-    OBJECT_ANIMATION_TYPE_OBJECT = 1u
+    OBJECT_ANIMATION_TYPE_OBJECT = 1u,
+    OBJECT_ANIMATION_TYPE_AUXILIARY = 3u
 };
 
 static void object_animation_set_error(char *error, size_t error_size, const char *message)
@@ -132,6 +133,37 @@ uint8_t *object_animation_runtime_workspace(ObjectAnimationRuntime *runtime,
     }
     return runtime->extended_workspace +
         (size_t)extended_slot_index * OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT;
+}
+
+uint8_t object_animation_source_frame_interval_ticks_for_slot(
+    const ObjectRuntime *objects, uint32_t slot_index)
+{
+    const uint8_t *slot;
+
+    if (!objects || !objects->slot_bytes ||
+        objects->active_slot_count > objects->slot_count ||
+        slot_index >= objects->active_slot_count) {
+        return 0u;
+    }
+    slot = objects->slot_bytes +
+        (size_t)slot_index * OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+    if ((int8_t)slot[OBJECT_ANIMATION_SLOT_TYPE_ID] <
+        (int8_t)OBJECT_ANIMATION_TYPE_OBJECT) {
+        return OBJECT_ANIMATION_SOURCE_FRAME_TICKS;
+    }
+    if (slot[OBJECT_ANIMATION_SLOT_TYPE_ID] == OBJECT_ANIMATION_TYPE_AUXILIARY &&
+        slot_index + 1u < objects->active_slot_count) {
+        const uint8_t *alien_slot = slot + OBJECT_RUNTIME_SLOT_BYTE_COUNT;
+
+        /* modules/ai.s:ai_DoWalkAnim owns OBJ_PREV as this alien's AUX record. */
+        if ((int8_t)alien_slot[OBJECT_ANIMATION_SLOT_TYPE_ID] <
+                (int8_t)OBJECT_ANIMATION_TYPE_OBJECT &&
+            (int16_t)object_animation_read_be16(
+                alien_slot + OBJECT_ANIMATION_SLOT_ZONE_ID) >= 0) {
+            return OBJECT_ANIMATION_SOURCE_FRAME_TICKS;
+        }
+    }
+    return 0u;
 }
 
 int object_animation_update_single_player_with_audio(ObjectAnimationRuntime *runtime,
