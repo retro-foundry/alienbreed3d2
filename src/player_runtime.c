@@ -1425,6 +1425,8 @@ int player_runtime_update_spatial_with_motion_and_audio(
 
         /* hires.s:Plr1_Control's .nothitanything -> objectmove.s:MoveObject. */
         movement.zone_index = player->zone_index;
+        /* move.b Plr1_StoodInTop_b,StoodInTop immediately precedes MoveObject. */
+        movement.stood_in_top = player->stood_in_top;
         movement.old_x = old_x;
         movement.old_z = old_z;
         movement.new_x = new_x;

@@ -461,7 +461,10 @@ sound effects and music now play through the SDL WAV backend.
   exit-first impact, a passable joined-zone crossing, and the authored first
   alien-girth extension (`40`) through `checkotherwalls`. An authored Level C
   bridge regression crosses from lower Zone 69 into Zone 70's upper room and
-  verifies both `StoodInTop` and the upper-floor player snap target. The explicit
+  then traverses the complete bridge into Zone 163, verifying that
+  `Plr1_Control` seeds every subsequent `MoveObject` call from
+  `Plr1_StoodInTop_b` and retains the upper-floor snap target until the authored
+  upper-to-lower exit. The explicit
   zero-extension wrapper remains the bounded `newplayershoot.s` caller.
   `src/player_shoot.*` now also translates
   `plr1_HitscanFailed` itself: the no-target branch advances `GetRand` once

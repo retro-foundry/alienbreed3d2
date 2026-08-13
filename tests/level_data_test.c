@@ -3050,6 +3050,7 @@ int main(int argc, char **argv)
             LevelZone bridge_zone;
             PlayerRuntime bridge_player = {0};
             GameInput bridge_input;
+            uint16_t bridge_step;
 
             game_input_init(&bridge_input);
             bridge_player.x = player_runtime_world_to_position(3376);
@@ -3091,6 +3092,34 @@ int main(int argc, char **argv)
                 level_dynamic_state_destroy(&bridge_state);
                 game_bootstrap_destroy(&game);
                 return 1;
+            }
+            for (bridge_step = 1u; bridge_step <= 31u; ++bridge_step) {
+                int16_t expected_x = (int16_t)(3472 + (int16_t)bridge_step * 16);
+                int16_t expected_z = (int16_t)(-2384 - (int16_t)bridge_step * 16);
+
+                bridge_player.snap_x = player_runtime_world_to_position(expected_x);
+                bridge_player.snap_z = player_runtime_world_to_position(expected_z);
+                if (!player_runtime_update_spatial(
+                        &bridge_player, &bridge_input, &control_defaults,
+                        &game.preferences, &game.math, &bridge_state.runtime,
+                        &bridge_state, error, sizeof(error)) ||
+                    bridge_player.zone_index !=
+                        (bridge_step <= 29u ? LEVEL_C_BRIDGE_ZONE : 163u) ||
+                    (bridge_player.stood_in_top != 0u) != (bridge_step <= 29u) ||
+                    bridge_player.snap_y != -LEVEL_C_PLAYER_HEIGHT ||
+                    bridge_player.snap_target_y != -LEVEL_C_PLAYER_HEIGHT) {
+                    fprintf(stderr,
+                            "LEVEL_C player lost bridge support on step %u: "
+                            "zone=%u top=%u y=%d target=%d x=%d z=%d: %s\n",
+                            bridge_step, bridge_player.zone_index,
+                            bridge_player.stood_in_top, bridge_player.snap_y,
+                            bridge_player.snap_target_y,
+                            player_runtime_position_to_world(bridge_player.x),
+                            player_runtime_position_to_world(bridge_player.z), error);
+                    level_dynamic_state_destroy(&bridge_state);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
             }
             level_dynamic_state_destroy(&bridge_state);
         }
