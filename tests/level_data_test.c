@@ -9714,7 +9714,7 @@ int main(int argc, char **argv)
         fire_player.source_z_difference = -32;
         fire_alien_setup.shot_y_offset = 1234;
         fire_alien_setup.shot_offset_multiplier = 128;
-        fire_alien_setup.vector_object_flag = UINT8_MAX;
+        fire_alien_setup.vector_object_flag = 1u;
         fire_alien_setup.zone_echo = 5u;
         write_be16(slot_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 8u, 14u);
         write_be16(slot_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 10u, 3u);
@@ -9839,6 +9839,31 @@ int main(int argc, char **argv)
             fire_objects.alien_shot_presentation[0u].frame_index != 3u ||
             fire_objects.alien_shot_presentation[0u].source_y_offset != 1234) {
             fprintf(stderr, "FireAtPlayer1 source projectile state is inconsistent: %s\n", error);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        /*
+         * AI_VecObj_w values 2..5 are bitmap lighting classes, not vector
+         * models. Their effect/frame bytes must never become a compiled-model
+         * launch anchor when that projectile pool slot is reused.
+         */
+        write_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT *
+                       OBJECT_RUNTIME_SLOT_BYTE_COUNT + 12u,
+                   UINT16_MAX);
+        fire_alien_setup.vector_object_flag = 2u;
+        spawned = 0u;
+        game_audio_events_begin(&fire_audio);
+        if (!alien_attack_fire_at_player_one(
+                &fire_objects, FIRE_ALIEN_SLOT, &fire_player, &fire_alien_setup,
+                &fire_attack_setup, &fire_observation, &fire_audio,
+                &spawned, error, sizeof(error)) ||
+            spawned != UINT8_MAX || fire_audio.count != 1u ||
+            memcmp(&fire_objects.alien_shot_presentation[0u],
+                   &(ObjectAlienShotPresentation){0},
+                   sizeof(fire_objects.alien_shot_presentation[0u])) != 0) {
+            fprintf(stderr,
+                    "FireAtPlayer1 bitmap-light projectile presentation is inconsistent: %s\n",
+                    error);
             game_bootstrap_destroy(&game);
             return 1;
         }

@@ -286,7 +286,7 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
      * vector frame emitted it for the renderer-neutral scene presentation.
      * A reused alien-shot slot always replaces its old presentation link.
      */
-    if (alien_setup->vector_object_flag != 0u && !objects->alien_shot_presentation) {
+    if (alien_setup->vector_object_flag == 1u && !objects->alien_shot_presentation) {
         alien_attack_set_error(
             error, error_size,
             "FireAtPlayer1 vector projectile has no presentation runtime");
@@ -296,7 +296,12 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
         memset(&objects->alien_shot_presentation[shot_index], 0,
                sizeof(objects->alien_shot_presentation[shot_index]));
     }
-    if (alien_setup->vector_object_flag != 0u) {
+    /*
+     * modules/ai.s:ai_DoWalkAnim treats only AI_VecObj_w == 1 as a vector
+     * model. Values above one are bitmap lighting/effect classes; their
+     * ObjT effect byte is therefore not the high byte of a vector frame.
+     */
+    if (alien_setup->vector_object_flag == 1u) {
         objects->alien_shot_presentation[shot_index].anchor_to_vector_model = UINT8_MAX;
         objects->alien_shot_presentation[shot_index].source_asset_id =
             alien_attack_read_be16(alien_slot + ALIEN_ATTACK_SLOT_GRAPHICS_TYPE);
