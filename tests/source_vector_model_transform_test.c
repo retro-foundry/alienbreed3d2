@@ -30,6 +30,19 @@ static int expect_offset(float source_x, float source_y, float source_z,
 int main(void)
 {
     SourceVectorModelWorldOffset forward;
+    static const uint8_t bounds_model[] = {
+        0x00u, 0x00u, /* unsorted */
+        0x00u, 0x02u, /* two points */
+        0x00u, 0x01u, /* one frame */
+        0x00u, 0x08u, 0x00u, 0x00u, /* frame/angle pointers relative to +2 */
+        0x00u, 0x00u, 0x00u, 0x01u, /* on/off mask */
+        0x00u, 0x00u,             /* two point-angle bytes */
+        0x00u, 0x01u, 0xffu, 0xf4u, 0x00u, 0x02u, /* y=-12 */
+        0x00u, 0x03u, 0x00u, 0x22u, 0x00u, 0x04u  /* y=34 */
+    };
+    int16_t minimum_y;
+    int16_t maximum_y;
+    int32_t adjustment;
 
     /* One authored unit has the same quarter-unit scale on every world axis. */
     if (!expect_offset(4.0f, 0.0f, 0.0f, 4096u, 1.0f, 0.0f, 0.0f,
@@ -59,6 +72,21 @@ int main(void)
         !close_enough(forward.z, 0.7071068f)) {
         fprintf(stderr, "intermediate vector facing is inconsistent: (%f, %f)\n",
                 forward.x, forward.z);
+        return 1;
+    }
+
+    if (!source_vector_model_frame_y_bounds(
+            bounds_model, sizeof(bounds_model), 0u, &minimum_y, &maximum_y) ||
+        minimum_y != -12 || maximum_y != 34 ||
+        !source_vector_model_projectile_y_adjustment(
+            bounds_model, sizeof(bounds_model), 0u, -1024, &adjustment) ||
+        adjustment != 640 ||
+        !source_vector_model_projectile_y_adjustment(
+            bounds_model, sizeof(bounds_model), 0u, -128, &adjustment) ||
+        adjustment != 0 ||
+        source_vector_model_frame_y_bounds(
+            bounds_model, sizeof(bounds_model), 1u, &minimum_y, &maximum_y)) {
+        fprintf(stderr, "vector frame bounds/projectile attachment is inconsistent\n");
         return 1;
     }
     return 0;

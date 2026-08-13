@@ -15,6 +15,20 @@ enum {
 };
 
 /*
+ * Presentation-only link between a FireAtPlayer1 alien-shot slot and the
+ * source vector frame which fired it.  The 68000 simulation keeps using the
+ * exact ShotT point and SHOTYOFF trajectory; a 3D presenter can use this
+ * immutable launch description to keep that path visually attached to the
+ * authored model boundary without writing back into source state.
+ */
+typedef struct {
+    uint8_t anchor_to_vector_model;
+    uint16_t source_asset_id;
+    uint16_t frame_index;
+    int32_t source_y_offset;
+} ObjectAlienShotPresentation;
+
+/*
  * Owned, big-endian runtime storage mirroring the parts of twolev.bin that
  * Game_Begin later mutates. It includes the terminating ObjT slot so a future
  * ObjectHandler translation can retain the source's first-word -1 sentinel.
@@ -33,6 +47,7 @@ typedef struct {
     uint32_t player2_slot;
     uint8_t *point_bytes;
     uint32_t point_count;
+    ObjectAlienShotPresentation *alien_shot_presentation;
 } ObjectRuntime;
 
 int object_runtime_init(ObjectRuntime *out_runtime, const LevelRuntime *level_runtime,

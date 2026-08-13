@@ -17,6 +17,8 @@ enum {
     /* defs.i: ObjT/EntT/ShotT fields used by ai_AttackCommon/FireAtPlayer1. */
     ALIEN_ATTACK_SLOT_POINT_INDEX = 0u,
     ALIEN_ATTACK_SLOT_Y_POSITION = 4u,
+    ALIEN_ATTACK_SLOT_GRAPHICS_TYPE = 8u,
+    ALIEN_ATTACK_SLOT_EFFECT = 10u,
     ALIEN_ATTACK_SLOT_ZONE_ID = 12u,
     ALIEN_ATTACK_SLOT_TYPE_ID = 16u,
     ALIEN_ATTACK_SLOT_SEES_PLAYER = 17u,
@@ -222,6 +224,7 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
     uint8_t *player_slot;
     uint8_t *shot_slot = NULL;
     uint8_t *shot_point;
+    uint32_t shot_index;
     ObjectApproach approach = {0};
     int16_t lead;
     int16_t player_height;
@@ -254,7 +257,7 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
     }
 
     /* AI_AlienShotDataPtr_l is scanned in source pool order for a negative zone. */
-    for (uint32_t shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+    for (shot_index = 0u; shot_index < OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
          ++shot_index) {
         if (!object_runtime_get_alien_shot_slot_bytes(objects, shot_index, &shot_slot)) {
             alien_attack_set_error(error, error_size,
@@ -276,6 +279,31 @@ int alien_attack_fire_at_player_one(ObjectRuntime *objects, uint32_t alien_slot_
         alien_attack_set_error(error, error_size,
                                "FireAtPlayer1 shot slot has an invalid source point");
         return 0;
+    }
+
+    /*
+     * Keep the source ShotT allocation pristine, but retain which authored
+     * vector frame emitted it for the renderer-neutral scene presentation.
+     * A reused alien-shot slot always replaces its old presentation link.
+     */
+    if (alien_setup->vector_object_flag != 0u && !objects->alien_shot_presentation) {
+        alien_attack_set_error(
+            error, error_size,
+            "FireAtPlayer1 vector projectile has no presentation runtime");
+        return 0;
+    }
+    if (objects->alien_shot_presentation) {
+        memset(&objects->alien_shot_presentation[shot_index], 0,
+               sizeof(objects->alien_shot_presentation[shot_index]));
+    }
+    if (alien_setup->vector_object_flag != 0u) {
+        objects->alien_shot_presentation[shot_index].anchor_to_vector_model = UINT8_MAX;
+        objects->alien_shot_presentation[shot_index].source_asset_id =
+            alien_attack_read_be16(alien_slot + ALIEN_ATTACK_SLOT_GRAPHICS_TYPE);
+        objects->alien_shot_presentation[shot_index].frame_index =
+            alien_attack_read_be16(alien_slot + ALIEN_ATTACK_SLOT_EFFECT);
+        objects->alien_shot_presentation[shot_index].source_y_offset =
+            alien_setup->shot_y_offset;
     }
 
     shot_slot[ALIEN_ATTACK_SLOT_TYPE_ID] = ALIEN_ATTACK_OBJECT_TYPE_PROJECTILE;

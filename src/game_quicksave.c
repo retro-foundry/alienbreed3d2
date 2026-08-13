@@ -7,7 +7,7 @@
 #include <string.h>
 
 enum {
-    GAME_QUICKSAVE_VERSION = 1u,
+    GAME_QUICKSAVE_VERSION = 2u,
     GAME_QUICKSAVE_ENDIAN_TAG = 0x01020304u,
     GAME_QUICKSAVE_MAX_CHUNK_BYTES = 256u * 1024u * 1024u
 };
@@ -44,6 +44,8 @@ typedef struct {
     MechanismRuntime mechanism_runtime;
     ObjectObservation object_observation;
     ObjectHandlerViewWeaponAnimationRuntime view_weapon_animation_runtime;
+    ObjectAlienShotPresentation
+        alien_shot_presentation[OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT];
     GameBackgroundAudioRuntime background_audio_runtime;
     PlayerRuntime player;
     PlayerHazardRuntime player_hazard_runtime;
@@ -127,6 +129,11 @@ static void game_quicksave_capture_state(const GameBootstrap *game,
     state->mechanism_runtime = game->mechanism_runtime;
     state->object_observation = game->object_observation;
     state->view_weapon_animation_runtime = game->view_weapon_animation_runtime;
+    if (game->object_runtime.alien_shot_presentation) {
+        memcpy(state->alien_shot_presentation,
+               game->object_runtime.alien_shot_presentation,
+               sizeof(state->alien_shot_presentation));
+    }
     state->background_audio_runtime = game->background_audio_runtime;
     state->player = game->player;
     state->player_hazard_runtime = game->player_hazard_runtime;
@@ -455,6 +462,15 @@ static int game_quicksave_apply_pending(GameBootstrap *game, const char *data_ro
     game->mechanism_runtime = state->mechanism_runtime;
     game->object_observation = state->object_observation;
     game->view_weapon_animation_runtime = state->view_weapon_animation_runtime;
+    if (!game->object_runtime.alien_shot_presentation) {
+        game_quicksave_set_error(
+            error, error_size,
+            "quickload has no alien projectile presentation runtime");
+        return 0;
+    }
+    memcpy(game->object_runtime.alien_shot_presentation,
+           state->alien_shot_presentation,
+           sizeof(state->alien_shot_presentation));
     game->background_audio_runtime = state->background_audio_runtime;
     game->player = state->player;
     game->player_hazard_runtime = state->player_hazard_runtime;

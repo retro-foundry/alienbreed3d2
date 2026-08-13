@@ -1,6 +1,7 @@
 #ifndef AB3D2_SOURCE_VECTOR_MODEL_TRANSFORM_H
 #define AB3D2_SOURCE_VECTOR_MODEL_TRANSFORM_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 /*
@@ -23,5 +24,23 @@ typedef struct {
 void source_vector_model_world_offset(float source_x, float source_y, float source_z,
                                       uint16_t source_yaw,
                                       SourceVectorModelWorldOffset *out_offset);
+
+/*
+ * Resolve the authored vertical bounds of one compiled vector frame.  This
+ * shares draw_PolygonModel's point-table layout but performs no rendering.
+ */
+int source_vector_model_frame_y_bounds(const uint8_t *bytes, size_t size,
+                                       uint16_t frame_index,
+                                       int16_t *out_minimum_y,
+                                       int16_t *out_maximum_y);
+
+/*
+ * Return the down-positive 8.8 scene adjustment which brings an authored
+ * alien SHOTYOFF no lower than the firing vector frame's visible top.
+ */
+int source_vector_model_projectile_y_adjustment(const uint8_t *bytes, size_t size,
+                                                uint16_t frame_index,
+                                                int32_t source_y_offset,
+                                                int32_t *out_adjustment);
 
 #endif

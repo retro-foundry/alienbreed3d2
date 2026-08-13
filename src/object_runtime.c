@@ -41,6 +41,7 @@ void object_runtime_destroy(ObjectRuntime *runtime)
     }
     free(runtime->slot_bytes);
     free(runtime->point_bytes);
+    free(runtime->alien_shot_presentation);
     memset(runtime, 0, sizeof(*runtime));
 }
 
@@ -87,7 +88,10 @@ int object_runtime_init(ObjectRuntime *out_runtime, const LevelRuntime *level_ru
     }
     runtime.slot_bytes = malloc((size_t)slot_byte_count);
     runtime.point_bytes = malloc((size_t)(point_byte_count == 0u ? 1u : point_byte_count));
-    if (!runtime.slot_bytes || !runtime.point_bytes) {
+    runtime.alien_shot_presentation = calloc(
+        OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT,
+        sizeof(*runtime.alien_shot_presentation));
+    if (!runtime.slot_bytes || !runtime.point_bytes || !runtime.alien_shot_presentation) {
         object_runtime_destroy(&runtime);
         object_runtime_set_error(error, error_size, "out of memory for source object runtime state");
         return 0;

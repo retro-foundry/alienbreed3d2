@@ -57,6 +57,7 @@
 #include "player_shoot.h"
 #include "render_view.h"
 #include "scene_frame.h"
+#include "source_vector_model_transform.h"
 #include "source_vector_projection.h"
 
 static uint16_t read_be16(const uint8_t *source)
@@ -2577,6 +2578,26 @@ int main(int argc, char **argv)
                 game.shared_resources.water_frames.size);
         game_bootstrap_destroy(&game);
         return 1;
+    }
+    {
+        int32_t mantis_projectile_adjustment;
+
+        /*
+         * Level P's type-16 Mantis uses vector asset 14 and the authored
+         * ItsAnAlien SHOTYOFF of -300 level units.  Its frame-zero top is
+         * y=-559 model units, so the quarter-scale GPU presentation closes
+         * the 160.25-unit visual gap without changing the ShotT trajectory.
+         */
+        if (game.shared_resources.vector_count <= 14u ||
+            !source_vector_model_projectile_y_adjustment(
+                game.shared_resources.vector_models[14u].bytes,
+                game.shared_resources.vector_models[14u].size,
+                0u, -300 * 128, &mantis_projectile_adjustment) ||
+            mantis_projectile_adjustment != 20512) {
+            fprintf(stderr, "Mantis rocket/model launch attachment is inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
     }
     if (game.level_data.size != 0 || game.session.menu_level_index != 0 ||
         game.sine_table.size != GAME_MATH_SINE_TABLE_BYTES ||
@@ -9355,6 +9376,8 @@ int main(int argc, char **argv)
         uint8_t slot_bytes[FIRE_SLOT_COUNT * OBJECT_RUNTIME_SLOT_BYTE_COUNT];
         uint8_t point_bytes[FIRE_SLOT_COUNT * OBJECT_RUNTIME_POINT_BYTE_COUNT];
         ObjectRuntime fire_objects = {0};
+        ObjectAlienShotPresentation
+            fire_shot_presentation[OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT] = {{0}};
         PlayerRuntime fire_player = {0};
         AlienSetup fire_alien_setup = {0};
         AlienAttackSetup fire_attack_setup = {0};
@@ -9374,6 +9397,7 @@ int main(int argc, char **argv)
         fire_objects.slot_count = FIRE_SLOT_COUNT;
         fire_objects.active_slot_count = FIRE_SLOT_COUNT;
         fire_objects.alien_shot_first_slot = FIRE_SHOT_FIRST_SLOT;
+        fire_objects.alien_shot_presentation = fire_shot_presentation;
         fire_objects.player1_slot = FIRE_PLAYER_SLOT;
         fire_objects.point_bytes = point_bytes;
         fire_objects.point_count = FIRE_SLOT_COUNT;
@@ -9406,7 +9430,10 @@ int main(int argc, char **argv)
         fire_player.source_z_difference = -32;
         fire_alien_setup.shot_y_offset = 1234;
         fire_alien_setup.shot_offset_multiplier = 128;
+        fire_alien_setup.vector_object_flag = UINT8_MAX;
         fire_alien_setup.zone_echo = 5u;
+        write_be16(slot_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 8u, 14u);
+        write_be16(slot_bytes + FIRE_ALIEN_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 10u, 3u);
         fire_attack_setup.shot_type = 3u;
         fire_attack_setup.shot_power = 7u;
         fire_attack_setup.shot_speed = 16u;
@@ -9522,7 +9549,11 @@ int main(int argc, char **argv)
             read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 54u) !=
                 UINT16_C(0xa5a5) ||
             read_be16(slot_bytes + FIRE_SHOT_FIRST_SLOT * OBJECT_RUNTIME_SLOT_BYTE_COUNT + 60u) !=
-                UINT16_C(0xa5a5)) {
+                UINT16_C(0xa5a5) ||
+            fire_objects.alien_shot_presentation[0u].anchor_to_vector_model == 0u ||
+            fire_objects.alien_shot_presentation[0u].source_asset_id != 14u ||
+            fire_objects.alien_shot_presentation[0u].frame_index != 3u ||
+            fire_objects.alien_shot_presentation[0u].source_y_offset != 1234) {
             fprintf(stderr, "FireAtPlayer1 source projectile state is inconsistent: %s\n", error);
             game_bootstrap_destroy(&game);
             return 1;

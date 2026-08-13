@@ -299,7 +299,13 @@ original requests. The source default music toggle starts the looped module at
   `HeadTowards` now preserve their two-step coarse distance, range backtrack,
   and speed proposal for that projectile firing helper. `newaliencontrol.s:FireAtPlayer1`
   now allocates and initializes its source alien-projectile state, including
-  predictive lead and lateral launch offset; its source animation-frame audio
+  predictive lead and lateral launch offset. Vector-enemy shots also retain a
+  renderer-neutral link to the authored firing frame: when the raw `SHOTYOFF`
+  lies beyond that quarter-scale model's top, presentation translates the
+  visible path to the model boundary while leaving the source `ShotT` origin,
+  velocity, collision, and damage unchanged. This closes the Level P Mantis's
+  authored `-300` launch-height gap without changing its 50 Hz rocket path;
+  the link is preserved by quicksave format version 2. Its source animation-frame audio
   now uses the shared event path. `modules/ai.s:ai_AttackWithProjectile` now composes that projectile
   handoff with the source damage/death exit, attack animation, heading, memory,
   torch, and finished/sight transitions. `ai_DoTakeDamage`

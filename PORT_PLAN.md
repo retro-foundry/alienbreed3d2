@@ -1115,6 +1115,15 @@ approach helpers, and writes its projectile point, velocity, zone, vertical,
 enemy-mask, and upper-zone state. Its `Aud_*`, `PlayEcho`, and `MakeSomeNoise`
 calls remain absent until the source audio-event/backend work is ported. The
 owning projectile attack body remains outside `ObjectHandler`.
+
+The live `FireAtPlayer1` path additionally records presentation-only metadata
+when the firing alien uses a vector model. `source_vector_model_frame_y_bounds`
+resolves the exact compiled firing-frame point table and clamps only a visible
+projectile path whose raw `SHOTYOFF` is above that quarter-scale model. The
+Level P Mantis therefore presents its `-300` rocket origin at the frame's top
+boundary; its original `ShotT_AccYPos_w`, velocity, collision, aim, damage, and
+50 Hz update remain authoritative. The metadata is renderer-neutral and is
+included in quicksave format version 2.
 `modules/ai.s:ai_AttackWithProjectile` is now a complete but uncalled mode.
 It starts with `ai_AttackCommon`'s authored projectile setup, preserves its
 damage/death return, attack-animation and persistent `AngRet` update,

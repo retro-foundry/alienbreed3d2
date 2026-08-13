@@ -96,6 +96,8 @@ int main(int argc, char **argv)
     GameProgression expected_progression;
     GameRandom expected_random;
     ObjectHandlerViewWeaponAnimationRuntime expected_weapon_animation;
+    ObjectAlienShotPresentation
+        expected_alien_shot_presentation[OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT];
     char error[256] = {0};
     FILE *invalid_file;
     int result = 1;
@@ -131,6 +133,10 @@ int main(int argc, char **argv)
     game.progression.signal = 0x12345678u;
     game.random.state = 0x5a3cu;
     game.view_weapon_animation_runtime.held_ticks = 3u;
+    game.object_runtime.alien_shot_presentation[0u].anchor_to_vector_model = UINT8_MAX;
+    game.object_runtime.alien_shot_presentation[0u].source_asset_id = 14u;
+    game.object_runtime.alien_shot_presentation[0u].frame_index = 3u;
+    game.object_runtime.alien_shot_presentation[0u].source_y_offset = -300 * 128;
     game.presentation_frame = 919u;
     game.message_time_milliseconds = 12340u;
     game.audio_events.source_sample_index = 11;
@@ -151,6 +157,9 @@ int main(int argc, char **argv)
     expected_progression = game.progression;
     expected_random = game.random;
     expected_weapon_animation = game.view_weapon_animation_runtime;
+    memcpy(expected_alien_shot_presentation,
+           game.object_runtime.alien_shot_presentation,
+           sizeof(expected_alien_shot_presentation));
     if (!expected_runtime_bytes_capture(&game, &expected_bytes) ||
         !game_quicksave_write(&game, argv[2], error, sizeof(error))) {
         fprintf(stderr, "could not write complete quicksave fixture: %s\n", error);
@@ -181,6 +190,9 @@ int main(int argc, char **argv)
         memcmp(&game.random, &expected_random, sizeof(expected_random)) != 0 ||
         memcmp(&game.view_weapon_animation_runtime, &expected_weapon_animation,
                sizeof(expected_weapon_animation)) != 0 ||
+        memcmp(game.object_runtime.alien_shot_presentation,
+               expected_alien_shot_presentation,
+               sizeof(expected_alien_shot_presentation)) != 0 ||
         !expected_runtime_bytes_match(&game, &expected_bytes) ||
         game.presentation_frame != 919u ||
         game.message_time_milliseconds != 12340u ||

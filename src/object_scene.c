@@ -1,5 +1,7 @@
 #include "object_scene.h"
 
+#include "source_vector_model_transform.h"
+
 #include "object_heading.h"
 #include <limits.h>
 #include <stdio.h>
@@ -18,6 +20,7 @@ enum {
     OBJECT_SCENE_TYPE_ID = 16u,
     OBJECT_SCENE_PROJECTILE_VELOCITY_X = 18u,
     OBJECT_SCENE_PROJECTILE_VELOCITY_Z = 22u,
+    OBJECT_SCENE_PROJECTILE_ACCUMULATED_Y = 44u,
     OBJECT_SCENE_CURRENT_ANGLE = 30u,
     /* ShotT_Status_b aliases EntT_CurrentAngle_w's high byte. */
     OBJECT_SCENE_PROJECTILE_STATUS = 30u,
@@ -573,6 +576,59 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     sprite.position.y = (int32_t)object_scene_read_be16s(slot + OBJECT_SCENE_VERTICAL_POSITION) *
         128;
     sprite.position.z = object_scene_read_be16s(point + 4u);
+
+    if (objects->alien_shot_presentation &&
+        slot_index >= objects->alien_shot_first_slot &&
+        slot_index - objects->alien_shot_first_slot <
+            OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT) {
+        uint32_t shot_index = slot_index - objects->alien_shot_first_slot;
+        const ObjectAlienShotPresentation *presentation =
+            &objects->alien_shot_presentation[shot_index];
+
+        if (presentation->anchor_to_vector_model != 0u) {
+            int32_t y_adjustment;
+
+            if (presentation->source_asset_id >= resources->vector_count ||
+                !resources->vector_models[presentation->source_asset_id].bytes ||
+                !source_vector_model_projectile_y_adjustment(
+                    resources->vector_models[presentation->source_asset_id].bytes,
+                    resources->vector_models[presentation->source_asset_id].size,
+                    presentation->frame_index, presentation->source_y_offset,
+                    &y_adjustment)) {
+                object_scene_set_error(
+                    error, error_size,
+                    "alien projectile presentation has an invalid source vector frame");
+                return 0;
+            }
+            /*
+             * FireAtPlayer1 publishes ShotT_AccYPos immediately but leaves
+             * ObjT_YPos at the alien centre until ItsABullet's first update.
+             * Use that exact accumulator for the linked visual path so its
+             * first presented frame starts at SHOTYOFF instead of jumping
+             * there one VBlank later.
+             */
+            sprite.position.y = object_scene_read_be32s(
+                slot + OBJECT_SCENE_PROJECTILE_ACCUMULATED_Y);
+            if (y_adjustment != 0) {
+                /*
+                 * draw_PolygonModel maps model Y at one quarter of a level
+                 * unit. SHOTYOFF remains exact gameplay state in the level
+                 * domain. If that authored launch point lies above the model,
+                 * translate only its scene path down to the firing frame's
+                 * top boundary so the rocket visibly leaves the model.
+                 */
+                int64_t adjusted_y = (int64_t)sprite.position.y + y_adjustment;
+
+                if (adjusted_y < INT32_MIN || adjusted_y > INT32_MAX) {
+                    object_scene_set_error(
+                        error, error_size,
+                        "alien projectile presentation height overflows scene state");
+                    return 0;
+                }
+                sprite.position.y = (int32_t)adjusted_y;
+            }
+        }
+    }
     sprite.source_record_id = slot_index;
     sprite.source_brightness = object_scene_read_be16(slot + OBJECT_SCENE_BRIGHTNESS);
     sprite.yaw = object_scene_read_be16(slot + OBJECT_SCENE_CURRENT_ANGLE);
