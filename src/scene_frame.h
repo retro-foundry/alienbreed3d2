@@ -368,7 +368,9 @@ typedef enum {
     /* Alien Breed 3D I display_hud_stats_sdl_overlay health placement. */
     SCENE_HUD_LAYOUT_FIRST_PORT_HEALTH,
     /* Alien Breed 3D I display_hud_stats_sdl_overlay ammunition placement. */
-    SCENE_HUD_LAYOUT_FIRST_PORT_AMMUNITION
+    SCENE_HUD_LAYOUT_FIRST_PORT_AMMUNITION,
+    /* Alien Breed 3D I display_text_layout_in_rect grouped story layout. */
+    SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT
 } SceneHudLayout;
 
 typedef struct {
@@ -385,6 +387,24 @@ typedef struct {
 } SceneHudText;
 
 typedef enum {
+    /* Suppress world drawing and present retained HUD commands over a clear colour. */
+    SCENE_PRESENTATION_TEXT_SCREEN
+} ScenePresentationMode;
+
+/*
+ * Renderer-neutral full-frame presentation state. A text transition still
+ * carries source camera/environment commands for the palette, but a backend
+ * presents only the retained HUD commands over this clear colour.
+ */
+typedef struct {
+    ScenePresentationMode mode;
+    uint8_t clear_red;
+    uint8_t clear_green;
+    uint8_t clear_blue;
+    uint8_t hud_opacity;
+} ScenePresentation;
+
+typedef enum {
     SCENE_COMMAND_CAMERA,
     SCENE_COMMAND_LIGHTING,
     SCENE_COMMAND_ENVIRONMENT,
@@ -392,7 +412,8 @@ typedef enum {
     SCENE_COMMAND_GEOMETRY_INSTANCE,
     /* One live ObjT/ShotT instance, including bitmap/vector/glare paths. */
     SCENE_COMMAND_SPRITE_INSTANCE,
-    SCENE_COMMAND_HUD_TEXT
+    SCENE_COMMAND_HUD_TEXT,
+    SCENE_COMMAND_PRESENTATION
 } SceneCommandType;
 
 typedef struct {
@@ -404,6 +425,7 @@ typedef struct {
         SceneGeometryInstance geometry_instance;
         SceneSpriteInstance sprite_instance;
         SceneHudText hud_text;
+        ScenePresentation presentation;
     } data;
 } SceneCommand;
 

@@ -12,6 +12,7 @@
 #include "game_bootstrap.h"
 #include "game_quicksave.h"
 #include "game_vblank_clock.h"
+#include "level_transition.h"
 #include "render_view.h"
 #include "renderer.h"
 
@@ -247,6 +248,15 @@ typedef struct {
     int32_t mouse_remainder_y;
     /* Host display frames are not source VBlanks; keep source logic at 50 Hz. */
     GameVBlankClock vblank_clock;
+    enum {
+        GAME_APP_PHASE_GAMEPLAY,
+        GAME_APP_PHASE_LEVEL_TEXT_FADE_IN,
+        GAME_APP_PHASE_LEVEL_TEXT_WAIT,
+        GAME_APP_PHASE_LEVEL_TEXT_FADE_OUT
+    } phase;
+    uint16_t transition_level_index;
+    Uint32 transition_phase_started_ms;
+    uint8_t transition_level_needs_load;
     int sdl_initialized;
     int game_initialized;
     int source_frame_initialized;
@@ -609,6 +619,14 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     if (!app->gpu_smoke && SDL_SetRelativeMouseMode(SDL_TRUE) != 0) {
         fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
     }
+    if (!app->gpu_smoke) {
+        /* The first port shows the selected level's story before its first
+         * gameplay frame, then repeats this flow after each successful exit. */
+        app->phase = GAME_APP_PHASE_LEVEL_TEXT_FADE_IN;
+        app->transition_level_index = app->game.active_level_index;
+        app->transition_phase_started_ms = SDL_GetTicks();
+        app->transition_level_needs_load = 0u;
+    }
     fprintf(stdout,
             "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes Level %c active\n",
             app->game.game_link.size, app->game.story_text.size,
@@ -658,6 +676,172 @@ static int game_app_build_presentation_frame(GameApp *app)
     return 1;
 }
 
+static void game_app_clear_transition_input(GameApp *app)
+{
+    if (!app) {
+        return;
+    }
+    memset(app->game.input.key_map, 0, sizeof(app->game.input.key_map));
+    app->game.input.last_pressed_raw_key = 0u;
+    app->game.input.pending_mouse_x = 0;
+    app->game.input.mouse_y = app->game.input.old_mouse_y;
+    app->mouse_remainder_x = 0;
+    app->mouse_remainder_y = 0;
+    (void)SDL_GetRelativeMouseState(NULL, NULL);
+}
+
+static int game_app_load_transition_level(GameApp *app,
+                                          char *error, size_t error_size)
+{
+    if (!app || !game_bootstrap_start_selected_single_player(
+                    &app->game, app->data_root, error, error_size)) {
+        return 0;
+    }
+    audio_sdl_set_music_enabled(app->audio, app->game.preferences.play_music);
+    render_view_set_source_yaw(&app->view, app->game.player.yaw);
+    render_view_set_source_look(&app->view, app->game.player.aim_speed,
+                                app->game.player.look_offset);
+    scene_vector_pose_history_reset(&app->vector_pose_history);
+    if (!game_app_capture_source_frame(app) ||
+        !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "unable to capture the newly loaded source level");
+        }
+        return 0;
+    }
+    game_vblank_clock_reset(&app->vblank_clock, SDL_GetPerformanceCounter(),
+                            SDL_GetPerformanceFrequency());
+    fprintf(stdout, "[GAME] Level %c loaded behind its story transition\n",
+            (char)('A' + app->game.active_level_index));
+    return 1;
+}
+
+static int game_app_present_level_transition(GameApp *app, uint8_t opacity,
+                                             char *error, size_t error_size)
+{
+    SceneCommand presentation;
+    int has_camera = 0;
+    int has_environment = 0;
+
+    if (!app) {
+        return 0;
+    }
+    scene_frame_begin(&app->frame);
+    for (size_t index = 0u; index < app->source_frame.count; ++index) {
+        const SceneCommand *command = &app->source_frame.commands[index];
+
+        if (command->type == SCENE_COMMAND_CAMERA && !has_camera) {
+            if (!scene_frame_submit(&app->frame, command)) {
+                return 0;
+            }
+            has_camera = 1;
+        } else if (command->type == SCENE_COMMAND_ENVIRONMENT && !has_environment) {
+            if (!scene_frame_submit(&app->frame, command)) {
+                return 0;
+            }
+            has_environment = 1;
+        }
+    }
+    if (!has_camera || !has_environment) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "level transition has no camera or source palette");
+        }
+        return 0;
+    }
+    memset(&presentation, 0, sizeof(presentation));
+    presentation.type = SCENE_COMMAND_PRESENTATION;
+    presentation.data.presentation.mode = SCENE_PRESENTATION_TEXT_SCREEN;
+    presentation.data.presentation.hud_opacity = opacity;
+    if (!scene_frame_submit(&app->frame, &presentation) ||
+        !level_transition_submit_text(
+            app->game.story_text.bytes, app->game.story_text.size,
+            app->transition_level_index, &app->frame, error, error_size)) {
+        return 0;
+    }
+    return renderer_present(app->renderer, &app->frame, &app->view,
+                            error, error_size);
+}
+
+static void game_app_tick_level_transition(GameApp *app)
+{
+    char error[256];
+    SDL_Event event;
+    Uint32 now;
+    Uint32 elapsed;
+    int dismiss_requested = 0;
+    uint8_t opacity = UINT8_MAX;
+
+    now = SDL_GetTicks();
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_QUIT) {
+            renderer_request_quit(app->renderer);
+            return;
+        }
+        if (app->phase == GAME_APP_PHASE_LEVEL_TEXT_WAIT &&
+            (Uint32)(now - app->transition_phase_started_ms) >=
+                LEVEL_TRANSITION_MIN_DISMISS_MS &&
+            ((event.type == SDL_KEYDOWN && event.key.repeat == 0u) ||
+             event.type == SDL_MOUSEBUTTONDOWN ||
+             event.type == SDL_CONTROLLERBUTTONDOWN ||
+             event.type == SDL_JOYBUTTONDOWN ||
+             event.type == SDL_FINGERDOWN)) {
+            dismiss_requested = 1;
+        }
+    }
+
+    now = SDL_GetTicks();
+    elapsed = now - app->transition_phase_started_ms;
+    if (app->phase == GAME_APP_PHASE_LEVEL_TEXT_FADE_IN) {
+        uint32_t step = elapsed / LEVEL_TRANSITION_FADE_FRAME_MS;
+
+        if (step >= LEVEL_TRANSITION_FADE_STEPS) {
+            opacity = UINT8_MAX;
+            if (app->transition_level_needs_load != 0u) {
+                if (!game_app_load_transition_level(app, error, sizeof(error))) {
+                    fprintf(stderr, "[GAME] level transition load failed: %s\n", error);
+                    app->exit_code = 1;
+                    renderer_request_quit(app->renderer);
+                    return;
+                }
+                app->transition_level_needs_load = 0u;
+            }
+            app->phase = GAME_APP_PHASE_LEVEL_TEXT_WAIT;
+            app->transition_phase_started_ms = SDL_GetTicks();
+        } else {
+            opacity = level_transition_alpha_for_step((int)step);
+        }
+    } else if (app->phase == GAME_APP_PHASE_LEVEL_TEXT_WAIT) {
+        if (elapsed >= LEVEL_TRANSITION_MIN_DISMISS_MS &&
+            (dismiss_requested ||
+             (SDL_GetMouseState(NULL, NULL) &
+              (SDL_BUTTON(SDL_BUTTON_LEFT) |
+               SDL_BUTTON(SDL_BUTTON_MIDDLE) |
+               SDL_BUTTON(SDL_BUTTON_RIGHT))) != 0u)) {
+            app->phase = GAME_APP_PHASE_LEVEL_TEXT_FADE_OUT;
+            app->transition_phase_started_ms = now;
+        }
+    } else if (app->phase == GAME_APP_PHASE_LEVEL_TEXT_FADE_OUT) {
+        uint32_t step = elapsed / LEVEL_TRANSITION_FADE_FRAME_MS;
+
+        if (step >= LEVEL_TRANSITION_FADE_STEPS) {
+            app->phase = GAME_APP_PHASE_GAMEPLAY;
+            game_app_clear_transition_input(app);
+            game_vblank_clock_reset(&app->vblank_clock, SDL_GetPerformanceCounter(),
+                                    SDL_GetPerformanceFrequency());
+            return;
+        }
+        opacity = level_transition_alpha_for_step(
+            LEVEL_TRANSITION_FADE_STEPS - 1 - (int)step);
+    }
+    if (!game_app_present_level_transition(app, opacity, error, sizeof(error))) {
+        fprintf(stderr, "[RENDER] level transition failed: %s\n", error);
+        app->exit_code = 1;
+        renderer_request_quit(app->renderer);
+    }
+}
+
 static void game_app_tick(GameApp *app)
 {
     char error[256];
@@ -667,6 +851,10 @@ static void game_app_tick(GameApp *app)
     int quickload_requested = 0;
 
     if (!app || !renderer_is_running(app->renderer)) {
+        return;
+    }
+    if (app->phase != GAME_APP_PHASE_GAMEPLAY) {
+        game_app_tick_level_transition(app);
         return;
     }
     while (SDL_PollEvent(&event)) {
@@ -816,11 +1004,32 @@ static void game_app_tick(GameApp *app)
         }
     }
     if (app->game.session.level_ended != 0u) {
-        fprintf(stdout, "[GAME] Level %c %s; direct session is ending\n",
-                (char)('A' + app->game.active_level_index),
-                app->game.session.level_finished != 0u ? "complete" : "failed");
-        /* The source returns to its menu after endlevel; direct mode exits instead. */
-        renderer_request_quit(app->renderer);
+        uint16_t completed_level = app->game.active_level_index;
+
+        if (app->game.session.level_finished != 0u &&
+            completed_level + 1u < GAME_LINK_LEVEL_COUNT) {
+            uint16_t next_level = (uint16_t)(completed_level + 1u);
+
+            if (!game_session_select_level(&app->game.session, next_level,
+                                           error, sizeof(error))) {
+                fprintf(stderr, "[GAME] campaign advance failed: %s\n", error);
+                app->exit_code = 1;
+                renderer_request_quit(app->renderer);
+                return;
+            }
+            fprintf(stdout, "[GAME] Level %c complete; transitioning to Level %c\n",
+                    (char)('A' + completed_level), (char)('A' + next_level));
+            app->transition_level_index = next_level;
+            app->transition_level_needs_load = UINT8_MAX;
+            app->phase = GAME_APP_PHASE_LEVEL_TEXT_FADE_IN;
+            app->transition_phase_started_ms = SDL_GetTicks();
+        } else {
+            fprintf(stdout, "[GAME] Level %c %s; direct session is ending\n",
+                    (char)('A' + completed_level),
+                    app->game.session.level_finished != 0u ? "complete" : "failed");
+            /* No source end-game intermission is implemented after Level P. */
+            renderer_request_quit(app->renderer);
+        }
         return;
     }
     if (!game_app_build_presentation_frame(app)) {
@@ -1122,6 +1331,31 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 app->exit_code = 1;
                 return 0;
             }
+        }
+        /* Exercise the renderer-neutral black story screen and the exact
+         * authored TEXT_FILE record before the next ordinary world frame. */
+        if (!scene_frame_clone(&app->source_frame, &app->frame)) {
+            fprintf(stderr,
+                    "[SCENE] GPU level-transition snapshot failed for Level %c\n",
+                    (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
+        app->transition_level_index = level_index;
+        if (!game_app_present_level_transition(app, UINT8_MAX,
+                                               error, sizeof(error))) {
+            fprintf(stderr,
+                    "[RENDER] GPU level-transition smoke failed for Level %c: %s\n",
+                    (char)('A' + level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        if (renderer_last_ui_coverage(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] GPU level-transition text changed no visible pixels "
+                    "in Level %c\n", (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
         }
         /*
          * Drive Plr1_Shot and ObjectHandler against the loaded room.  This

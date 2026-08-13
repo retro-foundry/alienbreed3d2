@@ -1,6 +1,8 @@
 ALIEN BREED 3D II: THE KILLING GROUNDS - PC PORT
 
-Run ab3d2.exe. The game starts directly in single-player mode.
+Run ab3d2.exe. The game starts in single-player mode with the authored level
+story. After a short input guard, press any key or mouse button to begin.
+Successful exits show the next level story and continue the campaign.
 
 CONTROLS
 

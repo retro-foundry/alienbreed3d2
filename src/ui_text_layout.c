@@ -16,6 +16,8 @@ enum {
     UI_TEXT_ASCII_DRAW_WIDTH = 8,
     UI_TEXT_ASCII_DRAW_HEIGHT = 13,
     UI_TEXT_ASCII_ADVANCE = 8,
+    UI_TEXT_ASCII_LINE_ADVANCE = 14,
+    UI_TEXT_SCALE_ONE = 256,
     UI_TEXT_DIGIT_COUNT = 10,
     UI_TEXT_DIGIT_CELL_WIDTH = 9,
     UI_TEXT_DIGIT_CELL_HEIGHT = 11,
@@ -81,6 +83,12 @@ static int ui_text_layout_validate_command(const SceneHudText *text,
                                      "positioned HUD text has invalid font or reference canvas");
             return 0;
         }
+    } else if (text->layout == SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) {
+        if (text->font != SCENE_HUD_FONT_FIRST_PORT_ASCII || text->style_id > 3u) {
+            ui_text_layout_set_error(error, error_size,
+                                     "level-transition text has invalid font or style");
+            return 0;
+        }
     } else if ((text->layout == SCENE_HUD_LAYOUT_FIRST_PORT_HEALTH &&
                 text->font != SCENE_HUD_FONT_FIRST_PORT_HEALTH_DIGITS) ||
                (text->layout == SCENE_HUD_LAYOUT_FIRST_PORT_AMMUNITION &&
@@ -92,6 +100,194 @@ static int ui_text_layout_validate_command(const SceneHudText *text,
                text->layout != SCENE_HUD_LAYOUT_FIRST_PORT_AMMUNITION) {
         ui_text_layout_set_error(error, error_size, "scene HUD text layout is unsupported");
         return 0;
+    }
+    return 1;
+}
+
+static void ui_text_layout_trim_line(const SceneHudText *text,
+                                     uint16_t *out_start, uint16_t *out_length)
+{
+    uint16_t start = 0u;
+    uint16_t end = text ? text->text_byte_count : 0u;
+
+    while (start < end &&
+           (text->text[start] == ' ' || text->text[start] == '\t')) {
+        ++start;
+    }
+    while (end > start &&
+           (text->text[end - 1u] == ' ' || text->text[end - 1u] == '\t')) {
+        --end;
+    }
+    *out_start = start;
+    *out_length = (uint16_t)(end - start);
+}
+
+static int ui_text_layout_first_port_level_text(
+    const SceneFrame *frame, int32_t drawable_width, int32_t drawable_height,
+    UiTextGlyph *glyphs, size_t glyph_capacity, size_t *glyph_count,
+    char *error, size_t error_size)
+{
+    size_t first_command = SIZE_MAX;
+    size_t last_command = SIZE_MAX;
+    int32_t run_count = 0;
+    int32_t longest_chars = 1;
+    int32_t margin_x;
+    int32_t margin_y;
+    int32_t available_width;
+    int32_t available_height;
+    int32_t scale_numerator = UI_TEXT_SCALE_ONE * 4;
+    int32_t line_height;
+    int32_t draw_width;
+    int32_t draw_height;
+    int32_t advance;
+    int32_t top;
+    int32_t run_index = 0;
+
+    for (size_t index = 0u; index < frame->count; ++index) {
+        const SceneCommand *command = &frame->commands[index];
+        uint16_t start;
+        uint16_t length;
+
+        if (command->type != SCENE_COMMAND_HUD_TEXT ||
+            command->data.hud_text.layout != SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) {
+            continue;
+        }
+        ui_text_layout_trim_line(&command->data.hud_text, &start, &length);
+        if (length != 0u) {
+            if (first_command == SIZE_MAX) {
+                first_command = index;
+            }
+            last_command = index;
+        }
+    }
+    if (first_command == SIZE_MAX) {
+        return 1;
+    }
+    for (size_t index = first_command; index <= last_command; ++index) {
+        const SceneCommand *command = &frame->commands[index];
+        uint16_t start;
+        uint16_t length;
+
+        if (command->type != SCENE_COMMAND_HUD_TEXT ||
+            command->data.hud_text.layout != SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) {
+            continue;
+        }
+        ui_text_layout_trim_line(&command->data.hud_text, &start, &length);
+        ++run_count;
+        if ((int32_t)length > longest_chars) {
+            longest_chars = length;
+        }
+    }
+
+    margin_x = ui_text_layout_margin_for_extent(drawable_width);
+    margin_y = ui_text_layout_margin_for_extent(drawable_height);
+    available_width = drawable_width - margin_x * 2;
+    available_height = drawable_height - margin_y * 2;
+    if (available_width < UI_TEXT_ASCII_ADVANCE) {
+        available_width = drawable_width;
+        margin_x = 0;
+    }
+    if (available_height < UI_TEXT_ASCII_LINE_ADVANCE) {
+        available_height = drawable_height;
+        margin_y = 0;
+    }
+    {
+        int64_t natural_width = (int64_t)longest_chars * UI_TEXT_ASCII_ADVANCE;
+        int32_t width_scale = (int32_t)((int64_t)available_width * UI_TEXT_SCALE_ONE /
+                                        natural_width);
+        int64_t natural_height = (int64_t)run_count * UI_TEXT_ASCII_LINE_ADVANCE;
+        int32_t height_scale = (int32_t)((int64_t)available_height * UI_TEXT_SCALE_ONE /
+                                         natural_height);
+
+        if (width_scale < scale_numerator) scale_numerator = width_scale;
+        if (height_scale < scale_numerator) scale_numerator = height_scale;
+    }
+    if (scale_numerator < 1) scale_numerator = 1;
+    while (scale_numerator > 1) {
+        int32_t total_height = run_count * ui_text_layout_round_scale(
+            UI_TEXT_ASCII_LINE_ADVANCE, scale_numerator, UI_TEXT_SCALE_ONE);
+        int32_t total_width = longest_chars * ui_text_layout_round_scale(
+            UI_TEXT_ASCII_ADVANCE, scale_numerator, UI_TEXT_SCALE_ONE);
+
+        if (total_height <= available_height && total_width <= available_width) {
+            break;
+        }
+        --scale_numerator;
+    }
+    /* Alien Breed 3D I display_text_crisp_scale_q. */
+    if (scale_numerator > UI_TEXT_SCALE_ONE) {
+        scale_numerator = (scale_numerator / UI_TEXT_SCALE_ONE) * UI_TEXT_SCALE_ONE;
+    }
+    line_height = ui_text_layout_round_scale(
+        UI_TEXT_ASCII_LINE_ADVANCE, scale_numerator, UI_TEXT_SCALE_ONE);
+    draw_width = ui_text_layout_round_scale(
+        UI_TEXT_ASCII_DRAW_WIDTH, scale_numerator, UI_TEXT_SCALE_ONE);
+    draw_height = ui_text_layout_round_scale(
+        UI_TEXT_ASCII_DRAW_HEIGHT, scale_numerator, UI_TEXT_SCALE_ONE);
+    advance = ui_text_layout_round_scale(
+        UI_TEXT_ASCII_ADVANCE, scale_numerator, UI_TEXT_SCALE_ONE);
+    if (line_height < 1) line_height = 1;
+    if (draw_width < 1) draw_width = 1;
+    if (draw_height < 1) draw_height = 1;
+    if (advance < 1) advance = 1;
+    top = (drawable_height - run_count * line_height) / 2;
+    if (top < margin_y) top = margin_y;
+
+    for (size_t index = first_command; index <= last_command; ++index) {
+        const SceneCommand *command = &frame->commands[index];
+        const SceneHudText *text;
+        uint16_t start;
+        uint16_t length;
+        int32_t pen_x;
+        int32_t pen_y;
+
+        if (command->type != SCENE_COMMAND_HUD_TEXT ||
+            command->data.hud_text.layout != SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) {
+            continue;
+        }
+        text = &command->data.hud_text;
+        ui_text_layout_trim_line(text, &start, &length);
+        pen_x = (drawable_width - (int32_t)length * advance) / 2;
+        if (pen_x < margin_x) pen_x = margin_x;
+        pen_y = top + run_index * line_height;
+        ++run_index;
+        if (pen_y > drawable_height - margin_y - draw_height) {
+            continue;
+        }
+        for (uint16_t character_index = 0u; character_index < length;
+             ++character_index) {
+            uint8_t character = (uint8_t)text->text[start + character_index];
+
+            if (character < UI_TEXT_ASCII_FIRST || character > UI_TEXT_ASCII_LAST) {
+                character = (uint8_t)'?';
+            }
+            if (character != (uint8_t)' ') {
+                uint16_t glyph_index = (uint16_t)(character - UI_TEXT_ASCII_FIRST);
+                UiTextGlyph glyph;
+
+                memset(&glyph, 0, sizeof(glyph));
+                glyph.font = SCENE_HUD_FONT_FIRST_PORT_ASCII;
+                glyph.style_id = text->style_id;
+                glyph.glyph_index = glyph_index;
+                glyph.x = pen_x;
+                glyph.y = pen_y;
+                glyph.width = draw_width;
+                glyph.height = draw_height;
+                glyph.source_x = (uint16_t)((glyph_index % UI_TEXT_ASCII_COLUMNS) *
+                                            UI_TEXT_ASCII_CELL_WIDTH +
+                                            UI_TEXT_ASCII_DRAW_X);
+                glyph.source_y = (uint16_t)((glyph_index / UI_TEXT_ASCII_COLUMNS) *
+                                            UI_TEXT_ASCII_CELL_HEIGHT +
+                                            UI_TEXT_ASCII_DRAW_Y);
+                glyph.source_width = UI_TEXT_ASCII_DRAW_WIDTH;
+                glyph.source_height = UI_TEXT_ASCII_DRAW_HEIGHT;
+                if (!ui_text_layout_append(glyphs, glyph_capacity, glyph_count,
+                                           &glyph, error, error_size)) {
+                    return 0;
+                }
+            }
+            pen_x += advance;
+        }
     }
     return 1;
 }
@@ -468,6 +664,7 @@ int ui_text_layout_frame(const SceneFrame *frame, int32_t drawable_width,
 {
     const SceneHudText *health = NULL;
     const SceneHudText *ammunition = NULL;
+    int has_level_text = 0;
     size_t glyph_count = 0u;
 
     if (!frame || drawable_width < 1 || drawable_height < 1 || !out_glyph_count ||
@@ -500,6 +697,8 @@ int ui_text_layout_frame(const SceneFrame *frame, int32_t drawable_width,
                 return 0;
             }
             ammunition = text;
+        } else if (text->layout == SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) {
+            has_level_text = 1;
         } else if (text->layout == SCENE_HUD_LAYOUT_TOP_CENTER) {
             if (!ui_text_layout_top_center_text(
                     text, drawable_width, drawable_height, glyphs, glyph_capacity,
@@ -516,6 +715,11 @@ int ui_text_layout_frame(const SceneFrame *frame, int32_t drawable_width,
         !ui_text_layout_first_port_status(
             health, ammunition, drawable_width, drawable_height,
             glyphs, glyph_capacity, &glyph_count, error, error_size)) {
+        return 0;
+    }
+    if (has_level_text && !ui_text_layout_first_port_level_text(
+            frame, drawable_width, drawable_height, glyphs, glyph_capacity,
+            &glyph_count, error, error_size)) {
         return 0;
     }
     *out_glyph_count = glyph_count;

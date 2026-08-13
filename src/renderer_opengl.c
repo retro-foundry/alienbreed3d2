@@ -2401,6 +2401,7 @@ static void renderer_opengl_make_hud_vertex(RendererOpenGLVertex *vertex,
 static int renderer_opengl_draw_ui(RendererOpenGL *renderer, const SceneFrame *frame,
                                    const SceneEnvironment *environment,
                                    int drawable_width, int drawable_height,
+                                   float opacity,
                                    char *error, size_t error_size)
 {
     size_t glyph_capacity;
@@ -2430,7 +2431,7 @@ static int renderer_opengl_draw_ui(RendererOpenGL *renderer, const SceneFrame *f
 
     renderer_opengl_identity(identity);
     renderer->gl.uniform_matrix_4fv(renderer->view_projection_uniform, 1, GL_FALSE, identity);
-    renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
+    renderer->gl.uniform_1f(renderer->opacity_uniform, opacity);
     renderer_opengl_use_default_light_response(renderer);
     glDisable(GL_DEPTH_TEST);
     glDepthMask(GL_FALSE);
@@ -2542,6 +2543,7 @@ static int renderer_opengl_draw_ui_with_coverage(RendererOpenGL *renderer,
                                                   const SceneEnvironment *environment,
                                                   int drawable_width,
                                                   int drawable_height,
+                                                  float opacity,
                                                   char *error,
                                                   size_t error_size)
 {
@@ -2572,7 +2574,8 @@ static int renderer_opengl_draw_ui_with_coverage(RendererOpenGL *renderer,
         }
     }
     if (!renderer_opengl_draw_ui(renderer, frame, environment,
-                                 drawable_width, drawable_height, error, error_size)) {
+                                 drawable_width, drawable_height, opacity,
+                                 error, error_size)) {
         free(before_pixels);
         return 0;
     }
@@ -4984,6 +4987,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
 {
     const SceneCamera *camera = NULL;
     const SceneEnvironment *environment = NULL;
+    const ScenePresentation *presentation = NULL;
     const SceneSprite *view_weapon = NULL;
     RendererOpenGLSpriteOrder *additive_sprites = NULL;
     size_t additive_count = 0u;
@@ -5011,6 +5015,14 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
             camera = &frame->commands[index].data.camera;
         } else if (frame->commands[index].type == SCENE_COMMAND_ENVIRONMENT) {
             environment = &frame->commands[index].data.environment;
+        } else if (frame->commands[index].type == SCENE_COMMAND_PRESENTATION) {
+            if (presentation) {
+                renderer_opengl_set_error(
+                    error, error_size,
+                    "scene frame contains duplicate presentation commands");
+                return 0;
+            }
+            presentation = &frame->commands[index].data.presentation;
         } else if (frame->commands[index].type == SCENE_COMMAND_SPRITE_INSTANCE &&
                    frame->commands[index].data.sprite_instance.sprite.presentation ==
                        SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
@@ -5028,6 +5040,13 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
     drawable_aspect = (float)drawable_width / (float)drawable_height;
     renderer_opengl_view_projection(view_projection, camera, view, drawable_aspect);
     glViewport(0, 0, drawable_width, drawable_height);
+    if (presentation && presentation->mode == SCENE_PRESENTATION_TEXT_SCREEN) {
+        glClearColor((float)presentation->clear_red / 255.0f,
+                     (float)presentation->clear_green / 255.0f,
+                     (float)presentation->clear_blue / 255.0f, 1.0f);
+    } else {
+        glClearColor(0.025f, 0.035f, 0.060f, 1.0f);
+    }
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     renderer->gl.use_program(renderer->program);
     renderer->gl.uniform_matrix_4fv(renderer->view_projection_uniform, 1, GL_FALSE,
@@ -5036,6 +5055,20 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
     renderer->gl.uniform_1i(renderer->texture_uniform, 0);
     renderer->gl.uniform_1f(renderer->opacity_uniform, 1.0f);
     renderer->gl.active_texture(GL_TEXTURE0);
+    if (presentation) {
+        if (presentation->mode != SCENE_PRESENTATION_TEXT_SCREEN || !environment) {
+            renderer_opengl_set_error(error, error_size,
+                                      "scene presentation command is invalid");
+            return 0;
+        }
+        if (!renderer_opengl_draw_ui_with_coverage(
+                renderer, frame, environment, drawable_width, drawable_height,
+                (float)presentation->hud_opacity / 255.0f, error, error_size)) {
+            return 0;
+        }
+        SDL_GL_SwapWindow(renderer->window);
+        return 1;
+    }
     if (!renderer_opengl_draw_sky(renderer, environment, camera, error, error_size)) {
         return 0;
     }
@@ -5215,7 +5248,7 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
         }
     }
     if (!renderer_opengl_draw_ui_with_coverage(renderer, frame, environment,
-                                               drawable_width, drawable_height,
+                                               drawable_width, drawable_height, 1.0f,
                                                error, error_size)) {
         return 0;
     }

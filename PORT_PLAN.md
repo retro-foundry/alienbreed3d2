@@ -703,8 +703,10 @@ sound effects and music now play through the SDL WAV backend.
   Reaching the loaded level's authored `Lvl_ExitZoneID_w` (compared to
   `ZoneT_ID_w`, rather than a native zone-table index) now follows
   `hires.s:game_main_loop` into the direct-mode end-level handoff and preserves
-  the single-player campaign inventory; it does not fabricate a replacement
-  completion screen or menu.
+  the single-player campaign inventory. Successful exits advance through the
+  authored A--P campaign and present the next exact 16-line `TEXT_FILE` record
+  through renderer-neutral HUD commands. Its grouped scaling, fade, and input
+  guard follow the first port without inventing a completion screen or menu.
   `src/object_collectables.*` ports the single-player `ItsAnObject`/
   `Collectable`, `Plr1_CheckObjectCollide`, and `Plr1_CollectItem` subset for
   a same-zone/layer candidate: floor/roof placement, source word-coordinate

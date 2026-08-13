@@ -60,6 +60,10 @@ int main(void)
         return 1;
     }
 
+    if (!scene_frame_reserve(&source, 5u)) {
+        fprintf(stderr, "level-text command reserve failed\n");
+        return 1;
+    }
     scene_frame_begin(&source);
     {
         SceneCommand command;
@@ -118,6 +122,32 @@ int main(void)
                     error);
             return 1;
         }
+    }
+
+    scene_frame_begin(&source);
+    if (!submit_text(&source, "  ", SCENE_HUD_FONT_FIRST_PORT_ASCII,
+                     SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) ||
+        !submit_text(&source, " AB ", SCENE_HUD_FONT_FIRST_PORT_ASCII,
+                     SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) ||
+        !submit_text(&source, " ", SCENE_HUD_FONT_FIRST_PORT_ASCII,
+                     SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) ||
+        !submit_text(&source, " C ", SCENE_HUD_FONT_FIRST_PORT_ASCII,
+                     SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) ||
+        !submit_text(&source, "  ", SCENE_HUD_FONT_FIRST_PORT_ASCII,
+                     SCENE_HUD_LAYOUT_FIRST_PORT_LEVEL_TEXT) ||
+        !ui_text_layout_frame(&source, 1280, 720, glyphs, 8u, &glyph_count,
+                              error, sizeof(error)) ||
+        glyph_count != 3u ||
+        glyphs[0u].glyph_index != 33u || glyphs[0u].x != 608 ||
+        glyphs[0u].y != 276 || glyphs[0u].width != 32 ||
+        glyphs[0u].height != 52 ||
+        glyphs[1u].glyph_index != 34u || glyphs[1u].x != 640 ||
+        glyphs[1u].y != 276 ||
+        glyphs[2u].glyph_index != 35u || glyphs[2u].x != 624 ||
+        glyphs[2u].y != 388) {
+        fprintf(stderr, "scaled first-port level-text layout is inconsistent: %s\n",
+                error);
+        return 1;
     }
 
     scene_frame_destroy(&clone);

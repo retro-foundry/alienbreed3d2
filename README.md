@@ -208,6 +208,11 @@ original requests. The source default music toggle starts the looped module at
   renderer-neutral atlas path at the top centre, below the first port's
   resolution-relative safe margin, while preserving AB3D2's
   five-slot message ring, four source tag pens, and 2000 ms expiry cadence.
+  Level transitions use the same abstract text path to display the selected
+  level's exact 16-line `TEXT_FILE` record over black. The group-fit layout,
+  margins, crisp integer upscaling, eight-step fade, and 750 ms input guard
+  match the first port; successful exits advance to the next authored level
+  while preserving the source campaign inventory.
   Every live source object now emits an
   unprojected bitmap/vector/glare descriptor in source slot order, with its
   selected raw WAD/PTR/vector asset bytes, palette, frame data, source draw
@@ -363,10 +368,12 @@ This produces `ab3d2.html`, JavaScript/Wasm, and the lower-case `data/`
 preload package in `build/web`. Serve that directory through an HTTP server;
 opening the HTML file directly will not satisfy browser asset-loading rules.
 
-Run the `ab3d2` executable from its build output directory. It starts Level A
-directly; use `--level B` through `--level P` to select another authored level.
-Escape or the window close control quits. The native runtime fails explicitly
-if an authoritative asset is unavailable.
+Run the `ab3d2` executable from its build output directory. It starts with
+Level A's authored story text; use `--level B` through `--level P` to select
+another campaign entry. After 750 ms, any key or mouse button dismisses the
+text and starts play. Successful level exits show the next story and continue
+the campaign. Escape or the window close control quits during gameplay. The
+native runtime fails explicitly if an authoritative asset is unavailable.
 
 Position saves are the original unversioned 420-byte `boot.dat` payload—not a
 new native format. The gameplay-first executable does not expose its

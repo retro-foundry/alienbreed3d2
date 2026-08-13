@@ -76,6 +76,7 @@ set(AB3D2_CORE_SOURCES
   src/level_navigation.c
   src/level_runtime.c
   src/level_static_scene.c
+  src/level_transition.c
   src/mechanism_runtime.c
   src/object_activatables.c
   src/object_animation.c
@@ -282,6 +283,10 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_link_libraries(ab3d2_ui_text_layout_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_ui_text_layout_test PRIVATE src)
   add_test(NAME ab3d2_ui_text_layout_test COMMAND ab3d2_ui_text_layout_test)
+  add_executable(ab3d2_level_transition_test tests/level_transition_test.c)
+  target_link_libraries(ab3d2_level_transition_test PRIVATE ab3d2_core)
+  target_include_directories(ab3d2_level_transition_test PRIVATE src)
+  add_test(NAME ab3d2_level_transition_test COMMAND ab3d2_level_transition_test)
   add_executable(ab3d2_level_data_test tests/level_data_test.c)
   target_link_libraries(ab3d2_level_data_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_level_data_test PRIVATE src)
