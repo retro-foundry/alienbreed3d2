@@ -1124,6 +1124,14 @@ Level P Mantis therefore presents its `-300` rocket origin at the frame's top
 boundary; its original `ShotT_AccYPos_w`, velocity, collision, aim, damage, and
 50 Hz update remain authoritative. The metadata is renderer-neutral and is
 included in quicksave format version 2.
+
+World vector objects now use the same completed-frame presentation blend as
+the companion weapon. `modules/ai.s:ai_DoWalkAnim` and `ai_DoAttackAnim` still
+select the authoritative compiled frame on the 50 Hz source update; when two
+snapshots retain the same vector asset, the renderer interpolates its matching
+point tables alongside the already-interpolated ObjT position, angle, and light
+field. Asset changes and bitmap animation remain discrete, and no AI or ObjT
+state advances at host presentation rate.
 `modules/ai.s:ai_AttackWithProjectile` is now a complete but uncalled mode.
 It starts with `ai_AttackCommon`'s authored projectile setup, preserves its
 damage/death return, attack-animation and persistent `AngRet` update,

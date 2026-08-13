@@ -552,10 +552,15 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
              * Do not create source frames at host display rate.  The action
              * frame selected by ACTANIMOBJ remains the current endpoint; the
              * renderer receives the preceding frame only when both completed
-             * snapshots describe the same Player 1 vector model.
+             * snapshots describe the same vector model.  This is the
+             * presentation counterpart for modules/ai.s:ai_DoWalkAnim and
+             * ai_DoAttackAnim as well as the Player 1 companion: source ObjT
+             * frame selection and all AI still advance only at 50 Hz.
              */
-            if (destination_sprite->presentation ==
-                    SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON &&
+            if ((destination_sprite->presentation ==
+                     SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON ||
+                 destination_sprite->presentation ==
+                     SCENE_SPRITE_PRESENTATION_WORLD_OBJECT) &&
                 previous_sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                 current_sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
                 previous_sprite->source_asset_id == current_sprite->source_asset_id &&

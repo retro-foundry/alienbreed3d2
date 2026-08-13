@@ -266,9 +266,11 @@ typedef struct {
     /*
      * Presentation-only source-frame blend. hires.s:VBlankInterrupt calls
      * dosomething at 50 Hz and newaliencontrol.s:ACTANIMOBJ selects one
-     * discrete companion action frame per source update.  A host presentation
-     * between two completed snapshots retains that source cadence and blends
-     * only the matching vector-model vertices for PLAYER1_VIEW_WEAPON.
+     * discrete companion or alien action frame per source update.  A host
+     * presentation between two completed snapshots retains that source
+     * cadence and blends only matching vector-model vertices.  This applies
+     * to the Player 1 view weapon and world vector objects; source bitmap
+     * animation remains discrete authored art.
      */
     uint16_t presentation_previous_frame_index;
     float presentation_frame_interpolation_alpha;

@@ -1650,6 +1650,58 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        {
+            static const uint8_t mantis_vector_model[] = {0u};
+            static const uint8_t other_vector_model[] = {0u};
+            const SceneSprite *presentation_enemy;
+
+            /*
+             * modules/ai.s:ai_DoWalkAnim/ai_DoAttackAnim select a discrete
+             * compiled vector frame on the source tick.  A world Mantis keeps
+             * that current endpoint while exposing the preceding compatible
+             * frame to the renderer, exactly as the companion weapon does.
+             */
+            previous_sprite.data.sprite_instance.source_mesh_id = 14u;
+            previous_sprite.data.sprite_instance.sprite.source_record_id = 7u;
+            previous_sprite.data.sprite_instance.sprite.source =
+                SCENE_SPRITE_SOURCE_VECTOR_MODEL;
+            previous_sprite.data.sprite_instance.sprite.presentation =
+                SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+            previous_sprite.data.sprite_instance.sprite.source_asset_id = 14u;
+            previous_sprite.data.sprite_instance.sprite.source_bytes = mantis_vector_model;
+            previous_sprite.data.sprite_instance.sprite.source_byte_count =
+                sizeof(mantis_vector_model);
+            previous_sprite.data.sprite_instance.sprite.frame_index = 6u;
+            current_sprite = previous_sprite;
+            current_sprite.data.sprite_instance.sprite.frame_index = 7u;
+            previous.commands[2u] = previous_sprite;
+            current.commands[2u] = current_sprite;
+            if (!scene_frame_interpolate(&presentation, &previous, &current, 0.75f) ||
+                !(presentation_enemy = &presentation.commands[2u].data.sprite_instance.sprite) ||
+                presentation_enemy->frame_index != 7u ||
+                presentation_enemy->presentation_previous_frame_index != 6u ||
+                presentation_enemy->presentation_frame_interpolation_alpha != 0.75f ||
+                presentation_enemy->presentation_interpolate_vector_frame == 0u) {
+                fprintf(stderr,
+                        "world-vector source-frame presentation interpolation is inconsistent\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                return 1;
+            }
+            current_sprite.data.sprite_instance.sprite.source_bytes = other_vector_model;
+            current.commands[2u] = current_sprite;
+            if (!scene_frame_interpolate(&presentation, &previous, &current, 0.75f) ||
+                presentation.commands[2u].data.sprite_instance.sprite
+                    .presentation_interpolate_vector_frame != 0u) {
+                fprintf(stderr,
+                        "world-vector interpolation crossed a source-model boundary\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                return 1;
+            }
+        }
         /* `firefive` owns a player projectile's first movement vector. The
          * scene must retain that raw source data while leaving its completed
          * source position available to ordinary frame interpolation. */
