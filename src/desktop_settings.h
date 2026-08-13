@@ -15,6 +15,8 @@ typedef struct {
     uint8_t infinite_health;
     uint8_t infinite_ammo;
     uint8_t all_weapons;
+    /* First-port-compatible F5/F9 savegame.bin shortcuts. */
+    uint8_t quicksave_load;
     uint8_t always_run;
     /* Master mixer gain as a percentage, 0 through 100. */
     uint8_t volume;

@@ -61,6 +61,7 @@ set(AB3D2_CORE_SOURCES
   src/game_menu.c
   src/game_preferences.c
   src/game_progression.c
+  src/game_quicksave.c
   src/game_random.c
   src/game_resources.c
   src/game_save.c
@@ -242,6 +243,15 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_link_libraries(ab3d2_desktop_settings_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_desktop_settings_test PRIVATE src)
   add_test(NAME ab3d2_desktop_settings_test COMMAND ab3d2_desktop_settings_test)
+  add_executable(ab3d2_game_quicksave_test tests/game_quicksave_test.c)
+  target_link_libraries(ab3d2_game_quicksave_test PRIVATE ab3d2_core)
+  target_include_directories(ab3d2_game_quicksave_test PRIVATE src)
+  add_dependencies(ab3d2_game_quicksave_test ab3d2)
+  add_test(
+    NAME ab3d2_game_quicksave_test
+    COMMAND ab3d2_game_quicksave_test "$<TARGET_FILE_DIR:ab3d2>/data"
+            "$<TARGET_FILE_DIR:ab3d2>/quicksave-test.bin"
+  )
   add_executable(ab3d2_world_light_tessellation_test
                  tests/world_light_tessellation_test.c)
   target_link_libraries(ab3d2_world_light_tessellation_test PRIVATE ab3d2_core)

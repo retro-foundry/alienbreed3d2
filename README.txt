@@ -15,6 +15,8 @@ CONTROLS
 - C: Crouch
 - Space: Jump
 - L: Look behind
+- F5: Quicksave (when quicksave_load=1)
+- F9: Quickload (when quicksave_load=1)
 - Escape: Quit
 
 SETTINGS
@@ -25,6 +27,7 @@ Edit ab3d2.ini beside the executable before starting the game. It supports:
 - infinite_health=0 or 1
 - infinite_ammo=0 or 1
 - all_weapons=0 or 1
+- quicksave_load=0 or 1
 - volume=0 through 100
 - always_run=0 or 1
 

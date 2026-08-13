@@ -137,6 +137,16 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         }
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "quicksave_load") ||
+        desktop_settings_equals_ci(key, "quick_save_load") ||
+        desktop_settings_equals_ci(key, "quickload_save")) {
+        if (!desktop_settings_parse_bool(value, &settings->quicksave_load)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: quicksave_load must be a boolean", line_number);
+            return 0;
+        }
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "always_run") ||
         desktop_settings_equals_ci(key, "run_default")) {
         if (!desktop_settings_parse_bool(value, &settings->always_run)) {

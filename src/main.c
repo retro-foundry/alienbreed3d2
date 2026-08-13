@@ -10,6 +10,7 @@
 #include "audio_sdl.h"
 #include "desktop_settings.h"
 #include "game_bootstrap.h"
+#include "game_quicksave.h"
 #include "game_vblank_clock.h"
 #include "render_view.h"
 #include "renderer.h"
@@ -25,6 +26,24 @@ static int make_default_data_root(char *out_root, size_t out_root_size)
     written = snprintf(out_root, out_root_size, "%sdata", base_path);
     SDL_free(base_path);
     return written >= 0 && (size_t)written < out_root_size;
+}
+
+static int make_quicksave_path(char *out_path, size_t out_path_size)
+{
+    char *base_path = SDL_GetBasePath();
+    int written;
+
+    if (!out_path || out_path_size == 0u) {
+        return 0;
+    }
+    if (!base_path) {
+        written = snprintf(out_path, out_path_size, "%s", GAME_QUICKSAVE_FILE_NAME);
+        return written >= 0 && (size_t)written < out_path_size;
+    }
+    written = snprintf(out_path, out_path_size, "%s%s", base_path,
+                       GAME_QUICKSAVE_FILE_NAME);
+    SDL_free(base_path);
+    return written >= 0 && (size_t)written < out_path_size;
 }
 
 /*
@@ -206,6 +225,7 @@ static int set_mouse_button_source_key(GameBootstrap *game, uint8_t button, int 
 
 typedef struct {
     char data_root[1024];
+    char quicksave_path[1024];
     uint16_t selected_level_index;
     uint8_t selected_level_from_command_line;
     uint8_t world_light_tessellation_from_command_line;
@@ -385,12 +405,13 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
     }
     fprintf(stdout,
             "[SETTINGS] start_level=%u infinite_health=%u infinite_ammo=%u all_weapons=%u "
-            "volume=%u always_run=%u world_light_tessellation=%u\n",
+            "volume=%u quicksave_load=%u always_run=%u world_light_tessellation=%u\n",
             (unsigned)(app->desktop_settings.start_level_index + 1u),
             app->desktop_settings.infinite_health != 0u ? 1u : 0u,
             app->desktop_settings.infinite_ammo != 0u ? 1u : 0u,
             app->desktop_settings.all_weapons != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.volume,
+            app->desktop_settings.quicksave_load != 0u ? 1u : 0u,
             app->desktop_settings.always_run != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.world_light_tessellation);
     return 1;
@@ -417,6 +438,10 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     app->sdl_initialized = 1;
     if (!app->data_root[0] && !make_default_data_root(app->data_root, sizeof(app->data_root))) {
         fprintf(stderr, "[PLATFORM] SDL_GetBasePath failed: %s\n", SDL_GetError());
+        return 0;
+    }
+    if (!make_quicksave_path(app->quicksave_path, sizeof(app->quicksave_path))) {
+        fprintf(stderr, "[PLATFORM] quicksave path is too long\n");
         return 0;
     }
     if (!game_bootstrap_init(&app->game, app->data_root, error, sizeof(error))) {
@@ -574,6 +599,8 @@ static void game_app_tick(GameApp *app)
     char error[256];
     SDL_Event event;
     uint32_t source_vblanks;
+    int quicksave_requested = 0;
+    int quickload_requested = 0;
 
     if (!app || !renderer_is_running(app->renderer)) {
         return;
@@ -585,7 +612,15 @@ static void game_app_tick(GameApp *app)
             renderer_request_quit(app->renderer);
             break;
         }
-        if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
+        if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) &&
+            (event.key.keysym.scancode == SDL_SCANCODE_F5 ||
+             event.key.keysym.scancode == SDL_SCANCODE_F9)) {
+            /* Match the first port: these are one-shot host shortcuts, not source keys. */
+            if (event.type == SDL_KEYDOWN && event.key.repeat == 0u) {
+                quicksave_requested |= event.key.keysym.scancode == SDL_SCANCODE_F5;
+                quickload_requested |= event.key.keysym.scancode == SDL_SCANCODE_F9;
+            }
+        } else if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) {
             if (raw_key_from_scancode(event.key.keysym.scancode, &raw_key) &&
                 !game_input_set_raw_key(&app->game.input, raw_key,
                                         event.type == SDL_KEYDOWN,
@@ -648,6 +683,39 @@ static void game_app_tick(GameApp *app)
     }
     if (!renderer_is_running(app->renderer)) {
         return;
+    }
+    if (app->desktop_settings.quicksave_load != 0u && quicksave_requested) {
+        if (game_quicksave_write(&app->game, app->quicksave_path,
+                                 error, sizeof(error))) {
+            fprintf(stdout, "[QUICKSAVE] F5 saved Level %c to %s\n",
+                    (char)('A' + app->game.active_level_index), app->quicksave_path);
+        } else {
+            fprintf(stderr, "[QUICKSAVE] F5 save failed: %s\n", error);
+        }
+    }
+    if (app->desktop_settings.quicksave_load != 0u && quickload_requested) {
+        if (!game_quicksave_load(&app->game, app->data_root, app->quicksave_path,
+                                 error, sizeof(error))) {
+            fprintf(stderr, "[QUICKSAVE] F9 load failed: %s\n", error);
+        } else {
+            render_view_set_source_yaw(&app->view, app->game.player.yaw);
+            render_view_set_source_look(&app->view, app->game.player.aim_speed,
+                                        app->game.player.look_offset);
+            app->mouse_remainder_x = 0;
+            app->mouse_remainder_y = 0;
+            if (!game_app_capture_source_frame(app) ||
+                !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
+                fprintf(stderr, "[SCENE] unable to capture quickloaded source frame\n");
+                app->exit_code = 1;
+                renderer_request_quit(app->renderer);
+                return;
+            }
+            game_vblank_clock_reset(&app->vblank_clock, SDL_GetPerformanceCounter(),
+                                    SDL_GetPerformanceFrequency());
+            audio_sdl_set_music_enabled(app->audio, app->game.preferences.play_music);
+            fprintf(stdout, "[QUICKSAVE] F9 restored Level %c from %s\n",
+                    (char)('A' + app->game.active_level_index), app->quicksave_path);
+        }
     }
     /*
      * hires.s:VBlankInterrupt produces one source frame at PAL 50 Hz.  Do not

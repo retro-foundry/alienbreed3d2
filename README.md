@@ -23,6 +23,8 @@ session. Supported keys are:
   empty-ammo check and ammunition debit;
 - `all_weapons=0|1` grants every source gun and a full legal supply of each
   ammunition class when the session begins;
+- `quicksave_load=0|1` enables first-port-compatible F5 quicksave and F9
+  quickload through `savegame.bin` beside the executable. It defaults to `0`;
 - `volume=0` through `volume=100` controls the master SDL mixer gain;
 - `always_run=0|1` makes run the default controller mode. Hold Shift to walk;
   and
@@ -38,6 +40,10 @@ one-run override for renderer validation.
 Weapon selection retains the source controls: number keys `1`--`0` directly
 select their owned weapon, while Backslash and the right mouse button advance
 to the next owned weapon.
+
+When `quicksave_load=1`, F5 captures the complete live level and F9 reloads
+its source assets before restoring that state, including saves from another
+campaign level.
 
 ## Current native slice
 
