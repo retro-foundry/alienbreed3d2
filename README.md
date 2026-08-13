@@ -73,9 +73,16 @@ light gradients, sky, animated water, bitmap/glare effects, vector objects,
 and Player 1's live companion weapon. World and vector materials are converted
 once to true colour with per-source-texel continuous linear-light responses,
 so source brightness retains its authored hue shift without runtime palette
-row selection. This is original source art with a continuous lighting
-presentation—not a PBR conversion. Menus and
-multiplayer are not included. The
+row selection. Before `Game_Begin`, the renderer-neutral resource catalog
+hands every vector asset already loaded by `controlloop.s:Game_Start` to the
+active backend. OpenGL walks `draw_PolygonModel`/`doapoly`'s immutable part and
+face records, prepares the shared 256-entry light response once, uploads all
+unique vector materials, reserves the largest authored face-conversion scratch
+buffer, and completes deferred driver work before gameplay.
+Vector drawing treats any later cache miss as an error instead of decoding or
+allocating a model texture or per-face heap buffer inside a presentation frame.
+This is original source art with a continuous lighting presentation—not a PBR
+conversion. Menus and multiplayer are not included. The
 detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live
 integration.

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "render_view.h"
+#include "renderer_resources.h"
 #include "scene_frame.h"
 
 /*
@@ -38,6 +39,10 @@ typedef struct Renderer Renderer;
 
 Renderer *renderer_create(const RendererConfig *config, char *error, size_t error_size);
 void renderer_destroy(Renderer *renderer);
+/* Convert immutable Game_Start resources before any gameplay frame is presented. */
+int renderer_prepare_resources(Renderer *renderer, const RendererResourceCatalog *catalog,
+                               size_t *out_prepared_vector_material_count,
+                               char *error, size_t error_size);
 int renderer_is_running(const Renderer *renderer);
 void renderer_request_quit(Renderer *renderer);
 /* Live drawable extent used by both presentation and relative-mouse scaling. */

@@ -71,6 +71,26 @@ void renderer_destroy(Renderer *renderer)
     free(renderer);
 }
 
+int renderer_prepare_resources(Renderer *renderer, const RendererResourceCatalog *catalog,
+                               size_t *out_prepared_vector_material_count,
+                               char *error, size_t error_size)
+{
+    if (!renderer || !catalog || !out_prepared_vector_material_count) {
+        renderer_set_error(error, error_size,
+                           "renderer resource preparation received invalid state");
+        return 0;
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_OPENGL:
+        return renderer_opengl_prepare_resources(
+            renderer->opengl, catalog, out_prepared_vector_material_count,
+            error, error_size);
+    default:
+        renderer_set_error(error, error_size, "requested renderer backend is not available");
+        return 0;
+    }
+}
+
 int renderer_is_running(const Renderer *renderer)
 {
     return renderer && renderer->running;

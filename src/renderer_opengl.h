@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "render_view.h"
+#include "renderer_resources.h"
 #include "scene_frame.h"
 
 typedef struct RendererOpenGL RendererOpenGL;
@@ -16,6 +17,9 @@ RendererOpenGL *renderer_opengl_create(int window_width, int window_height,
                                        uint8_t world_light_tessellation,
                                        char *error, size_t error_size);
 void renderer_opengl_destroy(RendererOpenGL *renderer);
+int renderer_opengl_prepare_resources(
+    RendererOpenGL *renderer, const RendererResourceCatalog *catalog,
+    size_t *out_prepared_vector_material_count, char *error, size_t error_size);
 int renderer_opengl_get_presentation_size(const RendererOpenGL *renderer,
                                           int *out_width, int *out_height);
 int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,

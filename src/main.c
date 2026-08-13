@@ -289,6 +289,60 @@ static void game_app_shutdown(GameApp *app)
     }
 }
 
+static int game_app_prepare_renderer_resources(GameApp *app,
+                                               char *error, size_t error_size)
+{
+    RendererVectorResource vector_resources[GAME_LINK_OBJECT_COUNT];
+    RendererResourceCatalog catalog = {0};
+    size_t prepared_material_count = 0u;
+    Uint64 start_counter;
+    Uint64 end_counter;
+    Uint64 frequency;
+
+    if (!app || !app->renderer ||
+        app->game.shared_resources.vector_count > GAME_LINK_OBJECT_COUNT) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "renderer source-resource catalog is invalid");
+        }
+        return 0;
+    }
+    memset(vector_resources, 0, sizeof(vector_resources));
+    for (uint16_t resource_index = 0u;
+         resource_index < app->game.shared_resources.vector_count; ++resource_index) {
+        vector_resources[resource_index].source_asset_id = resource_index;
+        vector_resources[resource_index].source_bytes =
+            app->game.shared_resources.vector_models[resource_index].bytes;
+        vector_resources[resource_index].source_byte_count =
+            app->game.shared_resources.vector_models[resource_index].size;
+    }
+    catalog.vector_resources = vector_resources;
+    catalog.vector_resource_count = app->game.shared_resources.vector_count;
+    catalog.vector_texture_bytes = app->game.shared_resources.texture_maps.bytes;
+    catalog.vector_texture_byte_count = app->game.shared_resources.texture_maps.size;
+    catalog.vector_light_palette_bytes = app->game.shared_resources.texture_palette.bytes;
+    catalog.vector_light_palette_byte_count = app->game.shared_resources.texture_palette.size;
+    catalog.source_display_palette_bytes = app->game.shared_resources.main_palette.bytes;
+    catalog.source_display_palette_byte_count = app->game.shared_resources.main_palette.size;
+    start_counter = SDL_GetPerformanceCounter();
+    if (!renderer_prepare_resources(
+            app->renderer, &catalog, &prepared_material_count, error, error_size)) {
+        return 0;
+    }
+    end_counter = SDL_GetPerformanceCounter();
+    frequency = SDL_GetPerformanceFrequency();
+    fprintf(stdout, "[RENDER] prepared %zu vector materials before gameplay",
+            prepared_material_count);
+    if (frequency != 0u && end_counter >= start_counter) {
+        double elapsed_milliseconds =
+            (double)(end_counter - start_counter) * 1000.0 / (double)frequency;
+
+        fprintf(stdout, " in %.1f ms", elapsed_milliseconds);
+    }
+    fputc('\n', stdout);
+    return 1;
+}
+
 static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
 {
     int has_data_root = 0;
@@ -515,6 +569,10 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     app->mouse_present_height = renderer_config.window_height;
     app->renderer = renderer_create(&renderer_config, error, sizeof(error));
     if (!app->renderer) {
+        fprintf(stderr, "[RENDER] %s\n", error);
+        return 0;
+    }
+    if (!game_app_prepare_renderer_resources(app, error, sizeof(error))) {
         fprintf(stderr, "[RENDER] %s\n", error);
         return 0;
     }

@@ -188,6 +188,12 @@ struct RendererOpenGL {
     uint64_t last_frame_rgb_checksum;
     uint8_t measure_view_weapon_coverage;
     uint8_t world_light_tessellation;
+    uint8_t vector_resources_prepared;
+    uint8_t vector_light_responses_prepared;
+    uint8_t vector_light_response_exponents[256u][3u];
+    uint8_t vector_light_response_floors[256u][3u];
+    RendererOpenGLVertex *vector_vertex_scratch;
+    uint32_t vector_vertex_scratch_capacity;
 };
 
 /* Defined beside the vector point decoder because the muzzle is derived from
@@ -3143,34 +3149,54 @@ static int renderer_opengl_vector_model_frame(const uint8_t *bytes, size_t size,
     return 1;
 }
 
-static int renderer_opengl_vector_append(RendererOpenGLVertex **vertices,
-                                         uint32_t *vertex_count, uint32_t *vertex_capacity,
+static int renderer_opengl_vector_scratch_reserve(RendererOpenGL *renderer,
+                                                  uint32_t capacity,
+                                                  char *error, size_t error_size)
+{
+    RendererOpenGLVertex *grown;
+
+    if (!renderer) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector scratch request is invalid");
+        return 0;
+    }
+    if (capacity <= renderer->vector_vertex_scratch_capacity) {
+        return 1;
+    }
+    if ((size_t)capacity > SIZE_MAX / sizeof(*grown)) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector scratch allocation is too large");
+        return 0;
+    }
+    grown = realloc(renderer->vector_vertex_scratch,
+                    (size_t)capacity * sizeof(*grown));
+    if (!grown) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector scratch allocation failed");
+        return 0;
+    }
+    renderer->vector_vertex_scratch = grown;
+    renderer->vector_vertex_scratch_capacity = capacity;
+    return 1;
+}
+
+static int renderer_opengl_vector_append(RendererOpenGLVertex *vertices,
+                                         uint32_t *vertex_count, uint32_t vertex_capacity,
                                          const RendererOpenGLVertex *vertex,
                                          char *error, size_t error_size)
 {
-    RendererOpenGLVertex *grown;
-    uint32_t capacity;
-
-    if (!vertices || !vertex_count || !vertex_capacity || !vertex ||
+    if (!vertices || !vertex_count || !vertex ||
         *vertex_count == UINT32_MAX) {
         renderer_opengl_set_error(error, error_size, "source vector model has too many vertices");
         return 0;
     }
-    if (*vertex_count == *vertex_capacity) {
-        capacity = *vertex_capacity == 0u ? 96u : *vertex_capacity * 2u;
-        if (capacity < *vertex_capacity || (size_t)capacity > SIZE_MAX / sizeof(*grown)) {
-            renderer_opengl_set_error(error, error_size, "source vector model allocation is too large");
-            return 0;
-        }
-        grown = realloc(*vertices, (size_t)capacity * sizeof(*grown));
-        if (!grown) {
-            renderer_opengl_set_error(error, error_size, "source vector model conversion allocation failed");
-            return 0;
-        }
-        *vertices = grown;
-        *vertex_capacity = capacity;
+    if (*vertex_count == vertex_capacity) {
+        renderer_opengl_set_error(
+            error, error_size,
+            "source vector vertex scratch was not prepared before gameplay");
+        return 0;
     }
-    (*vertices)[(*vertex_count)++] = *vertex;
+    vertices[(*vertex_count)++] = *vertex;
     return 1;
 }
 
@@ -3635,6 +3661,32 @@ static int renderer_opengl_sort_view_weapon_parts(
     return 1;
 }
 
+static int renderer_opengl_vector_face_map_offset(const SceneSprite *sprite,
+                                                   const uint8_t *face_bytes,
+                                                   size_t *out_map_offset,
+                                                   char *error, size_t error_size)
+{
+    int16_t source_map_word;
+    size_t source_map_offset;
+
+    if (!sprite || !face_bytes || !out_map_offset || !sprite->source_palette_bytes) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector face has no texture map");
+        return 0;
+    }
+    /* objdrawhires.s:doapoly accepts a signed map offset and adds 64 KiB for bit 15. */
+    source_map_word = renderer_opengl_read_be16s(face_bytes);
+    source_map_offset = source_map_word < 0 ?
+        65536u + ((uint16_t)source_map_word & 0x7fffu) : (uint16_t)source_map_word;
+    if (source_map_offset >= sprite->source_palette_byte_count) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector face texture map is outside its asset");
+        return 0;
+    }
+    *out_map_offset = source_map_offset;
+    return 1;
+}
+
 static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
                                                      const uint8_t *polygon_angle_bytes,
                                                      size_t polygon_angle_byte_count,
@@ -3646,25 +3698,18 @@ static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
     enum {
         VECTOR_LIGHT_PALETTE_ROW_COUNT = 32u
     };
-    int16_t source_map_word;
-    size_t source_map_offset;
     uint8_t source_polygon_angle;
     uint8_t source_light_index;
     float source_shade;
 
     if (!sprite || !polygon_angle_bytes || !face_bytes || !out_map_offset ||
-        !out_source_light || !sprite->source_palette_bytes ||
-        face_bytes[3u] >= polygon_angle_byte_count) {
-        renderer_opengl_set_error(error, error_size, "source vector face has no texture map");
+        !out_source_light || face_bytes[3u] >= polygon_angle_byte_count) {
+        renderer_opengl_set_error(error, error_size,
+                                  "source vector face has no texture map");
         return 0;
     }
-    /* objdrawhires.s:doapoly accepts a signed map offset and adds 64 KiB for bit 15. */
-    source_map_word = renderer_opengl_read_be16s(face_bytes);
-    source_map_offset = source_map_word < 0 ?
-        65536u + ((uint16_t)source_map_word & 0x7fffu) : (uint16_t)source_map_word;
-    if (source_map_offset >= sprite->source_palette_byte_count) {
-        renderer_opengl_set_error(error, error_size,
-                                  "source vector face texture map is outside its asset");
+    if (!renderer_opengl_vector_face_map_offset(
+            sprite, face_bytes, out_map_offset, error, error_size)) {
         return 0;
     }
     /*
@@ -3686,7 +3731,6 @@ static int renderer_opengl_vector_face_texture_info(const SceneSprite *sprite,
     } else if (source_shade >= (float)VECTOR_LIGHT_PALETTE_ROW_COUNT) {
         source_shade = (float)VECTOR_LIGHT_PALETTE_ROW_COUNT - 1.0f;
     }
-    *out_map_offset = source_map_offset;
     *out_source_light = 1.0f - source_shade /
         ((float)VECTOR_LIGHT_PALETTE_ROW_COUNT - 1.0f);
     return 1;
@@ -3734,7 +3778,8 @@ static int renderer_opengl_vector_point_source_light(const SceneSprite *sprite,
     return 1;
 }
 
-static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
+static int renderer_opengl_decode_vector_face_texture(RendererOpenGL *renderer,
+                                                       const SceneSprite *sprite,
                                                        size_t source_map_offset,
                                                        uint8_t minimum_u, uint8_t maximum_u,
                                                        uint8_t minimum_v, uint8_t maximum_v,
@@ -3757,7 +3802,7 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
     uint8_t *exponent_pixels;
     uint8_t *floor_pixels;
 
-    if (!sprite || !out_pixels || !out_exponent_pixels || !out_floor_pixels || !out_width ||
+    if (!renderer || !sprite || !out_pixels || !out_exponent_pixels || !out_floor_pixels || !out_width ||
         !out_height || !sprite->source_palette_bytes ||
         !sprite->source_light_palette_bytes || !sprite->source_display_palette_bytes ||
         source_map_offset >= sprite->source_palette_byte_count ||
@@ -3801,8 +3846,6 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
             size_t source_light_palette_offset;
             uint8_t source_texel;
             uint8_t source_colour;
-            float exponent[3];
-            float floor[3];
             size_t pixel_offset = ((size_t)y * width + x) * 4u;
 
             source_texel_offset_signed = (int64_t)source_map_offset +
@@ -3899,24 +3942,20 @@ static int renderer_opengl_decode_vector_face_texture(const SceneSprite *sprite,
                                           "source vector light palette references an invalid display colour");
                 return 0;
             }
-            if (!renderer_opengl_palette_index_light_response(
-                    sprite->source_light_palette_bytes,
-                    sprite->source_light_palette_byte_count,
-                    sprite->source_display_palette_bytes,
-                    sprite->source_display_palette_byte_count,
-                    VECTOR_LIGHT_PALETTE_ROW_WIDTH, VECTOR_LIGHT_PALETTE_ROW_WIDTH, 1u,
-                    VECTOR_LIGHT_PALETTE_BASE_ROW, 32u, source_texel, exponent, floor,
-                    error, error_size)) {
+            if (renderer->vector_light_responses_prepared == 0u) {
                 free(pixels);
                 free(exponent_pixels);
                 free(floor_pixels);
+                renderer_opengl_set_error(
+                    error, error_size,
+                    "source vector light responses were not prepared");
                 return 0;
             }
             for (uint32_t component = 0u; component < 3u; ++component) {
-                exponent_pixels[pixel_offset + component] = renderer_opengl_unit_float_to_byte(
-                    exponent[component] / renderer_opengl_light_response_exponent_maximum);
+                exponent_pixels[pixel_offset + component] =
+                    renderer->vector_light_response_exponents[source_texel][component];
                 floor_pixels[pixel_offset + component] =
-                    renderer_opengl_unit_float_to_byte(floor[component]);
+                    renderer->vector_light_response_floors[source_texel][component];
             }
             exponent_pixels[pixel_offset + 3u] = UINT8_MAX;
             floor_pixels[pixel_offset + 3u] = UINT8_MAX;
@@ -3975,8 +4014,18 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
             return 1;
         }
     }
+    if (renderer->vector_resources_prepared != 0u) {
+        if (error && error_size > 0u) {
+            (void)snprintf(
+                error, error_size,
+                "vector material map %zu U=%u..%u V=%u..%u glare=%u was not prepared before gameplay",
+                source_map_offset, minimum_u, maximum_u, minimum_v, maximum_v,
+                glare != 0 ? 1u : 0u);
+        }
+        return 0;
+    }
     if (!renderer_opengl_decode_vector_face_texture(
-            sprite, source_map_offset, minimum_u, maximum_u, minimum_v, maximum_v, glare,
+            renderer, sprite, source_map_offset, minimum_u, maximum_u, minimum_v, maximum_v, glare,
             &pixels, &exponent_pixels, &floor_pixels, &width, &height, error, error_size) ||
         /* Vector faces are real 3D materials, not pixel-locked bitmap sprites. */
         !renderer_opengl_create_texture(pixels, width, height, 0, 1, 0, &texture, error, error_size) ||
@@ -4021,6 +4070,230 @@ static int renderer_opengl_find_vector_face_texture(RendererOpenGL *renderer,
         0u, exponent_texture, floor_texture
     };
     *out_texture = &renderer->textures[renderer->texture_count - 1u];
+    return 1;
+}
+
+static int renderer_opengl_prepare_vector_resource(
+    RendererOpenGL *renderer, const RendererVectorResource *resource,
+    const RendererResourceCatalog *catalog, char *error, size_t error_size)
+{
+    SceneSprite sprite = {0};
+    RendererOpenGLVectorFrame first_frame;
+    const uint8_t *bytes;
+    size_t size;
+
+    if (!renderer || !resource || !catalog || !resource->source_bytes ||
+        resource->source_byte_count < 6u) {
+        renderer_opengl_set_error(error, error_size,
+                                  "vector resource preparation received an invalid model");
+        return 0;
+    }
+    sprite.source = SCENE_SPRITE_SOURCE_VECTOR_MODEL;
+    sprite.source_asset_id = resource->source_asset_id;
+    sprite.source_bytes = resource->source_bytes;
+    sprite.source_byte_count = resource->source_byte_count;
+    sprite.source_palette_bytes = catalog->vector_texture_bytes;
+    sprite.source_palette_byte_count = catalog->vector_texture_byte_count;
+    sprite.source_light_palette_bytes = catalog->vector_light_palette_bytes;
+    sprite.source_light_palette_byte_count = catalog->vector_light_palette_byte_count;
+    sprite.source_display_palette_bytes = catalog->source_display_palette_bytes;
+    sprite.source_display_palette_byte_count = catalog->source_display_palette_byte_count;
+    bytes = resource->source_bytes;
+    size = resource->source_byte_count;
+    if (!renderer_opengl_vector_model_frame(
+            bytes, size, 0u, &first_frame, error, error_size)) {
+        return 0;
+    }
+
+    /*
+     * objdrawhires.s:draw_PolygonModel's part list and doapoly trailers are
+     * immutable across model frames. Walk every authored part once so later
+     * frame selection performs no texture conversion or GL allocation.
+     */
+    for (uint32_t part_index = 0u; ; ++part_index) {
+        size_t list_offset = first_frame.lines_offset + (size_t)part_index * 4u;
+        int16_t part_relative;
+        size_t part_offset;
+
+        if (list_offset > size || 4u > size - list_offset) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source vector model has no part-list terminator");
+            return 0;
+        }
+        part_relative = renderer_opengl_read_be16s(bytes + list_offset);
+        if (part_relative < 0) {
+            break;
+        }
+        if (part_index >= 32u) {
+            renderer_opengl_set_error(error, error_size,
+                                      "source vector model has more than 32 parts");
+            return 0;
+        }
+        part_offset = 2u + (uint16_t)part_relative;
+        for (;;) {
+            int16_t line_count_minus_one;
+            uint32_t polygon_point_count;
+            size_t polygon_byte_count;
+            const uint8_t *polygon_point_bytes;
+            const uint8_t *face_bytes;
+            uint8_t minimum_u = UINT8_MAX;
+            uint8_t maximum_u = 0u;
+            uint8_t minimum_v = UINT8_MAX;
+            uint8_t maximum_v = 0u;
+            size_t source_map_offset;
+            int source_glare;
+            const RendererOpenGLTexture *texture;
+
+            if (part_offset > size || 2u > size - part_offset) {
+                renderer_opengl_set_error(error, error_size,
+                                          "source vector model part is outside the asset");
+                return 0;
+            }
+            line_count_minus_one = renderer_opengl_read_be16s(bytes + part_offset);
+            if (line_count_minus_one < 0) {
+                break;
+            }
+            polygon_point_count = (uint32_t)line_count_minus_one + 1u;
+            if (polygon_point_count < 3u ||
+                (uint16_t)line_count_minus_one >
+                    (size - part_offset < 18u ? 0u :
+                     (size - part_offset - 18u) / 4u)) {
+                renderer_opengl_set_error(error, error_size,
+                                          "source vector model polygon is malformed");
+                return 0;
+            }
+            /* Each source fan triangle can clip to at most a five-point
+             * polygon, or three output triangles. Reserve the catalog-wide
+             * maximum now so vector drawing never touches the heap. */
+            if (!renderer_opengl_vector_scratch_reserve(
+                    renderer, (polygon_point_count - 2u) * 9u,
+                    error, error_size)) {
+                return 0;
+            }
+            polygon_byte_count = 18u + (size_t)(uint16_t)line_count_minus_one * 4u;
+            polygon_point_bytes = bytes + part_offset + 4u;
+            face_bytes = polygon_point_bytes +
+                ((size_t)polygon_point_count + 1u) * 4u;
+            for (uint32_t corner = 0u; corner < polygon_point_count; ++corner) {
+                const uint8_t *source_corner = polygon_point_bytes + (size_t)corner * 4u;
+
+                if (renderer_opengl_read_be16(source_corner) >= first_frame.point_count) {
+                    renderer_opengl_set_error(
+                        error, error_size,
+                        "source vector polygon references an invalid point");
+                    return 0;
+                }
+                if (source_corner[2u] < minimum_u) {
+                    minimum_u = source_corner[2u];
+                }
+                if (source_corner[2u] > maximum_u) {
+                    maximum_u = source_corner[2u];
+                }
+                if (source_corner[3u] < minimum_v) {
+                    minimum_v = source_corner[3u];
+                }
+                if (source_corner[3u] > maximum_v) {
+                    maximum_v = source_corner[3u];
+                }
+            }
+            source_glare = face_bytes[5u] == 0u && face_bytes[4u] != 0u;
+            if (!renderer_opengl_vector_face_map_offset(
+                    &sprite, face_bytes, &source_map_offset, error, error_size) ||
+                !renderer_opengl_find_vector_face_texture(
+                    renderer, &sprite, source_map_offset,
+                    minimum_u, maximum_u, minimum_v, maximum_v, source_glare,
+                    &texture, error, error_size)) {
+                return 0;
+            }
+            (void)texture;
+            part_offset += polygon_byte_count;
+        }
+    }
+    return 1;
+}
+
+static int renderer_opengl_prepare_vector_light_responses(
+    RendererOpenGL *renderer, const RendererResourceCatalog *catalog,
+    char *error, size_t error_size)
+{
+    enum {
+        VECTOR_LIGHT_PALETTE_WIDTH = 256u,
+        VECTOR_LIGHT_PALETTE_BASE_ROW = 32u,
+        VECTOR_LIGHT_PALETTE_ROW_COUNT = 32u
+    };
+
+    if (!renderer || !catalog || renderer->vector_light_responses_prepared != 0u) {
+        renderer_opengl_set_error(error, error_size,
+                                  "vector light-response preparation is invalid");
+        return 0;
+    }
+    for (uint16_t source_index = 0u; source_index < VECTOR_LIGHT_PALETTE_WIDTH;
+         ++source_index) {
+        float exponent[3u];
+        float floor[3u];
+
+        if (!renderer_opengl_palette_index_light_response(
+                catalog->vector_light_palette_bytes,
+                catalog->vector_light_palette_byte_count,
+                catalog->source_display_palette_bytes,
+                catalog->source_display_palette_byte_count,
+                VECTOR_LIGHT_PALETTE_WIDTH, VECTOR_LIGHT_PALETTE_WIDTH, 1u,
+                VECTOR_LIGHT_PALETTE_BASE_ROW, VECTOR_LIGHT_PALETTE_ROW_COUNT,
+                (uint8_t)source_index, exponent, floor, error, error_size)) {
+            return 0;
+        }
+        for (uint32_t component = 0u; component < 3u; ++component) {
+            renderer->vector_light_response_exponents[source_index][component] =
+                renderer_opengl_unit_float_to_byte(
+                    exponent[component] /
+                    renderer_opengl_light_response_exponent_maximum);
+            renderer->vector_light_response_floors[source_index][component] =
+                renderer_opengl_unit_float_to_byte(floor[component]);
+        }
+    }
+    renderer->vector_light_responses_prepared = UINT8_MAX;
+    return 1;
+}
+
+int renderer_opengl_prepare_resources(
+    RendererOpenGL *renderer, const RendererResourceCatalog *catalog,
+    size_t *out_prepared_vector_material_count, char *error, size_t error_size)
+{
+    size_t initial_texture_count;
+
+    if (!renderer || !catalog || !out_prepared_vector_material_count ||
+        renderer->vector_resources_prepared != 0u ||
+        (catalog->vector_resource_count != 0u &&
+         (!catalog->vector_resources || !catalog->vector_texture_bytes ||
+          !catalog->vector_light_palette_bytes ||
+          !catalog->source_display_palette_bytes))) {
+        renderer_opengl_set_error(error, error_size,
+                                  "OpenGL resource catalog is invalid or already prepared");
+        return 0;
+    }
+    initial_texture_count = renderer->texture_count;
+    if (catalog->vector_resource_count != 0u &&
+        !renderer_opengl_prepare_vector_light_responses(
+            renderer, catalog, error, error_size)) {
+        return 0;
+    }
+    for (size_t resource_index = 0u;
+         resource_index < catalog->vector_resource_count; ++resource_index) {
+        if (!renderer_opengl_prepare_vector_resource(
+                renderer, &catalog->vector_resources[resource_index], catalog,
+                error, error_size)) {
+            return 0;
+        }
+    }
+    /* Complete deferred driver work here, outside the variable-rate game loop. */
+    glFinish();
+    if (glGetError() != GL_NO_ERROR) {
+        renderer_opengl_set_error(error, error_size,
+                                  "OpenGL vector-resource preparation failed");
+        return 0;
+    }
+    renderer->vector_resources_prepared = UINT8_MAX;
+    *out_prepared_vector_material_count = renderer->texture_count - initial_texture_count;
     return 1;
 }
 
@@ -4103,6 +4376,8 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
         renderer_opengl_set_error(error, error_size, "source vector sprite descriptor is invalid");
         return 0;
     }
+    vertices = renderer->vector_vertex_scratch;
+    vertex_capacity = renderer->vector_vertex_scratch_capacity;
     renderer_opengl_use_default_light_response(renderer);
     camera_space = sprite->presentation ==
         SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON;
@@ -4374,7 +4649,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
 
                         for (uint32_t corner = 0u; corner < 3u; ++corner) {
                             if (!renderer_opengl_vector_append(
-                                    &vertices, &vertex_count, &vertex_capacity,
+                                    vertices, &vertex_count, vertex_capacity,
                                     &clipped_vertices[clipped_corners[corner]],
                                     error, error_size)) {
                                 goto done;
@@ -4406,10 +4681,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                     glDepthMask(GL_TRUE);
                     glDisable(GL_BLEND);
                 }
-                free(vertices);
-                vertices = NULL;
                 vertex_count = 0u;
-                vertex_capacity = 0u;
             }
             part_offset += polygon_byte_count;
             if (part_offset > size || 2u > size - part_offset) {
@@ -4421,7 +4693,6 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
     }
     result = 1;
 done:
-    free(vertices);
     if (camera_space != 0) {
         renderer->gl.uniform_matrix_4fv(renderer->view_projection_uniform, 1, GL_FALSE,
                                         view_projection);
@@ -4612,6 +4883,7 @@ void renderer_opengl_destroy(RendererOpenGL *renderer)
         SDL_GL_DeleteContext(renderer->context);
     }
     free(renderer->textures);
+    free(renderer->vector_vertex_scratch);
     SDL_DestroyWindow(renderer->window);
     free(renderer);
 }
@@ -4729,6 +5001,11 @@ int renderer_opengl_present(RendererOpenGL *renderer, const SceneFrame *frame,
 
     if (!renderer || !renderer->window || !renderer->context || !frame || !view) {
         renderer_opengl_set_error(error, error_size, "OpenGL presenter received invalid state");
+        return 0;
+    }
+    if (renderer->vector_resources_prepared == 0u) {
+        renderer_opengl_set_error(error, error_size,
+                                  "OpenGL presenter resources were not prepared");
         return 0;
     }
     renderer->last_view_weapon_coverage = 0u;

@@ -85,6 +85,16 @@ authority for all game behavior and data formats.
   converts it once through the neutral bright `Draw_TexturePalettePtr` row.
   Vector surfaces use filtered, mipmapped true-colour textures where supported
   by the GLES2-compatible source dimensions; bitmap sprites remain crisp.
+  The renderer-neutral `RendererResourceCatalog` now publishes every vector
+  blob already loaded by `controlloop.s:Game_Start` before the selected level
+  begins. OpenGL walks `draw_PolygonModel`'s immutable part list and every
+  `doapoly` material trailer, prepares the shared 256-entry continuous-light
+  response once, uploads all unique opaque/glare material regions, reserves
+  the catalog-wide maximum clipped-face vertex scratch, and calls `glFinish`
+  at this bounded loading boundary. Gameplay vector draws may only hit that
+  completed cache and reuse that scratch; a missing region or capacity fails
+  explicitly instead of performing source conversion, GL allocation, or
+  per-face heap allocation in a variable-rate frame.
   `draw_CalcBrightRings` now publishes its live 16-by-16
   `draw_PointAndPolyBrights_vl` field, including source-zone border samples,
   joined zones, solid-wall attenuation, and the model's authored polygon-angle
