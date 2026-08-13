@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <limits.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "object_handler.h"
@@ -226,6 +227,7 @@ static void game_bootstrap_release_level(GameBootstrap *game)
     object_handler_view_weapon_animation_init(&game->view_weapon_animation_runtime);
     level_static_scene_destroy(&game->static_scene);
     memset(&game->player, 0, sizeof(game->player));
+    game->lighting_presentation_baseline_valid = 0u;
 }
 
 static int game_bootstrap_load_level_file(const char *data_root, const char *level_directory,
@@ -349,6 +351,18 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
     game_random_init(&game->random);
     object_animation_runtime_init(&game->object_animation_runtime);
     lighting_runtime_init(&game->lighting_runtime);
+    game->lighting_presentation_baseline =
+        calloc(1u, sizeof(*game->lighting_presentation_baseline));
+    game->lighting_presentation_target =
+        calloc(1u, sizeof(*game->lighting_presentation_target));
+    if (!game->lighting_presentation_baseline ||
+        !game->lighting_presentation_target) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "lighting presentation endpoint allocation failed");
+        }
+        goto fail;
+    }
     object_explosion_runtime_init(&game->object_explosion_runtime);
     player_hazard_runtime_init(&game->player_hazard_runtime);
     return 1;
@@ -463,8 +477,18 @@ int game_bootstrap_update_single_player_at_time(GameBootstrap *game,
             &game->lighting_runtime, &game->dynamic_level.runtime, &game->player,
             error, error_size) ||
         !lighting_runtime_refresh_all_zones(
-            &game->lighting_runtime, &game->dynamic_level.runtime, error, error_size) ||
-        !player_entity_sync_single_player(&game->object_runtime, &game->dynamic_level.runtime,
+            &game->lighting_runtime, &game->dynamic_level.runtime, error, error_size)) {
+        return 0;
+    }
+    /*
+     * Preserve hires.s:allinzone before ObjectHandler adds the source
+     * Flash/torch/projectile terms. The copy is presentation-only and never
+     * feeds PlayerRuntime.room_brightness, AI, or the next source update.
+     */
+    *game->lighting_presentation_baseline = game->lighting_runtime;
+    game->lighting_presentation_baseline_valid = UINT8_MAX;
+    if (!player_entity_sync_single_player(&game->object_runtime,
+                                          &game->dynamic_level.runtime,
                                           &game->game_link_catalog, &game->player,
                                           &game->session.player1_inventory, &game->random,
                                           &game->audio_events,
@@ -746,6 +770,7 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
     game->player.health = game->session.player1_inventory.health;
 
     game->active_level_index = level_index;
+    game->lighting_presentation_baseline_valid = 0u;
     return 1;
 }
 
@@ -765,6 +790,11 @@ void game_bootstrap_destroy(GameBootstrap *game)
     alien_runtime_init(&game->alien_runtime);
     object_animation_runtime_destroy(&game->object_animation_runtime);
     lighting_runtime_init(&game->lighting_runtime);
+    free(game->lighting_presentation_baseline);
+    free(game->lighting_presentation_target);
+    game->lighting_presentation_baseline = NULL;
+    game->lighting_presentation_target = NULL;
+    game->lighting_presentation_baseline_valid = 0u;
     object_explosion_runtime_init(&game->object_explosion_runtime);
     player_hazard_runtime_init(&game->player_hazard_runtime);
     memset(&game->alien_dispatch_workspace, 0, sizeof(game->alien_dispatch_workspace));
@@ -789,6 +819,7 @@ static int16_t game_bootstrap_scene_clamp_light(int32_t value)
 }
 
 static int game_bootstrap_scene_wall_light(const GameBootstrap *game,
+                                           const LightingRuntime *lighting,
                                            const LevelStaticWallScene *wall,
                                            uint8_t point_selector, uint8_t use_top_selector,
                                            int16_t *out_light)
@@ -806,12 +837,13 @@ static int game_bootstrap_scene_wall_light(const GameBootstrap *game,
     }
     source_index = (uint32_t)(selector & 0x07u) + (uint32_t)point_selector * 4u +
         (wall->source_upper_zone != 0u ? 2u : 0u);
-    if (!out_light || zone_index >= game->dynamic_level.runtime.zone_count ||
+    if (!game || !lighting || !wall || !out_light ||
+        zone_index >= game->dynamic_level.runtime.zone_count ||
         zone_index >= LIGHTING_RUNTIME_POINT_ZONE_CAPACITY ||
         source_index >= LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT) {
         return 0;
     }
-    source_light = game->lighting_runtime.current_point_brightness[zone_index][source_index];
+    source_light = lighting->current_point_brightness[zone_index][source_index];
     if (source_light < 0) {
         source_light = -source_light;
     }
@@ -820,6 +852,7 @@ static int game_bootstrap_scene_wall_light(const GameBootstrap *game,
 }
 
 static int game_bootstrap_scene_flat_point_light(const GameBootstrap *game,
+                                                 const LightingRuntime *lighting,
                                                  const LevelStaticFlatScene *flat,
                                                  uint8_t point_selector,
                                                  int16_t *out_light)
@@ -827,7 +860,7 @@ static int game_bootstrap_scene_flat_point_light(const GameBootstrap *game,
     uint32_t component_index;
     int16_t source_light;
 
-    if (!game || !flat || !out_light ||
+    if (!game || !lighting || !flat || !out_light ||
         point_selector >= LEVEL_RUNTIME_ZONE_BORDER_POINT_COUNT ||
         flat->source_zone_index >= game->dynamic_level.runtime.zone_count ||
         flat->source_zone_index >= LIGHTING_RUNTIME_POINT_ZONE_CAPACITY) {
@@ -840,9 +873,8 @@ static int game_bootstrap_scene_flat_point_light(const GameBootstrap *game,
      */
     component_index = (flat->source_upper_zone != 0u ? 2u : 0u) +
         (flat->primitive == SCENE_GEOMETRY_PRIMITIVE_CEILING ? 1u : 0u);
-    source_light = game->lighting_runtime.current_point_brightness[flat->source_zone_index]
-                                                                    [point_selector * 4u +
-                                                                     component_index];
+    source_light = lighting->current_point_brightness[flat->source_zone_index]
+                                                         [point_selector * 4u + component_index];
     /* goursides uses NEG.W when a source point value is negative. */
     if (source_light < 0) {
         source_light = (int16_t)(UINT16_C(0) - (uint16_t)source_light);
@@ -851,23 +883,85 @@ static int game_bootstrap_scene_flat_point_light(const GameBootstrap *game,
     return 1;
 }
 
-static int game_bootstrap_refresh_scene_lighting(GameBootstrap *game)
+static int game_bootstrap_refresh_scene_lighting(
+    GameBootstrap *game, uint8_t *out_ambient_animation_phase_tick,
+    uint8_t *out_ambient_animation_interval_ticks)
 {
+    const LightingRuntime *baseline_lighting;
+    const LightingRuntime *ambient_target_lighting;
+    uint8_t ambient_animation_phase_tick = 0u;
+    uint8_t ambient_animation_interval_ticks = 0u;
+
+    if (!game || !game->lighting_presentation_baseline ||
+        !game->lighting_presentation_target ||
+        !out_ambient_animation_phase_tick ||
+        !out_ambient_animation_interval_ticks) {
+        return 0;
+    }
+    baseline_lighting = &game->lighting_runtime;
+    ambient_target_lighting = &game->lighting_runtime;
+    if (game->lighting_presentation_baseline_valid != 0u) {
+        baseline_lighting = game->lighting_presentation_baseline;
+        if (!lighting_runtime_prepare_presentation_target(
+                &game->lighting_runtime, baseline_lighting,
+                &game->dynamic_level.runtime, game->lighting_presentation_target,
+                &ambient_animation_phase_tick, NULL, 0u)) {
+            return 0;
+        }
+        ambient_target_lighting = game->lighting_presentation_target;
+        ambient_animation_interval_ticks = LIGHTING_RUNTIME_ANIMATION_INTERVAL;
+    }
     for (uint32_t wall_index = 0u; wall_index < game->static_scene.wall_count; ++wall_index) {
         LevelStaticWallScene *wall = &game->static_scene.walls[wall_index];
         int16_t left_top;
         int16_t right_top;
         int16_t left_bottom;
         int16_t right_bottom;
+        int16_t ambient_left_top;
+        int16_t ambient_right_top;
+        int16_t ambient_left_bottom;
+        int16_t ambient_right_bottom;
+        int16_t target_left_top;
+        int16_t target_right_top;
+        int16_t target_left_bottom;
+        int16_t target_right_bottom;
 
-        if (!game_bootstrap_scene_wall_light(game, wall, wall->left_point_brightness, 1u,
-                                             &left_top) ||
-            !game_bootstrap_scene_wall_light(game, wall, wall->right_point_brightness, 1u,
-                                             &right_top) ||
-            !game_bootstrap_scene_wall_light(game, wall, wall->left_point_brightness, 0u,
-                                             &left_bottom) ||
-            !game_bootstrap_scene_wall_light(game, wall, wall->right_point_brightness, 0u,
-                                             &right_bottom)) {
+        if (!game_bootstrap_scene_wall_light(
+                game, &game->lighting_runtime, wall,
+                wall->left_point_brightness, 1u, &left_top) ||
+            !game_bootstrap_scene_wall_light(
+                game, &game->lighting_runtime, wall,
+                wall->right_point_brightness, 1u, &right_top) ||
+            !game_bootstrap_scene_wall_light(
+                game, &game->lighting_runtime, wall,
+                wall->left_point_brightness, 0u, &left_bottom) ||
+            !game_bootstrap_scene_wall_light(
+                game, &game->lighting_runtime, wall,
+                wall->right_point_brightness, 0u, &right_bottom) ||
+            !game_bootstrap_scene_wall_light(
+                game, baseline_lighting, wall,
+                wall->left_point_brightness, 1u, &ambient_left_top) ||
+            !game_bootstrap_scene_wall_light(
+                game, baseline_lighting, wall,
+                wall->right_point_brightness, 1u, &ambient_right_top) ||
+            !game_bootstrap_scene_wall_light(
+                game, baseline_lighting, wall,
+                wall->left_point_brightness, 0u, &ambient_left_bottom) ||
+            !game_bootstrap_scene_wall_light(
+                game, baseline_lighting, wall,
+                wall->right_point_brightness, 0u, &ambient_right_bottom) ||
+            !game_bootstrap_scene_wall_light(
+                game, ambient_target_lighting, wall,
+                wall->left_point_brightness, 1u, &target_left_top) ||
+            !game_bootstrap_scene_wall_light(
+                game, ambient_target_lighting, wall,
+                wall->right_point_brightness, 1u, &target_right_top) ||
+            !game_bootstrap_scene_wall_light(
+                game, ambient_target_lighting, wall,
+                wall->left_point_brightness, 0u, &target_left_bottom) ||
+            !game_bootstrap_scene_wall_light(
+                game, ambient_target_lighting, wall,
+                wall->right_point_brightness, 0u, &target_right_bottom)) {
             return 0;
         }
         wall->vertices[0].source_light_level = left_top;
@@ -876,6 +970,18 @@ static int game_bootstrap_refresh_scene_lighting(GameBootstrap *game)
         wall->vertices[3].source_light_level = left_top;
         wall->vertices[4].source_light_level = right_bottom;
         wall->vertices[5].source_light_level = left_bottom;
+        wall->vertices[0].source_ambient_light_level = ambient_left_top;
+        wall->vertices[1].source_ambient_light_level = ambient_right_top;
+        wall->vertices[2].source_ambient_light_level = ambient_right_bottom;
+        wall->vertices[3].source_ambient_light_level = ambient_left_top;
+        wall->vertices[4].source_ambient_light_level = ambient_right_bottom;
+        wall->vertices[5].source_ambient_light_level = ambient_left_bottom;
+        wall->vertices[0].source_ambient_light_target_level = target_left_top;
+        wall->vertices[1].source_ambient_light_target_level = target_right_top;
+        wall->vertices[2].source_ambient_light_target_level = target_right_bottom;
+        wall->vertices[3].source_ambient_light_target_level = target_left_top;
+        wall->vertices[4].source_ambient_light_target_level = target_right_bottom;
+        wall->vertices[5].source_ambient_light_target_level = target_left_bottom;
     }
     for (uint32_t flat_index = 0u; flat_index < game->static_scene.flat_count; ++flat_index) {
         LevelStaticFlatScene *flat = &game->static_scene.flats[flat_index];
@@ -889,11 +995,23 @@ static int game_bootstrap_refresh_scene_lighting(GameBootstrap *game)
                 game->lighting_runtime.zone_brightness[flat->source_zone_index]
                                                        [flat->source_upper_zone != 0u ? 1u : 0u] +
                 flat->brightness_offset;
+            int32_t ambient_light = 300 +
+                baseline_lighting->zone_brightness[flat->source_zone_index]
+                                                    [flat->source_upper_zone != 0u ? 1u : 0u] +
+                flat->brightness_offset;
+            int32_t target_light = 300 +
+                ambient_target_lighting->zone_brightness[flat->source_zone_index]
+                                                          [flat->source_upper_zone != 0u ? 1u : 0u] +
+                flat->brightness_offset;
 
             /* draw_zone_graph.s disables Gouraud lighting for Draw_Flats water. */
             for (uint32_t vertex_index = 0u; vertex_index < flat->vertex_count; ++vertex_index) {
                 flat->vertices[vertex_index].source_light_level =
                     game_bootstrap_scene_clamp_light(source_light);
+                flat->vertices[vertex_index].source_ambient_light_level =
+                    game_bootstrap_scene_clamp_light(ambient_light);
+                flat->vertices[vertex_index].source_ambient_light_target_level =
+                    game_bootstrap_scene_clamp_light(target_light);
             }
         } else {
             if (!flat->point_brightness_selectors) {
@@ -901,13 +1019,24 @@ static int game_bootstrap_refresh_scene_lighting(GameBootstrap *game)
             }
             for (uint32_t vertex_index = 0u; vertex_index < flat->vertex_count; ++vertex_index) {
                 if (!game_bootstrap_scene_flat_point_light(
-                        game, flat, flat->point_brightness_selectors[vertex_index],
-                        &flat->vertices[vertex_index].source_light_level)) {
+                        game, &game->lighting_runtime, flat,
+                        flat->point_brightness_selectors[vertex_index],
+                        &flat->vertices[vertex_index].source_light_level) ||
+                    !game_bootstrap_scene_flat_point_light(
+                        game, baseline_lighting, flat,
+                        flat->point_brightness_selectors[vertex_index],
+                        &flat->vertices[vertex_index].source_ambient_light_level) ||
+                    !game_bootstrap_scene_flat_point_light(
+                        game, ambient_target_lighting, flat,
+                        flat->point_brightness_selectors[vertex_index],
+                        &flat->vertices[vertex_index].source_ambient_light_target_level)) {
                     return 0;
                 }
             }
         }
     }
+    *out_ambient_animation_phase_tick = ambient_animation_phase_tick;
+    *out_ambient_animation_interval_ticks = ambient_animation_interval_ticks;
     return 1;
 }
 
@@ -935,6 +1064,8 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
     uint32_t sprite_count;
     size_t required_commands;
     size_t static_surface_count = 0u;
+    uint8_t ambient_animation_phase_tick = 0u;
+    uint8_t ambient_animation_interval_ticks = 0u;
     GameBootstrapDynamicMeshGroup dynamic_groups[
         GAME_BOOTSTRAP_DYNAMIC_MESH_GROUP_CAPACITY] = {{0}};
     uint32_t dynamic_group_count = 0u;
@@ -986,7 +1117,9 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
             !scene_frame_reserve_mesh_surfaces(frame, primitive_count)) {
             return 0;
         }
-        if (!game_bootstrap_refresh_scene_lighting(game)) {
+        if (!game_bootstrap_refresh_scene_lighting(
+                game, &ambient_animation_phase_tick,
+                &ambient_animation_interval_ticks)) {
             return 0;
         }
         command.type = SCENE_COMMAND_CAMERA;
@@ -1014,6 +1147,10 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         command.data.lighting.point_brightness_count = LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT;
         command.data.lighting.zone_brightness = game->lighting_runtime.zone_brightness;
         command.data.lighting.zone_count = game->dynamic_level.runtime.zone_count;
+        command.data.lighting.ambient_animation_phase_tick =
+            ambient_animation_phase_tick;
+        command.data.lighting.ambient_animation_interval_ticks =
+            ambient_animation_interval_ticks;
         if (!scene_frame_submit(frame, &command)) {
             return 0;
         }

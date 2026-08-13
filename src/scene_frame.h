@@ -72,6 +72,15 @@ typedef struct {
      * converts this continuous source value to lighting in its forward pass.
      */
     int16_t source_light_level;
+    /*
+     * Presentation-only authored ambient endpoints. `source_light_level`
+     * may additionally contain Flash/torch/projectile contributions; keeping
+     * the ambient base separate lets those per-tick effects retain the normal
+     * completed-frame interpolation while newanims.s:brightanim is blended
+     * across its complete five-tick interval.
+     */
+    int16_t source_ambient_light_level;
+    int16_t source_ambient_light_target_level;
 } SceneVertex;
 
 typedef enum {
@@ -157,6 +166,9 @@ typedef struct {
     uint16_t point_brightness_count;
     const int16_t (*zone_brightness)[2];
     uint16_t zone_count;
+    /* Presentation phase 0..interval-1 for newanims.s:brightanim. */
+    uint8_t ambient_animation_phase_tick;
+    uint8_t ambient_animation_interval_ticks;
 } SceneLighting;
 
 /* `newanims.s:Draw_SkyBackdrop` and `DoWaterAnims` source presentation state. */

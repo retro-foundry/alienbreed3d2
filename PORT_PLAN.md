@@ -197,6 +197,13 @@ authority for all game behavior and data formats.
   `objdrawhires.s:rotate_object` transform at either source endpoint and
   never advances `newaliencontrol.s:ACTANIMOBJ` from a display frame.
   Spawned/removed source records remain discrete.
+  World vertices also retain a pre-object `hires.s:allinzone` ambient endpoint
+  and the next exact `newanims.s:brightanim` table endpoint. The presenter
+  advances between them over the full `Anim_Timer_w = 5` interval, eliminating
+  the former 20 ms transition plus 80 ms hold. Per-tick Flash, torch, and
+  projectile residuals keep the ordinary completed-frame blend, while the
+  authoritative lighting tables, player room brightness, and AI remain fixed
+  at source cadence.
   Raw mouse-X display yaw is applied at host cadence. After the source
   `c/system.c:Sys_ReadMouse`/`modules/player.s:plr_MouseControl` tick consumes
   it, the already-presented component is compensated across interpolation and

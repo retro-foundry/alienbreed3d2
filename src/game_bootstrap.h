@@ -65,6 +65,14 @@ typedef struct {
     ObjectAnimationRuntime object_animation_runtime;
     /* Source dynamic light state; its room-brightness output feeds AI. */
     LightingRuntime lighting_runtime;
+    /*
+     * Presentation-only allinzone result captured before source object lights.
+     * It separates the five-tick authored room animation from one-tick
+     * Flash/torch/projectile contributions without changing gameplay state.
+     */
+    LightingRuntime *lighting_presentation_baseline;
+    LightingRuntime *lighting_presentation_target;
+    uint8_t lighting_presentation_baseline_valid;
     /* newanims.s:Anim_ExplodeIntoBits source-global radius state. */
     ObjectExplosionRuntime object_explosion_runtime;
     /* ItsAnAlien's retained cross-object motion/torch globals. */

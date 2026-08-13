@@ -6,7 +6,6 @@
 enum {
     LIGHTING_RUNTIME_LOWER_BRIGHTNESS = 0u,
     LIGHTING_RUNTIME_UPPER_BRIGHTNESS = 1u,
-    LIGHTING_RUNTIME_ANIMATION_INTERVAL = 5u,
     LIGHTING_RUNTIME_ANIMATION_END = 999
 };
 
@@ -386,6 +385,50 @@ void lighting_runtime_advance_animation(LightingRuntime *runtime)
         runtime->animation_values[animation_index] = value;
     }
     runtime->animation_timer = LIGHTING_RUNTIME_ANIMATION_INTERVAL;
+}
+
+int lighting_runtime_prepare_presentation_target(
+    const LightingRuntime *runtime, const LightingRuntime *baseline,
+    const LevelRuntime *level, LightingRuntime *out_target,
+    uint8_t *out_phase_tick, char *error, size_t error_size)
+{
+    if (!runtime || !baseline || !level || !out_target || !out_phase_tick) {
+        lighting_runtime_set_error(
+            error, error_size, "brightness-animation presentation state is invalid");
+        return 0;
+    }
+    *out_target = *baseline;
+    if (runtime->animation_timer == LIGHTING_RUNTIME_ANIMATION_INTERVAL) {
+        /*
+         * brightanim ran after allinzone in this completed source tick. The
+         * baseline still contains the prior authored value, so the newly
+         * published Anim_BrightTable_vw is its target and this is the final
+         * fifth of the interval.
+         */
+        memcpy(out_target->animation_values, runtime->animation_values,
+               sizeof(out_target->animation_values));
+        *out_phase_tick = LIGHTING_RUNTIME_ANIMATION_INTERVAL - 1u;
+    } else {
+        for (uint16_t animation_index = 0u;
+             animation_index < LIGHTING_RUNTIME_ANIMATION_COUNT; ++animation_index) {
+            const int16_t *sequence = lighting_runtime_animation_sequences[animation_index];
+            uint16_t cursor = runtime->animation_cursors[animation_index];
+            int16_t value = sequence[cursor];
+
+            if (value == LIGHTING_RUNTIME_ANIMATION_END) {
+                value = sequence[0u];
+            }
+            out_target->animation_values[animation_index] = value;
+        }
+        if (runtime->animation_timer >= 1 &&
+            runtime->animation_timer < LIGHTING_RUNTIME_ANIMATION_INTERVAL) {
+            *out_phase_tick = (uint8_t)(LIGHTING_RUNTIME_ANIMATION_INTERVAL - 1u -
+                                        (uint16_t)runtime->animation_timer);
+        } else {
+            *out_phase_tick = 0u;
+        }
+    }
+    return lighting_runtime_refresh_all_zones(out_target, level, error, error_size);
 }
 
 int lighting_runtime_flash(LightingRuntime *runtime, const LevelRuntime *level,

@@ -164,6 +164,17 @@ static int16_t scene_frame_interpolate_i16(int16_t previous, int16_t current, fl
     return (int16_t)value;
 }
 
+static int16_t scene_frame_clamp_i16(int32_t value)
+{
+    if (value > INT16_MAX) {
+        return INT16_MAX;
+    }
+    if (value < INT16_MIN) {
+        return INT16_MIN;
+    }
+    return (int16_t)value;
+}
+
 static int8_t scene_frame_interpolate_i8(int8_t previous, int8_t current, float alpha)
 {
     int16_t value = scene_frame_interpolate_i16(previous, current, alpha);
@@ -271,7 +282,8 @@ static const SceneCommand *scene_frame_find_previous_command(const SceneFrame *p
 
 static void scene_frame_interpolate_vertex(SceneVertex *destination,
                                            const SceneVertex *previous,
-                                           const SceneVertex *current, float alpha)
+                                           const SceneVertex *current, float alpha,
+                                           float ambient_animation_alpha)
 {
     destination->position.x = scene_frame_interpolate_i32(previous->position.x,
                                                            current->position.x, alpha);
@@ -283,8 +295,26 @@ static void scene_frame_interpolate_vertex(SceneVertex *destination,
                                                           current->texture_u, alpha);
     destination->texture_v = scene_frame_interpolate_i32(previous->texture_v,
                                                           current->texture_v, alpha);
-    destination->source_light_level = scene_frame_interpolate_i16(
-        previous->source_light_level, current->source_light_level, alpha);
+    if (ambient_animation_alpha >= 0.0f) {
+        int32_t previous_dynamic_light =
+            (int32_t)previous->source_light_level -
+            previous->source_ambient_light_level;
+        int32_t current_dynamic_light =
+            (int32_t)current->source_light_level -
+            current->source_ambient_light_level;
+        int32_t dynamic_light = scene_frame_interpolate_i32(
+            previous_dynamic_light, current_dynamic_light, alpha);
+        int32_t ambient_light = scene_frame_interpolate_i32(
+            current->source_ambient_light_level,
+            current->source_ambient_light_target_level,
+            ambient_animation_alpha);
+
+        destination->source_light_level =
+            scene_frame_clamp_i16(ambient_light + dynamic_light);
+    } else {
+        destination->source_light_level = scene_frame_interpolate_i16(
+            previous->source_light_level, current->source_light_level, alpha);
+    }
 }
 
 static int scene_vector_pose_history_reserve(SceneVectorPoseHistory *history,
@@ -747,6 +777,8 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
 int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
                             const SceneFrame *current, float alpha)
 {
+    float ambient_animation_alpha = -1.0f;
+
     if (!destination || !previous || !current || destination == previous ||
         destination == current || !scene_frame_clone(destination, current)) {
         return 0;
@@ -755,6 +787,26 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
         alpha = 0.0f;
     } else if (alpha > 1.0f) {
         alpha = 1.0f;
+    }
+    for (size_t index = 0u; index < current->count; ++index) {
+        const SceneCommand *command = &current->commands[index];
+
+        if (command->type == SCENE_COMMAND_LIGHTING &&
+            command->data.lighting.ambient_animation_interval_ticks != 0u) {
+            const SceneLighting *lighting = &command->data.lighting;
+
+            if (lighting->ambient_animation_phase_tick >=
+                lighting->ambient_animation_interval_ticks) {
+                return 0;
+            }
+            ambient_animation_alpha =
+                ((float)lighting->ambient_animation_phase_tick + alpha) /
+                (float)lighting->ambient_animation_interval_ticks;
+            if (ambient_animation_alpha > 1.0f) {
+                ambient_animation_alpha = 1.0f;
+            }
+            break;
+        }
     }
     for (size_t index = 0u; index < destination->count; ++index) {
         SceneCommand *destination_command = &destination->commands[index];
@@ -867,7 +919,8 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
                     scene_frame_interpolate_vertex(
                         (SceneVertex *)&destination_geometry->vertices[vertex_index],
                         &previous_geometry->vertices[vertex_index],
-                        &current_geometry->vertices[vertex_index], alpha);
+                        &current_geometry->vertices[vertex_index], alpha,
+                        ambient_animation_alpha);
                 }
             }
         } else if (destination_command->type == SCENE_COMMAND_SPRITE_INSTANCE) {

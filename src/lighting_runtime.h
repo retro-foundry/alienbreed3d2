@@ -16,7 +16,9 @@ enum {
     /* bss/anim_bss.s:Anim_BrightTable_vw is ds.w 20. */
     LIGHTING_RUNTIME_ANIMATION_VALUE_COUNT = 20u,
     /* newanims.s:anim_BrightessAnimPtrs_vl defines seven sequences. */
-    LIGHTING_RUNTIME_ANIMATION_COUNT = 7u
+    LIGHTING_RUNTIME_ANIMATION_COUNT = 7u,
+    /* newanims.s:objmoveanim reloads Anim_Timer_w with five. */
+    LIGHTING_RUNTIME_ANIMATION_INTERVAL = 5u
 };
 
 /*
@@ -65,6 +67,17 @@ int lighting_runtime_refresh_all_zones(LightingRuntime *runtime,
 
 /* newanims.s:objmoveanim's Anim_Timer_w gate and brightanim call. */
 void lighting_runtime_advance_animation(LightingRuntime *runtime);
+
+/*
+ * Build the next authored ambient-light endpoint and the completed source-tick
+ * phase leading to it. This is presentation-only: `baseline` is the copy made
+ * immediately after hires.s:allinzone and before Flash/torch/projectile light,
+ * while `runtime` remains the authoritative post-object 50 Hz state.
+ */
+int lighting_runtime_prepare_presentation_target(
+    const LightingRuntime *runtime, const LightingRuntime *baseline,
+    const LevelRuntime *level, LightingRuntime *out_target,
+    uint8_t *out_phase_tick, char *error, size_t error_size);
 
 /*
  * newanims.s:Flash. It applies the source lower bound of -20, alters the

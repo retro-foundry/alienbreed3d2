@@ -112,6 +112,12 @@ samples present smoothly at the host frame rate. The renderer-neutral
 `SceneLighting` command also owns and blends both completed copies of
 `CurrentPointBrights_vl` and `Zone_BrightTable_vl`, so backends cannot observe
 the live 50 Hz tables stepping or overwriting the previous endpoint. World
+surfaces separately retain the pre-object `allinzone` ambient field and the
+next authored `newanims.s:brightanim` endpoint. That room lighting is blended
+across the complete five-tick (100 ms) source interval instead of changing in
+the first 20 ms and holding for the remaining four ticks. Flash, torch, and
+projectile contributions remain independent adjacent-frame interpolants, and
+none of this presentation state feeds player room brightness or AI. World
 vector enemies retain
 `ai_DoWalkAnim`/`ai_DoAttackAnim`'s discrete 50 Hz current
 frame while renderer-neutral per-ObjT pose history blends compatible compiled-

@@ -1657,6 +1657,67 @@ int main(int argc, char **argv)
         SceneFrame previous = {0};
         SceneFrame current = {0};
         SceneFrame presentation = {0};
+        SceneCommand previous_lighting = {0};
+        SceneCommand current_lighting = {0};
+        SceneCommand previous_geometry = {0};
+        SceneCommand current_geometry = {0};
+        SceneMeshSurface previous_surface = {0};
+        SceneMeshSurface current_surface = {0};
+        SceneVertex previous_vertices[3] = {0};
+        SceneVertex current_vertices[3] = {0};
+
+        previous_lighting.type = SCENE_COMMAND_LIGHTING;
+        current_lighting = previous_lighting;
+        current_lighting.data.lighting.ambient_animation_phase_tick = 2u;
+        current_lighting.data.lighting.ambient_animation_interval_ticks = 5u;
+        for (size_t vertex_index = 0u; vertex_index < 3u; ++vertex_index) {
+            previous_vertices[vertex_index].source_light_level = 120;
+            previous_vertices[vertex_index].source_ambient_light_level = 100;
+            previous_vertices[vertex_index].source_ambient_light_target_level = 200;
+            current_vertices[vertex_index].source_light_level = 240;
+            current_vertices[vertex_index].source_ambient_light_level = 200;
+            current_vertices[vertex_index].source_ambient_light_target_level = 300;
+        }
+        previous_surface.geometry.vertices = previous_vertices;
+        previous_surface.geometry.vertex_count = 3u;
+        previous_surface.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
+        previous_surface.geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_FLOOR;
+        previous_surface.geometry.source_record_id = 9u;
+        current_surface = previous_surface;
+        current_surface.geometry.vertices = current_vertices;
+        previous_geometry.type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+        previous_geometry.data.geometry_instance.source_instance_id = 9u;
+        previous_geometry.data.geometry_instance.mesh.source_mesh_id = 9u;
+        previous_geometry.data.geometry_instance.mesh.surfaces = &previous_surface;
+        previous_geometry.data.geometry_instance.mesh.surface_count = 1u;
+        current_geometry = previous_geometry;
+        current_geometry.data.geometry_instance.mesh.surfaces = &current_surface;
+
+        if (!scene_frame_init(&previous, 2u) ||
+            !scene_frame_init(&current, 2u) ||
+            !scene_frame_init(&presentation, 2u) ||
+            !scene_frame_submit(&previous, &previous_lighting) ||
+            !scene_frame_submit(&previous, &previous_geometry) ||
+            !scene_frame_submit(&current, &current_lighting) ||
+            !scene_frame_submit(&current, &current_geometry) ||
+            !scene_frame_interpolate(&presentation, &previous, &current, 0.5f) ||
+            presentation.commands[1u].data.geometry_instance.mesh.surfaces[0u]
+                    .geometry.vertices[0u].source_light_level != 280) {
+            fprintf(stderr,
+                    "five-tick ambient lighting presentation interpolation is inconsistent\n");
+            scene_frame_destroy(&presentation);
+            scene_frame_destroy(&current);
+            scene_frame_destroy(&previous);
+            return 1;
+        }
+        scene_frame_destroy(&presentation);
+        scene_frame_destroy(&current);
+        scene_frame_destroy(&previous);
+    }
+    {
+        SceneFrame previous = {0};
+        SceneFrame current = {0};
+        SceneFrame presentation = {0};
         SceneVertex previous_vertices[3] = {
             {{0, 0, 0}, 0, 0, 100},
             {{10, 0, 0}, 64, 0, 120},
@@ -10732,12 +10793,23 @@ int main(int argc, char **argv)
     {
         /* hires.s/newanims.s own player room brightness and its seven animation heads. */
         static const int16_t first_animation_values[] = {1, 9, 17, 16, 8, 20, -10};
+        static const int16_t second_animation_values[] = {2, 10, 18, 15, 7, 20, -9};
         LightingRuntime lighting;
+        LightingRuntime *lighting_baseline = malloc(sizeof(*lighting_baseline));
+        LightingRuntime *lighting_target = malloc(sizeof(*lighting_target));
         PlayerRuntime lighting_player = game.player;
+        uint8_t presentation_phase_tick = 0u;
         uint16_t marker_count = 0u;
         int16_t expected_room_brightness = 0;
         int16_t brightness_sum = 0;
 
+        if (!lighting_baseline || !lighting_target) {
+            fprintf(stderr, "could not allocate brightness presentation fixtures\n");
+            free(lighting_target);
+            free(lighting_baseline);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
         lighting_runtime_init(&lighting);
         lighting_runtime_vblank(&lighting);
         for (uint16_t point_index = 0u;
@@ -10784,11 +10856,34 @@ int main(int argc, char **argv)
             game_bootstrap_destroy(&game);
             return 1;
         }
+        *lighting_baseline = lighting;
         lighting_runtime_advance_animation(&lighting);
         if (lighting.animation_timer != 5 ||
             memcmp(lighting.animation_values, first_animation_values,
+                   sizeof(first_animation_values)) != 0 ||
+            !lighting_runtime_prepare_presentation_target(
+                &lighting, lighting_baseline, &game.dynamic_level.runtime,
+                lighting_target, &presentation_phase_tick, error, sizeof(error)) ||
+            presentation_phase_tick != 4u ||
+            memcmp(lighting_target->animation_values, first_animation_values,
                    sizeof(first_animation_values)) != 0) {
             fprintf(stderr, "newanims.s:brightanim first source values are inconsistent\n");
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        lighting_runtime_vblank(&lighting);
+        *lighting_baseline = lighting;
+        if (!lighting_runtime_refresh_all_zones(
+                lighting_baseline, &game.dynamic_level.runtime, error, sizeof(error)) ||
+            !lighting_runtime_prepare_presentation_target(
+                &lighting, lighting_baseline, &game.dynamic_level.runtime,
+                lighting_target, &presentation_phase_tick, error, sizeof(error)) ||
+            presentation_phase_tick != 0u ||
+            memcmp(lighting_target->animation_values, second_animation_values,
+                   sizeof(second_animation_values)) != 0) {
+            fprintf(stderr,
+                    "brightanim five-tick presentation endpoint is inconsistent: %s\n",
+                    error);
             game_bootstrap_destroy(&game);
             return 1;
         }
@@ -11153,6 +11248,8 @@ int main(int argc, char **argv)
                 return 1;
             }
         }
+        free(lighting_target);
+        free(lighting_baseline);
     }
     {
         /* modules/ai.s:ai_TakeDamage's two nonfatal reactions and death route. */
