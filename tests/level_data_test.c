@@ -1468,6 +1468,8 @@ int main(int argc, char **argv)
     uint32_t dynamic_wall_v_scale_fixture_count = 0u;
     uint32_t lift_wall_motion_fixture_count = 0u;
     uint8_t mechanism_audio_fixture_mask = 0u;
+    uint16_t all_keys_fixture_level = UINT16_MAX;
+    uint32_t all_keys_fixture_slot = UINT32_MAX;
     uint32_t draw_graph_record_count;
     uint32_t draw_graph_record_index;
     uint32_t static_wall_index;
@@ -3481,6 +3483,51 @@ int main(int argc, char **argv)
             fprintf(stderr, "campaign level %u could not be loaded: %s\n", level_index, error);
             game_bootstrap_destroy(&game);
             return 1;
+        }
+        if (all_keys_fixture_slot == UINT32_MAX) {
+            for (uint32_t object_index = 0u;
+                 object_index < game.level_runtime.object_record_count; ++object_index) {
+                const uint8_t *source_slot;
+                uint8_t *runtime_slot;
+                GameObjectDefinition key_definition;
+
+                if (!level_runtime_get_object_slot_bytes(
+                        &game.level_runtime, object_index, &source_slot,
+                        error, sizeof(error)) ||
+                    !object_runtime_get_slot_bytes(
+                        &game.object_runtime, object_index, &runtime_slot)) {
+                    fprintf(stderr, "campaign all-keys fixture scan failed: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if ((int16_t)read_be16(source_slot) < 0) {
+                    break;
+                }
+                if ((int16_t)read_be16(source_slot + 12u) < 0 ||
+                    source_slot[16u] != 1u || source_slot[55u] != 0u ||
+                    read_be32(source_slot + 50u) == 0u) {
+                    continue;
+                }
+                if (source_slot[54u] >= GAME_LINK_OBJECT_COUNT ||
+                    !game_link_get_object_definition(
+                        &game.game_link_catalog, source_slot[54u], &key_definition,
+                        error, sizeof(error))) {
+                    fprintf(stderr, "campaign key object definition is invalid: %s\n", error);
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                if (key_definition.behaviour != 0u) {
+                    continue;
+                }
+                if (read_be16(runtime_slot + 12u) != read_be16(source_slot + 12u)) {
+                    fprintf(stderr, "all_keys default unexpectedly removed an authored key\n");
+                    game_bootstrap_destroy(&game);
+                    return 1;
+                }
+                all_keys_fixture_level = level_index;
+                all_keys_fixture_slot = object_index;
+                break;
+            }
         }
         if (level_index == 2u) {
             /*
@@ -5944,6 +5991,42 @@ int main(int argc, char **argv)
         }
     }
         }
+    if (all_keys_fixture_level == UINT16_MAX || all_keys_fixture_slot == UINT32_MAX) {
+        fprintf(stderr, "campaign data has no authored key object for all_keys validation\n");
+        game_bootstrap_destroy(&game);
+        return 1;
+    }
+    {
+        GameBootstrap *all_keys_game = calloc(1u, sizeof(*all_keys_game));
+        DesktopSettings all_keys_settings;
+        uint8_t *key_slot;
+
+        desktop_settings_default(&all_keys_settings);
+        all_keys_settings.all_keys = UINT8_MAX;
+        if (!all_keys_game ||
+            !game_bootstrap_init(all_keys_game, argv[1], error, sizeof(error))) {
+            fprintf(stderr, "could not initialize all_keys source fixture: %s\n", error);
+            free(all_keys_game);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game_bootstrap_apply_desktop_settings(all_keys_game, &all_keys_settings);
+        if (!game_session_select_level(
+                &all_keys_game->session, all_keys_fixture_level, error, sizeof(error)) ||
+            !game_bootstrap_start_selected_single_player(
+                all_keys_game, argv[1], error, sizeof(error)) ||
+            !object_runtime_get_slot_bytes(
+                &all_keys_game->object_runtime, all_keys_fixture_slot, &key_slot) ||
+            read_be16(key_slot + 12u) != UINT16_MAX || key_slot[62u] != 0u) {
+            fprintf(stderr, "all_keys did not collect the authored source key: %s\n", error);
+            game_bootstrap_destroy(all_keys_game);
+            free(all_keys_game);
+            game_bootstrap_destroy(&game);
+            return 1;
+        }
+        game_bootstrap_destroy(all_keys_game);
+        free(all_keys_game);
+    }
     if (decoration_fixture_count == 0u || destructible_fixture_count == 0u ||
         water_fixture_count == 0u || mechanism_surface_fixture_count == 0u ||
         dynamic_wall_v_scale_fixture_count == 0u ||

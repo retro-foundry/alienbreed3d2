@@ -4,13 +4,14 @@
 #include "desktop_settings.h"
 
 static int expect_settings(const DesktopSettings *settings, uint16_t level, int health, int ammo,
-                           int weapons, int quicksave_load, int always_run, uint8_t volume,
-                           uint8_t world_light_tessellation)
+                           int weapons, int keys, int quicksave_load, int always_run,
+                           uint8_t volume, uint8_t world_light_tessellation)
 {
     return settings->start_level_index == level &&
         (settings->infinite_health != 0u) == health &&
         (settings->infinite_ammo != 0u) == ammo &&
         (settings->all_weapons != 0u) == weapons &&
+        (settings->all_keys != 0u) == keys &&
         (settings->quicksave_load != 0u) == quicksave_load &&
         (settings->always_run != 0u) == always_run && settings->volume == volume &&
         settings->world_light_tessellation == world_light_tessellation;
@@ -24,6 +25,7 @@ int main(void)
         "infinite_health = yes\n"
         "infinite_ammo = on\n"
         "all_weapons = true\n"
+        "all_keys = yes\n"
         "quicksave_load = yes\n"
         "run_default = off\n"
         "volume = 37\n"
@@ -33,16 +35,23 @@ int main(void)
     char error[256] = {0};
 
     desktop_settings_default(&settings);
-    if (!expect_settings(&settings, 0u, 0, 0, 0, 0, 1, 100u, 4u)) {
+    if (!expect_settings(&settings, 0u, 0, 0, 0, 0, 0, 1, 100u, 4u)) {
         fprintf(stderr, "desktop settings defaults differ from the documented template\n");
         return 1;
     }
     if (!desktop_settings_parse(&settings, settings_text, strlen(settings_text), error, sizeof(error)) ||
-        !expect_settings(&settings, 15u, 1, 1, 1, 1, 0, 37u, 8u)) {
+        !expect_settings(&settings, 15u, 1, 1, 1, 1, 1, 0, 37u, 8u)) {
         fprintf(stderr, "desktop settings parser did not apply valid values: %s\n", error);
         return 1;
     }
 
+    desktop_settings_default(&settings);
+    if (desktop_settings_parse(&settings, "all_keys=maybe\n", 15u,
+                               error, sizeof(error)) ||
+        strstr(error, "all_keys") == NULL) {
+        fprintf(stderr, "invalid all-keys option was not reported clearly\n");
+        return 1;
+    }
     desktop_settings_default(&settings);
     if (desktop_settings_parse(&settings, "quicksave_load=maybe\n", 21u,
                                error, sizeof(error)) ||

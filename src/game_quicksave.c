@@ -433,6 +433,9 @@ static int game_quicksave_apply_pending(GameBootstrap *game, const char *data_ro
         memcpy(game->object_runtime.point_bytes, pending->object_point_bytes,
                pending->header.object_point_bytes);
     }
+    if (!game_bootstrap_apply_desktop_level_options(game, error, error_size)) {
+        return 0;
+    }
 
     game->controls = state->controls;
     game->preferences = state->preferences;

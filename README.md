@@ -23,6 +23,8 @@ session. Supported keys are:
   empty-ammo check and ammunition debit;
 - `all_weapons=0|1` grants every source gun and a full legal supply of each
   ammunition class when the session begins;
+- `all_keys=0|1` treats every authored key in the level as collected, releasing
+  its source door/lift locks. It defaults to `0`;
 - `quicksave_load=0|1` enables first-port-compatible F5 quicksave and F9
   quickload through `savegame.bin` beside the executable. It defaults to `0`;
 - `volume=0` through `volume=100` controls the master SDL mixer gain;

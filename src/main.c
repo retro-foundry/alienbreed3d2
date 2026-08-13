@@ -471,11 +471,13 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
     }
     fprintf(stdout,
             "[SETTINGS] start_level=%u infinite_health=%u infinite_ammo=%u all_weapons=%u "
-            "volume=%u quicksave_load=%u always_run=%u world_light_tessellation=%u\n",
+            "all_keys=%u volume=%u quicksave_load=%u always_run=%u "
+            "world_light_tessellation=%u\n",
             (unsigned)(app->desktop_settings.start_level_index + 1u),
             app->desktop_settings.infinite_health != 0u ? 1u : 0u,
             app->desktop_settings.infinite_ammo != 0u ? 1u : 0u,
             app->desktop_settings.all_weapons != 0u ? 1u : 0u,
+            app->desktop_settings.all_keys != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.volume,
             app->desktop_settings.quicksave_load != 0u ? 1u : 0u,
             app->desktop_settings.always_run != 0u ? 1u : 0u,

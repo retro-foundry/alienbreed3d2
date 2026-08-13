@@ -26,7 +26,17 @@ enum {
     GAME_BOOTSTRAP_DYNAMIC_MESH_ID_BASE = UINT32_C(0x40000000),
     GAME_BOOTSTRAP_DYNAMIC_MESH_GROUP_CAPACITY =
         LEVEL_MECHANISMS_MAX_DOORS + LEVEL_MECHANISMS_MAX_LIFTS +
-        LEVEL_MECHANISMS_WATER_ANIMATION_COUNT
+        LEVEL_MECHANISMS_WATER_ANIMATION_COUNT,
+    /* defs.i:ObjT/EntT fields used by Collectable and Plr1_CollectItem. */
+    GAME_BOOTSTRAP_OBJECT_POINT_INDEX = 0u,
+    GAME_BOOTSTRAP_OBJECT_ZONE_ID = 12u,
+    GAME_BOOTSTRAP_OBJECT_TYPE_ID = 16u,
+    GAME_BOOTSTRAP_OBJECT_DOORS_AND_LIFTS_HELD = 50u,
+    GAME_BOOTSTRAP_OBJECT_ENTITY_TYPE = 54u,
+    GAME_BOOTSTRAP_OBJECT_WHICH_ANIMATION = 55u,
+    GAME_BOOTSTRAP_OBJECT_WORRY = 62u,
+    GAME_BOOTSTRAP_OBJECT_TYPE_OBJECT = 1u,
+    GAME_BOOTSTRAP_OBJECT_BEHAVIOUR_COLLECTABLE = 0u
 };
 
 typedef struct {
@@ -58,6 +68,83 @@ static void game_bootstrap_apply_desktop_inventory_options(GameBootstrap *game)
     if (game->desktop_settings.infinite_health != 0u) {
         inventory->health = game->inventory_limits.health;
     }
+}
+
+static uint16_t game_bootstrap_read_be16(const uint8_t *source)
+{
+    return (uint16_t)(((uint16_t)source[0] << 8u) | source[1]);
+}
+
+static uint32_t game_bootstrap_read_be32(const uint8_t *source)
+{
+    return ((uint32_t)source[0] << 24u) | ((uint32_t)source[1] << 16u) |
+        ((uint32_t)source[2] << 8u) | source[3];
+}
+
+int game_bootstrap_apply_desktop_level_options(GameBootstrap *game,
+                                               char *error, size_t error_size)
+{
+    if (!game) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "desktop level options received null game state");
+        }
+        return 0;
+    }
+    if (game->desktop_settings.all_keys == 0u) {
+        return 1;
+    }
+    if (!game->object_runtime.slot_bytes ||
+        game->object_runtime.active_slot_count > game->object_runtime.slot_count) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "all_keys requires a loaded source object list");
+        }
+        return 0;
+    }
+    for (uint32_t slot_index = 0u;
+         slot_index < game->object_runtime.active_slot_count; ++slot_index) {
+        uint8_t *slot;
+        GameObjectDefinition definition;
+
+        if (!object_runtime_get_slot_bytes(&game->object_runtime, slot_index, &slot)) {
+            if (error && error_size > 0u) {
+                (void)snprintf(error, error_size,
+                               "all_keys source object is outside the runtime list");
+            }
+            return 0;
+        }
+        /* ObjectHandler ends at the first negative source point index. */
+        if ((int16_t)game_bootstrap_read_be16(
+                slot + GAME_BOOTSTRAP_OBJECT_POINT_INDEX) < 0) {
+            break;
+        }
+        if ((int16_t)game_bootstrap_read_be16(slot + GAME_BOOTSTRAP_OBJECT_ZONE_ID) < 0 ||
+            slot[GAME_BOOTSTRAP_OBJECT_TYPE_ID] != GAME_BOOTSTRAP_OBJECT_TYPE_OBJECT ||
+            slot[GAME_BOOTSTRAP_OBJECT_WHICH_ANIMATION] != 0u ||
+            game_bootstrap_read_be32(
+                slot + GAME_BOOTSTRAP_OBJECT_DOORS_AND_LIFTS_HELD) == 0u) {
+            continue;
+        }
+        if (!game_link_get_object_definition(
+                &game->game_link_catalog, slot[GAME_BOOTSTRAP_OBJECT_ENTITY_TYPE],
+                &definition, error, error_size)) {
+            return 0;
+        }
+        if (definition.behaviour != GAME_BOOTSTRAP_OBJECT_BEHAVIOUR_COLLECTABLE) {
+            continue;
+        }
+        /*
+         * newaliencontrol.s:Collectable calls Plr1_CollectItem, then removes a
+         * successfully collected key from ObjectHandler by setting ZoneID to
+         * -1 and clearing ShotT_Worry_b. The key therefore stops contributing
+         * its EntT_DoorsAndLiftsHeld_l mask without altering switches or AI.
+         */
+        slot[GAME_BOOTSTRAP_OBJECT_ZONE_ID] = UINT8_MAX;
+        slot[GAME_BOOTSTRAP_OBJECT_ZONE_ID + 1u] = UINT8_MAX;
+        slot[GAME_BOOTSTRAP_OBJECT_WORRY] = 0u;
+    }
+    return 1;
 }
 
 static SceneMaterialSource game_bootstrap_floor_material_source(const GameBootstrap *game)
@@ -744,6 +831,7 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                                   error, error_size) ||
         !object_runtime_init(&game->object_runtime, &game->level_runtime,
                              error, error_size) ||
+        !game_bootstrap_apply_desktop_level_options(game, error, error_size) ||
         !player_runtime_init_single_player(&game->level, &game->dynamic_level.runtime,
                                            &game->player,
                                            error, error_size) ||

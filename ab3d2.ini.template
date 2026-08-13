@@ -11,6 +11,7 @@ start_level=1
 infinite_health=0
 infinite_ammo=0
 all_weapons=0
+all_keys=0
 
 # 1 = enable F5 quicksave and F9 quickload to/from savegame.bin.
 # 0 = ignore those shortcuts. Disabled by default, matching the first port.

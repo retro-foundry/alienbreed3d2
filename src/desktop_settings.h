@@ -15,6 +15,7 @@ typedef struct {
     uint8_t infinite_health;
     uint8_t infinite_ammo;
     uint8_t all_weapons;
+    uint8_t all_keys;
     /* First-port-compatible F5/F9 savegame.bin shortcuts. */
     uint8_t quicksave_load;
     uint8_t always_run;

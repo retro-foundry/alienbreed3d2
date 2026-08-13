@@ -130,6 +130,9 @@ int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char 
 /* Apply desktop configuration before selecting and starting a direct-play session. */
 void game_bootstrap_apply_desktop_settings(GameBootstrap *game,
                                            const DesktopSettings *settings);
+/* Reapply level-local desktop conveniences after a load or quickload restore. */
+int game_bootstrap_apply_desktop_level_options(GameBootstrap *game,
+                                               char *error, size_t error_size);
 /*
  * Single-player source order: hires.s:DOALLANIMS, plr_KeyboardControl, Plr1_Control, Plr1_Shot,
  * ObjectHandler's source ObjT dispatch (including worry-gated ItsAnAlien), DoorRoutine, LiftRoutine,
