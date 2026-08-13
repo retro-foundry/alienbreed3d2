@@ -108,7 +108,11 @@ source-authored pose is interpolated. The renderer blends completed source-frame
 50 Hz VBlank remainder. This uses SDL's high-resolution performance counter,
 so the source companion weapon/action sequence advances only at its fixed PAL
 cadence while camera, mutable world geometry, sprites, and source light
-samples present smoothly at the host frame rate. World vector enemies retain
+samples present smoothly at the host frame rate. The renderer-neutral
+`SceneLighting` command also owns and blends both completed copies of
+`CurrentPointBrights_vl` and `Zone_BrightTable_vl`, so backends cannot observe
+the live 50 Hz tables stepping or overwriting the previous endpoint. World
+vector enemies retain
 `ai_DoWalkAnim`/`ai_DoAttackAnim`'s discrete 50 Hz current
 frame while renderer-neutral per-ObjT pose history blends compatible compiled-
 model point tables across `DOALLANIMS`' complete authored five-tick (100 ms)

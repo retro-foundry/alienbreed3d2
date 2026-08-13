@@ -1571,6 +1571,89 @@ int main(int argc, char **argv)
         return 1;
     }
     {
+        SceneFrame raw_previous = {0};
+        SceneFrame previous = {0};
+        SceneFrame current = {0};
+        SceneFrame presentation = {0};
+        SceneCommand previous_command = {0};
+        SceneCommand current_command = {0};
+        int16_t previous_points[6] = {-200, 0, 200, 400, 600, 800};
+        int16_t current_points[6] = {0, 200, 400, 600, 800, 1000};
+        int16_t previous_zones[2][2] = {{-100, 100}, {300, 500}};
+        int16_t current_zones[2][2] = {{100, 300}, {500, 700}};
+        const int16_t midpoint_points[6] = {-100, 100, 300, 500, 700, 900};
+        const int16_t midpoint_zones[2][2] = {{0, 200}, {400, 600}};
+        int failed = 0;
+
+        previous_command.type = SCENE_COMMAND_LIGHTING;
+        previous_command.data.lighting.current_point_brightness = previous_points;
+        previous_command.data.lighting.point_zone_capacity = 2u;
+        previous_command.data.lighting.point_brightness_count = 3u;
+        previous_command.data.lighting.zone_brightness = previous_zones;
+        previous_command.data.lighting.zone_count = 2u;
+        current_command = previous_command;
+        current_command.data.lighting.current_point_brightness = current_points;
+        current_command.data.lighting.zone_brightness = current_zones;
+
+        if (!scene_frame_init(&raw_previous, 1u) ||
+            !scene_frame_init(&previous, 1u) ||
+            !scene_frame_init(&current, 1u) ||
+            !scene_frame_init(&presentation, 1u) ||
+            !scene_frame_submit(&raw_previous, &previous_command) ||
+            !scene_frame_clone(&previous, &raw_previous) ||
+            !scene_frame_submit(&current, &current_command)) {
+            failed = 1;
+        }
+        memset(previous_points, 0x7f, sizeof(previous_points));
+        memset(previous_zones, 0x7f, sizeof(previous_zones));
+        if (!failed &&
+            (!scene_frame_interpolate(&presentation, &previous, &current, 0.5f) ||
+             presentation.count != 1u ||
+             presentation.commands[0u].data.lighting.current_point_brightness ==
+                 current_points ||
+             presentation.commands[0u].data.lighting.zone_brightness == current_zones ||
+             memcmp(presentation.commands[0u].data.lighting.current_point_brightness,
+                    midpoint_points, sizeof(midpoint_points)) != 0 ||
+             memcmp(presentation.commands[0u].data.lighting.zone_brightness,
+                    midpoint_zones, sizeof(midpoint_zones)) != 0)) {
+            failed = 1;
+        }
+        if (!failed &&
+            (!scene_frame_interpolate(&presentation, &previous, &current, 0.0f) ||
+             memcmp(presentation.commands[0u].data.lighting.current_point_brightness,
+                    (const int16_t[]){-200, 0, 200, 400, 600, 800},
+                    sizeof(previous_points)) != 0 ||
+             memcmp(presentation.commands[0u].data.lighting.zone_brightness,
+                    (const int16_t[][2]){{-100, 100}, {300, 500}},
+                    sizeof(previous_zones)) != 0)) {
+            failed = 1;
+        }
+        if (!failed &&
+            (!scene_frame_interpolate(&presentation, &previous, &current, 1.0f) ||
+             memcmp(presentation.commands[0u].data.lighting.current_point_brightness,
+                    current_points, sizeof(current_points)) != 0 ||
+             memcmp(presentation.commands[0u].data.lighting.zone_brightness,
+                    current_zones, sizeof(current_zones)) != 0)) {
+            failed = 1;
+        }
+        current_points[0u] = 12345;
+        current_zones[0u][0u] = 12345;
+        if (!failed &&
+            (presentation.commands[0u].data.lighting.current_point_brightness[0u] != 0 ||
+             presentation.commands[0u].data.lighting.zone_brightness[0u][0u] != 100)) {
+            failed = 1;
+        }
+        scene_frame_destroy(&presentation);
+        scene_frame_destroy(&current);
+        scene_frame_destroy(&previous);
+        scene_frame_destroy(&raw_previous);
+        if (failed) {
+            fprintf(stderr,
+                    "completed-frame lighting retention/interpolation is inconsistent\n");
+            return 1;
+        }
+    }
+    {
         SceneFrame previous = {0};
         SceneFrame current = {0};
         SceneFrame presentation = {0};

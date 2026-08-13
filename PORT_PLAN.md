@@ -180,7 +180,11 @@ authority for all game behavior and data formats.
   input, player, collision, weapon, and object ordering; the scene boundary
   deep-snapshots the source frame before every completed tick and blends its
   camera, mutable geometry, object sprites, and source light levels by the
-  current VBlank remainder. Sprite transform matching keys on the stable
+  current VBlank remainder. That snapshot now owns and interpolates the raw
+  `CurrentPointBrights_vl` and `Zone_BrightTable_vl` tables as well as the
+  derived world-vertex, bitmap-angle, and vector point/polygon light samples,
+  without writing presentation values back into source state. Sprite transform
+  matching keys on the stable
   ObjT/ShotT source slot and presentation role, not its mutable source mesh:
   `modules/ai.s:ai_DoWalkAnim` is therefore free to select its next art/frame
   while the same enemy transform remains interpolated. Its accumulator is

@@ -445,6 +445,17 @@ typedef struct {
     SceneMeshSurface *owned_mesh_surfaces;
     size_t owned_mesh_surface_count;
     size_t owned_mesh_surface_capacity;
+    /*
+     * Completed-frame copies of hires.s:donetalking's mutable lighting BSS.
+     * Source submission may borrow the runtime tables; snapshots and the
+     * presentation frame own these arrays so both 50 Hz endpoints survive.
+     */
+    int16_t *owned_point_brightness;
+    size_t owned_point_brightness_count;
+    size_t owned_point_brightness_capacity;
+    int16_t (*owned_zone_brightness)[2];
+    size_t owned_zone_brightness_count;
+    size_t owned_zone_brightness_capacity;
 } SceneFrame;
 
 /*
@@ -488,8 +499,9 @@ SceneMeshSurface *scene_frame_allocate_mesh_surfaces(SceneFrame *frame,
 
 /*
  * Copy a source frame into an independently retained presentation snapshot.
- * Asset/table pointers remain source-owned; mutable geometry vertices are
- * copied so a later source VBlank cannot alter the retained endpoint.
+ * Asset pointers remain source-owned; mutable geometry vertices and raw
+ * lighting tables are copied so a later source VBlank cannot alter the
+ * retained endpoint.
  */
 int scene_frame_clone(SceneFrame *destination, const SceneFrame *source);
 

@@ -43,6 +43,48 @@ static int scene_frame_reserve_owned_mesh_surfaces(SceneFrame *frame, size_t sur
     return 1;
 }
 
+static int scene_frame_reserve_owned_point_brightness(SceneFrame *frame,
+                                                       size_t value_capacity)
+{
+    int16_t *values;
+
+    if (!frame || value_capacity <= frame->owned_point_brightness_capacity) {
+        return frame != NULL;
+    }
+    if (value_capacity > SIZE_MAX / sizeof(*frame->owned_point_brightness)) {
+        return 0;
+    }
+    values = realloc(frame->owned_point_brightness,
+                     value_capacity * sizeof(*frame->owned_point_brightness));
+    if (!values) {
+        return 0;
+    }
+    frame->owned_point_brightness = values;
+    frame->owned_point_brightness_capacity = value_capacity;
+    return 1;
+}
+
+static int scene_frame_reserve_owned_zone_brightness(SceneFrame *frame,
+                                                      size_t zone_capacity)
+{
+    int16_t (*zones)[2];
+
+    if (!frame || zone_capacity <= frame->owned_zone_brightness_capacity) {
+        return frame != NULL;
+    }
+    if (zone_capacity > SIZE_MAX / sizeof(*frame->owned_zone_brightness)) {
+        return 0;
+    }
+    zones = realloc(frame->owned_zone_brightness,
+                    zone_capacity * sizeof(*frame->owned_zone_brightness));
+    if (!zones) {
+        return 0;
+    }
+    frame->owned_zone_brightness = zones;
+    frame->owned_zone_brightness_capacity = zone_capacity;
+    return 1;
+}
+
 static int scene_frame_clone_geometry_instance(SceneFrame *destination,
                                                SceneCommand *destination_command,
                                                const SceneCommand *source_command)
@@ -155,6 +197,12 @@ static int scene_frame_commands_match(const SceneCommand *previous,
     switch (current->type) {
     case SCENE_COMMAND_CAMERA:
         return 1;
+    case SCENE_COMMAND_LIGHTING:
+        return previous->data.lighting.point_zone_capacity ==
+                   current->data.lighting.point_zone_capacity &&
+               previous->data.lighting.point_brightness_count ==
+                   current->data.lighting.point_brightness_count &&
+               previous->data.lighting.zone_count == current->data.lighting.zone_count;
     case SCENE_COMMAND_GEOMETRY_INSTANCE:
         if (previous->data.geometry_instance.source_instance_id !=
                 current->data.geometry_instance.source_instance_id ||
@@ -380,6 +428,59 @@ int scene_vector_pose_history_update(SceneVectorPoseHistory *history,
     return 1;
 }
 
+static int scene_frame_clone_lighting(SceneFrame *destination,
+                                      SceneCommand *destination_command,
+                                      const SceneCommand *source_command)
+{
+    const SceneLighting *source;
+    SceneLighting *copy;
+    size_t point_value_count;
+    size_t first_point_value;
+    size_t first_zone;
+
+    if (!destination || !destination_command || !source_command ||
+        source_command->type != SCENE_COMMAND_LIGHTING ||
+        destination_command->type != SCENE_COMMAND_LIGHTING) {
+        return 0;
+    }
+    source = &source_command->data.lighting;
+    copy = &destination_command->data.lighting;
+    if (source->point_zone_capacity != 0u &&
+        source->point_brightness_count > SIZE_MAX / source->point_zone_capacity) {
+        return 0;
+    }
+    point_value_count = (size_t)source->point_zone_capacity *
+        source->point_brightness_count;
+    if ((point_value_count != 0u && !source->current_point_brightness) ||
+        (source->zone_count != 0u && !source->zone_brightness) ||
+        destination->owned_point_brightness_count > SIZE_MAX - point_value_count ||
+        destination->owned_zone_brightness_count > SIZE_MAX - source->zone_count) {
+        return 0;
+    }
+    first_point_value = destination->owned_point_brightness_count;
+    first_zone = destination->owned_zone_brightness_count;
+    if (point_value_count != 0u) {
+        memcpy(destination->owned_point_brightness + first_point_value,
+               source->current_point_brightness,
+               point_value_count * sizeof(*source->current_point_brightness));
+        copy->current_point_brightness =
+            destination->owned_point_brightness + first_point_value;
+        destination->owned_point_brightness_count += point_value_count;
+    } else {
+        copy->current_point_brightness = NULL;
+    }
+    if (source->zone_count != 0u) {
+        memcpy(destination->owned_zone_brightness + first_zone,
+               source->zone_brightness,
+               (size_t)source->zone_count * sizeof(*source->zone_brightness));
+        copy->zone_brightness = destination->owned_zone_brightness + first_zone;
+        destination->owned_zone_brightness_count += source->zone_count;
+    } else {
+        copy->zone_brightness = NULL;
+    }
+    return 1;
+}
+
 void scene_vector_pose_history_apply(const SceneVectorPoseHistory *history,
                                      SceneFrame *presentation_frame,
                                      float source_alpha)
@@ -440,6 +541,12 @@ int scene_frame_init(SceneFrame *frame, size_t command_capacity)
     frame->owned_mesh_surfaces = NULL;
     frame->owned_mesh_surface_count = 0u;
     frame->owned_mesh_surface_capacity = 0u;
+    frame->owned_point_brightness = NULL;
+    frame->owned_point_brightness_count = 0u;
+    frame->owned_point_brightness_capacity = 0u;
+    frame->owned_zone_brightness = NULL;
+    frame->owned_zone_brightness_count = 0u;
+    frame->owned_zone_brightness_capacity = 0u;
     return 1;
 }
 
@@ -451,6 +558,8 @@ void scene_frame_destroy(SceneFrame *frame)
     free(frame->commands);
     free(frame->owned_vertices);
     free(frame->owned_mesh_surfaces);
+    free(frame->owned_point_brightness);
+    free(frame->owned_zone_brightness);
     frame->commands = NULL;
     frame->count = 0;
     frame->capacity = 0;
@@ -460,6 +569,12 @@ void scene_frame_destroy(SceneFrame *frame)
     frame->owned_mesh_surfaces = NULL;
     frame->owned_mesh_surface_count = 0u;
     frame->owned_mesh_surface_capacity = 0u;
+    frame->owned_point_brightness = NULL;
+    frame->owned_point_brightness_count = 0u;
+    frame->owned_point_brightness_capacity = 0u;
+    frame->owned_zone_brightness = NULL;
+    frame->owned_zone_brightness_count = 0u;
+    frame->owned_zone_brightness_capacity = 0u;
 }
 
 void scene_frame_begin(SceneFrame *frame)
@@ -468,6 +583,8 @@ void scene_frame_begin(SceneFrame *frame)
         frame->count = 0;
         frame->owned_vertex_count = 0u;
         frame->owned_mesh_surface_count = 0u;
+        frame->owned_point_brightness_count = 0u;
+        frame->owned_zone_brightness_count = 0u;
     }
 }
 
@@ -539,6 +656,8 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
 {
     size_t source_vertex_count = 0u;
     size_t source_surface_count = 0u;
+    size_t source_point_brightness_count = 0u;
+    size_t source_zone_brightness_count = 0u;
 
     if (!destination || !source || destination == source ||
         !scene_frame_reserve(destination, source->count)) {
@@ -549,6 +668,27 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
     for (size_t index = 0u; index < source->count; ++index) {
         const SceneCommand *command = &source->commands[index];
 
+        if (command->type == SCENE_COMMAND_LIGHTING) {
+            const SceneLighting *lighting = &command->data.lighting;
+            size_t point_value_count;
+
+            if (lighting->point_zone_capacity != 0u &&
+                lighting->point_brightness_count >
+                    SIZE_MAX / lighting->point_zone_capacity) {
+                return 0;
+            }
+            point_value_count = (size_t)lighting->point_zone_capacity *
+                lighting->point_brightness_count;
+            if ((point_value_count != 0u && !lighting->current_point_brightness) ||
+                (lighting->zone_count != 0u && !lighting->zone_brightness) ||
+                source_point_brightness_count > SIZE_MAX - point_value_count ||
+                source_zone_brightness_count > SIZE_MAX - lighting->zone_count) {
+                return 0;
+            }
+            source_point_brightness_count += point_value_count;
+            source_zone_brightness_count += lighting->zone_count;
+            continue;
+        }
         if (command->type != SCENE_COMMAND_GEOMETRY_INSTANCE) {
             continue;
         }
@@ -577,7 +717,11 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
         }
     }
     if (!scene_frame_reserve_owned_vertices(destination, source_vertex_count) ||
-        !scene_frame_reserve_owned_mesh_surfaces(destination, source_surface_count)) {
+        !scene_frame_reserve_owned_mesh_surfaces(destination, source_surface_count) ||
+        !scene_frame_reserve_owned_point_brightness(
+            destination, source_point_brightness_count) ||
+        !scene_frame_reserve_owned_zone_brightness(
+            destination, source_zone_brightness_count)) {
         return 0;
     }
     scene_frame_begin(destination);
@@ -587,6 +731,10 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
         if (!scene_frame_submit(destination, &command) ||
             (command.type == SCENE_COMMAND_GEOMETRY_INSTANCE &&
              !scene_frame_clone_geometry_instance(
+                 destination, &destination->commands[destination->count - 1u],
+                 &source->commands[index])) ||
+            (command.type == SCENE_COMMAND_LIGHTING &&
+             !scene_frame_clone_lighting(
                  destination, &destination->commands[destination->count - 1u],
                  &source->commands[index]))) {
             scene_frame_begin(destination);
@@ -651,6 +799,48 @@ int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
             destination_command->data.camera.look_offset = scene_frame_interpolate_i16(
                 previous_command->data.camera.look_offset,
                 current_command->data.camera.look_offset, alpha);
+        } else if (destination_command->type == SCENE_COMMAND_LIGHTING) {
+            const SceneLighting *previous_lighting = &previous_command->data.lighting;
+            const SceneLighting *current_lighting = &current_command->data.lighting;
+            SceneLighting *destination_lighting = &destination_command->data.lighting;
+            int16_t *destination_points =
+                (int16_t *)destination_lighting->current_point_brightness;
+            int16_t (*destination_zones)[2] =
+                (int16_t (*)[2])destination_lighting->zone_brightness;
+            size_t point_value_count =
+                (size_t)destination_lighting->point_zone_capacity *
+                destination_lighting->point_brightness_count;
+
+            /*
+             * hires.s:donetalking publishes these tables once per source
+             * VBlank.  The cloned presentation command points at writable,
+             * frame-owned copies, allowing a renderer-independent backend to
+             * see the same completed-frame blend as derived world/entity
+             * light samples without modifying either 50 Hz endpoint.
+             */
+            if ((point_value_count != 0u &&
+                 (!previous_lighting->current_point_brightness ||
+                  !current_lighting->current_point_brightness ||
+                  !destination_points)) ||
+                (destination_lighting->zone_count != 0u &&
+                 (!previous_lighting->zone_brightness ||
+                  !current_lighting->zone_brightness || !destination_zones))) {
+                return 0;
+            }
+            for (size_t light_index = 0u; light_index < point_value_count;
+                 ++light_index) {
+                destination_points[light_index] = scene_frame_interpolate_i16(
+                    previous_lighting->current_point_brightness[light_index],
+                    current_lighting->current_point_brightness[light_index], alpha);
+            }
+            for (uint16_t zone_index = 0u;
+                 zone_index < destination_lighting->zone_count; ++zone_index) {
+                for (size_t layer = 0u; layer < 2u; ++layer) {
+                    destination_zones[zone_index][layer] = scene_frame_interpolate_i16(
+                        previous_lighting->zone_brightness[zone_index][layer],
+                        current_lighting->zone_brightness[zone_index][layer], alpha);
+                }
+            }
         } else if (destination_command->type == SCENE_COMMAND_GEOMETRY_INSTANCE) {
             const SceneMesh *previous_mesh = &previous_command->data.geometry_instance.mesh;
             const SceneMesh *current_mesh = &current_command->data.geometry_instance.mesh;
