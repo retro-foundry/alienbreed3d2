@@ -418,39 +418,12 @@ static int level_static_scene_wall_texture_v_span(const LevelDrawWall *wall,
 typedef struct {
     uint8_t kind;
     uint16_t index;
-    uint32_t canonical_wall_source_offset;
+    uint32_t exact_wall_source_offset;
 } LevelStaticWallMechanism;
-
-static int level_static_scene_wall_matches_edge(const LevelRuntime *runtime,
-                                                const LevelWorldPoint *left_point,
-                                                const LevelWorldPoint *right_point,
-                                                int16_t edge_index, int *out_matches,
-                                                char *error, size_t error_size)
-{
-    LevelEdge edge;
-    int16_t end_x;
-    int16_t end_z;
-
-    if (!runtime || !left_point || !right_point || !out_matches || edge_index < 0) {
-        level_static_scene_set_error(error, error_size,
-                                     "mechanism wall has an invalid source EdgeT index");
-        return 0;
-    }
-    if (!level_runtime_get_edge(runtime, (uint16_t)edge_index, &edge, error, error_size)) {
-        return 0;
-    }
-    end_x = (int16_t)(uint16_t)((uint16_t)edge.x + (uint16_t)edge.x_length);
-    end_z = (int16_t)(uint16_t)((uint16_t)edge.z + (uint16_t)edge.z_length);
-    *out_matches = (left_point->x == edge.x && left_point->z == edge.z &&
-                    right_point->x == end_x && right_point->z == end_z) ||
-                   (right_point->x == edge.x && right_point->z == edge.z &&
-                    left_point->x == end_x && left_point->z == end_z);
-    return 1;
-}
 
 static int level_static_scene_add_wall_mechanism_match(
     LevelStaticWallMechanism *mechanism, uint8_t kind, uint16_t index,
-    uint32_t canonical_wall_source_offset, char *error, size_t error_size)
+    uint32_t exact_wall_source_offset, char *error, size_t error_size)
 {
     if (!mechanism || kind == LEVEL_STATIC_WALL_MECHANISM_NONE) {
         level_static_scene_set_error(error, error_size,
@@ -466,21 +439,20 @@ static int level_static_scene_add_wall_mechanism_match(
     (void)error_size;
     mechanism->kind = kind;
     mechanism->index = index;
-    mechanism->canonical_wall_source_offset = canonical_wall_source_offset;
+    mechanism->exact_wall_source_offset = exact_wall_source_offset;
     return 1;
 }
 
 static int level_static_scene_find_wall_mechanism(
-    const LevelRuntime *runtime, const LevelMechanisms *mechanisms,
-    uint32_t source_record_offset, const LevelWorldPoint *left_point,
-    const LevelWorldPoint *right_point, LevelStaticWallMechanism *out_mechanism,
+    const LevelMechanisms *mechanisms, uint32_t source_record_offset,
+    LevelStaticWallMechanism *out_mechanism,
     char *error, size_t error_size)
 {
     uint16_t mechanism_index;
     LevelStaticWallMechanism mechanism = {0};
     int direct_record_match = 0;
 
-    if (!runtime || !mechanisms || !left_point || !right_point || !out_mechanism) {
+    if (!mechanisms || !out_mechanism) {
         level_static_scene_set_error(error, error_size,
                                      "static scene has no source mechanism wall data");
         return 0;
@@ -494,21 +466,16 @@ static int level_static_scene_find_wall_mechanism(
         }
         for (uint16_t wall_index = 0u; wall_index < door.wall_count; ++wall_index) {
             LevelLiftableWall wall;
-            int edge_matches;
 
             if (!level_mechanisms_get_door_wall(mechanisms, mechanism_index, wall_index, &wall,
-                                                error, error_size) ||
-                !level_static_scene_wall_matches_edge(runtime, left_point, right_point,
-                                                      wall.edge_index, &edge_matches,
-                                                      error, error_size)) {
+                                                error, error_size)) {
                 return 0;
             }
             /*
              * newanims.s:DoorRoutine writes this ZDoorWall's graphics
-             * pointer directly.  A draw-graph record at that address must
-             * retain its own per-face V phase and moving edge.  EdgeT
-             * matching is only the closed-solid renderer's counterpart-face
-             * association, so it cannot replace an exact source match.
+             * pointer directly. Only that exact Draw_Wall is part of the
+             * moving panel. Other records on the same EdgeT can be authored
+             * threshold/filler spans and must retain their own boundaries.
              */
             if (wall.graphics_offset == source_record_offset) {
                 if (direct_record_match == 0) {
@@ -518,13 +485,6 @@ static int level_static_scene_find_wall_mechanism(
                 if (!level_static_scene_add_wall_mechanism_match(
                         &mechanism, LEVEL_STATIC_WALL_MECHANISM_DOOR,
                         mechanism_index, wall.graphics_offset, error, error_size)) {
-                    return 0;
-                }
-            } else if (direct_record_match == 0 && edge_matches != 0) {
-                if (!level_static_scene_add_wall_mechanism_match(
-                        &mechanism, LEVEL_STATIC_WALL_MECHANISM_DOOR,
-                        mechanism_index,
-                        wall.graphics_offset, error, error_size)) {
                     return 0;
                 }
             }
@@ -788,7 +748,7 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                     scene_wall->brightness_offset = wall.brightness_offset;
                     scene_wall->other_zone = wall.other_zone;
                     if (!level_static_scene_find_wall_mechanism(
-                            runtime, mechanisms, record.source_offset, &left_point, &right_point,
+                            mechanisms, record.source_offset,
                             &wall_mechanism, error, error_size)) {
                         goto fail;
                     }
@@ -797,7 +757,7 @@ int level_static_scene_build(const LevelRuntime *runtime, const LevelMechanisms 
                     scene_wall->is_mechanism_surface =
                         wall_mechanism.kind != LEVEL_STATIC_WALL_MECHANISM_NONE ? 1u : 0u;
                     scene_wall->mechanism_wall_source_offset =
-                        wall_mechanism.canonical_wall_source_offset;
+                        wall_mechanism.exact_wall_source_offset;
                     level_static_scene_set_wall_texture_window(scene_wall, &wall);
                     if (!level_static_scene_wall_texture_v_span(&wall, &texture_v_span,
                                                                 error, error_size)) {

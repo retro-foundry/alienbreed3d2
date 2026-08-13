@@ -5079,25 +5079,17 @@ int main(int argc, char **argv)
                 return 1;
             }
             /*
-             * DoorRoutine/LiftRoutine mutate every listed ZDoorWall.graphics_offset.
-             * A same-EdgeT native solid face must never replace that direct
-             * source target's individual scroll, span, or controller identity.
+             * DoorRoutine/LiftRoutine mutate only listed graphics pointers.
+             * A merely shared EdgeT may be an authored threshold/filler span,
+             * so its source geometry must not be replaced by the moving panel.
              */
-            if (direct_mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE &&
-                (scene_wall->mechanism_kind != direct_mechanism_kind ||
-                 scene_wall->mechanism_index != direct_mechanism_index ||
-                 scene_wall->mechanism_wall_source_offset !=
-                     scene_wall->source_record_offset)) {
+            if (scene_wall->mechanism_kind != direct_mechanism_kind ||
+                (direct_mechanism_kind != LEVEL_STATIC_WALL_MECHANISM_NONE &&
+                 (scene_wall->mechanism_index != direct_mechanism_index ||
+                  scene_wall->mechanism_wall_source_offset !=
+                      scene_wall->source_record_offset))) {
                 fprintf(stderr,
-                        "campaign level %u static wall %u lost its direct mechanism texture state\n",
-                        level_index, static_wall_index);
-                game_bootstrap_destroy(&game);
-                return 1;
-            }
-            if (direct_mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_NONE &&
-                scene_wall->mechanism_kind == LEVEL_STATIC_WALL_MECHANISM_LIFT) {
-                fprintf(stderr,
-                        "campaign level %u static wall %u incorrectly follows a lift EdgeT\n",
+                        "campaign level %u static wall %u has a non-source mechanism owner\n",
                         level_index, static_wall_index);
                 game_bootstrap_destroy(&game);
                 return 1;
@@ -5113,7 +5105,7 @@ int main(int argc, char **argv)
                     30u > game.dynamic_level.runtime.graphics_size -
                                scene_wall->mechanism_wall_source_offset) {
                     fprintf(stderr,
-                            "campaign level %u door wall %u has no canonical source record\n",
+                            "campaign level %u door wall %u has no exact source record\n",
                             level_index, static_wall_index);
                     game_bootstrap_destroy(&game);
                     return 1;
@@ -5122,7 +5114,7 @@ int main(int argc, char **argv)
                     scene_wall->mechanism_wall_source_offset;
                 if ((uint8_t)read_be16(mechanism_source) != LEVEL_DRAW_GRAPH_TYPE_WALL) {
                     fprintf(stderr,
-                            "campaign level %u door wall %u canonical source is not Draw_Wall\n",
+                            "campaign level %u door wall %u exact source is not Draw_Wall\n",
                             level_index, static_wall_index);
                     game_bootstrap_destroy(&game);
                     return 1;

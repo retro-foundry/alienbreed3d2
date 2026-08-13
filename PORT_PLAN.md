@@ -625,8 +625,9 @@ sound effects and music now play through the SDL WAV backend.
   wall records are presented as closed native solids: every exact
   `ZDoorWall.graphics_offset` retains that individual source `Draw_Wall`'s
   material, lighting, V-origin, texture window, and source-8.8 V density;
-  same-`EdgeT` counterpart faces use the controller only for doors when no
-  exact source target exists. Every `DoorRoutine` direct `Draw_Flats +2`
+  other records sharing the `EdgeT` retain their authored spans because they
+  can be threshold/filler walls rather than moving-panel counterparts. Every
+  `DoorRoutine` direct `Draw_Flats +2`
   movement plane is submitted with those direct faces under the same dynamic
   controller instance. Its presentation height follows the routine's
   `ASR.W #2`/`MULS #256` direct-wall boundary during fractional source motion,
