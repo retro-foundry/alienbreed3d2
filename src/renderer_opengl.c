@@ -4222,6 +4222,7 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                 uint8_t minimum_v = UINT8_MAX;
                 uint8_t maximum_v = 0u;
                 const RendererOpenGLTexture *texture;
+                int source_face_front_facing = 1;
 
                 /*
                  * World vector models participate in both renderer passes.
@@ -4330,17 +4331,20 @@ static int renderer_opengl_draw_vector_sprite(RendererOpenGL *renderer,
                         triangle_vertices[corner] = vertex;
                     }
                     /*
-                     * Opaque faces retain doapoly's source winding test.
-                     * Additive predoglare is deliberately double-sided, so
-                     * both windings reach the depth-tested blend pass.
+                     * doapoly tests the first three authored points once for
+                     * the whole opaque polygon.  Do not repeat that test for
+                     * every triangle in this GPU fan: later triangles can
+                     * legitimately have a different projected winding and
+                     * are still part of the accepted source face.
+                     * Additive predoglare remains deliberately double-sided.
                      */
-                    if (source_glare == 0) {
-                        int front_facing = renderer_opengl_vector_face_is_front_facing(
-                            triangle_vertices, draw_projection);
-
-                        if (!front_facing) {
-                            continue;
-                        }
+                    if (source_glare == 0 && triangle == 1u) {
+                        source_face_front_facing =
+                            renderer_opengl_vector_face_is_front_facing(
+                                triangle_vertices, draw_projection);
+                    }
+                    if (!source_face_front_facing) {
+                        break;
                     }
                     if (clip_to_sector != 0) {
                         clipped_vertex_count = renderer_opengl_clip_vector_triangle_to_sector(
