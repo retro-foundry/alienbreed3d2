@@ -15,8 +15,7 @@ enum {
     OBJECT_ANIMATION_SLOT_ENTITY_TYPE = 54u,
     OBJECT_ANIMATION_SLOT_WHICH_ANIMATION = 55u,
     OBJECT_ANIMATION_SLOT_WORRY = 62u,
-    OBJECT_ANIMATION_TYPE_OBJECT = 1u,
-    OBJECT_ANIMATION_UPDATE_INTERVAL = 5u
+    OBJECT_ANIMATION_TYPE_OBJECT = 1u
 };
 
 static void object_animation_set_error(char *error, size_t error_size, const char *message)
@@ -159,7 +158,7 @@ int object_animation_update_single_player_with_audio(ObjectAnimationRuntime *run
     if ((int8_t)runtime->thistime > 0) {
         return 1;
     }
-    runtime->thistime = OBJECT_ANIMATION_UPDATE_INTERVAL;
+    runtime->thistime = OBJECT_ANIMATION_SOURCE_FRAME_TICKS;
 
     for (uint32_t slot_index = 0u; slot_index < objects->active_slot_count; ++slot_index) {
         uint8_t *slot;

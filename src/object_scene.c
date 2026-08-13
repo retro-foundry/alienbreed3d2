@@ -1,5 +1,6 @@
 #include "object_scene.h"
 
+#include "object_animation.h"
 #include "source_vector_model_transform.h"
 
 #include "object_heading.h"
@@ -733,6 +734,15 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
         sprite.source_light_palette_byte_count = resources->texture_palette.size;
         sprite.source_display_palette_bytes = resources->main_palette.bytes;
         sprite.source_display_palette_byte_count = resources->main_palette.size;
+        if ((int8_t)slot[OBJECT_SCENE_TYPE_ID] < (int8_t)OBJECT_SCENE_TYPE_OBJECT) {
+            /*
+             * hires.s:DOALLANIMS advances alien poses only when its five-tick
+             * thistime counter expires. Retain that authored interval for the
+             * renderer-neutral pose-history path; movement remains per tick.
+             */
+            sprite.presentation_vector_frame_interval_ticks =
+                OBJECT_ANIMATION_SOURCE_FRAME_TICKS;
+        }
         if (!object_scene_build_vector_light_field(
                 level, lighting, math, &sprite, sprite.source_point_and_polygon_brightness,
                 error, error_size)) {

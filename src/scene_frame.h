@@ -276,6 +276,13 @@ typedef struct {
     float presentation_frame_interpolation_alpha;
     uint8_t presentation_interpolate_vector_frame;
     /*
+     * Nonzero only for world vector aliens driven by hires.s:DOALLANIMS.
+     * It is the authored number of 50 Hz ticks between pose selections, not a
+     * renderer timing constant. SceneVectorPoseHistory uses it to retain the
+     * preceding compiled frame for the complete source interval.
+     */
+    uint8_t presentation_vector_frame_interval_ticks;
+    /*
      * `newplayershoot.s:firefive` owns the source projectile point and
      * velocity, while `hires.s:Plr1_Use` owns the camera-space companion.
      * Preserve the first source movement vector so the presenter can place
@@ -417,6 +424,29 @@ typedef struct {
     size_t owned_mesh_surface_capacity;
 } SceneFrame;
 
+/*
+ * Presentation-only history for slow source vector animation.  Entries are
+ * keyed by the stable ObjT record identity; source asset pointers remain
+ * producer-owned exactly like SceneSprite assets.
+ */
+typedef struct {
+    uint32_t source_record_id;
+    uint32_t source_asset_id;
+    const uint8_t *source_bytes;
+    size_t source_byte_count;
+    uint16_t previous_frame_index;
+    uint16_t current_frame_index;
+    uint8_t interval_ticks;
+    uint8_t elapsed_ticks;
+    uint8_t seen;
+} SceneVectorPoseHistoryEntry;
+
+typedef struct {
+    SceneVectorPoseHistoryEntry *entries;
+    size_t count;
+    size_t capacity;
+} SceneVectorPoseHistory;
+
 int scene_frame_init(SceneFrame *frame, size_t command_capacity);
 void scene_frame_destroy(SceneFrame *frame);
 void scene_frame_begin(SceneFrame *frame);
@@ -449,5 +479,15 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source);
  */
 int scene_frame_interpolate(SceneFrame *destination, const SceneFrame *previous,
                             const SceneFrame *current, float alpha);
+
+void scene_vector_pose_history_destroy(SceneVectorPoseHistory *history);
+void scene_vector_pose_history_reset(SceneVectorPoseHistory *history);
+/* Call once after each completed 50 Hz source frame. */
+int scene_vector_pose_history_update(SceneVectorPoseHistory *history,
+                                     const SceneFrame *source_frame);
+/* Call after scene_frame_interpolate, using the same VBlank remainder alpha. */
+void scene_vector_pose_history_apply(const SceneVectorPoseHistory *history,
+                                     SceneFrame *presentation_frame,
+                                     float source_alpha);
 
 #endif

@@ -13,7 +13,9 @@
 enum {
     /* bss/tables_bss.s:ObjectWorkspace_vl is ds.l 600, eight bytes per ObjT. */
     OBJECT_ANIMATION_WORKSPACE_SLOT_COUNT = 300u,
-    OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT = 8u
+    OBJECT_ANIMATION_WORKSPACE_BYTE_COUNT = 8u,
+    /* hires.s:DOALLANIMS reloads thistime with five after each alien pass. */
+    OBJECT_ANIMATION_SOURCE_FRAME_TICKS = 5u
 };
 
 /*

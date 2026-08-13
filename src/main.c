@@ -236,6 +236,7 @@ typedef struct {
     SceneFrame source_frame;
     SceneFrame previous_source_frame;
     SceneFrame frame;
+    SceneVectorPoseHistory vector_pose_history;
     Renderer *renderer;
     AudioSdl *audio;
     RenderView view;
@@ -263,6 +264,7 @@ static void game_app_shutdown(GameApp *app)
     }
     renderer_destroy(app->renderer);
     app->renderer = NULL;
+    scene_vector_pose_history_destroy(&app->vector_pose_history);
     audio_sdl_destroy(app->audio);
     app->audio = NULL;
     if (app->frame_initialized) {
@@ -535,6 +537,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
                                 app->game.player.look_offset);
     scene_frame_begin(&app->source_frame);
     if (!game_bootstrap_submit_scene_frame(&app->game, &app->source_frame) ||
+        !scene_vector_pose_history_update(&app->vector_pose_history, &app->source_frame) ||
         !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
         fprintf(stderr, "[SCENE] unable to capture the initial source frame\n");
         return 0;
@@ -568,7 +571,8 @@ static int game_app_capture_source_frame(GameApp *app)
         return 0;
     }
     scene_frame_begin(&app->source_frame);
-    return game_bootstrap_submit_scene_frame(&app->game, &app->source_frame);
+    return game_bootstrap_submit_scene_frame(&app->game, &app->source_frame) &&
+        scene_vector_pose_history_update(&app->vector_pose_history, &app->source_frame);
 }
 
 static int game_app_build_presentation_frame(GameApp *app)
@@ -585,6 +589,8 @@ static int game_app_build_presentation_frame(GameApp *app)
         app->frame.count == 0u || app->frame.commands[0u].type != SCENE_COMMAND_CAMERA) {
         return 0;
     }
+    scene_vector_pose_history_apply(&app->vector_pose_history, &app->frame,
+                                    interpolation_alpha);
     /*
      * RenderView is host-rate presentation state. The Player 1 companion is
      * already in eye space (objdrawhires.s:rotate_object), while its action
@@ -703,6 +709,7 @@ static void game_app_tick(GameApp *app)
                                         app->game.player.look_offset);
             app->mouse_remainder_x = 0;
             app->mouse_remainder_y = 0;
+            scene_vector_pose_history_reset(&app->vector_pose_history);
             if (!game_app_capture_source_frame(app) ||
                 !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
                 fprintf(stderr, "[SCENE] unable to capture quickloaded source frame\n");

@@ -528,6 +528,8 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 sprite->presentation != (slot_index == game->object_runtime.player1_slot + 2u ?
                     SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON :
                     SCENE_SPRITE_PRESENTATION_WORLD_OBJECT) ||
+                sprite->presentation_vector_frame_interval_ticks !=
+                    ((int8_t)slot[16u] < 1 ? OBJECT_ANIMATION_SOURCE_FRAME_TICKS : 0u) ||
                 sprite->source_width != 0u || sprite->source_height != 0u ||
                 sprite->source_effect != 0u || sprite->flags != expected_flags ||
                 sprite->frame_metrics.pointer_table_index != 0u ||
@@ -1654,6 +1656,7 @@ int main(int argc, char **argv)
             static const uint8_t mantis_vector_model[] = {0u};
             static const uint8_t other_vector_model[] = {0u};
             const SceneSprite *presentation_enemy;
+            SceneVectorPoseHistory pose_history = {0};
 
             /*
              * modules/ai.s:ai_DoWalkAnim/ai_DoAttackAnim select a discrete
@@ -1672,11 +1675,16 @@ int main(int argc, char **argv)
             previous_sprite.data.sprite_instance.sprite.source_byte_count =
                 sizeof(mantis_vector_model);
             previous_sprite.data.sprite_instance.sprite.frame_index = 6u;
+            previous_sprite.data.sprite_instance.sprite
+                .presentation_vector_frame_interval_ticks =
+                    OBJECT_ANIMATION_SOURCE_FRAME_TICKS;
             current_sprite = previous_sprite;
             current_sprite.data.sprite_instance.sprite.frame_index = 7u;
             previous.commands[2u] = previous_sprite;
             current.commands[2u] = current_sprite;
-            if (!scene_frame_interpolate(&presentation, &previous, &current, 0.75f) ||
+            if (!scene_vector_pose_history_update(&pose_history, &previous) ||
+                !scene_vector_pose_history_update(&pose_history, &current) ||
+                !scene_frame_interpolate(&presentation, &previous, &current, 0.75f) ||
                 !(presentation_enemy = &presentation.commands[2u].data.sprite_instance.sprite) ||
                 presentation_enemy->frame_index != 7u ||
                 presentation_enemy->presentation_previous_frame_index != 6u ||
@@ -1687,11 +1695,72 @@ int main(int argc, char **argv)
                 scene_frame_destroy(&presentation);
                 scene_frame_destroy(&current);
                 scene_frame_destroy(&previous);
+                scene_vector_pose_history_destroy(&pose_history);
+                return 1;
+            }
+            scene_vector_pose_history_apply(&pose_history, &presentation, 0.75f);
+            if (presentation.commands[2u].data.sprite_instance.sprite
+                    .presentation_previous_frame_index != 6u ||
+                presentation.commands[2u].data.sprite_instance.sprite
+                    .presentation_frame_interpolation_alpha != 0.15f ||
+                presentation.commands[2u].data.sprite_instance.sprite
+                    .presentation_interpolate_vector_frame == 0u) {
+                fprintf(stderr,
+                        "world-vector pose did not use the five-tick source interval\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                scene_vector_pose_history_destroy(&pose_history);
+                return 1;
+            }
+            previous.commands[2u] = current_sprite;
+            for (uint8_t source_tick = 1u;
+                 source_tick < OBJECT_ANIMATION_SOURCE_FRAME_TICKS; ++source_tick) {
+                if (!scene_vector_pose_history_update(&pose_history, &current)) {
+                    fprintf(stderr, "world-vector pose history update failed\n");
+                    scene_frame_destroy(&presentation);
+                    scene_frame_destroy(&current);
+                    scene_frame_destroy(&previous);
+                    scene_vector_pose_history_destroy(&pose_history);
+                    return 1;
+                }
+            }
+            if (!scene_frame_interpolate(&presentation, &previous, &current, 0.5f)) {
+                fprintf(stderr, "world-vector held-pose interpolation failed\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                scene_vector_pose_history_destroy(&pose_history);
+                return 1;
+            }
+            scene_vector_pose_history_apply(&pose_history, &presentation, 0.5f);
+            if (presentation.commands[2u].data.sprite_instance.sprite
+                    .presentation_frame_interpolation_alpha != 0.9f ||
+                presentation.commands[2u].data.sprite_instance.sprite
+                    .presentation_interpolate_vector_frame == 0u ||
+                !scene_vector_pose_history_update(&pose_history, &current) ||
+                !scene_frame_interpolate(&presentation, &previous, &current, 0.5f)) {
+                fprintf(stderr, "world-vector pose did not span its complete source hold\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                scene_vector_pose_history_destroy(&pose_history);
+                return 1;
+            }
+            scene_vector_pose_history_apply(&pose_history, &presentation, 0.5f);
+            if (presentation.commands[2u].data.sprite_instance.sprite
+                    .presentation_interpolate_vector_frame != 0u) {
+                fprintf(stderr, "completed world-vector pose blend did not settle\n");
+                scene_frame_destroy(&presentation);
+                scene_frame_destroy(&current);
+                scene_frame_destroy(&previous);
+                scene_vector_pose_history_destroy(&pose_history);
                 return 1;
             }
             current_sprite.data.sprite_instance.sprite.source_bytes = other_vector_model;
             current.commands[2u] = current_sprite;
-            if (!scene_frame_interpolate(&presentation, &previous, &current, 0.75f) ||
+            if (!scene_vector_pose_history_update(&pose_history, &current) ||
+                !scene_frame_interpolate(&presentation, &previous, &current, 0.75f) ||
                 presentation.commands[2u].data.sprite_instance.sprite
                     .presentation_interpolate_vector_frame != 0u) {
                 fprintf(stderr,
@@ -1699,8 +1768,10 @@ int main(int argc, char **argv)
                 scene_frame_destroy(&presentation);
                 scene_frame_destroy(&current);
                 scene_frame_destroy(&previous);
+                scene_vector_pose_history_destroy(&pose_history);
                 return 1;
             }
+            scene_vector_pose_history_destroy(&pose_history);
         }
         /* `firefive` owns a player projectile's first movement vector. The
          * scene must retain that raw source data while leaving its completed

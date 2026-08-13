@@ -239,6 +239,188 @@ static void scene_frame_interpolate_vertex(SceneVertex *destination,
         previous->source_light_level, current->source_light_level, alpha);
 }
 
+static int scene_vector_pose_history_reserve(SceneVectorPoseHistory *history,
+                                             size_t capacity)
+{
+    SceneVectorPoseHistoryEntry *entries;
+
+    if (!history || capacity <= history->capacity) {
+        return history != NULL;
+    }
+    if (capacity > SIZE_MAX / sizeof(*history->entries)) {
+        return 0;
+    }
+    entries = realloc(history->entries, capacity * sizeof(*history->entries));
+    if (!entries) {
+        return 0;
+    }
+    history->entries = entries;
+    history->capacity = capacity;
+    return 1;
+}
+
+static SceneVectorPoseHistoryEntry *scene_vector_pose_history_find(
+    SceneVectorPoseHistory *history, uint32_t source_record_id)
+{
+    if (!history) {
+        return NULL;
+    }
+    for (size_t index = 0u; index < history->count; ++index) {
+        if (history->entries[index].source_record_id == source_record_id) {
+            return &history->entries[index];
+        }
+    }
+    return NULL;
+}
+
+static const SceneVectorPoseHistoryEntry *scene_vector_pose_history_find_const(
+    const SceneVectorPoseHistory *history, uint32_t source_record_id)
+{
+    if (!history) {
+        return NULL;
+    }
+    for (size_t index = 0u; index < history->count; ++index) {
+        if (history->entries[index].source_record_id == source_record_id) {
+            return &history->entries[index];
+        }
+    }
+    return NULL;
+}
+
+static int scene_vector_pose_sprite_is_tracked(const SceneSprite *sprite)
+{
+    return sprite && sprite->presentation == SCENE_SPRITE_PRESENTATION_WORLD_OBJECT &&
+        sprite->source == SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
+        sprite->presentation_vector_frame_interval_ticks > 1u;
+}
+
+void scene_vector_pose_history_destroy(SceneVectorPoseHistory *history)
+{
+    if (!history) {
+        return;
+    }
+    free(history->entries);
+    memset(history, 0, sizeof(*history));
+}
+
+void scene_vector_pose_history_reset(SceneVectorPoseHistory *history)
+{
+    if (history) {
+        history->count = 0u;
+    }
+}
+
+int scene_vector_pose_history_update(SceneVectorPoseHistory *history,
+                                     const SceneFrame *source_frame)
+{
+    if (!history || !source_frame ||
+        (source_frame->count != 0u && !source_frame->commands) ||
+        !scene_vector_pose_history_reserve(history, source_frame->count)) {
+        return 0;
+    }
+    for (size_t index = 0u; index < history->count; ++index) {
+        history->entries[index].seen = 0u;
+    }
+    for (size_t command_index = 0u; command_index < source_frame->count; ++command_index) {
+        const SceneCommand *command = &source_frame->commands[command_index];
+        const SceneSprite *sprite;
+        SceneVectorPoseHistoryEntry *entry;
+
+        if (command->type != SCENE_COMMAND_SPRITE_INSTANCE) {
+            continue;
+        }
+        sprite = &command->data.sprite_instance.sprite;
+        if (!scene_vector_pose_sprite_is_tracked(sprite)) {
+            continue;
+        }
+        entry = scene_vector_pose_history_find(history, sprite->source_record_id);
+        if (!entry) {
+            entry = &history->entries[history->count++];
+            memset(entry, 0, sizeof(*entry));
+            entry->source_record_id = sprite->source_record_id;
+            entry->source_asset_id = sprite->source_asset_id;
+            entry->source_bytes = sprite->source_bytes;
+            entry->source_byte_count = sprite->source_byte_count;
+            entry->previous_frame_index = sprite->frame_index;
+            entry->current_frame_index = sprite->frame_index;
+            entry->interval_ticks = sprite->presentation_vector_frame_interval_ticks;
+            entry->elapsed_ticks = entry->interval_ticks;
+        } else if (entry->source_asset_id != sprite->source_asset_id ||
+                   entry->source_bytes != sprite->source_bytes ||
+                   entry->source_byte_count != sprite->source_byte_count ||
+                   entry->interval_ticks !=
+                       sprite->presentation_vector_frame_interval_ticks) {
+            /* A source model change has no compatible point-table history. */
+            entry->source_asset_id = sprite->source_asset_id;
+            entry->source_bytes = sprite->source_bytes;
+            entry->source_byte_count = sprite->source_byte_count;
+            entry->previous_frame_index = sprite->frame_index;
+            entry->current_frame_index = sprite->frame_index;
+            entry->interval_ticks = sprite->presentation_vector_frame_interval_ticks;
+            entry->elapsed_ticks = entry->interval_ticks;
+        } else if (entry->current_frame_index != sprite->frame_index) {
+            entry->previous_frame_index = entry->current_frame_index;
+            entry->current_frame_index = sprite->frame_index;
+            entry->elapsed_ticks = 0u;
+        } else if (entry->elapsed_ticks < entry->interval_ticks) {
+            ++entry->elapsed_ticks;
+        }
+        entry->seen = UINT8_MAX;
+    }
+    {
+        size_t retained_count = 0u;
+
+        for (size_t index = 0u; index < history->count; ++index) {
+            if (history->entries[index].seen != 0u) {
+                history->entries[retained_count++] = history->entries[index];
+            }
+        }
+        history->count = retained_count;
+    }
+    return 1;
+}
+
+void scene_vector_pose_history_apply(const SceneVectorPoseHistory *history,
+                                     SceneFrame *presentation_frame,
+                                     float source_alpha)
+{
+    if (!history || !presentation_frame || !presentation_frame->commands) {
+        return;
+    }
+    if (source_alpha < 0.0f) {
+        source_alpha = 0.0f;
+    } else if (source_alpha > 1.0f) {
+        source_alpha = 1.0f;
+    }
+    for (size_t command_index = 0u; command_index < presentation_frame->count;
+         ++command_index) {
+        SceneCommand *command = &presentation_frame->commands[command_index];
+        SceneSprite *sprite;
+        const SceneVectorPoseHistoryEntry *entry;
+
+        if (command->type != SCENE_COMMAND_SPRITE_INSTANCE) {
+            continue;
+        }
+        sprite = &command->data.sprite_instance.sprite;
+        if (!scene_vector_pose_sprite_is_tracked(sprite)) {
+            continue;
+        }
+        entry = scene_vector_pose_history_find_const(history, sprite->source_record_id);
+        if (!entry || entry->source_asset_id != sprite->source_asset_id ||
+            entry->source_bytes != sprite->source_bytes ||
+            entry->source_byte_count != sprite->source_byte_count ||
+            entry->current_frame_index != sprite->frame_index ||
+            entry->previous_frame_index == entry->current_frame_index ||
+            entry->interval_ticks == 0u || entry->elapsed_ticks >= entry->interval_ticks) {
+            continue;
+        }
+        sprite->presentation_previous_frame_index = entry->previous_frame_index;
+        sprite->presentation_frame_interpolation_alpha =
+            ((float)entry->elapsed_ticks + source_alpha) / (float)entry->interval_ticks;
+        sprite->presentation_interpolate_vector_frame = UINT8_MAX;
+    }
+}
+
 int scene_frame_init(SceneFrame *frame, size_t command_capacity)
 {
     if (!frame || command_capacity == 0) {

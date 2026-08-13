@@ -95,11 +95,13 @@ source-authored pose is interpolated. The renderer blends completed source-frame
 50 Hz VBlank remainder. This uses SDL's high-resolution performance counter,
 so the source companion weapon/action sequence advances only at its fixed PAL
 cadence while camera, mutable world geometry, sprites, and source light
-samples present smoothly at the host frame rate. World vector enemies and
-objects also retain `ai_DoWalkAnim`/`ai_DoAttackAnim`'s discrete 50 Hz current
-frame while the renderer blends compatible compiled-model point tables between
-completed snapshots; their AI, movement, action timing, and ObjT state are not
-advanced at presentation rate. The first-person gun
+samples present smoothly at the host frame rate. World vector enemies retain
+`ai_DoWalkAnim`/`ai_DoAttackAnim`'s discrete 50 Hz current
+frame while renderer-neutral per-ObjT pose history blends compatible compiled-
+model point tables across `DOALLANIMS`' complete authored five-tick (100 ms)
+interval. Position, angle, and light retain ordinary completed-frame
+interpolation; AI, movement, action timing, and ObjT state are not advanced at
+presentation rate. The first-person gun
 presentation deliberately holds each authored companion pose
 for four 50 Hz ticks (4x its former duration); firing, ammunition, cooldowns,
 projectiles, and all other gameplay still update on every source tick. The
