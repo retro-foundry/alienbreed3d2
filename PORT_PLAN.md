@@ -48,6 +48,9 @@ authority for all game behavior and data formats.
   boundaries with ear clipping instead of a fan shortcut, and forward-renders
   source sky, opaque world/vector geometry, animated water, cutout bitmaps,
   additive glare/effects, and Player 1's live vector companion weapon. It
+  retains `hires.s:Draw_Flats`' camera-side selection: floors render only from
+  above and ceilings only from below, preventing the reverse face of stacked
+  walkways from leaking through at grazing angles; water remains two-sided. It
   retains `hireswall.s:Draw_Wall`'s rear-face rejection with GPU backface
   culling, so complete-level submission cannot overwrite a wall with an
   opposite-zone draw-graph record. It emits no HUD commands because UI is

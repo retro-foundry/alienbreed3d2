@@ -1,6 +1,7 @@
 #include "renderer_opengl.h"
 
 #include "bitmap_source_decode.h"
+#include "source_flat_visibility.h"
 #include "source_vector_projection.h"
 #include "ui_text_layout.h"
 #include "world_light_tessellation.h"
@@ -2664,6 +2665,19 @@ static int renderer_opengl_draw_geometry(RendererOpenGL *renderer,
     if (!material || !geometry || !geometry->vertices || !camera) {
         renderer_opengl_set_error(error, error_size, "scene geometry has no material or vertices");
         return 0;
+    }
+    if (geometry->vertex_count < 3u) {
+        renderer_opengl_set_error(error, error_size,
+                                  "scene geometry has fewer than three vertices");
+        return 0;
+    }
+    if ((geometry->primitive == SCENE_GEOMETRY_PRIMITIVE_FLOOR ||
+         geometry->primitive == SCENE_GEOMETRY_PRIMITIVE_CEILING) &&
+        !source_flat_visible_from_camera(
+            geometry->primitive, geometry->vertices[0].position.y,
+            camera->position.y)) {
+        /* hires.s:Draw_Flats never exposes the reverse side of a solid flat. */
+        return 1;
     }
     if (geometry->primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
         if (geometry->texture_window.u_period == 0u || geometry->texture_window.v_period == 0u) {
