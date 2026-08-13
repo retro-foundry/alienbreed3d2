@@ -81,6 +81,12 @@ unique vector materials, reserves the largest authored face-conversion scratch
 buffer, and completes deferred driver work before gameplay.
 Vector drawing treats any later cache miss as an error instead of decoding or
 allocating a model texture or per-face heap buffer inside a presentation frame.
+Bitmap entities retain `objdrawhires.s:draw_Bitmap`'s exact
+`draw_ObjScaleCols_vw` two-inputs-per-palette-row mapping. Its four
+directionally lighted bitmap classes also preserve `draw_bitmap_lighted`'s
+wrapped byte curve and non-positive-only `BrightToAdd+willybright` adjustment,
+so items and bitmap enemies no longer select artificially dark palette rows in
+bright spaces.
 This is original source art with a continuous lighting presentation—not a PBR
 conversion. Menus and multiplayer are not included. The
 detailed inventory below records the source-backed foundations; older

@@ -85,6 +85,13 @@ authority for all game behavior and data formats.
   converts it once through the neutral bright `Draw_TexturePalettePtr` row.
   Vector surfaces use filtered, mipmapped true-colour textures where supported
   by the GLES2-compatible source dimensions; bitmap sprites remain crisp.
+  Bitmap entity palette selection is shared renderer-neutral source arithmetic:
+  `draw_Bitmap`'s `draw_ObjScaleCols_vw` maps two consecutive brightness
+  inputs to each direct palette row, while `draw_bitmap_lighted` wraps its
+  directional `guff` addition as a byte and applies
+  `BrightToAdd+willybright` only when the signed word is non-positive. This
+  replaces the prior one-input-per-row mapping and reversed adjustment clamp
+  that made items and bitmap enemies too dark.
   The renderer-neutral `RendererResourceCatalog` now publishes every vector
   blob already loaded by `controlloop.s:Game_Start` before the selected level
   begins. OpenGL walks `draw_PolygonModel`'s immutable part list and every

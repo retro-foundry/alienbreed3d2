@@ -1,5 +1,7 @@
 #include "renderer_opengl.h"
 
+#include "source_bitmap_lighting.h"
+
 #include "bitmap_source_decode.h"
 #include "source_flat_visibility.h"
 #include "source_vector_model_transform.h"
@@ -339,8 +341,8 @@ static int renderer_opengl_sprite_bright_to_add(const SceneSprite *sprite,
     yaw = (float)camera->yaw * (2.0f * renderer_opengl_pi / 8192.0f);
     source_depth = (int16_t)(((sprite_x - camera_x) * sinf(yaw) +
                               (sprite_z - camera_z) * cosf(yaw)) / 64.0f);
-    *out_brightness = (int16_t)((uint16_t)sprite->source_brightness +
-        (uint16_t)source_depth);
+    *out_brightness = source_bitmap_bright_to_add(
+        sprite->source_brightness, source_depth);
     return 1;
 }
 
@@ -355,14 +357,7 @@ static int renderer_opengl_normal_bitmap_palette_row(const SceneSprite *sprite,
                                                            error, error_size)) {
         return 0;
     }
-    /* draw_ObjScaleCols_vw repeats its final offset after row 31. */
-    if (bright_to_add <= 0) {
-        *out_row = 0u;
-    } else if (bright_to_add >= 31) {
-        *out_row = 31u;
-    } else {
-        *out_row = (uint8_t)bright_to_add;
-    }
+    *out_row = source_bitmap_direct_palette_row(bright_to_add);
     return 1;
 }
 
@@ -1248,14 +1243,12 @@ static int renderer_opengl_build_lighted_sprite_palette(const SceneSprite *sprit
                                        source_rough_angle_map[rough_bits]) & 0x0fu);
 
         for (uint32_t column = 0u; column < 7u; ++column) {
-            int source_value = (int)(int8_t)sprite->source_light_palette_bytes[
+            int8_t source_value = (int8_t)sprite->source_light_palette_bytes[
                 (size_t)balance * 7u * 16u + row * 16u + direction];
-            int additional = (int)bright_to_add + source_willy_bright[row * 7u + column];
 
-            if (additional < 0) {
-                additional = 0;
-            }
-            willy[row * 7u + column] = source_value + 48 - strongest + additional;
+            willy[row * 7u + column] = source_bitmap_lighted_palette_shade(
+                source_value, (int16_t)strongest, bright_to_add,
+                source_willy_bright[row * 7u + column]);
             direction = (uint8_t)((direction + 1u) & 0x0fu);
         }
     }
