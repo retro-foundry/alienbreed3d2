@@ -101,6 +101,7 @@ set(AB3D2_CORE_SOURCES
   src/render_view.c
   src/scene_frame.c
   src/source_flat_visibility.c
+  src/source_vector_model_transform.c
   src/source_vector_projection.c
   src/ui_text_layout.c
   src/world_light_tessellation.c
@@ -264,6 +265,12 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_include_directories(ab3d2_source_flat_visibility_test PRIVATE src)
   add_test(NAME ab3d2_source_flat_visibility_test
            COMMAND ab3d2_source_flat_visibility_test)
+  add_executable(ab3d2_source_vector_model_transform_test
+                 tests/source_vector_model_transform_test.c)
+  target_link_libraries(ab3d2_source_vector_model_transform_test PRIVATE ab3d2_core)
+  target_include_directories(ab3d2_source_vector_model_transform_test PRIVATE src)
+  add_test(NAME ab3d2_source_vector_model_transform_test
+           COMMAND ab3d2_source_vector_model_transform_test)
   add_executable(ab3d2_ui_text_layout_test tests/ui_text_layout_test.c)
   target_link_libraries(ab3d2_ui_text_layout_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_ui_text_layout_test PRIVATE src)

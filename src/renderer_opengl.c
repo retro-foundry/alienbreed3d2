@@ -2,6 +2,7 @@
 
 #include "bitmap_source_decode.h"
 #include "source_flat_visibility.h"
+#include "source_vector_model_transform.h"
 #include "source_vector_projection.h"
 #include "ui_text_layout.h"
 #include "world_light_tessellation.h"
@@ -3327,16 +3328,13 @@ static int renderer_opengl_vector_model_point(const SceneSprite *sprite,
         float center_x;
         float center_y;
         float center_z;
-        float yaw = (float)sprite->yaw * (2.0f * renderer_opengl_pi /
-                                          renderer_opengl_source_angle_full_turn);
-        float local_x = source_x * 0.5f;
-        float local_y = -source_y * 0.25f;
-        float local_z = source_z * 0.5f;
+        SourceVectorModelWorldOffset local;
 
         renderer_opengl_world_point(&sprite->position, &center_x, &center_y, &center_z);
-        out_vertex->x = center_x + cosf(yaw) * local_x - sinf(yaw) * local_z;
-        out_vertex->y = center_y + local_y;
-        out_vertex->z = center_z + sinf(yaw) * local_x + cosf(yaw) * local_z;
+        source_vector_model_world_offset(source_x, source_y, source_z, sprite->yaw, &local);
+        out_vertex->x = center_x + local.x;
+        out_vertex->y = center_y + local.y;
+        out_vertex->z = center_z + local.z;
     }
     out_vertex->u = 0.5f;
     out_vertex->v = 0.5f;
