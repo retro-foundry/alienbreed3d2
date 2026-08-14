@@ -444,7 +444,11 @@ surface; there it contributes low-frequency irradiance through that surface's
 diffuse BRDF. Emissive PBR polygons remain the sole sampled, occludable direct
 lights. The original ambient, dynamic, torch, flash, and projectile-light
 formulas therefore influence RTX indirect return without being applied
-directly to visible geometry or reconstructed as analytic lights.
+directly to visible geometry or reconstructed as analytic lights. RTX carries
+the exact prior and current interpolated Gouraud value through each secondary
+hit, so an authored animation locally relaxes only indirect/reflection temporal
+history; primary visibility, direct lighting, and primary material composition
+remain emissive/PBR-only.
 The complete GPLv2 backend, shaders, material tools, tests, license, pinned
 Q2RTX provenance, and implementation plan live in the public
 [`alienbreed3d2-rtx-renderer`](https://github.com/retro-foundry/alienbreed3d2-rtx-renderer)
