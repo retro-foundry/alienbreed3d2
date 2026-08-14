@@ -436,13 +436,15 @@ the world so they retain their parity paths. The 50 Hz/interpolated
 animated vector enemies and objects, and the companion weapon. Bitmap effects
 and vector models use their exact decoded source palettes and frame data.
 
-RTX world and vector vertices discard `source_light_level`; the ray payload and
-PBR composition contain no authored ambient/L0 term. Emissive PBR polygons are
-the sole source of sampled, occludable direct light and traced bounce,
-reflection, and refraction energy. The original ambient, dynamic, torch,
-flash, and projectile-light formulas remain intact for gameplay, OpenGL, and
-the parity-composited bitmap/view-weapon paths, but do not illuminate the RTX
-world or 3D vector scene.
+RTX world vertices carry the completed-frame, tessellated Amiga Gouraud field,
+and vector vertices carry their source-decoded 0--1 Gouraud response. The
+primary G-buffer and direct-light pass deliberately ignore both. Only a traced
+diffuse, reflection, or refraction ray can sample this field at its secondary
+surface; there it contributes low-frequency irradiance through that surface's
+diffuse BRDF. Emissive PBR polygons remain the sole sampled, occludable direct
+lights. The original ambient, dynamic, torch, flash, and projectile-light
+formulas therefore influence RTX indirect return without being applied
+directly to visible geometry or reconstructed as analytic lights.
 The complete GPLv2 backend, shaders, material tools, tests, license, pinned
 Q2RTX provenance, and implementation plan live in the public
 [`alienbreed3d2-rtx-renderer`](https://github.com/retro-foundry/alienbreed3d2-rtx-renderer)
