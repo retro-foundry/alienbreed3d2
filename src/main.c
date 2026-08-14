@@ -1556,9 +1556,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
-        /* Compare two explicit source states for OpenGL world lighting and
-         * the renderer-neutral companion overlay. RTX world/vector lighting
-         * intentionally ignores CurrentPointBrights and is emissive-only. */
+        /* Compare two explicit source states for OpenGL world lighting, the
+         * renderer-neutral companion overlay, and RTX secondary Gouraud
+         * transport. RTX primary geometry must still remain unaffected. */
         for (uint16_t zone_index = 0u;
              zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
             for (uint16_t point_index = 0u;
@@ -1576,9 +1576,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
         }
         source_lighting_checksum = renderer_last_frame_rgb_checksum(app->renderer);
         source_weapon_lighting_checksum = renderer_last_view_weapon_rgb_checksum(app->renderer);
-        /* OpenGL world geometry must react to live CurrentPointBrights. The
-         * RTX assertion above instead proves that emissive maps delivered
-         * traced direct radiance. */
+        /* OpenGL world geometry must react directly to live
+         * CurrentPointBrights. RTX consumes the same field only after a
+         * secondary ray hits another surface. */
         for (uint16_t zone_index = 0u;
              zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
             for (uint16_t point_index = 0u;
@@ -1600,6 +1600,15 @@ static int game_app_run_gpu_smoke(GameApp *app)
             fprintf(stderr,
                     "[RENDER] GPU smoke source Gouraud lighting did not change world output "
                     "for Level %c\n", (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
+        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX &&
+            renderer_last_source_gouraud_energy(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] RTX smoke produced no authored Gouraud radiance "
+                    "at secondary hits in Level %c\n",
+                    (char)('A' + level_index));
             app->exit_code = 1;
             return 0;
         }

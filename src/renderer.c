@@ -343,6 +343,25 @@ size_t renderer_last_direct_light_energy(const Renderer *renderer)
     }
 }
 
+size_t renderer_last_source_gouraud_energy(const Renderer *renderer)
+{
+    if (!renderer) {
+        return 0u;
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_VULKAN_RTX:
+#if defined(AB3D2_ENABLE_RTX)
+        return renderer_vulkan_rtx_last_source_gouraud_energy(
+            renderer->vulkan_rtx);
+#else
+        return 0u;
+#endif
+    case RENDERER_BACKEND_OPENGL:
+    default:
+        return 0u;
+    }
+}
+
 uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer)
 {
     if (!renderer) {

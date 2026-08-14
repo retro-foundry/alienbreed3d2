@@ -450,7 +450,9 @@ Q2RTX provenance, and implementation plan live in the public
 [`alienbreed3d2-rtx-renderer`](https://github.com/retro-foundry/alienbreed3d2-rtx-renderer)
 repository. This tree pins that repository under
 `external/alienbreed3d2-rtx-renderer` as a Git submodule; private game assets
-are supplied to it only as build inputs.
+are supplied to it only as build inputs. RTX-enabled native builds recompile
+and restage every SPIR-V stage so the shader ray-payload ABI cannot lag behind
+the host scene upload.
 
 The same renderer compiles to a preloaded WebGL build through Emscripten:
 
