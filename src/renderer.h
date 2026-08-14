@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "render_view.h"
+#include "renderer_backend.h"
 #include "renderer_resources.h"
 #include "scene_frame.h"
 
@@ -14,10 +15,6 @@
  * later DirectX backend can implement the same operations without changing
  * SceneFrame or game simulation.
  */
-typedef enum {
-    RENDERER_BACKEND_OPENGL
-} RendererBackend;
-
 typedef struct {
     RendererBackend backend;
     int window_width;
@@ -33,6 +30,8 @@ typedef struct {
     int hidden_window;
     /* Presentation-only source-mesh subdivision: 1, 2, 4, or 8. */
     uint8_t world_light_tessellation;
+    uint16_t rtx_target_fps;
+    RendererRtxDebugView rtx_debug_view;
 } RendererConfig;
 
 typedef struct Renderer Renderer;
@@ -47,6 +46,9 @@ int renderer_is_running(const Renderer *renderer);
 void renderer_request_quit(Renderer *renderer);
 /* Live drawable extent used by both presentation and relative-mouse scaling. */
 int renderer_get_presentation_size(const Renderer *renderer, int *out_width, int *out_height);
+/* Hidden validation hook; returns zero for a non-RTX backend. */
+int renderer_set_rtx_debug_view(Renderer *renderer,
+                                RendererRtxDebugView debug_view);
 int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderView *view,
                      char *error, size_t error_size);
 /* Nonzero only when hidden GPU smoke rendered visible UI glyph pixels. */
@@ -57,6 +59,12 @@ size_t renderer_last_view_weapon_coverage(const Renderer *renderer);
 uint64_t renderer_last_view_weapon_rgb_checksum(const Renderer *renderer);
 /* Hidden GPU-smoke coverage for source projectile and fragment bitmap draws. */
 size_t renderer_last_projectile_coverage(const Renderer *renderer);
+/* Hidden RTX smoke coverage for secondary path-tracing intersections. */
+size_t renderer_last_indirect_light_coverage(const Renderer *renderer);
+/* Quantized nonzero radiance delivered by the hidden RTX smoke paths. */
+size_t renderer_last_indirect_light_energy(const Renderer *renderer);
+/* Quantized emissive direct-light radiance delivered by hidden RTX smoke. */
+size_t renderer_last_direct_light_energy(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
 uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer);
 

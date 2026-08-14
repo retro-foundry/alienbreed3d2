@@ -158,7 +158,7 @@ Build the packed texture package from the repository root:
 python tools\build_q2rtx_pbr_from_sheets.py
 ```
 
-The builder cuts each sheet into albedo, normal, metalness, and roughness panels, crops the panel content to match the original WAL aspect ratio, then writes integer-scale replacements under:
+The builder cuts each sheet into albedo, normal, metalness, and roughness panels. Panel bounds come from the full-coverage normal and roughness maps and are shared with their matching albedo and metalness maps; this preserves intentionally black texels and keeps captions/gutters out of every channel. It then centre-crops every channel to the original WAL aspect ratio and writes integer-scale replacements under:
 
 ```text
 q2rtx_pbr/baseq2

@@ -4,6 +4,17 @@
 # Later builds leave your ab3d2.ini untouched. Boolean values accept
 # 0/1, false/true, no/yes, or off/on.
 
+# Graphics backend. OpenGL is the default and the only backend used by WebGL.
+# Select rtx only on a native Vulkan ray-tracing capable system.
+renderer=opengl
+
+# RTX presentation controls. The native RTX backend dynamically adjusts its
+# internal ray resolution between 50% and 100% to meet this target.
+rtx_target_fps=60
+# final, albedo, normal, roughness, metalness, emissive, direct, indirect,
+# specular, or variance.
+rtx_debug_view=final
+
 # Campaign level A through P, written one-indexed.
 start_level=1
 
@@ -16,6 +27,10 @@ all_keys=0
 # 1 = enable F5 quicksave and F9 quickload to/from savegame.bin.
 # 0 = ignore those shortcuts. Disabled by default, matching the first port.
 quicksave_load=0
+
+# 1 = restore savegame.bin at startup and enter gameplay immediately, skipping
+# the initial level flavour text. A missing or invalid save is a startup error.
+load_autosave=0
 
 # Master SDL mixer volume, from 0 (silent) through 100.
 volume=100

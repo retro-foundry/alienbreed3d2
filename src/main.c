@@ -231,6 +231,8 @@ typedef struct {
     uint8_t selected_level_from_command_line;
     uint8_t world_light_tessellation_from_command_line;
     uint8_t has_world_light_tessellation_from_command_line;
+    RendererBackend renderer_backend_from_command_line;
+    uint8_t has_renderer_backend_from_command_line;
     DesktopSettings desktop_settings;
     GameBootstrap game;
     /* Completed source-frame endpoints retained for high-rate presentation. */
@@ -401,6 +403,13 @@ static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
                 return 0;
             }
             app->has_world_light_tessellation_from_command_line = UINT8_MAX;
+        } else if (strcmp(argv[argument_index], "--renderer") == 0 &&
+                   !app->has_renderer_backend_from_command_line) {
+            if (!renderer_backend_from_string(argv[argument_index + 1],
+                                              &app->renderer_backend_from_command_line)) {
+                return 0;
+            }
+            app->has_renderer_backend_from_command_line = UINT8_MAX;
         } else {
             return 0;
         }
@@ -471,8 +480,8 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
     }
     fprintf(stdout,
             "[SETTINGS] start_level=%u infinite_health=%u infinite_ammo=%u all_weapons=%u "
-            "all_keys=%u volume=%u quicksave_load=%u always_run=%u "
-            "world_light_tessellation=%u\n",
+            "all_keys=%u volume=%u quicksave_load=%u load_autosave=%u always_run=%u "
+            "world_light_tessellation=%u renderer=%s rtx_target_fps=%u rtx_debug_view=%s\n",
             (unsigned)(app->desktop_settings.start_level_index + 1u),
             app->desktop_settings.infinite_health != 0u ? 1u : 0u,
             app->desktop_settings.infinite_ammo != 0u ? 1u : 0u,
@@ -480,8 +489,12 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
             app->desktop_settings.all_keys != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.volume,
             app->desktop_settings.quicksave_load != 0u ? 1u : 0u,
+            app->desktop_settings.load_autosave != 0u ? 1u : 0u,
             app->desktop_settings.always_run != 0u ? 1u : 0u,
-            (unsigned)app->desktop_settings.world_light_tessellation);
+            (unsigned)app->desktop_settings.world_light_tessellation,
+            renderer_backend_name(app->desktop_settings.renderer_backend),
+            (unsigned)app->desktop_settings.rtx_target_fps,
+            renderer_rtx_debug_view_name(app->desktop_settings.rtx_debug_view));
     return 1;
 }
 
@@ -489,11 +502,12 @@ static int game_app_init(GameApp *app, int argc, char **argv)
 {
     char error[256];
     RendererConfig renderer_config;
+    uint8_t startup_autosave_loaded = 0u;
 
     if (!app || !game_app_parse_arguments(app, argc, argv)) {
         fprintf(stderr,
                 "usage: %s [--data-root <directory>] [--level <A-P>] [--gpu-smoke <A-P|all>] "
-                "[--world-light-tessellation <1|2|4|8>]\n",
+                "[--world-light-tessellation <1|2|4|8>] [--renderer <opengl|rtx>]\n",
                 argv[0]);
         return 0;
     }
@@ -552,7 +566,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     app->frame_initialized = 1;
-    renderer_config.backend = RENDERER_BACKEND_OPENGL;
+    renderer_config.backend = app->has_renderer_backend_from_command_line != 0u ?
+        app->renderer_backend_from_command_line : app->desktop_settings.renderer_backend;
     if (app->gpu_smoke) {
         /* Keep the opt-in hidden smoke bounded and independent of desktop layout. */
         renderer_config.window_width = 1280;
@@ -575,7 +590,10 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         app->has_world_light_tessellation_from_command_line != 0u ?
         app->world_light_tessellation_from_command_line :
         app->desktop_settings.world_light_tessellation;
-    fprintf(stdout, "[RENDER] world_light_tessellation=%u\n",
+    renderer_config.rtx_target_fps = app->desktop_settings.rtx_target_fps;
+    renderer_config.rtx_debug_view = app->desktop_settings.rtx_debug_view;
+    fprintf(stdout, "[RENDER] backend=%s world_light_tessellation=%u\n",
+            renderer_backend_name(renderer_config.backend),
             (unsigned)renderer_config.world_light_tessellation);
     app->mouse_present_width = renderer_config.window_width;
     app->mouse_present_height = renderer_config.window_height;
@@ -598,6 +616,19 @@ static int game_app_init(GameApp *app, int argc, char **argv)
                                                      error, sizeof(error))) {
         fprintf(stderr, "[GAME] %s\n", error);
         return 0;
+    }
+    if (!app->gpu_smoke && app->desktop_settings.load_autosave != 0u) {
+        /* Alien Breed 3D I control_loop.c's Continue/autosave route restores
+         * the complete runtime and enters play without level flavour text. */
+        if (!game_quicksave_load(&app->game, app->data_root, app->quicksave_path,
+                                 error, sizeof(error))) {
+            fprintf(stderr, "[AUTOSAVE] startup load from %s failed: %s\n",
+                    app->quicksave_path, error);
+            return 0;
+        }
+        startup_autosave_loaded = UINT8_MAX;
+        fprintf(stdout, "[AUTOSAVE] startup restored Level %c from %s\n",
+                (char)('A' + app->game.active_level_index), app->quicksave_path);
     }
     /* hires.s:Game_Begin's mt_init begins the source-selected packedtest module. */
     audio_sdl_set_music_enabled(app->audio, app->game.preferences.play_music);
@@ -622,12 +653,16 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
     }
     if (!app->gpu_smoke) {
-        /* The first port shows the selected level's story before its first
-         * gameplay frame, then repeats this flow after each successful exit. */
-        app->phase = GAME_APP_PHASE_LEVEL_TEXT_FADE_IN;
-        app->transition_level_index = app->game.active_level_index;
-        app->transition_phase_started_ms = SDL_GetTicks();
-        app->transition_level_needs_load = 0u;
+        if (startup_autosave_loaded != 0u) {
+            app->phase = GAME_APP_PHASE_GAMEPLAY;
+        } else {
+            /* The first port shows the selected level's story before its first
+             * gameplay frame, then repeats this flow after each successful exit. */
+            app->phase = GAME_APP_PHASE_LEVEL_TEXT_FADE_IN;
+            app->transition_level_index = app->game.active_level_index;
+            app->transition_phase_started_ms = SDL_GetTicks();
+            app->transition_level_needs_load = 0u;
+        }
     }
     fprintf(stdout,
             "[BOOTSTRAP] test.lnk=%zu bytes TEXT_FILE=%zu bytes Level %c active\n",
@@ -1253,6 +1288,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
     char error[256];
     uint16_t first_level = app->selected_level_index;
     uint16_t last_level = app->gpu_smoke_all_levels != 0 ? 15u : first_level;
+    RendererBackend smoke_backend = app->has_renderer_backend_from_command_line != 0u ?
+        app->renderer_backend_from_command_line :
+        app->desktop_settings.renderer_backend;
 
     for (uint16_t level_index = first_level; level_index <= last_level; ++level_index) {
         SceneCommand source_effect_camera;
@@ -1289,6 +1327,25 @@ static int game_app_run_gpu_smoke(GameApp *app)
             fprintf(stderr,
                     "[RENDER] GPU smoke health/ammo UI changed no visible pixels in Level %c\n",
                     (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
+        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX &&
+            renderer_last_indirect_light_coverage(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] RTX smoke traced no indirect-light intersections "
+                    "in Level %c\n", (char)('A' + level_index));
+            app->exit_code = 1;
+            return 0;
+        }
+        /* Level B starts with authored emissive polygons in its source PVST.
+         * Level A's emitters are behind zones excluded by the spawn PVST and
+         * must not leak through those walls merely to satisfy this check. */
+        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX && level_index == 1u &&
+            renderer_last_direct_light_energy(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] RTX smoke produced no emissive direct-light radiance "
+                    "in Level %c\n", (char)('A' + level_index));
             app->exit_code = 1;
             return 0;
         }
@@ -1499,14 +1556,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
-        /*
-         * Compare two explicit source states.  A level can legitimately
-         * start at the same palette-light clamp used by the bright probe, so
-         * comparing against its incidental live state is not a valid all-level
-         * assertion.  renderer_present above has already exercised that live
-         * scene; these controlled values prove its material handoff responds
-         * to `CurrentPointBrights`.
-         */
+        /* Compare two explicit source states for OpenGL world lighting and
+         * the renderer-neutral companion overlay. RTX world/vector lighting
+         * intentionally ignores CurrentPointBrights and is emissive-only. */
         for (uint16_t zone_index = 0u;
              zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
             for (uint16_t point_index = 0u;
@@ -1524,13 +1576,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
         }
         source_lighting_checksum = renderer_last_frame_rgb_checksum(app->renderer);
         source_weapon_lighting_checksum = renderer_last_view_weapon_rgb_checksum(app->renderer);
-        /*
-         * A complete-scene frame must react to the live `CurrentPointBrights`
-         * words, including geometry outside the source PVS. Use a bright
-         * source value opposite the prior dark probe, so this hidden smoke
-         * detects a missing wall, floor, ceiling, or vector palette-light
-         * pass without relying on a screenshot.
-         */
+        /* OpenGL world geometry must react to live CurrentPointBrights. The
+         * RTX assertion above instead proves that emissive maps delivered
+         * traced direct radiance. */
         for (uint16_t zone_index = 0u;
              zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
             for (uint16_t point_index = 0u;
@@ -1546,7 +1594,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
-        if (renderer_last_frame_rgb_checksum(app->renderer) == source_lighting_checksum) {
+        if (smoke_backend == RENDERER_BACKEND_OPENGL &&
+            renderer_last_frame_rgb_checksum(app->renderer) ==
+                source_lighting_checksum) {
             fprintf(stderr,
                     "[RENDER] GPU smoke source Gouraud lighting did not change world output "
                     "for Level %c\n", (char)('A' + level_index));
@@ -1570,6 +1620,71 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     "for Level %c\n", (char)('A' + level_index));
             app->exit_code = 1;
             return 0;
+        }
+        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX &&
+            level_index == (app->gpu_smoke_all_levels != 0u ? 1u :
+                                                               first_level)) {
+            static const RendererRtxDebugView capture_views[] = {
+                RENDERER_RTX_DEBUG_ALBEDO,
+                RENDERER_RTX_DEBUG_NORMAL,
+                RENDERER_RTX_DEBUG_ROUGHNESS,
+                RENDERER_RTX_DEBUG_METALNESS,
+                RENDERER_RTX_DEBUG_EMISSIVE,
+                RENDERER_RTX_DEBUG_DIRECT,
+                RENDERER_RTX_DEBUG_INDIRECT,
+                RENDERER_RTX_DEBUG_SPECULAR,
+                RENDERER_RTX_DEBUG_VARIANCE
+            };
+            uint64_t captures[
+                sizeof(capture_views) / sizeof(capture_views[0])] = {0};
+            int capture_has_direct =
+                renderer_last_direct_light_energy(app->renderer) != 0u;
+
+            for (size_t capture = 0u;
+                 capture < sizeof(capture_views) / sizeof(capture_views[0]);
+                 ++capture) {
+                if (!renderer_set_rtx_debug_view(
+                        app->renderer, capture_views[capture]) ||
+                    !renderer_present(app->renderer, &app->frame, &app->view,
+                                      error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] RTX %s debug capture failed: %s\n",
+                            renderer_rtx_debug_view_name(capture_views[capture]),
+                            error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                captures[capture] =
+                    renderer_last_frame_rgb_checksum(app->renderer);
+            }
+            /* The direct-light diagnostic includes diffuse and specular
+             * energy. A fully metallic view can therefore have a black
+             * direct-diffuse channel while its specular channel is live. */
+            if (captures[0] == captures[1] || captures[2] == captures[3] ||
+                (capture_has_direct && captures[5] == captures[6] &&
+                 captures[7] == captures[6])) {
+                fprintf(stderr,
+                        "[RENDER] RTX debug captures do not contain distinct PBR/lighting "
+                        "channels: albedo=%llu normal=%llu roughness=%llu metalness=%llu "
+                        "emissive=%llu direct=%llu indirect=%llu specular=%llu variance=%llu\n",
+                        (unsigned long long)captures[0],
+                        (unsigned long long)captures[1],
+                        (unsigned long long)captures[2],
+                        (unsigned long long)captures[3],
+                        (unsigned long long)captures[4],
+                        (unsigned long long)captures[5],
+                        (unsigned long long)captures[6],
+                        (unsigned long long)captures[7],
+                        (unsigned long long)captures[8]);
+                app->exit_code = 1;
+                return 0;
+            }
+            if (!renderer_set_rtx_debug_view(
+                    app->renderer, app->desktop_settings.rtx_debug_view)) {
+                fprintf(stderr, "[RENDER] RTX debug capture restore failed\n");
+                app->exit_code = 1;
+                return 0;
+            }
         }
     }
     return 1;

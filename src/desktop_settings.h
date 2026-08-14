@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "renderer_backend.h"
+
 /*
  * Optional PC presentation/session settings.  These do not replace any
  * source preference bytes or campaign data; GameBootstrap applies them at
@@ -18,11 +20,18 @@ typedef struct {
     uint8_t all_keys;
     /* First-port-compatible F5/F9 savegame.bin shortcuts. */
     uint8_t quicksave_load;
+    /* Restore savegame.bin at startup and bypass the initial story screen. */
+    uint8_t load_autosave;
     uint8_t always_run;
     /* Master mixer gain as a percentage, 0 through 100. */
     uint8_t volume;
     /* Presentation-only world-light subdivisions per source mesh edge. */
     uint8_t world_light_tessellation;
+    /* Desktop graphics backend; OpenGL remains the documented default. */
+    RendererBackend renderer_backend;
+    /* Native RTX presentation controls; ignored by the OpenGL/Web backend. */
+    uint16_t rtx_target_fps;
+    RendererRtxDebugView rtx_debug_view;
 } DesktopSettings;
 
 typedef enum {

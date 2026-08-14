@@ -155,6 +155,14 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         }
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "load_autosave")) {
+        if (!desktop_settings_parse_bool(value, &settings->load_autosave)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: load_autosave must be a boolean", line_number);
+            return 0;
+        }
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "always_run") ||
         desktop_settings_equals_ci(key, "run_default")) {
         if (!desktop_settings_parse_bool(value, &settings->always_run)) {
@@ -184,6 +192,36 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->world_light_tessellation = (uint8_t)number;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "renderer")) {
+        if (!renderer_backend_from_string(value, &settings->renderer_backend)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: renderer must be opengl or rtx",
+                           line_number);
+            return 0;
+        }
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_target_fps")) {
+        if (!desktop_settings_parse_unsigned(value, 240u, &number) ||
+            number < 30u) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_target_fps must be 30 through 240",
+                           line_number);
+            return 0;
+        }
+        settings->rtx_target_fps = (uint16_t)number;
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_debug_view")) {
+        if (!renderer_rtx_debug_view_from_string(
+                value, &settings->rtx_debug_view)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_debug_view must be final, albedo, normal, roughness, metalness, emissive, direct, indirect, specular, or variance",
+                           line_number);
+            return 0;
+        }
+        return 1;
+    }
     return 1;
 }
 
@@ -196,6 +234,9 @@ void desktop_settings_default(DesktopSettings *settings)
     settings->always_run = UINT8_MAX;
     settings->volume = 100u;
     settings->world_light_tessellation = 4u;
+    settings->renderer_backend = RENDERER_BACKEND_OPENGL;
+    settings->rtx_target_fps = 60u;
+    settings->rtx_debug_view = RENDERER_RTX_DEBUG_FINAL;
 }
 
 int desktop_settings_parse(DesktopSettings *settings, const char *text, size_t text_size,

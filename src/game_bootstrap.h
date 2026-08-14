@@ -65,6 +65,9 @@ typedef struct {
     ObjectAnimationRuntime object_animation_runtime;
     /* Source dynamic light state; its room-brightness output feeds AI. */
     LightingRuntime lighting_runtime;
+    /* Renderer-neutral flattened copy of ZoneT's immutable PVST topology. */
+    uint8_t scene_zone_visibility[LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY]
+                                 [(LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY + 7u) / 8u];
     /*
      * Presentation-only allinzone result captured before source object lights.
      * It separates the five-tick authored room animation from one-tick

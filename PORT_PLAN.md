@@ -718,6 +718,12 @@ sound effects and music now play through the SDL WAV backend.
   authored A--P campaign and present the next exact 16-line `TEXT_FILE` record
   through renderer-neutral HUD commands. Its grouped scaling, fade, and input
   guard follow the first port without inventing a completion screen or menu.
+  The default-off `load_autosave` desktop option maps the first port's
+  `control_loop.c:GAME_LOOP_FRONT_MENU_LOAD_AUTOSAVE` Continue behavior onto
+  direct startup: it restores the existing versioned `savegame.bin` through
+  `game_quicksave_load`, enters gameplay without the initial story screen, and
+  leaves later successful level-transition stories unchanged. An enabled
+  missing or invalid save fails explicitly rather than starting a new game.
   `src/object_collectables.*` ports the single-player `ItsAnObject`/
   `Collectable`, `Plr1_CheckObjectCollide`, and `Plr1_CollectItem` subset for
   a same-zone/layer candidate: floor/roof placement, source word-coordinate

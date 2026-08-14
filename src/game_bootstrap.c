@@ -735,6 +735,53 @@ int game_bootstrap_load_level_definition(GameBootstrap *game, const char *data_r
     return 1;
 }
 
+static int game_bootstrap_build_scene_zone_visibility(
+    GameBootstrap *game, char *error, size_t error_size)
+{
+    if (!game ||
+        game->level_runtime.zone_count >
+            LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "level zone visibility exceeds scene capacity");
+        }
+        return 0;
+    }
+    memset(game->scene_zone_visibility, 0,
+           sizeof(game->scene_zone_visibility));
+    for (uint16_t viewer = 0u; viewer < game->level_runtime.zone_count;
+         ++viewer) {
+        uint8_t *row = game->scene_zone_visibility[viewer];
+        int terminated = 0;
+
+        row[viewer >> 3u] |= (uint8_t)(1u << (viewer & 7u));
+        for (uint32_t entry_index = 0u;
+             entry_index <= game->level_runtime.zone_count; ++entry_index) {
+            LevelPotentialVisibility entry;
+
+            if (!level_runtime_get_zone_potential_visibility(
+                    &game->level_runtime, viewer, entry_index, &entry,
+                    error, error_size)) {
+                return 0;
+            }
+            if (entry.zone_index < 0) {
+                terminated = 1;
+                break;
+            }
+            row[(uint16_t)entry.zone_index >> 3u] |=
+                (uint8_t)(1u << ((uint16_t)entry.zone_index & 7u));
+        }
+        if (!terminated) {
+            if (error && error_size > 0u) {
+                (void)snprintf(error, error_size,
+                               "zone %u PVST has no source terminator", viewer);
+            }
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                               uint16_t level_index, char *error, size_t error_size)
 {
@@ -844,6 +891,10 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                                       ? game->level_floor_override.size
                                       : game->shared_resources.floor_texture.size,
                                   &game->static_scene, error, error_size)) {
+        game_bootstrap_release_level(game);
+        return 0;
+    }
+    if (!game_bootstrap_build_scene_zone_visibility(game, error, error_size)) {
         game_bootstrap_release_level(game);
         return 0;
     }
@@ -1235,6 +1286,10 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
         command.data.lighting.point_brightness_count = LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT;
         command.data.lighting.zone_brightness = game->lighting_runtime.zone_brightness;
         command.data.lighting.zone_count = game->dynamic_level.runtime.zone_count;
+        command.data.lighting.zone_potential_visibility =
+            &game->scene_zone_visibility[0][0];
+        command.data.lighting.zone_potential_visibility_stride =
+            (LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY + 7u) / 8u;
         command.data.lighting.ambient_animation_phase_tick =
             ambient_animation_phase_tick;
         command.data.lighting.ambient_animation_interval_ticks =

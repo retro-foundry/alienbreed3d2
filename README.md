@@ -27,17 +27,27 @@ session. Supported keys are:
   its source door/lift locks. It defaults to `0`;
 - `quicksave_load=0|1` enables first-port-compatible F5 quicksave and F9
   quickload through `savegame.bin` beside the executable. It defaults to `0`;
+- `load_autosave=0|1` restores that `savegame.bin` at startup and enters
+  gameplay without the initial level flavour text. It defaults to `0`, and an
+  enabled load fails explicitly if the save is absent or invalid;
 - `volume=0` through `volume=100` controls the master SDL mixer gain;
 - `always_run=0|1` makes run the default controller mode. Hold Shift to walk;
   and
 - `world_light_tessellation=1|2|4|8` controls presentation-only world-light
-  subdivision. The default is `4`; `1` retains the strict source mesh.
+  subdivision. The default is `4`; `1` retains the strict source mesh; and
+- `renderer=opengl|rtx` selects the desktop graphics backend. It defaults to
+  `opengl`; the Web build always uses OpenGL/WebGL;
+- `rtx_target_fps=30..240` controls adaptive RTX internal resolution and
+  defaults to `60`; and
+- `rtx_debug_view=final|albedo|normal|roughness|metalness|emissive|direct|indirect|specular|variance`
+  selects an RTX render-graph diagnostic and defaults to `final`.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
 port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
 An explicit `--level A` through `--level P` command-line option overrides
 `start_level`. `--world-light-tessellation 1|2|4|8` likewise provides a
-one-run override for renderer validation.
+one-run override for renderer validation. `--renderer opengl|rtx` overrides
+the configured backend for one native run.
 
 Weapon selection retains the source controls: number keys `1`--`0` directly
 select their owned weapon, while Backslash and the right mouse button advance
@@ -46,6 +56,11 @@ to the next owned weapon.
 When `quicksave_load=1`, F5 captures the complete live level and F9 reloads
 its source assets before restoring that state, including saves from another
 campaign level.
+
+When `load_autosave=1`, the saved campaign level and runtime state take
+precedence over `start_level` and `--level`. Like the first port's Continue
+route, only the initial story is skipped; later successful level transitions
+still display their authored flavour text.
 
 ## Current native slice
 
@@ -64,20 +79,23 @@ safe top margin, retain the source
 message-tag colours, and age through `c/message.c:Msg_Tick`'s exact one-line,
 2000 ms null insertion until they are replaced or disappear. Failed inventory pickups retain their
 source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
-active presentation path is an OpenGL 2.1 / GLES 2 renderer behind the
-API-neutral `renderer.h` boundary, so the same scene producers can later feed
-a DirectX backend. It draws the complete loaded level without software
+active presentation path is selected behind the API-neutral `renderer.h`
+boundary. OpenGL 2.1 / GLES 2 remains the default native and Web backend;
+native builds also provide a Vulkan KHR ray-tracing backend when
+`AB3D2_ENABLE_RTX=ON`. Both draw the complete loaded level without software
 rasterization, PVS, portals, or zone ordering. It decodes the maintained
 5-bit packed wall WAD strips, `floortile` logical tiles, `256pal`, object
 WAD/PTR frame data, vector models, `rawbackpacked`, and `waterfile` into GPU
-resources. It forward-renders source-textured geometry, smooth source-driven
-light gradients, sky, animated water, bitmap/glare effects, vector objects,
-and Player 1's live companion weapon. World and vector materials are converted
-once to true colour with per-source-texel continuous linear-light responses,
-so source brightness retains its authored hue shift without runtime palette
-row selection. Before `Game_Begin`, the renderer-neutral resource catalog
-hands every vector asset already loaded by `controlloop.s:Game_Start` to the
-active backend. OpenGL walks `draw_PolygonModel`/`doapoly`'s immutable part and
+resources. OpenGL forward-renders source-textured geometry with smooth
+source-driven light gradients; Vulkan RTX traces the same retained world and
+dynamic scene using emissive PBR textures as its only world/vector light
+source. Both render sky, animated water, bitmap/glare effects, vector objects,
+and Player 1's live companion weapon. OpenGL world and vector materials are
+converted once to true colour with per-source-texel continuous linear-light
+responses, so source brightness retains its authored hue shift without runtime
+palette row selection. Before `Game_Begin`, the renderer-neutral resource
+catalog hands every vector asset already loaded by `controlloop.s:Game_Start`
+to the active backend. OpenGL walks `draw_PolygonModel`/`doapoly`'s immutable part and
 face records, prepares the shared 256-entry light response once, uploads all
 unique vector materials, reserves the largest authored face-conversion scratch
 buffer, and completes deferred driver work before gameplay.
@@ -89,8 +107,10 @@ directionally lighted bitmap classes also preserve `draw_bitmap_lighted`'s
 wrapped byte curve and non-positive-only `BrightToAdd+willybright` adjustment,
 so items and bitmap enemies no longer select artificially dark palette rows in
 bright spaces.
-This is original source art with a continuous lighting presentation—not a PBR
-conversion. Menus and multiplayer are not included. The
+OpenGL is original source art with a continuous lighting presentation. The
+optional RTX backend replaces source world/vector lighting with the supplied
+PBR maps and emissive-only traced light. Menus and multiplayer are not
+included. The
 detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live
 integration.
@@ -358,16 +378,77 @@ multiplayer flow is intentionally not ported.
 
 ## Build
 
-Requirements: CMake 3.16+, a C11 compiler, Git, and network access the first
-time CMake fetches SDL2.
+Requirements: CMake 3.16+, a C11/C++ compiler, Python 3 with Pillow, Git, and
+network access the first time CMake fetches SDL2 and the pinned Vulkan build
+dependencies. No separately installed Vulkan SDK or shader compiler is
+required. Set `-DAB3D2_ENABLE_RTX=OFF` for an OpenGL-only native build.
+The optional GPLv2 RTX implementation is pinned as a public Git submodule;
+initialize it before an RTX-enabled configure.
 
 ```sh
+git submodule update --init --recursive
 cmake -S . -B build/pc
 cmake --build build/pc --config Debug
 ctest --test-dir build/pc --output-on-failure
 # Opt-in real OpenGL context validation (hidden window, Levels A-P)
 cmake --build build/pc --config Debug --target ab3d2_gpu_smoke
+# Opt-in Vulkan ray-tracing validation (hidden window, Levels A-P)
+cmake --build build/pc --config Debug --target ab3d2_rtx_gpu_smoke
 ```
+
+### Vulkan RTX backend
+
+Set `renderer=rtx` in `ab3d2.ini`, or launch once with `--renderer rtx`.
+OpenGL remains the default. RTX startup fails explicitly when the Vulkan
+driver lacks `VK_KHR_acceleration_structure`,
+`VK_KHR_ray_tracing_pipeline`, buffer device address, or the required feature
+set; it never silently substitutes OpenGL.
+
+The renderer uses a Q2RTX-derived staged path: full-resolution primary
+visibility, fresh single-GPU emissive direct-light and diffuse/specular bounce
+samples at every pixel, separate ASVGF-style temporal/a-trous filtering, PBR composition,
+TAAU, exposure, and tone mapping. GPU timestamp feedback varies internal
+resolution from 50% to 100% around `rtx_target_fps`. PBR
+base/normal/roughness/metalness/emissive arrays are generated deterministically
+from `textures_pbr`, with complete mip chains, anisotropic sampling, authored
+material factors, and strict validation of every declared map. Q2RTX-style
+ray-cone gradients select texture mips from each primary or secondary hit's
+projected footprint. Camera cuts, level/material/geometry changes, and output
+resizes reset temporal history.
+Emissive polygons are clipped to their lit texels before sampling. The source
+ZoneT PVST supplies Q2RTX-style per-zone light lists, preventing emitters in
+unrelated rooms from consuming samples or leaking through walls. Material
+arrays retain the widest 4x Q2 override resolution; every base/normal layer
+repeats its exact Q2-sized logical tile. Emissive masks occupy a complete
+normalized layer so sparse lights retain valid data through the entire mip
+chain. The source-authored `floor_0101` light panel is decoded from the exact
+`floortile`/`newtexturemaps.pal`/`256pal` assets into its packaged emissive
+mask; other source materials without a declared emissive map remain
+non-emissive. Polygon lights follow Q2RTX's one-sided emission rule, so a
+floor or ceiling light cannot illuminate through its back face.
+Sampling uses Q2RTX's exact CC0 256x256x512 R16 blue-noise sequence. Its TAAU
+anti-sparkle clamp, low-frequency deflicker, prior-normal/depth reprojection,
+and separate low-frequency bilateral weights suppress isolated path-tracing
+outliers without blurring authored material detail.
+Sprites, additive particles, the companion weapon, and UI are composited after
+the world so they retain their parity paths. The 50 Hz/interpolated
+`SceneFrame` remains the sole authority for doors, lifts, water, sprites,
+animated vector enemies and objects, and the companion weapon. Bitmap effects
+and vector models use their exact decoded source palettes and frame data.
+
+RTX world and vector vertices discard `source_light_level`; the ray payload and
+PBR composition contain no authored ambient/L0 term. Emissive PBR polygons are
+the sole source of sampled, occludable direct light and traced bounce,
+reflection, and refraction energy. The original ambient, dynamic, torch,
+flash, and projectile-light formulas remain intact for gameplay, OpenGL, and
+the parity-composited bitmap/view-weapon paths, but do not illuminate the RTX
+world or 3D vector scene.
+The complete GPLv2 backend, shaders, material tools, tests, license, pinned
+Q2RTX provenance, and implementation plan live in the public
+[`alienbreed3d2-rtx-renderer`](https://github.com/retro-foundry/alienbreed3d2-rtx-renderer)
+repository. This tree pins that repository under
+`external/alienbreed3d2-rtx-renderer` as a Git submodule; private game assets
+are supplied to it only as build inputs.
 
 The same renderer compiles to a preloaded WebGL build through Emscripten:
 
@@ -387,9 +468,9 @@ text and starts play. Successful level exits show the next story and continue
 the campaign. Escape or the window close control quits during gameplay. The
 native runtime fails explicitly if an authoritative asset is unavailable.
 
-Position saves are the original unversioned 420-byte `boot.dat` payload—not a
-new native format. The gameplay-first executable does not expose its
-interactive save/load flow yet.
+Position saves remain the original unversioned 420-byte `boot.dat` payload.
+When enabled, F5/F9 quicksave uses the port's versioned `savegame.bin` runtime
+snapshot described under Desktop configuration.
 
 ## Port authority and source map
 
@@ -403,9 +484,10 @@ from the first game port. The initial mappings are:
   `newaliencontrol.s:ViewpointToDraw`, and `objdrawhires.s`. It does not
   depend on `orderzones.s:Zone_OrderZones`, PVS errata, or portal traversal.
 
-`src/renderer.h` consumes `src/scene_frame.h` without exposing OpenGL to game
-simulation. `src/renderer_opengl.c` is the current OpenGL/WebGL backend; a
-future backend must keep that public scene and render-view contract rather than
+`src/renderer.h` consumes `src/scene_frame.h` without exposing OpenGL or Vulkan
+to game simulation. `src/renderer_opengl.c` implements OpenGL/WebGL and
+the public RTX submodule implements native Vulkan ray tracing. Both keep the
+renderer-neutral scene and render-view contract rather than
 depending on Amiga framebuffer, C2P, copper, or software-rasterizer state. It
 may submit a complete loaded level every frame; any visibility culling is an
 optional native optimisation rather than a porting prerequisite.

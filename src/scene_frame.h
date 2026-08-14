@@ -166,6 +166,14 @@ typedef struct {
     uint16_t point_brightness_count;
     const int16_t (*zone_brightness)[2];
     uint16_t zone_count;
+    /*
+     * ZoneT+48 PVST flattened as one viewer-zone bit row per source zone.
+     * This immutable level topology is renderer-neutral: the Vulkan path
+     * uses it as Q2RTX's cluster/PVS light-list authority, while gameplay
+     * continues to read the original signed-terminated records directly.
+     */
+    const uint8_t *zone_potential_visibility;
+    uint16_t zone_potential_visibility_stride;
     /* Presentation phase 0..interval-1 for newanims.s:brightanim. */
     uint8_t ambient_animation_phase_tick;
     uint8_t ambient_animation_interval_ticks;

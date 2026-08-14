@@ -1,0 +1,3 @@
+[submodule "external/alienbreed3d2-rtx-renderer"]
+	path = external/alienbreed3d2-rtx-renderer
+	url = https://github.com/retro-foundry/alienbreed3d2-rtx-renderer.git
