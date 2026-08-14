@@ -438,17 +438,17 @@ and vector models use their exact decoded source palettes and frame data.
 
 RTX world vertices carry the completed-frame, tessellated Amiga Gouraud field,
 and vector vertices carry their source-decoded 0--1 Gouraud response. The
-primary G-buffer and direct-light pass deliberately ignore both. Only a traced
-diffuse, reflection, or refraction ray can sample this field at its secondary
-surface; there it contributes low-frequency irradiance through that surface's
-diffuse BRDF. Emissive PBR polygons remain the sole sampled, occludable direct
-lights. The original ambient, dynamic, torch, flash, and projectile-light
-formulas therefore influence RTX indirect return without being applied
-directly to visible geometry or reconstructed as analytic lights. RTX carries
-the exact prior and current interpolated Gouraud value through each secondary
-hit, so an authored animation locally relaxes only indirect/reflection temporal
-history; primary visibility, direct lighting, and primary material composition
-remain emissive/PBR-only.
+primary G-buffer ignores both for non-emissive material response. A traced
+diffuse, reflection, or refraction ray samples the field at its secondary
+surface as low-frequency irradiance through that surface's diffuse BRDF.
+Emissive PBR polygons remain the sole sampled, occludable direct lights, but
+their visible emission and physical light power are scaled by the same
+interpolated authored value. Their unmodulated radiance remains the fixed
+importance-sampling weight, so changing light power is not cancelled by an
+inverse change in selection probability. RTX carries exact prior/current
+values through secondary hits and emitter polygons to relax the affected
+direct, indirect, reflection, and visible-emissive temporal history without
+adding authored ambient to non-emissive primary geometry.
 The complete GPLv2 backend, shaders, material tools, tests, license, pinned
 Q2RTX provenance, and implementation plan live in the public
 [`alienbreed3d2-rtx-renderer`](https://github.com/retro-foundry/alienbreed3d2-rtx-renderer)
