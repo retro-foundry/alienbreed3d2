@@ -440,12 +440,15 @@ RTX world vertices carry the completed-frame, tessellated Amiga Gouraud field,
 and vector vertices carry their source-decoded 0--1 Gouraud response. The
 primary G-buffer ignores both for non-emissive material response. A traced
 diffuse, reflection, or refraction ray samples the field at its secondary
-surface as low-frequency irradiance through that surface's diffuse BRDF.
+surface and converts its 31 wall (30 flat) shade intervals with Q2RTX's fixed
+`0.001` BSP-radiance scale before applying it as low-frequency irradiance
+through that surface's diffuse BRDF. The normalized response is therefore not
+misread as full scene-linear ambient irradiance.
 Emissive PBR polygons remain the sole sampled, occludable direct lights, but
 their visible emission and physical light power are scaled by the same
-interpolated authored value. Their unmodulated radiance remains the fixed
-importance-sampling weight, so changing light power is not cancelled by an
-inverse change in selection probability. RTX carries exact prior/current
+unscaled, interpolated authored response. Their unmodulated radiance remains
+the fixed importance-sampling weight, so changing light power is not cancelled
+by an inverse change in selection probability. RTX carries exact prior/current
 values through secondary hits and emitter polygons to relax the affected
 direct, indirect, reflection, and visible-emissive temporal history without
 adding authored ambient to non-emissive primary geometry.
