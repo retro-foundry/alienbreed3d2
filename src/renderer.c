@@ -362,6 +362,42 @@ size_t renderer_last_source_gouraud_energy(const Renderer *renderer)
     }
 }
 
+size_t renderer_last_light_shadow_samples(const Renderer *renderer)
+{
+    if (!renderer) return 0u;
+    if (renderer->backend == RENDERER_BACKEND_VULKAN_RTX) {
+#if defined(AB3D2_ENABLE_RTX)
+        return renderer_vulkan_rtx_last_light_shadow_samples(
+            renderer->vulkan_rtx);
+#endif
+    }
+    return 0u;
+}
+
+size_t renderer_last_partition_guided_samples(const Renderer *renderer)
+{
+    if (!renderer) return 0u;
+    if (renderer->backend == RENDERER_BACKEND_VULKAN_RTX) {
+#if defined(AB3D2_ENABLE_RTX)
+        return renderer_vulkan_rtx_last_partition_guided_samples(
+            renderer->vulkan_rtx);
+#endif
+    }
+    return 0u;
+}
+
+size_t renderer_last_light_guided_samples(const Renderer *renderer)
+{
+    if (!renderer) return 0u;
+    if (renderer->backend == RENDERER_BACKEND_VULKAN_RTX) {
+#if defined(AB3D2_ENABLE_RTX)
+        return renderer_vulkan_rtx_last_light_guided_samples(
+            renderer->vulkan_rtx);
+#endif
+    }
+    return 0u;
+}
+
 uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer)
 {
     if (!renderer) {

@@ -67,6 +67,10 @@ size_t renderer_last_indirect_light_energy(const Renderer *renderer);
 size_t renderer_last_direct_light_energy(const Renderer *renderer);
 /* Quantized diffuse radiance contributed by authored secondary Gouraud hits. */
 size_t renderer_last_source_gouraud_energy(const Renderer *renderer);
+/* Hidden RTX smoke counters proving adaptive light sampling is exercised. */
+size_t renderer_last_light_shadow_samples(const Renderer *renderer);
+size_t renderer_last_partition_guided_samples(const Renderer *renderer);
+size_t renderer_last_light_guided_samples(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
 uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer);
 

@@ -1612,6 +1612,39 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
+        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX &&
+            level_index == 0u) {
+            for (uint32_t convergence_frame = 0u;
+                 convergence_frame < 3u; ++convergence_frame) {
+                if (!renderer_present(
+                        app->renderer, &app->frame, &app->view,
+                        error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] RTX adaptive-light convergence frame "
+                            "failed: %s\n", error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+            }
+            if (renderer_last_light_shadow_samples(app->renderer) == 0u ||
+                renderer_last_partition_guided_samples(app->renderer) == 0u ||
+                renderer_last_light_guided_samples(app->renderer) == 0u) {
+                fprintf(stderr,
+                        "[RENDER] RTX adaptive-light history was not consumed "
+                        "(shadow=%zu partition=%zu light=%zu)\n",
+                        renderer_last_light_shadow_samples(app->renderer),
+                        renderer_last_partition_guided_samples(app->renderer),
+                        renderer_last_light_guided_samples(app->renderer));
+                app->exit_code = 1;
+                return 0;
+            }
+            fprintf(stdout,
+                    "[RENDER] RTX adaptive-light history consumed "
+                    "(shadow=%zu partition=%zu light=%zu)\n",
+                    renderer_last_light_shadow_samples(app->renderer),
+                    renderer_last_partition_guided_samples(app->renderer),
+                    renderer_last_light_guided_samples(app->renderer));
+        }
         /* The forced bright state makes the live companion's vector faces
          * observable.  This catches a reversed doapoly winding test or a
          * weapon pass that accidentally drops every textured polygon. */
