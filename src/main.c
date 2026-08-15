@@ -1297,7 +1297,6 @@ static int game_app_run_gpu_smoke(GameApp *app)
         uint64_t source_effect_background_checksum;
         uint64_t source_text_background_checksum;
         uint64_t source_lighting_checksum;
-        uint64_t source_weapon_lighting_checksum;
         if (level_index != first_level &&
             (!game_session_select_level(&app->game.session, level_index, error, sizeof(error)) ||
              !game_bootstrap_start_selected_single_player(&app->game, app->data_root,
@@ -1575,10 +1574,11 @@ static int game_app_run_gpu_smoke(GameApp *app)
             return 0;
         }
         source_lighting_checksum = renderer_last_frame_rgb_checksum(app->renderer);
-        source_weapon_lighting_checksum = renderer_last_view_weapon_rgb_checksum(app->renderer);
         /* OpenGL world geometry must react directly to live
          * CurrentPointBrights. RTX consumes the same field only after a
-         * secondary ray hits another surface. */
+         * secondary ray hits another surface; the companion now remains in
+         * the primary PBR path and therefore does not use source Gouraud
+         * brightness as a screen-space lighting multiplier. */
         for (uint16_t zone_index = 0u;
              zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
             for (uint16_t point_index = 0u;
@@ -1645,9 +1645,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     renderer_last_partition_guided_samples(app->renderer),
                     renderer_last_light_guided_samples(app->renderer));
         }
-        /* The forced bright state makes the live companion's vector faces
-         * observable.  This catches a reversed doapoly winding test or a
-         * weapon pass that accidentally drops every textured polygon. */
+        /* The companion is primary PBR geometry.  Its source projection must
+         * remain visible and its resolved material lighting must be nonzero;
+         * neither property may be inferred from CurrentPointBrights. */
         if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
             fprintf(stderr,
                     "[RENDER] GPU smoke view weapon has no visible vector coverage "
@@ -1655,11 +1655,14 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
-        if (renderer_last_view_weapon_rgb_checksum(app->renderer) ==
-            source_weapon_lighting_checksum) {
+        /* Level A supplies the source backdrop used as the RTX environment.
+         * Other levels may deliberately have neither emissive visibility nor
+         * a backdrop, so zero radiance there is physically valid for metal. */
+        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX && level_index == 0u &&
+            renderer_last_view_weapon_rgb_checksum(app->renderer) == 0u) {
             fprintf(stderr,
-                    "[RENDER] GPU smoke source Gouraud lighting did not change companion output "
-                    "for Level %c\n", (char)('A' + level_index));
+                    "[RENDER] RTX smoke companion PBR path produced no resolved radiance "
+                    "from Level A's environment\n");
             app->exit_code = 1;
             return 0;
         }
