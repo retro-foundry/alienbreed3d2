@@ -31,6 +31,7 @@ enum {
     OBJECT_SCENE_ENTITY_TYPE = 54u,
     OBJECT_SCENE_IN_UPPER_ZONE = 63u,
     OBJECT_SCENE_TYPE_OBJECT = 1u,
+    OBJECT_SCENE_TYPE_ALIEN = 0u,
     OBJECT_SCENE_TYPE_AUX = 3u,
     OBJECT_SCENE_BITMAP_LIGHT_FIRST = 2u,
     OBJECT_SCENE_BITMAP_LIGHT_COUNT = 4u,
@@ -647,6 +648,12 @@ static int object_scene_build_sprite(const ObjectRuntime *objects, const GameLin
     }
     if (slot[OBJECT_SCENE_IN_UPPER_ZONE] != 0u) {
         sprite.flags |= SCENE_SPRITE_FLAG_UPPER_ZONE;
+    }
+    /* defs.i:OBJ_TYPE_ALIEN. This is source identity, not a presentation
+     * choice: bitmap enemies need a separate renderer route from pickups and
+     * source effects even though all three use ObjT's bitmap display path. */
+    if (slot[OBJECT_SCENE_TYPE_ID] == OBJECT_SCENE_TYPE_ALIEN) {
+        sprite.flags |= SCENE_SPRITE_FLAG_ALIEN;
     }
     if (slot[OBJECT_SCENE_TYPE_ID] == 2u) {
         /* newanims.s:ItsABullet / Anim_ExplodeIntoBits. */

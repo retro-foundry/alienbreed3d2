@@ -463,7 +463,12 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
                 SCENE_COMMAND_SPRITE_INSTANCE) {
             return 0;
         }
-        if (slot[16u] == 2u) {
+        if (slot[16u] == 0u) {
+            /* defs.i:OBJ_TYPE_ALIEN remains renderer-neutral object identity;
+             * the RTX backend uses it to distinguish enemy bitmap planes
+             * from other source-lit object art. */
+            expected_flags |= SCENE_SPRITE_FLAG_ALIEN;
+        } else if (slot[16u] == 2u) {
             expected_flags |= SCENE_SPRITE_FLAG_PROJECTILE;
             if (slot[30u] != 0u) {
                 expected_flags |= SCENE_SPRITE_FLAG_PROJECTILE_CONTACT;

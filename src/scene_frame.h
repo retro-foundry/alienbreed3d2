@@ -233,7 +233,11 @@ enum {
      */
     SCENE_SPRITE_FLAG_PROJECTILE = 1u << 4,
     /* newanims.s:ItsABullet's non-zero ShotT_Status_b stationary pop path. */
-    SCENE_SPRITE_FLAG_PROJECTILE_CONTACT = 1u << 5
+    SCENE_SPRITE_FLAG_PROJECTILE_CONTACT = 1u << 5,
+    /* defs.i:OBJ_TYPE_ALIEN. Keep this source identity distinct from the
+     * bitmap/vector draw mode so an RTX backend can route only live enemies
+     * through its material path. */
+    SCENE_SPRITE_FLAG_ALIEN = 1u << 6
 };
 
 /* GLFT_FrameData_l's eight-byte bitmap-frame record. */
