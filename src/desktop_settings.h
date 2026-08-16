@@ -30,6 +30,10 @@ typedef struct {
     /* Desktop graphics backend; OpenGL remains the documented default. */
     RendererBackend renderer_backend;
     /* Native RTX presentation controls; ignored by the OpenGL/Web backend. */
+    uint8_t rtx_dynamic_resolution;
+    uint8_t rtx_resolution_scale;
+    uint8_t rtx_denoiser_iterations;
+    uint8_t rtx_bloom;
     uint16_t rtx_target_fps;
     RendererRtxDebugView rtx_debug_view;
 } DesktopSettings;

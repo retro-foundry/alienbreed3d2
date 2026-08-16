@@ -33,6 +33,10 @@ Renderer *renderer_create(const RendererConfig *config, char *error, size_t erro
     if (!config || !config->window_title || config->window_width <= 0 ||
         config->window_height <= 0 ||
         !world_light_tessellation_factor_valid(config->world_light_tessellation) ||
+        config->rtx_resolution_scale < 50u ||
+        config->rtx_resolution_scale > 100u ||
+        (config->rtx_denoiser_iterations != 2u &&
+         config->rtx_denoiser_iterations != 4u) ||
         config->rtx_target_fps < 30u || config->rtx_target_fps > 240u ||
         config->rtx_debug_view < RENDERER_RTX_DEBUG_FINAL ||
         config->rtx_debug_view > RENDERER_RTX_DEBUG_VARIANCE) {
@@ -61,7 +65,10 @@ Renderer *renderer_create(const RendererConfig *config, char *error, size_t erro
             config->window_width, config->window_height,
             config->window_title, config->desktop_window,
             config->hidden_window, config->world_light_tessellation,
-            config->rtx_target_fps, config->rtx_debug_view,
+            config->rtx_dynamic_resolution, config->rtx_resolution_scale,
+            config->rtx_denoiser_iterations, config->rtx_bloom,
+            config->rtx_target_fps,
+            config->rtx_debug_view,
             error, error_size);
         backend_created = renderer->vulkan_rtx != NULL;
 #else
@@ -295,6 +302,25 @@ size_t renderer_last_indirect_light_coverage(const Renderer *renderer)
     case RENDERER_BACKEND_VULKAN_RTX:
 #if defined(AB3D2_ENABLE_RTX)
         return renderer_vulkan_rtx_last_indirect_light_coverage(
+            renderer->vulkan_rtx);
+#else
+        return 0u;
+#endif
+    case RENDERER_BACKEND_OPENGL:
+    default:
+        return 0u;
+    }
+}
+
+size_t renderer_last_secondary_history_coverage(const Renderer *renderer)
+{
+    if (!renderer) {
+        return 0u;
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_VULKAN_RTX:
+#if defined(AB3D2_ENABLE_RTX)
+        return renderer_vulkan_rtx_last_secondary_history_coverage(
             renderer->vulkan_rtx);
 #else
         return 0u;

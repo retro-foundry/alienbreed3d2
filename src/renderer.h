@@ -30,6 +30,10 @@ typedef struct {
     int hidden_window;
     /* Presentation-only source-mesh subdivision: 1, 2, 4, or 8. */
     uint8_t world_light_tessellation;
+    uint8_t rtx_dynamic_resolution;
+    uint8_t rtx_resolution_scale;
+    uint8_t rtx_denoiser_iterations;
+    uint8_t rtx_bloom;
     uint16_t rtx_target_fps;
     RendererRtxDebugView rtx_debug_view;
 } RendererConfig;
@@ -61,6 +65,8 @@ uint64_t renderer_last_view_weapon_rgb_checksum(const Renderer *renderer);
 size_t renderer_last_projectile_coverage(const Renderer *renderer);
 /* Hidden RTX smoke coverage for secondary path-tracing intersections. */
 size_t renderer_last_indirect_light_coverage(const Renderer *renderer);
+/* Hidden RTX smoke coverage for valid reprojected secondary-light history. */
+size_t renderer_last_secondary_history_coverage(const Renderer *renderer);
 /* Quantized nonzero radiance delivered by the hidden RTX smoke paths. */
 size_t renderer_last_indirect_light_energy(const Renderer *renderer);
 /* Quantized emissive direct-light radiance delivered by hidden RTX smoke. */

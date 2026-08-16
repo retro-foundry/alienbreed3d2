@@ -481,7 +481,9 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
     fprintf(stdout,
             "[SETTINGS] start_level=%u infinite_health=%u infinite_ammo=%u all_weapons=%u "
             "all_keys=%u volume=%u quicksave_load=%u load_autosave=%u always_run=%u "
-            "world_light_tessellation=%u renderer=%s rtx_target_fps=%u rtx_debug_view=%s\n",
+            "world_light_tessellation=%u renderer=%s rtx_dynamic_resolution=%u "
+            "rtx_resolution_scale=%u rtx_denoiser_iterations=%u rtx_bloom=%u "
+            "rtx_target_fps=%u rtx_debug_view=%s\n",
             (unsigned)(app->desktop_settings.start_level_index + 1u),
             app->desktop_settings.infinite_health != 0u ? 1u : 0u,
             app->desktop_settings.infinite_ammo != 0u ? 1u : 0u,
@@ -493,6 +495,10 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
             app->desktop_settings.always_run != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.world_light_tessellation,
             renderer_backend_name(app->desktop_settings.renderer_backend),
+            app->desktop_settings.rtx_dynamic_resolution != 0u ? 1u : 0u,
+            (unsigned)app->desktop_settings.rtx_resolution_scale,
+            (unsigned)app->desktop_settings.rtx_denoiser_iterations,
+            app->desktop_settings.rtx_bloom != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.rtx_target_fps,
             renderer_rtx_debug_view_name(app->desktop_settings.rtx_debug_view));
     return 1;
@@ -590,6 +596,13 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         app->has_world_light_tessellation_from_command_line != 0u ?
         app->world_light_tessellation_from_command_line :
         app->desktop_settings.world_light_tessellation;
+    renderer_config.rtx_dynamic_resolution =
+        app->desktop_settings.rtx_dynamic_resolution;
+    renderer_config.rtx_resolution_scale =
+        app->desktop_settings.rtx_resolution_scale;
+    renderer_config.rtx_denoiser_iterations =
+        app->desktop_settings.rtx_denoiser_iterations;
+    renderer_config.rtx_bloom = app->desktop_settings.rtx_bloom;
     renderer_config.rtx_target_fps = app->desktop_settings.rtx_target_fps;
     renderer_config.rtx_debug_view = app->desktop_settings.rtx_debug_view;
     fprintf(stdout, "[RENDER] backend=%s world_light_tessellation=%u\n",
@@ -1644,6 +1657,89 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     renderer_last_light_shadow_samples(app->renderer),
                     renderer_last_partition_guided_samples(app->renderer),
                     renderer_last_light_guided_samples(app->renderer));
+            {
+                SceneCamera saved_camera;
+                SceneCamera *moving_camera = NULL;
+                size_t translation_coverage;
+                size_t rotation_coverage;
+
+                for (size_t command_index = 0u;
+                     command_index < app->frame.count; ++command_index) {
+                    if (app->frame.commands[command_index].type ==
+                        SCENE_COMMAND_CAMERA) {
+                        moving_camera =
+                            &app->frame.commands[command_index].data.camera;
+                        break;
+                    }
+                }
+                if (!moving_camera) {
+                    fprintf(stderr,
+                            "[SCENE] RTX motion-history smoke has no camera\n");
+                    app->exit_code = 1;
+                    return 0;
+                }
+                saved_camera = *moving_camera;
+                ++moving_camera->position.x;
+                if (moving_camera->has_source_position_16_16 != 0u)
+                    moving_camera->source_position_x_16_16 += INT32_C(65536);
+                if (!renderer_present(
+                        app->renderer, &app->frame, &app->view,
+                        error, sizeof(error))) {
+                    *moving_camera = saved_camera;
+                    fprintf(stderr,
+                            "[RENDER] RTX motion-history frame failed: %s\n",
+                            error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                translation_coverage =
+                    renderer_last_secondary_history_coverage(app->renderer);
+                *moving_camera = saved_camera;
+                if (translation_coverage == 0u) {
+                    fprintf(stderr,
+                            "[RENDER] RTX camera translation retained no valid "
+                            "secondary-light history\n");
+                    app->exit_code = 1;
+                    return 0;
+                }
+                /* Return to the authored camera before testing angular
+                 * reprojection, so the yaw check has a clean preceding view
+                 * instead of combining rotation with the translation above. */
+                if (!renderer_present(
+                        app->renderer, &app->frame, &app->view,
+                        error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] RTX motion-history camera restore "
+                            "failed: %s\n", error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                moving_camera->yaw = (uint16_t)(moving_camera->yaw + 128u);
+                if (!renderer_present(
+                        app->renderer, &app->frame, &app->view,
+                        error, sizeof(error))) {
+                    *moving_camera = saved_camera;
+                    fprintf(stderr,
+                            "[RENDER] RTX rotation-history frame failed: %s\n",
+                            error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                rotation_coverage =
+                    renderer_last_secondary_history_coverage(app->renderer);
+                *moving_camera = saved_camera;
+                if (rotation_coverage == 0u) {
+                    fprintf(stderr,
+                            "[RENDER] RTX camera rotation retained no valid "
+                            "secondary-light history\n");
+                    app->exit_code = 1;
+                    return 0;
+                }
+                fprintf(stdout,
+                        "[RENDER] RTX camera motion reprojected secondary "
+                        "history (translation=%zu rotation=%zu pixels)\n",
+                        translation_coverage, rotation_coverage);
+            }
         }
         /* The companion is primary PBR geometry.  Its source projection must
          * remain visible and its resolved material lighting must be nonzero;
