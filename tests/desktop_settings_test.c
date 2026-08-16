@@ -6,7 +6,10 @@
 static int expect_settings(const DesktopSettings *settings, uint16_t level, int health, int ammo,
                            int weapons, int keys, int quicksave_load, int load_autosave,
                            int always_run, uint8_t volume, uint8_t world_light_tessellation,
-                           RendererBackend renderer_backend, uint16_t rtx_target_fps,
+                           RendererBackend renderer_backend, int rtx_dynamic_resolution,
+                           uint8_t rtx_resolution_scale,
+                           uint8_t rtx_denoiser_iterations, int rtx_bloom,
+                           uint16_t rtx_target_fps,
                            RendererRtxDebugView rtx_debug_view)
 {
     return settings->start_level_index == level &&
@@ -19,6 +22,10 @@ static int expect_settings(const DesktopSettings *settings, uint16_t level, int 
         (settings->always_run != 0u) == always_run && settings->volume == volume &&
         settings->world_light_tessellation == world_light_tessellation &&
         settings->renderer_backend == renderer_backend &&
+        (settings->rtx_dynamic_resolution != 0u) == rtx_dynamic_resolution &&
+        settings->rtx_resolution_scale == rtx_resolution_scale &&
+        settings->rtx_denoiser_iterations == rtx_denoiser_iterations &&
+        (settings->rtx_bloom != 0u) == rtx_bloom &&
         settings->rtx_target_fps == rtx_target_fps &&
         settings->rtx_debug_view == rtx_debug_view;
 }
@@ -38,6 +45,10 @@ int main(void)
         "volume = 37\n"
         "world_light_tessellation = 8\n"
         "renderer = RTX\n"
+        "rtx_dynamic_resolution = on\n"
+        "rtx_resolution_scale = 80\n"
+        "rtx_denoiser_iterations = 2\n"
+        "rtx_bloom = off\n"
         "rtx_target_fps = 75\n"
         "rtx_debug_view = indirect\n"
         "unrelated_source_option = keep\n";
@@ -46,13 +57,14 @@ int main(void)
 
     desktop_settings_default(&settings);
     if (!expect_settings(&settings, 0u, 0, 0, 0, 0, 0, 0, 1, 100u, 4u,
-                         RENDERER_BACKEND_OPENGL, 60u, RENDERER_RTX_DEBUG_FINAL)) {
+                         RENDERER_BACKEND_OPENGL, 0, 100u, 4u, 1, 60u,
+                         RENDERER_RTX_DEBUG_FINAL)) {
         fprintf(stderr, "desktop settings defaults differ from the documented template\n");
         return 1;
     }
     if (!desktop_settings_parse(&settings, settings_text, strlen(settings_text), error, sizeof(error)) ||
         !expect_settings(&settings, 15u, 1, 1, 1, 1, 1, 1, 0, 37u, 8u,
-                         RENDERER_BACKEND_VULKAN_RTX, 75u,
+                         RENDERER_BACKEND_VULKAN_RTX, 1, 80u, 2u, 0, 75u,
                          RENDERER_RTX_DEBUG_INDIRECT)) {
         fprintf(stderr, "desktop settings parser did not apply valid values: %s\n", error);
         return 1;
@@ -127,6 +139,75 @@ int main(void)
                     error);
             return 1;
         }
+    }
+    desktop_settings_default(&settings);
+    if (desktop_settings_parse(
+            &settings, "rtx_dynamic_resolution=maybe\n",
+            strlen("rtx_dynamic_resolution=maybe\n"), error, sizeof(error)) ||
+        strstr(error, "rtx_dynamic_resolution") == NULL) {
+        fprintf(stderr, "invalid RTX dynamic-resolution option was not reported clearly\n");
+        return 1;
+    }
+    desktop_settings_default(&settings);
+    if (!desktop_settings_parse(
+            &settings, "rtx_dynamic_resolution=yes\n",
+            strlen("rtx_dynamic_resolution=yes\n"), error, sizeof(error)) ||
+        settings.rtx_dynamic_resolution == 0u) {
+        fprintf(stderr, "valid RTX dynamic-resolution option was rejected: %s\n", error);
+        return 1;
+    }
+    desktop_settings_default(&settings);
+    if (desktop_settings_parse(
+            &settings, "rtx_resolution_scale=49\n",
+            strlen("rtx_resolution_scale=49\n"), error, sizeof(error)) ||
+        strstr(error, "rtx_resolution_scale") == NULL) {
+        fprintf(stderr, "invalid RTX resolution scale was not reported clearly\n");
+        return 1;
+    }
+    for (uint8_t scale = 50u; scale <= 100u;
+         scale = scale == 50u ? 75u : 100u) {
+        char text[48];
+        int length = snprintf(text, sizeof(text),
+                              "rtx_resolution_scale=%u\n", scale);
+
+        desktop_settings_default(&settings);
+        if (length <= 0 || !desktop_settings_parse(
+                &settings, text, (size_t)length, error, sizeof(error)) ||
+            settings.rtx_resolution_scale != scale) {
+            fprintf(stderr, "valid RTX resolution scale was rejected: %s\n", error);
+            return 1;
+        }
+        if (scale == 100u) break;
+    }
+    desktop_settings_default(&settings);
+    if (desktop_settings_parse(
+            &settings, "rtx_denoiser_iterations=3\n",
+            strlen("rtx_denoiser_iterations=3\n"), error, sizeof(error)) ||
+        strstr(error, "rtx_denoiser_iterations") == NULL) {
+        fprintf(stderr, "invalid RTX denoiser iteration count was not reported clearly\n");
+        return 1;
+    }
+    for (uint8_t iterations = 2u; iterations <= 4u;
+         iterations = (uint8_t)(iterations + 2u)) {
+        char text[48];
+        int length = snprintf(text, sizeof(text),
+                              "rtx_denoiser_iterations=%u\n", iterations);
+
+        desktop_settings_default(&settings);
+        if (length <= 0 || !desktop_settings_parse(
+                &settings, text, (size_t)length, error, sizeof(error)) ||
+            settings.rtx_denoiser_iterations != iterations) {
+            fprintf(stderr, "valid RTX denoiser iteration count was rejected: %s\n",
+                    error);
+            return 1;
+        }
+    }
+    desktop_settings_default(&settings);
+    if (desktop_settings_parse(
+            &settings, "rtx_bloom=maybe\n", strlen("rtx_bloom=maybe\n"),
+            error, sizeof(error)) || strstr(error, "rtx_bloom") == NULL) {
+        fprintf(stderr, "invalid RTX bloom option was not reported clearly\n");
+        return 1;
     }
     desktop_settings_default(&settings);
     if (desktop_settings_parse(&settings, "rtx_target_fps=29\n", 18u,
