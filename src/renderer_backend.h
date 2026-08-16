@@ -30,7 +30,10 @@ typedef enum {
     RENDERER_RTX_DEBUG_GRADIENTS,
     /* The two signals the LF gradient compares: red = current raw bounce
      * luma, green = accumulated history luma. */
-    RENDERER_RTX_DEBUG_LF_SIGNALS
+    RENDERER_RTX_DEBUG_LF_SIGNALS,
+    /* Temporal specular internals: red = reprojection tap weight sum,
+     * green = antilag, blue = carried history length / 64. */
+    RENDERER_RTX_DEBUG_SPEC_WEIGHT
 } RendererRtxDebugView;
 
 const char *renderer_backend_name(RendererBackend backend);

@@ -39,7 +39,7 @@ Renderer *renderer_create(const RendererConfig *config, char *error, size_t erro
          config->rtx_denoiser_iterations != 4u) ||
         config->rtx_target_fps < 30u || config->rtx_target_fps > 240u ||
         config->rtx_debug_view < RENDERER_RTX_DEBUG_FINAL ||
-        config->rtx_debug_view > RENDERER_RTX_DEBUG_LF_SIGNALS) {
+        config->rtx_debug_view > RENDERER_RTX_DEBUG_SPEC_WEIGHT) {
         renderer_set_error(error, error_size, "renderer configuration is invalid");
         return NULL;
     }
