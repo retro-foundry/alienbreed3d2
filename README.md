@@ -47,7 +47,11 @@ session. Supported keys are:
   fixed-resolution default;
 - `rtx_target_fps=30..240` sets the scaling target when
   `rtx_dynamic_resolution=1` and defaults to `60`; and
-- `rtx_debug_view=final|albedo|normal|roughness|metalness|emissive|direct|indirect|specular|variance`
+- `rtx_debug_view=final|albedo|normal|roughness|metalness|emissive|direct|indirect|specular|variance|history|gradients`
+  (`history`: red = specular, green = diffuse temporal history length, 64
+  frames saturate - black while moving means reprojection is failing;
+  `gradients`: red/green/blue = LF/HF/specular lighting-change gradients -
+  bright means the antilag is cutting history)
   selects an RTX render-graph diagnostic and defaults to `final`.
 
 `run_default` is accepted as an alias for `always_run`, matching the first

@@ -256,7 +256,7 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         if (!renderer_rtx_debug_view_from_string(
                 value, &settings->rtx_debug_view)) {
             (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_debug_view must be final, albedo, normal, roughness, metalness, emissive, direct, indirect, specular, or variance",
+                           "ab3d2.ini line %zu: rtx_debug_view must be final, albedo, normal, roughness, metalness, emissive, direct, indirect, specular, variance, history, or gradients",
                            line_number);
             return 0;
         }

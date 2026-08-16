@@ -21,7 +21,13 @@ typedef enum {
     RENDERER_RTX_DEBUG_DIRECT,
     RENDERER_RTX_DEBUG_INDIRECT,
     RENDERER_RTX_DEBUG_SPECULAR,
-    RENDERER_RTX_DEBUG_VARIANCE
+    RENDERER_RTX_DEBUG_VARIANCE,
+    /* Temporal reprojection diagnostics: accumulated history length
+     * (red = specular, green = diffuse, white = full 64+ frames) and the
+     * reconstructed lighting-change gradients that cut history
+     * (red = indirect LF, green = direct HF, blue = specular). */
+    RENDERER_RTX_DEBUG_HISTORY,
+    RENDERER_RTX_DEBUG_GRADIENTS
 } RendererRtxDebugView;
 
 const char *renderer_backend_name(RendererBackend backend);
