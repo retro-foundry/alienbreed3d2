@@ -51,7 +51,7 @@ const char *renderer_rtx_debug_view_name(RendererRtxDebugView view)
     static const char *names[] = {
         "final", "albedo", "normal", "roughness", "metalness",
         "emissive", "direct", "indirect", "specular", "variance",
-        "history", "gradients", "lfsignals", "specweight"
+        "history", "gradients", "lfsignals", "specweight", "specraw"
     };
 
     return (unsigned)view < sizeof(names) / sizeof(names[0]) ? names[view] :
@@ -64,7 +64,7 @@ int renderer_rtx_debug_view_from_string(const char *text,
     static const char *names[] = {
         "final", "albedo", "normal", "roughness", "metalness",
         "emissive", "direct", "indirect", "specular", "variance",
-        "history", "gradients", "lfsignals", "specweight"
+        "history", "gradients", "lfsignals", "specweight", "specraw"
     };
 
     if (!text || !out_view) {

@@ -33,7 +33,10 @@ typedef enum {
     RENDERER_RTX_DEBUG_LF_SIGNALS,
     /* Temporal specular internals: red = reprojection tap weight sum,
      * green = antilag, blue = carried history length / 64. */
-    RENDERER_RTX_DEBUG_SPEC_WEIGHT
+    RENDERER_RTX_DEBUG_SPEC_WEIGHT,
+    /* The single-sample path-traced specular handed to the denoiser,
+     * modulated like the final image so it compares against `specular`. */
+    RENDERER_RTX_DEBUG_SPEC_RAW
 } RendererRtxDebugView;
 
 const char *renderer_backend_name(RendererBackend backend);
