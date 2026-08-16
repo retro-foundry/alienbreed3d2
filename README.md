@@ -37,8 +37,16 @@ session. Supported keys are:
   subdivision. The default is `4`; `1` retains the strict source mesh; and
 - `renderer=opengl|rtx` selects the desktop graphics backend. It defaults to
   `opengl`; the Web build always uses OpenGL/WebGL;
-- `rtx_target_fps=30..240` controls adaptive RTX internal resolution and
-  defaults to `60`; and
+- `rtx_resolution_scale=50..100` sets the RTX internal resolution percentage.
+  It defaults to native-resolution `100`;
+- `rtx_denoiser_iterations=2|4` controls high-frequency a-trous filtering.
+  The Q2RTX-quality default is `4`; `2` is faster but leaves more noise;
+- `rtx_bloom=0|1` controls Q2RTX bloom and defaults to `1`;
+- `rtx_dynamic_resolution=0|1` opts into RTX internal-resolution scaling from
+  50% through `rtx_resolution_scale`. It defaults to `0`, matching Q2RTX's
+  fixed-resolution default;
+- `rtx_target_fps=30..240` sets the scaling target when
+  `rtx_dynamic_resolution=1` and defaults to `60`; and
 - `rtx_debug_view=final|albedo|normal|roughness|metalness|emissive|direct|indirect|specular|variance`
   selects an RTX render-graph diagnostic and defaults to `final`.
 
@@ -404,11 +412,13 @@ driver lacks `VK_KHR_acceleration_structure`,
 `VK_KHR_ray_tracing_pipeline`, buffer device address, or the required feature
 set; it never silently substitutes OpenGL.
 
-The renderer uses a Q2RTX-derived staged path: full-resolution primary
+The renderer uses a Q2RTX-derived staged path: configurable-resolution primary
 visibility, fresh single-GPU emissive direct-light and diffuse/specular bounce
 samples at every pixel, separate ASVGF-style temporal/a-trous filtering, PBR composition,
-TAAU, exposure, and tone mapping. GPU timestamp feedback varies internal
-resolution from 50% to 100% around `rtx_target_fps`. PBR
+TAAU, exposure, and tone mapping. RTX runs at native resolution with four
+denoiser iterations and bloom by default;
+`rtx_dynamic_resolution=1` enables GPU timestamp feedback that varies internal
+resolution from 50% through `rtx_resolution_scale` around `rtx_target_fps`. PBR
 base/normal/roughness/metalness/emissive arrays are generated deterministically
 from `textures_pbr`, with complete mip chains, anisotropic sampling, authored
 material factors, and strict validation of every declared map. Q2RTX-style
@@ -426,10 +436,15 @@ chain. The source-authored `floor_0101` light panel is decoded from the exact
 mask; other source materials without a declared emissive map remain
 non-emissive. Polygon lights follow Q2RTX's one-sided emission rule, so a
 floor or ceiling light cannot illuminate through its back face.
-Sampling uses Q2RTX's exact CC0 256x256x512 R16 blue-noise sequence. Its TAAU
+Sampling and final 8-bit sRGB dithering use Q2RTX's exact CC0 256x256x512 R16
+blue-noise sequence. Camera jitter follows Q2RTX's 128-sample Halton(2,3)
+sequence. Its TAAU
 anti-sparkle clamp, low-frequency deflicker, prior-normal/depth reprojection,
-and separate low-frequency bilateral weights suppress isolated path-tracing
-outliers without blurring authored material detail.
+reprojected low-frequency history confidence, and separate low-frequency
+bilateral weights suppress isolated path-tracing outliers without blurring
+authored material detail. RTX snapshots the current G-buffer and raw lighting
+only after the gradient and temporal passes finish reading the previous frame,
+so motion-reprojected radiance is validated against the matching prior surface.
 Sprites, additive particles, the companion weapon, and UI are composited after
 the world so they retain their parity paths. The 50 Hz/interpolated
 `SceneFrame` remains the sole authority for doors, lifts, water, sprites,

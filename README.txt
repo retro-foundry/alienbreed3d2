@@ -35,7 +35,11 @@ Edit ab3d2.ini beside the executable before starting the game. It supports:
 - volume=0 through 100
 - always_run=0 or 1
 - renderer=opengl or rtx (opengl by default)
-- rtx_target_fps=30 through 240 (60 by default)
+- rtx_resolution_scale=50 through 100 (100/native by default)
+- rtx_denoiser_iterations=2 or 4 (4/Q2RTX quality by default)
+- rtx_bloom=0 or 1 (enabled by default)
+- rtx_dynamic_resolution=0 or 1 (disabled by default)
+- rtx_target_fps=30 through 240 (60 by default; used by dynamic resolution)
 - rtx_debug_view=final, albedo, normal, roughness, metalness, emissive,
   direct, indirect, specular, or variance (final by default)
 - world_light_tessellation=1, 2, 4, or 8 (4 by default)
