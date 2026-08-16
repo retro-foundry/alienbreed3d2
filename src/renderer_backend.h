@@ -27,7 +27,10 @@ typedef enum {
      * reconstructed lighting-change gradients that cut history
      * (red = indirect LF, green = direct HF, blue = specular). */
     RENDERER_RTX_DEBUG_HISTORY,
-    RENDERER_RTX_DEBUG_GRADIENTS
+    RENDERER_RTX_DEBUG_GRADIENTS,
+    /* The two signals the LF gradient compares: red = current raw bounce
+     * luma, green = accumulated history luma. */
+    RENDERER_RTX_DEBUG_LF_SIGNALS
 } RendererRtxDebugView;
 
 const char *renderer_backend_name(RendererBackend backend);
