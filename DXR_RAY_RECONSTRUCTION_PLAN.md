@@ -15,6 +15,10 @@ Those bullets describe the historical `86241dd` baseline, not the current
 tree. A Windows build configured with `AB3D2_ENABLE_DXR=ON` now contains the
 working experimental opaque-world DXR path tracer described below; an
 `AB3D2_ENABLE_DXR=OFF` build still contains the fail-fast stub by design.
+Following explicit user direction on 2026-08-17, the sibling
+`alienbreed3d2-rtx-renderer` source was inspected only to recover its emissive
+material catalog and mask behavior. Generated Q2RTX package output remains
+excluded; the result is rebuilt into the renderer-native material format.
 
 The ID-independent implementation has reached the requested raw noisy-image
 milestone. The foundation was validated on a GeForce RTX 4080 in Debug and
@@ -22,11 +26,12 @@ Release, and the current opaque PBR path was validated in Debug on a GeForce
 RTX 3090, with Windows SDK DXC 1.8.2502.11 (SHA-256
 `7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`). The
 Phase 2 D3D12/DXR lifecycle remains the foundation. Phase 4 deterministically
-builds the 13 project-authored PBR sheets into 52 renderer-native channel
-textures, a hashed manifest, and a strict runtime package. Base color, tangent
-normal, metalness, and roughness are now loaded, atlased, uploaded, and sampled
-through their declared color spaces. Missing bindings retain the documented
-decoded-source fallback.
+builds the 13 project-authored PBR sheets plus the source `floor_0101` panel
+into 70 renderer-native channel textures, a hashed manifest, and a strict
+runtime package. Base color, tangent normal, metalness, roughness, and explicit
+emissive textures are loaded, atlased, uploaded, and sampled through their
+declared color spaces. Missing bindings retain the documented decoded-source
+fallback.
 
 The implemented Phase 5/6 slice shares the tested native world-coordinate
 conversion and concave X/Z ear clipping with OpenGL, compiles opaque
@@ -40,9 +45,11 @@ and presents it with a full-screen tone-map pass. The path integrator evaluates
 energy-consistent Lambertian diffuse plus Cook-Torrance GGX specular, samples
 GGX visible normals with the matching mixture PDF, follows up to three surface
 hits, and performs environment and area-emitter next-event sampling with shadow
-rays and power-heuristic MIS. Emissive triangles come only from manifest-authored
-scene-linear base-color emission and use a global area-times-average-luminance
-distribution; source Gouraud/ZoneT lighting is not consumed. CPU tests cover
+rays and power-heuristic MIS. Emissive triangles come only from the explicit
+`technolights` and source `floor_0101` emissive textures, scaled to scene-linear
+radiance by their manifest factors, and use a global
+area-times-average-luminance distribution; source Gouraud/ZoneT lighting is not
+consumed. CPU tests cover
 the material equations, lobe probability, sampler/PDF agreement, normal
 transform, deterministic random sequence, PDF mass, and finite throughput.
 The visible Level A capture has also been checked through the hidden readback
@@ -452,6 +459,13 @@ Every commit should build and test independently. Do not batch the whole rendere
 - If the application ID is unavailable, leave this phase deferred.  Phases 4--7 remain ID-independent and may proceed to the raw noisy-image milestone without loading or linking Streamline; Phases 8--10 must not claim a complete RR integration while this gate is open.
 
 ### 4. `Add renderer-native AB3D2 PBR materials`
+
+Current status: all five runtime channels are packaged and sampled. The
+old-renderer-compatible colored `technolights` mask and source-authored
+`floor_0101` panel are explicit emissive textures with factor 200;
+`brownspeakers` and `technotritile` are non-emissive. Source `floor_0201` is
+also bound to its authored PBR sheet. Material debug spheres/planes remain
+later work.
 
 - Add deterministic sheet extraction, manifest schema, hashes, and golden tests.
 - Upload base color, normals, roughness, metalness, and explicit emissive textures.

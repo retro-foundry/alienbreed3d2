@@ -39,9 +39,10 @@ session. Supported keys are:
   `opengl`. A normal build retains the clean-room RTX fail-fast stub. A native
   Windows build configured with `AB3D2_ENABLE_DXR=ON` ray traces the opaque
   `SceneFrame` world into a fresh, visibly noisy HDR image. It samples the
-  renderer-native base-color, normal, roughness, and metalness channels with a
-  multi-bounce Lambertian/GGX path tracer, authored area emitters, environment
-  lighting, shadow rays, and MIS. It does not yet draw sprites, vector objects,
+  renderer-native base-color, normal, roughness, metalness, and explicit
+  emissive channels with a multi-bounce Lambertian/GGX path tracer, authored
+  area emitters, environment lighting, shadow rays, and MIS. It does not yet
+  draw sprites, vector objects,
   the weapon, HUD, or text.
   The Web build always uses OpenGL/WebGL.
 
@@ -424,8 +425,10 @@ The enabled backend creates a native SDL/`HWND` window without OpenGL,
 selects a high-performance hardware adapter with feature level 12_0,
 `ID3D12Device5`, and a nonzero DXR tier. It compiles opaque world surfaces from
 the renderer-neutral `SceneFrame`, uploads positions, UVs, material indices,
-and renderer-native base-color, tangent-normal, metalness, and roughness
-atlases, then builds one BLAS and TLAS. Each pixel traces a fresh three-hit path
+and renderer-native base-color, tangent-normal, metalness, roughness, and
+emissive atlases, then builds one BLAS and TLAS. `technolights` and the source
+`floor_0101` panel use colored emissive masks at factor 200; other materials
+remain non-emissive. Each pixel traces a fresh three-hit path
 with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,
 authored emissive-triangle and environment next-event sampling, visibility
 rays, and multiple-importance sampling. A full-screen pass tone maps the fresh

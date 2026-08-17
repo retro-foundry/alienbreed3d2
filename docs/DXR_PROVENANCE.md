@@ -3,37 +3,55 @@
 This record applies to the clean-room Windows D3D12/DXR renderer introduced by
 Phase 2 of `DXR_RAY_RECONSTRUCTION_PLAN.md` and its renderer-native material
 and raw scene/image increments from Phases 4--7.
+On 2026-08-17 the user explicitly authorized a narrow comparison with the
+sibling `alienbreed3d2-rtx-renderer` to recover its emissive material behavior;
+that exception is recorded below.
 
 ## Project-authored implementation
 
 The files under `src/renderer_dxr/`, `src/renderer_rtx.cpp`, and
 `tests/renderer_rtx_foundation_test.c` were written for this repository from
 the clean baseline. All diagnostic, ray-tracing, and presentation HLSL is
-project-authored. No source,
-shader, generated table, binary, scene data, or asset was imported from
-Q2RTX, a removed renderer, or repository history before clean baseline
-`86241dd`.
+project-authored. No source, shader, generated table, binary, scene data, or
+asset was imported from Q2RTX, a removed renderer, or repository history
+before clean baseline `86241dd`. The later emissive compatibility comparison
+did not import a generated Q2RTX package, renderer binary, shader, or scene.
 
 The enabled build produces DXIL in the build tree and stages only its
 project-built diagnostic, ray-tracing, and presentation shader objects beside
 enabled executables. It does not include, link, discover, load, or stage NVIDIA
 Streamline or NGX files.
 
-The Phase 4 material build reads only the committed project-authored
-`textures_pbr/*.png` sheets and `data/renderer_dxr/material_sources.json`.
-`tools/build_dxr_materials.py` independently extracts conventional, separate
-base-color, normal, metalness, and roughness RGB textures. It records source,
-pixel, and output hashes in a renderer-native manifest; it neither invokes nor
-consumes the prohibited Q2 package builder or its output, channel packing,
-material files, names, or conventions.
+The Phase 4 material build reads the committed project-authored
+`textures_pbr/*.png` sheets, `data/renderer_dxr/material_sources.json`, and the
+authoritative `amiga/media/includes/{floortile,newtexturemaps.pal,256pal}`
+source assets. `tools/build_dxr_materials.py` extracts conventional, separate
+base-color, normal, metalness, roughness, and emissive RGB textures. It records
+source, pixel, and output hashes in a renderer-native manifest; it does not
+invoke or consume the old Q2 package builder, its output, packed channels, or
+material files.
 
 The authoritative `shared_wall` IDs come from the wall texture load order in
 `amiga/ab3d2_source/modules/res.s:Res_LoadWallTextures`, as published by
 `game_bootstrap_make_wall_surface` in `SceneMaterial.source_asset_id`.
 Authored sheets without a demonstrated runtime binding remain unbound. Source
 wall IDs 0 and 12 deliberately use the plan's visible fallback until matching
-authored PBR entries exist. No emissive intensity or metalness is inferred
-from image brightness.
+authored PBR entries exist. The user-authorized comparison demonstrated the
+`floor_0201` binding and the two-emitter catalog. Metalness and emissive
+intensity are not inferred from brightness at runtime.
+
+The compatibility evidence was
+`tools/build_native_rtx_materials.py`,
+`tools/build_q2rtx_pbr_from_sheets.py`,
+`tools/test_rtx_material_builders.py`, and
+`src/renderer_vulkan_rtx_materials.{c,h}` in the sibling renderer. These show
+that only PBR `technolights` and source floor tile `0x0101` emit, both with
+factor 200. They also define the colored albedo-mask conversion and decode the
+floor panel through bright palette row 32. The native DXR builder reproduces
+that conversion at build time into explicit hashed emissive textures. The
+runtime samples those textures as sRGB data and never derives emission from
+base color. `brownspeakers` and `technotritile`, which the earlier scaffold had
+guessed were emitters, are explicitly black in the emissive channel.
 
 `src/scene_geometry_compile.c` is a project-authored extraction of the native
 port's current coordinate interpretation and polygon triangulation. Its
@@ -42,16 +60,15 @@ coordinate evidence remains `modules/transform.s:RotateLevelPts`,
 contract. OpenGL now calls this renderer-neutral implementation; no geometry
 rule came from a removed renderer or generated Q2 scene.
 
-`src/renderer_dxr/dxr_scene.cpp` independently consumes that shared geometry
+`src/renderer_dxr/dxr_scene.cpp` consumes that shared geometry
 and the public `SceneFrame` contract. It decodes source wall data through the
 existing project `source_world_material_decode` path, creates a renderer-local
-albedo atlas, and constructs project-authored vertex/material buffers and
-BLAS/TLAS resources. The current ray shader uses a conventional per-pixel
-xorshift generator, jittered primary ray, cosine-weighted hemisphere sample,
-Lambertian source-albedo response, and analytic sky gradient. No constants,
-tables, shader text, scene data, or generated resources were imported from an
-external renderer. The committed PBR material build outputs are staged but are
-not yet consumed by this runtime slice.
+five-channel material atlas, and constructs project-authored vertex/material
+buffers and BLAS/TLAS resources. The current ray shader uses a conventional
+per-pixel xorshift generator, jittered primary ray, Lambertian/GGX sampling,
+explicit emissive/environment next-event sampling, MIS, and an analytic sky
+gradient. The renderer-native PBR material package is consumed directly by
+this runtime slice.
 
 ## Approved conceptual references inspected
 
