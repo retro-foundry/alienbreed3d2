@@ -1,7 +1,8 @@
 # DXR renderer provenance
 
 This record applies to the clean-room Windows D3D12/DXR renderer introduced by
-Phase 2 of `DXR_RAY_RECONSTRUCTION_PLAN.md`.
+Phase 2 of `DXR_RAY_RECONSTRUCTION_PLAN.md` and its renderer-native material
+build begun in Phase 4.
 
 ## Project-authored implementation
 
@@ -15,6 +16,22 @@ Q2RTX, a removed renderer, or repository history before clean baseline
 The Phase 2 build produces DXIL in the build tree and stages only the two
 project-built diagnostic shader objects beside enabled executables. It does
 not include, link, discover, load, or stage NVIDIA Streamline or NGX files.
+
+The Phase 4 material build reads only the committed project-authored
+`textures_pbr/*.png` sheets and `data/renderer_dxr/material_sources.json`.
+`tools/build_dxr_materials.py` independently extracts conventional, separate
+base-color, normal, metalness, and roughness RGB textures. It records source,
+pixel, and output hashes in a renderer-native manifest; it neither invokes nor
+consumes the prohibited Q2 package builder or its output, channel packing,
+material files, names, or conventions.
+
+The authoritative `shared_wall` IDs come from the wall texture load order in
+`amiga/ab3d2_source/modules/res.s:Res_LoadWallTextures`, as published by
+`game_bootstrap_make_wall_surface` in `SceneMaterial.source_asset_id`.
+Authored sheets without a demonstrated runtime binding remain unbound. Source
+wall IDs 0 and 12 deliberately use the plan's visible fallback until matching
+authored PBR entries exist. No emissive intensity or metalness is inferred
+from image brightness.
 
 ## Approved conceptual references inspected
 

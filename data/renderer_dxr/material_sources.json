@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "materials": [
+    {
+      "name": "alienredwall",
+      "sheet": "alienredwall.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 8}
+    },
+    {
+      "name": "brownpipes",
+      "sheet": "brownpipes.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 1}
+    },
+    {
+      "name": "brownspeakers",
+      "sheet": "brownspeakers.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 4}
+    },
+    {
+      "name": "brownwithyellowstripes",
+      "sheet": "brownwithyellowstripes.png",
+      "layout": "grid"
+    },
+    {
+      "name": "chevrondoor",
+      "sheet": "chevrondoor.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 5}
+    },
+    {
+      "name": "floor_0201",
+      "sheet": "floor_0201.png",
+      "layout": "grid"
+    },
+    {
+      "name": "gieger",
+      "sheet": "gieger.png",
+      "layout": "vertical",
+      "binding": {"source": "shared_wall", "source_asset_id": 9}
+    },
+    {
+      "name": "hullmetal",
+      "sheet": "hullmetal.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 2}
+    },
+    {
+      "name": "redhullmetal",
+      "sheet": "redhullmetal.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 7}
+    },
+    {
+      "name": "rocky",
+      "sheet": "rocky.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 10}
+    },
+    {
+      "name": "steampunk",
+      "sheet": "steampunk.png",
+      "layout": "vertical",
+      "binding": {"source": "shared_wall", "source_asset_id": 11}
+    },
+    {
+      "name": "technolights",
+      "sheet": "technolights.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 6}
+    },
+    {
+      "name": "technotritile",
+      "sheet": "technotritile.png",
+      "layout": "grid",
+      "binding": {"source": "shared_wall", "source_asset_id": 3}
+    }
+  ],
+  "material_defaults": {
+    "alpha_mode": "opaque",
+    "two_sided": false,
+    "normal_strength": 1.0,
+    "emissive_factor": [0.0, 0.0, 0.0],
+    "base_color_space": "srgb",
+    "normal_space": "linear_tangent",
+    "roughness_space": "linear",
+    "metalness_space": "linear",
+    "roughness_channel": "red",
+    "metalness_channel": "red"
+  }
+}

@@ -39,6 +39,10 @@ session. Supported keys are:
   `opengl`. A normal build retains the clean-room RTX fail-fast stub. A native
   Windows build configured with `AB3D2_ENABLE_DXR=ON` instead presents the
   Phase 2 D3D12/DXR diagnostic pattern; it does not render game content yet.
+  That build also deterministically extracts the project-authored
+  `textures_pbr` sheets into separate renderer-native PBR textures and stages
+  their hashed manifest under `renderer_dxr/materials`; those textures are not
+  used by the diagnostic pass yet.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first

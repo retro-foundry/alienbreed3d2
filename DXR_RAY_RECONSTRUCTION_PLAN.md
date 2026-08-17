@@ -15,9 +15,12 @@ The Phase 2 implementation now adds the opt-in ID-independent D3D12/DXR
 diagnostic foundation described below.  It has been validated on a GeForce RTX
 4080 in Debug and Release builds with Windows SDK DXC 1.8.2502.11 (SHA-256
 `7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`).
-It deliberately renders no `SceneFrame` content.  Streamline remains absent,
-and the next requested implementation work begins with the ID-independent
-material and geometry phases needed for a raw noisy image.
+It deliberately renders no `SceneFrame` content.  Streamline remains absent.
+The first Phase 4 increment now builds the 13 project-authored PBR sheets into
+52 renderer-native, separately named channel textures and a hashed manifest;
+the golden test locks the decoded content and the known `shared_wall` bindings.
+Runtime material upload and SceneFrame geometry remain the next
+ID-independent work needed for a raw noisy image.
 
 ### Current dependency gate
 

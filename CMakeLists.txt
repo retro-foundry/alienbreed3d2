@@ -265,6 +265,41 @@ if(AB3D2_ENABLE_DXR)
                     DEPENDS "${AB3D2_DXR_VERTEX_SHADER}"
                             "${AB3D2_DXR_PIXEL_SHADER}")
   add_dependencies(ab3d2 ab3d2_dxr_shaders)
+
+  set(AB3D2_DXR_MATERIAL_SOURCE_SPEC
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/renderer_dxr/material_sources.json")
+  set(AB3D2_DXR_MATERIAL_BUILD_DIR
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_dxr/materials")
+  set(AB3D2_DXR_MATERIAL_OUTPUTS
+      "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_manifest.json")
+  set(AB3D2_DXR_MATERIAL_NAMES
+      alienredwall brownpipes brownspeakers brownwithyellowstripes chevrondoor
+      floor_0201 gieger hullmetal redhullmetal rocky steampunk technolights
+      technotritile)
+  foreach(AB3D2_DXR_MATERIAL_NAME IN LISTS AB3D2_DXR_MATERIAL_NAMES)
+    foreach(AB3D2_DXR_MATERIAL_CHANNEL IN ITEMS base_color normal metalness roughness)
+      list(APPEND AB3D2_DXR_MATERIAL_OUTPUTS
+           "${AB3D2_DXR_MATERIAL_BUILD_DIR}/${AB3D2_DXR_MATERIAL_NAME}_${AB3D2_DXR_MATERIAL_CHANNEL}.png")
+    endforeach()
+  endforeach()
+  file(GLOB AB3D2_DXR_MATERIAL_SHEETS CONFIGURE_DEPENDS
+       "${CMAKE_CURRENT_SOURCE_DIR}/textures_pbr/*.png")
+  add_custom_command(
+    OUTPUT ${AB3D2_DXR_MATERIAL_OUTPUTS}
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dxr_materials.py"
+            --source-dir "${CMAKE_CURRENT_SOURCE_DIR}/textures_pbr"
+            --spec "${AB3D2_DXR_MATERIAL_SOURCE_SPEC}"
+            --output-dir "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dxr_materials.py"
+            "${AB3D2_DXR_MATERIAL_SOURCE_SPEC}"
+            ${AB3D2_DXR_MATERIAL_SHEETS}
+    COMMENT "Build renderer-native DXR material textures"
+    VERBATIM
+  )
+  add_custom_target(ab3d2_dxr_materials DEPENDS ${AB3D2_DXR_MATERIAL_OUTPUTS})
+  add_dependencies(ab3d2 ab3d2_dxr_materials)
   add_custom_command(TARGET ab3d2 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr"
@@ -274,7 +309,10 @@ if(AB3D2_ENABLE_DXR)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${AB3D2_DXR_PIXEL_SHADER}"
             "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/diagnostic_ps.dxil"
-    COMMENT "Stage project-built DXR diagnostic shaders"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/materials"
+    COMMENT "Stage project-built DXR shaders and materials"
   )
 endif()
 
@@ -385,6 +423,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     COMMAND ${CMAKE_COMMAND}
             -DAB3D2_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/dxr_configuration_test.cmake)
+  add_test(NAME ab3d2_dxr_material_builder_test
+    COMMAND "${Python3_EXECUTABLE}" -m unittest
+            tests.test_build_dxr_materials)
+  set_tests_properties(ab3d2_dxr_material_builder_test PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
   if(AB3D2_ENABLE_DXR)
     add_executable(ab3d2_renderer_rtx_foundation_test
       tests/renderer_rtx_foundation_test.c

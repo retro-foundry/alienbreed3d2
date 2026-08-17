@@ -41,7 +41,9 @@ The default build reports that no RTX implementation is present and never
 silently substitutes OpenGL. A native Windows build configured with
 AB3D2_ENABLE_DXR=ON presents the Phase 2 DirectX 12/DXR diagnostic triangle on
 supported hardware. It deliberately does not draw game geometry, sprites,
-weapon, HUD, or text yet. The Web build always uses OpenGL/WebGL.
+weapon, HUD, or text yet. The enabled build also creates and stages a hashed,
+renderer-native set of separate PBR textures from textures_pbr; the diagnostic
+pass does not consume them yet. The Web build always uses OpenGL/WebGL.
 
 With always_run=1, hold Shift to walk. With always_run=0, hold Shift to run.
 
