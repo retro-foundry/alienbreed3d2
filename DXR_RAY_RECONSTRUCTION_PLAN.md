@@ -11,7 +11,13 @@ The repository baseline for this work is commit `86241dd` (`Replace GPL RTX rend
 - No functional RTX renderer is present in the current tree.
 - The next implementation must replace the stub incrementally while leaving OpenGL and Web behavior unchanged.
 
-This is a plan, not an assertion that any DXR or Streamline code already exists.
+The Phase 2 implementation now adds the opt-in ID-independent D3D12/DXR
+diagnostic foundation described below.  It has been validated on a GeForce RTX
+4080 in Debug and Release builds with Windows SDK DXC 1.8.2502.11 (SHA-256
+`7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`).
+It deliberately renders no `SceneFrame` content.  Streamline remains absent,
+and the next requested implementation work begins with the ID-independent
+material and geometry phases needed for a raw noisy image.
 
 ### Current dependency gate
 

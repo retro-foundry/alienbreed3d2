@@ -6,6 +6,63 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+option(AB3D2_ENABLE_DXR
+       "Build the Windows DirectX 12/DXR diagnostic renderer foundation" OFF)
+option(AB3D2_ENABLE_STREAMLINE
+       "Enable the separately gated NVIDIA Streamline integration" OFF)
+option(AB3D2_DXR_GPU_VALIDATION
+       "Enable slow D3D12 GPU-based validation for DXR development" OFF)
+set(AB3D2_DXC_EXECUTABLE "" CACHE FILEPATH
+    "Explicit dxc executable for the DXR shader build (otherwise resolved from PATH)")
+
+if(AB3D2_ENABLE_STREAMLINE)
+  set(AB3D2_STREAMLINE_ROOT "$ENV{AB3D2_STREAMLINE_ROOT}" CACHE PATH
+      "Extracted NVIDIA Streamline v2.12.0 production release root")
+  set(AB3D2_STREAMLINE_APPLICATION_ID "$ENV{AB3D2_STREAMLINE_APPLICATION_ID}"
+      CACHE STRING "Uncommitted NVIDIA-issued Streamline application ID")
+endif()
+
+include(cmake/validate_dxr_configuration.cmake)
+ab3d2_validate_dxr_options(AB3D2_DXR_CONFIGURATION_ERROR
+  PLATFORM_WINDOWS "${WIN32}"
+  EMSCRIPTEN "${EMSCRIPTEN}"
+  ENABLE_DXR "${AB3D2_ENABLE_DXR}"
+  GPU_VALIDATION "${AB3D2_DXR_GPU_VALIDATION}"
+  ENABLE_STREAMLINE "${AB3D2_ENABLE_STREAMLINE}"
+  STREAMLINE_ROOT "${AB3D2_STREAMLINE_ROOT}"
+  STREAMLINE_APPLICATION_ID "${AB3D2_STREAMLINE_APPLICATION_ID}"
+)
+if(AB3D2_DXR_CONFIGURATION_ERROR)
+  message(FATAL_ERROR "${AB3D2_DXR_CONFIGURATION_ERROR}")
+endif()
+
+if(AB3D2_ENABLE_DXR)
+  if(NOT AB3D2_DXC_EXECUTABLE)
+    find_program(AB3D2_DXC_EXECUTABLE NAMES dxc.exe dxc)
+  endif()
+  ab3d2_validate_dxc(AB3D2_DXR_DXC_ERROR "${AB3D2_DXC_EXECUTABLE}")
+  if(AB3D2_DXR_DXC_ERROR)
+    message(FATAL_ERROR "${AB3D2_DXR_DXC_ERROR}")
+  endif()
+  execute_process(
+    COMMAND "${AB3D2_DXC_EXECUTABLE}" --version
+    RESULT_VARIABLE AB3D2_DXC_VERSION_RESULT
+    OUTPUT_VARIABLE AB3D2_DXC_VERSION
+    ERROR_VARIABLE AB3D2_DXC_VERSION_ERROR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_STRIP_TRAILING_WHITESPACE
+  )
+  if(NOT AB3D2_DXC_VERSION_RESULT EQUAL 0)
+    message(FATAL_ERROR
+            "AB3D2_DXC_EXECUTABLE could not report its version: ${AB3D2_DXC_VERSION_ERROR}")
+  endif()
+  file(SHA256 "${AB3D2_DXC_EXECUTABLE}" AB3D2_DXC_SHA256)
+  string(REPLACE "\n" " | " AB3D2_DXC_VERSION_ONE_LINE "${AB3D2_DXC_VERSION}")
+  message(STATUS "DXR shader compiler: ${AB3D2_DXC_EXECUTABLE}")
+  message(STATUS "DXR shader compiler version: ${AB3D2_DXC_VERSION_ONE_LINE}")
+  message(STATUS "DXR shader compiler SHA-256: ${AB3D2_DXC_SHA256}")
+endif()
+
 # This PC target intentionally follows the desktop setup of the Alien Breed
 # 3D I port: SDL2 is fetched at configure time and the same sources build on
 # Windows, Linux, and macOS. The Amiga build remains under amiga/.
@@ -131,18 +188,86 @@ if(NOT EMSCRIPTEN)
   target_include_directories(ab3d2_audio_export PRIVATE src)
 endif()
 
+set(AB3D2_RENDERER_RTX_SOURCES src/renderer_rtx_stub.c)
+if(AB3D2_ENABLE_DXR)
+  set(AB3D2_RENDERER_RTX_SOURCES
+    src/renderer_rtx.cpp
+    src/renderer_dxr/dxr_debug.cpp
+    src/renderer_dxr/dxr_device.cpp
+    src/renderer_dxr/dxr_pipeline.cpp
+    src/renderer_dxr/dxr_renderer.cpp
+  )
+endif()
+
 add_executable(ab3d2
   src/audio_sdl.c
   src/main.c
   src/renderer.c
   src/renderer_opengl.c
-  src/renderer_rtx_stub.c
+  ${AB3D2_RENDERER_RTX_SOURCES}
 )
 target_link_libraries(ab3d2 PRIVATE ab3d2_core)
 if(NOT EMSCRIPTEN)
   target_link_libraries(ab3d2 PRIVATE SDL2-static OpenGL::GL)
 endif()
 target_include_directories(ab3d2 PRIVATE src "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+
+if(AB3D2_ENABLE_DXR)
+  set_target_properties(ab3d2 PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+                                               CXX_EXTENSIONS OFF)
+  target_compile_definitions(ab3d2 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+  target_compile_definitions(
+    ab3d2 PRIVATE
+    $<$<CONFIG:Debug>:AB3D2_DXR_ENABLE_DEBUG_LAYER=1>
+    $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_ENABLE_DEBUG_LAYER=1>
+    $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_GPU_VALIDATION=1>
+  )
+  target_link_libraries(ab3d2 PRIVATE d3d12 dxgi dxguid)
+
+  set(AB3D2_DXR_SHADER_SOURCE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer_dxr/shaders/diagnostic.hlsl")
+  set(AB3D2_DXR_SHADER_BUILD_DIR
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_dxr")
+  set(AB3D2_DXR_VERTEX_SHADER
+      "${AB3D2_DXR_SHADER_BUILD_DIR}/diagnostic_vs.dxil")
+  set(AB3D2_DXR_PIXEL_SHADER
+      "${AB3D2_DXR_SHADER_BUILD_DIR}/diagnostic_ps.dxil")
+  add_custom_command(
+    OUTPUT "${AB3D2_DXR_VERTEX_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
+    COMMAND "${AB3D2_DXC_EXECUTABLE}" -nologo -WX -Ges -O3 -Qstrip_debug
+            -Qstrip_reflect -T vs_6_6 -E vs_main
+            -Fo "${AB3D2_DXR_VERTEX_SHADER}" "${AB3D2_DXR_SHADER_SOURCE}"
+    DEPENDS "${AB3D2_DXR_SHADER_SOURCE}"
+    COMMENT "Compile the DXR diagnostic vertex shader with DXC"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT "${AB3D2_DXR_PIXEL_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
+    COMMAND "${AB3D2_DXC_EXECUTABLE}" -nologo -WX -Ges -O3 -Qstrip_debug
+            -Qstrip_reflect -T ps_6_6 -E ps_main
+            -Fo "${AB3D2_DXR_PIXEL_SHADER}" "${AB3D2_DXR_SHADER_SOURCE}"
+    DEPENDS "${AB3D2_DXR_SHADER_SOURCE}"
+    COMMENT "Compile the DXR diagnostic pixel shader with DXC"
+    VERBATIM
+  )
+  add_custom_target(ab3d2_dxr_shaders
+                    DEPENDS "${AB3D2_DXR_VERTEX_SHADER}"
+                            "${AB3D2_DXR_PIXEL_SHADER}")
+  add_dependencies(ab3d2 ab3d2_dxr_shaders)
+  add_custom_command(TARGET ab3d2 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${AB3D2_DXR_VERTEX_SHADER}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/diagnostic_vs.dxil"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${AB3D2_DXR_PIXEL_SHADER}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/diagnostic_ps.dxil"
+    COMMENT "Stage project-built DXR diagnostic shaders"
+  )
+endif()
 
 # Match the first port's Windows manifest.  Its desktop-sized normal SDL
 # window is intentionally DPI-unaware; without this, Windows can apply a
@@ -247,10 +372,47 @@ target_compile_definitions(ab3d2_core PRIVATE AB3D_STANDALONE_TOOL)
 
 include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
-  add_executable(ab3d2_renderer_rtx_stub_test
-                 tests/renderer_rtx_stub_test.c src/renderer_rtx_stub.c)
-  target_include_directories(ab3d2_renderer_rtx_stub_test PRIVATE src)
-  add_test(NAME ab3d2_renderer_rtx_stub_test COMMAND ab3d2_renderer_rtx_stub_test)
+  add_test(NAME ab3d2_dxr_configuration_test
+    COMMAND ${CMAKE_COMMAND}
+            -DAB3D2_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/dxr_configuration_test.cmake)
+  if(AB3D2_ENABLE_DXR)
+    add_executable(ab3d2_renderer_rtx_foundation_test
+      tests/renderer_rtx_foundation_test.c
+      ${AB3D2_RENDERER_RTX_SOURCES}
+    )
+    set_target_properties(ab3d2_renderer_rtx_foundation_test
+                          PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+                                     CXX_EXTENSIONS OFF)
+    target_include_directories(ab3d2_renderer_rtx_foundation_test PRIVATE src)
+    target_compile_definitions(
+      ab3d2_renderer_rtx_foundation_test PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX
+      $<$<CONFIG:Debug>:AB3D2_DXR_ENABLE_DEBUG_LAYER=1>
+      $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_ENABLE_DEBUG_LAYER=1>
+      $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_GPU_VALIDATION=1>
+    )
+    target_link_libraries(ab3d2_renderer_rtx_foundation_test
+                          PRIVATE SDL2-static d3d12 dxgi dxguid user32)
+    add_dependencies(ab3d2_renderer_rtx_foundation_test ab3d2_dxr_shaders)
+    add_custom_command(TARGET ab3d2_renderer_rtx_foundation_test POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_VERTEX_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/diagnostic_vs.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_PIXEL_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/diagnostic_ps.dxil"
+      COMMENT "Stage DXR diagnostic shaders for the foundation test"
+    )
+    add_test(NAME ab3d2_renderer_rtx_foundation_test
+             COMMAND ab3d2_renderer_rtx_foundation_test)
+  else()
+    add_executable(ab3d2_renderer_rtx_stub_test
+                   tests/renderer_rtx_stub_test.c src/renderer_rtx_stub.c)
+    target_include_directories(ab3d2_renderer_rtx_stub_test PRIVATE src)
+    add_test(NAME ab3d2_renderer_rtx_stub_test COMMAND ab3d2_renderer_rtx_stub_test)
+  endif()
   add_executable(ab3d2_desktop_settings_test tests/desktop_settings_test.c)
   target_link_libraries(ab3d2_desktop_settings_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_desktop_settings_test PRIVATE src)

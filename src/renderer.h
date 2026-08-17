@@ -12,8 +12,9 @@
 /*
  * API-neutral presenter boundary.  Gameplay producers and the desktop entry
  * point depend only on this interface. renderer_opengl.c implements the live
- * backend, and renderer_rtx_stub.c reserves a clean-room boundary without
- * changing SceneFrame or game simulation.
+ * backend. The clean-room RTX boundary selects either the fail-fast stub or
+ * the opt-in Windows D3D12/DXR diagnostic foundation without changing
+ * SceneFrame or game simulation.
  */
 typedef struct {
     RendererBackend backend;

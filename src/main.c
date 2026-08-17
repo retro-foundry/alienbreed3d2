@@ -566,6 +566,12 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     app->frame_initialized = 1;
     renderer_config.backend = app->has_renderer_backend_from_command_line != 0u ?
         app->renderer_backend_from_command_line : app->desktop_settings.renderer_backend;
+    if (app->gpu_smoke && renderer_config.backend != RENDERER_BACKEND_OPENGL) {
+        fprintf(stderr,
+                "[RENDER] --gpu-smoke is an OpenGL scene/UI validation; "
+                "the Phase 2 RTX diagnostic uses ab3d2_renderer_rtx_foundation_test\n");
+        return 0;
+    }
     if (app->gpu_smoke) {
         /* Keep the opt-in hidden smoke bounded and independent of desktop layout. */
         renderer_config.window_width = 1280;

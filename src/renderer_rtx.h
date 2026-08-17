@@ -9,10 +9,16 @@
 #include "scene_frame.h"
 
 /*
- * Clean-room boundary for the future native RTX backend.  The corresponding
- * stub deliberately creates no window, graphics device, or renderer state.
+ * Clean-room boundary for the native RTX backend.  A disabled or unsupported
+ * build supplies the fail-fast stub.  The Phase 2 Windows implementation is
+ * deliberately a D3D12/DXR diagnostic presenter and consumes no SceneFrame
+ * content until the later scene milestones are implemented.
  */
 typedef struct RendererRtx RendererRtx;
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
 
 RendererRtx *renderer_rtx_create(
     int window_width, int window_height, const char *window_title,
@@ -32,5 +38,9 @@ size_t renderer_rtx_last_view_weapon_coverage(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_view_weapon_rgb_checksum(const RendererRtx *renderer);
 size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *renderer);
+
+#if defined(__cplusplus)
+}
+#endif
 
 #endif

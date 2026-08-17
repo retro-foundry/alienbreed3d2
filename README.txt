@@ -34,12 +34,14 @@ Edit ab3d2.ini beside the executable before starting the game. It supports:
 - load_autosave=0 or 1 (restore savegame.bin at startup and skip initial flavour text)
 - volume=0 through 100
 - always_run=0 or 1
-- renderer=opengl or rtx (opengl by default; rtx is an unimplemented scaffold)
+- renderer=opengl or rtx (opengl by default; rtx requires an opt-in DXR build)
 - world_light_tessellation=1, 2, 4, or 8 (4 by default)
 
-The RTX name is reserved for a future clean-room renderer. Selecting it reports
-that no implementation is present; it never silently substitutes OpenGL. The
-Web build always uses OpenGL/WebGL.
+The default build reports that no RTX implementation is present and never
+silently substitutes OpenGL. A native Windows build configured with
+AB3D2_ENABLE_DXR=ON presents the Phase 2 DirectX 12/DXR diagnostic triangle on
+supported hardware. It deliberately does not draw game geometry, sprites,
+weapon, HUD, or text yet. The Web build always uses OpenGL/WebGL.
 
 With always_run=1, hold Shift to walk. With always_run=0, hold Shift to run.
 

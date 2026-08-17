@@ -5,8 +5,8 @@
 # 0/1, false/true, no/yes, or off/on.
 
 # Graphics backend. OpenGL is the implemented desktop and WebGL backend.
-# The rtx value reserves a clean-room integration boundary and currently exits
-# with an explicit not-implemented error.
+# The rtx value uses the opt-in Windows Phase 2 D3D12/DXR diagnostic build.
+# Other builds exit explicitly rather than silently substituting OpenGL.
 renderer=opengl
 
 # Campaign level A through P, written one-indexed.
