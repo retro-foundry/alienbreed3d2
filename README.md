@@ -38,13 +38,11 @@ session. Supported keys are:
 - `renderer=opengl|rtx` selects the desktop graphics backend. It defaults to
   `opengl`. A normal build retains the clean-room RTX fail-fast stub. A native
   Windows build configured with `AB3D2_ENABLE_DXR=ON` ray traces the opaque
-  `SceneFrame` world into a fresh, visibly noisy HDR image. It currently uses
-  decoded source albedo with a stochastic Lambertian environment sample; it
-  does not yet draw sprites, vector objects, the weapon, HUD, or text. That
-  build also deterministically extracts the project-authored `textures_pbr`
-  sheets into separate renderer-native PBR textures and stages their hashed
-  manifest under `renderer_dxr/materials`; runtime sampling of those PBR
-  channels remains to be implemented.
+  `SceneFrame` world into a fresh, visibly noisy HDR image. It samples the
+  renderer-native base-color, normal, roughness, and metalness channels with a
+  multi-bounce Lambertian/GGX path tracer, authored area emitters, environment
+  lighting, shadow rays, and MIS. It does not yet draw sprites, vector objects,
+  the weapon, HUD, or text.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
@@ -52,7 +50,9 @@ port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
 An explicit `--level A` through `--level P` command-line option overrides
 `start_level`. `--world-light-tessellation 1|2|4|8` likewise provides a
 one-run override for renderer validation. `--renderer opengl|rtx` overrides
-the configured backend for one native run.
+the configured backend for one native run. `--skip-intro 1` enters the selected
+level directly without requiring an autosave; it changes only the initial
+flavour-text presentation.
 
 Weapon selection retains the source controls: number keys `1`--`0` directly
 select their owned weapon, while Backslash and the right mouse button advance
@@ -408,7 +408,8 @@ ctest --test-dir build/dxr -C Debug -R "dxr|rtx" --output-on-failure
 
 For Visual Studio generators, the DXR-enabled solution selects `ab3d2` as its
 startup project, launches it with `--renderer rtx`, and uses the executable
-directory as its working directory. A solution generated with
+directory as its working directory. It also passes `--skip-intro 1`, so F5
+enters the selected level directly. A solution generated with
 `AB3D2_ENABLE_DXR=OFF` cannot enable DXR at runtime; its error reports the
 missing build option explicitly.
 

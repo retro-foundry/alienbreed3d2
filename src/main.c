@@ -233,6 +233,8 @@ typedef struct {
     uint8_t has_world_light_tessellation_from_command_line;
     RendererBackend renderer_backend_from_command_line;
     uint8_t has_renderer_backend_from_command_line;
+    uint8_t skip_intro_from_command_line;
+    uint8_t has_skip_intro_from_command_line;
     DesktopSettings desktop_settings;
     GameBootstrap game;
     /* Completed source-frame endpoints retained for high-rate presentation. */
@@ -410,6 +412,16 @@ static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
                 return 0;
             }
             app->has_renderer_backend_from_command_line = UINT8_MAX;
+        } else if (strcmp(argv[argument_index], "--skip-intro") == 0 &&
+                   !app->has_skip_intro_from_command_line) {
+            if (strcmp(argv[argument_index + 1], "0") == 0) {
+                app->skip_intro_from_command_line = 0u;
+            } else if (strcmp(argv[argument_index + 1], "1") == 0) {
+                app->skip_intro_from_command_line = UINT8_MAX;
+            } else {
+                return 0;
+            }
+            app->has_skip_intro_from_command_line = UINT8_MAX;
         } else {
             return 0;
         }
@@ -505,7 +517,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     if (!app || !game_app_parse_arguments(app, argc, argv)) {
         fprintf(stderr,
                 "usage: %s [--data-root <directory>] [--level <A-P>] [--gpu-smoke <A-P|all>] "
-                "[--world-light-tessellation <1|2|4|8>] [--renderer <opengl|rtx>]\n",
+                "[--world-light-tessellation <1|2|4|8>] [--renderer <opengl|rtx>] "
+                "[--skip-intro <0|1>]\n",
                 argv[0]);
         return 0;
     }
@@ -649,7 +662,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         fprintf(stderr, "[INPUT] relative mouse mode unavailable: %s\n", SDL_GetError());
     }
     if (!app->gpu_smoke) {
-        if (startup_autosave_loaded != 0u) {
+        if (startup_autosave_loaded != 0u ||
+            app->skip_intro_from_command_line != 0u) {
             app->phase = GAME_APP_PHASE_GAMEPLAY;
         } else {
             /* The first port shows the selected level's story before its first
