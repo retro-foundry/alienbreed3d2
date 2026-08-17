@@ -459,22 +459,13 @@ the world so they retain their parity paths. The 50 Hz/interpolated
 animated vector enemies and objects, and the companion weapon. Bitmap effects
 and vector models use their exact decoded source palettes and frame data.
 
-RTX world vertices carry the completed-frame, tessellated Amiga Gouraud field,
-and vector vertices carry their source-decoded 0--1 Gouraud response. The
-primary G-buffer ignores both for non-emissive material response. A traced
-diffuse, reflection, or refraction ray samples the field at its secondary
-surface and converts its 31 wall (30 flat) shade intervals with Q2RTX's fixed
-`0.001` BSP-radiance scale before applying it as low-frequency irradiance
-through that surface's diffuse BRDF. The normalized response is therefore not
-misread as full scene-linear ambient irradiance.
-Emissive PBR polygons remain the sole sampled, occludable direct lights, but
-their visible emission and physical light power are scaled by the same
-unscaled, interpolated authored response. Their unmodulated radiance remains
-the fixed importance-sampling weight, so changing light power is not cancelled
-by an inverse change in selection probability. RTX carries exact prior/current
-values through secondary hits and emitter polygons to relax the affected
-direct, indirect, reflection, and visible-emissive temporal history without
-adding authored ambient to non-emissive primary geometry.
+Legacy Amiga Gouraud shade rows remain outside traced PBR transport: they are
+not Q2 light styles and do not modulate emitted or reflected radiance. The
+converted BSP marks `technolights` faces with value 900, so both renderers use
+Q2RTX's resolved world-emission factor `900 * 0.001 = 0.9` rather than the
+material fallback factor. Secondary hits likewise follow Q2RTX's fixed texture
+mips, geometric-normal next-event estimate, and one-sided square-root emission
+term. Emissive PBR polygons remain the sole sampled, occludable direct lights.
 The complete GPLv2 backend, shaders, material tools, tests, license, pinned
 Q2RTX provenance, and implementation plan live in the public
 [`alienbreed3d2-rtx-renderer`](https://github.com/retro-foundry/alienbreed3d2-rtx-renderer)
