@@ -1,0 +1,36 @@
+#ifndef AB3D2_RENDERER_RTX_H
+#define AB3D2_RENDERER_RTX_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#include "render_view.h"
+#include "renderer_resources.h"
+#include "scene_frame.h"
+
+/*
+ * Clean-room boundary for the future native RTX backend.  The corresponding
+ * stub deliberately creates no window, graphics device, or renderer state.
+ */
+typedef struct RendererRtx RendererRtx;
+
+RendererRtx *renderer_rtx_create(
+    int window_width, int window_height, const char *window_title,
+    int desktop_window, int hidden_window, uint8_t world_light_tessellation,
+    char *error, size_t error_size);
+void renderer_rtx_destroy(RendererRtx *renderer);
+int renderer_rtx_prepare_resources(
+    RendererRtx *renderer, const RendererResourceCatalog *catalog,
+    size_t *out_prepared_vector_material_count, char *error, size_t error_size);
+int renderer_rtx_get_presentation_size(
+    const RendererRtx *renderer, int *out_width, int *out_height);
+int renderer_rtx_present(
+    RendererRtx *renderer, const SceneFrame *frame, const RenderView *view,
+    char *error, size_t error_size);
+size_t renderer_rtx_last_ui_coverage(const RendererRtx *renderer);
+size_t renderer_rtx_last_view_weapon_coverage(const RendererRtx *renderer);
+uint64_t renderer_rtx_last_view_weapon_rgb_checksum(const RendererRtx *renderer);
+size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer);
+uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *renderer);
+
+#endif

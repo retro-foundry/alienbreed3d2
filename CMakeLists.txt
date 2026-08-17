@@ -11,10 +11,6 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Windows, Linux, and macOS. The Amiga build remains under amiga/.
 include(FetchContent)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-option(AB3D2_ENABLE_RTX "Build the native Vulkan ray-tracing renderer" ON)
-if(EMSCRIPTEN)
-  set(AB3D2_ENABLE_RTX OFF CACHE BOOL "" FORCE)
-endif()
 if(NOT EMSCRIPTEN)
   set(SDL_SHARED OFF CACHE BOOL "" FORCE)
   set(SDL_STATIC ON CACHE BOOL "" FORCE)
@@ -106,7 +102,6 @@ set(AB3D2_CORE_SOURCES
   src/render_view.c
   src/renderer_backend.c
   src/scene_frame.c
-  src/scene_rtx_visibility.c
   src/source_bitmap_lighting.c
   src/source_bitmap_sprite.c
   src/source_flat_visibility.c
@@ -141,25 +136,8 @@ add_executable(ab3d2
   src/main.c
   src/renderer.c
   src/renderer_opengl.c
+  src/renderer_rtx_stub.c
 )
-if(AB3D2_ENABLE_RTX)
-  set(AB3D2_RTX_SUBMODULE_DIR
-      "${CMAKE_CURRENT_SOURCE_DIR}/external/alienbreed3d2-rtx-renderer")
-  if(NOT EXISTS "${AB3D2_RTX_SUBMODULE_DIR}/CMakeLists.txt")
-    message(FATAL_ERROR
-      "The RTX renderer submodule is missing. Run: "
-      "git submodule update --init --recursive")
-  endif()
-  add_subdirectory("${AB3D2_RTX_SUBMODULE_DIR}"
-                   "${CMAKE_CURRENT_BINARY_DIR}/alienbreed3d2-rtx-renderer")
-  ab3d2_attach_rtx_renderer(
-    HOST_TARGET ab3d2
-    HOST_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    MATERIAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/textures_pbr"
-    FONTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fonts"
-    OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}"
-  )
-endif()
 target_link_libraries(ab3d2 PRIVATE ab3d2_core)
 if(NOT EMSCRIPTEN)
   target_link_libraries(ab3d2 PRIVATE SDL2-static OpenGL::GL)
@@ -238,44 +216,6 @@ else()
     DEPENDS ab3d2
     COMMENT "Run the opt-in hidden-window OpenGL scene/shader smoke test"
   )
-  if(AB3D2_ENABLE_RTX)
-    add_custom_command(TARGET ab3d2 POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_directory
-              "${CMAKE_CURRENT_SOURCE_DIR}/assets/rtx_visibility"
-              "$<TARGET_FILE_DIR:ab3d2>/data/rtx_visibility"
-      COMMENT "Stage compact Q2RTX visibility sidecars"
-    )
-    add_custom_target(ab3d2_rtx_gpu_smoke
-      COMMAND $<TARGET_FILE:ab3d2> --gpu-smoke all --renderer rtx
-      DEPENDS ab3d2
-      COMMENT "Run the opt-in hidden-window Vulkan RTX scene/shader smoke test"
-    )
-    add_executable(ab3d2_vulkan_rtx_probe
-      "${AB3D2_RTX_SUBMODULE_DIR}/tests/vulkan_rtx_probe.c")
-    target_link_libraries(ab3d2_vulkan_rtx_probe PRIVATE ab3d2_vulkan_rtx_platform)
-    target_include_directories(ab3d2_vulkan_rtx_probe PRIVATE src)
-    add_executable(ab3d2_vulkan_rtx_context_smoke
-      "${AB3D2_RTX_SUBMODULE_DIR}/tests/vulkan_rtx_context_smoke.c"
-    )
-    target_link_libraries(ab3d2_vulkan_rtx_context_smoke
-      PRIVATE ab3d2_vulkan_rtx_platform
-    )
-    target_include_directories(ab3d2_vulkan_rtx_context_smoke PRIVATE src)
-    add_executable(ab3d2_vulkan_rtx_scene_test
-      "${AB3D2_RTX_SUBMODULE_DIR}/tests/vulkan_rtx_scene_test.c"
-    )
-    target_link_libraries(ab3d2_vulkan_rtx_scene_test
-      PRIVATE ab3d2_vulkan_rtx_platform ab3d2_core
-    )
-    target_include_directories(ab3d2_vulkan_rtx_scene_test PRIVATE src)
-    add_executable(ab3d2_rtx_cluster_light_oracle_test
-      tests/rtx_cluster_light_oracle_test.c
-    )
-    target_link_libraries(ab3d2_rtx_cluster_light_oracle_test
-      PRIVATE ab3d2_vulkan_rtx_platform ab3d2_core
-    )
-    target_include_directories(ab3d2_rtx_cluster_light_oracle_test PRIVATE src)
-  endif()
 endif()
 
 if(WIN32 AND NOT EMSCRIPTEN)
@@ -285,50 +225,17 @@ endif()
 if(MSVC)
   target_compile_options(ab3d2_core PRIVATE /W4)
   target_compile_options(ab3d2 PRIVATE /W4)
-  if(AB3D2_ENABLE_RTX)
-    target_compile_options(ab3d2_vulkan_rtx_platform PRIVATE /W4)
-    target_compile_options(ab3d2_vulkan_rtx_probe PRIVATE /W4)
-    target_compile_options(ab3d2_vulkan_rtx_context_smoke PRIVATE /W4)
-    target_compile_options(ab3d2_vulkan_rtx_scene_test PRIVATE /W4)
-    target_compile_options(ab3d2_rtx_cluster_light_oracle_test PRIVATE /W4)
-  endif()
   if(NOT EMSCRIPTEN)
     target_compile_options(ab3d2_audio_export PRIVATE /W4)
   endif()
   target_compile_definitions(ab3d2_core PRIVATE _CRT_SECURE_NO_WARNINGS)
   target_compile_definitions(ab3d2 PRIVATE _CRT_SECURE_NO_WARNINGS)
-  if(AB3D2_ENABLE_RTX)
-    target_compile_definitions(ab3d2_vulkan_rtx_platform PRIVATE _CRT_SECURE_NO_WARNINGS)
-    target_compile_definitions(ab3d2_vulkan_rtx_probe PRIVATE _CRT_SECURE_NO_WARNINGS)
-    target_compile_definitions(ab3d2_vulkan_rtx_context_smoke
-      PRIVATE _CRT_SECURE_NO_WARNINGS
-    )
-    target_compile_definitions(ab3d2_vulkan_rtx_scene_test
-      PRIVATE _CRT_SECURE_NO_WARNINGS
-    )
-    target_compile_definitions(ab3d2_rtx_cluster_light_oracle_test
-      PRIVATE _CRT_SECURE_NO_WARNINGS
-    )
-  endif()
   if(NOT EMSCRIPTEN)
     target_compile_definitions(ab3d2_audio_export PRIVATE _CRT_SECURE_NO_WARNINGS)
   endif()
 else()
   target_compile_options(ab3d2_core PRIVATE -Wall -Wextra -Wpedantic)
   target_compile_options(ab3d2 PRIVATE -Wall -Wextra -Wpedantic)
-  if(AB3D2_ENABLE_RTX)
-    target_compile_options(ab3d2_vulkan_rtx_platform PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(ab3d2_vulkan_rtx_probe PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(ab3d2_vulkan_rtx_context_smoke
-      PRIVATE -Wall -Wextra -Wpedantic
-    )
-    target_compile_options(ab3d2_vulkan_rtx_scene_test
-      PRIVATE -Wall -Wextra -Wpedantic
-    )
-    target_compile_options(ab3d2_rtx_cluster_light_oracle_test
-      PRIVATE -Wall -Wextra -Wpedantic
-    )
-  endif()
   if(NOT EMSCRIPTEN)
     target_compile_options(ab3d2_audio_export PRIVATE -Wall -Wextra -Wpedantic)
   endif()
@@ -340,38 +247,10 @@ target_compile_definitions(ab3d2_core PRIVATE AB3D_STANDALONE_TOOL)
 
 include(CTest)
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
-  if(AB3D2_ENABLE_RTX)
-    add_test(NAME ab3d2_vulkan_rtx_scene_test
-             COMMAND ab3d2_vulkan_rtx_scene_test)
-    add_dependencies(ab3d2_rtx_cluster_light_oracle_test ab3d2)
-    add_test(
-      NAME ab3d2_rtx_cluster_light_oracle_test
-      COMMAND ab3d2_rtx_cluster_light_oracle_test
-              "$<TARGET_FILE_DIR:ab3d2>/data"
-              "$<TARGET_FILE_DIR:ab3d2>/rtx_materials"
-    )
-    add_test(
-      NAME ab3d2_rtx_material_tools_test
-      COMMAND ${CMAKE_COMMAND} -E env
-              "AB3D2_HOST_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
-              ${Python3_EXECUTABLE}
-              "${AB3D2_RTX_SUBMODULE_DIR}/tools/test_rtx_material_builders.py"
-    )
-    add_test(
-      NAME ab3d2_rtx_visibility_extractor_test
-      COMMAND ${Python3_EXECUTABLE}
-              "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_extract_q2rtx_visibility.py"
-    )
-    add_executable(ab3d2_scene_rtx_visibility_test
-                   tests/scene_rtx_visibility_test.c)
-    target_link_libraries(ab3d2_scene_rtx_visibility_test PRIVATE ab3d2_core)
-    target_include_directories(ab3d2_scene_rtx_visibility_test PRIVATE src)
-    add_dependencies(ab3d2_scene_rtx_visibility_test ab3d2)
-    add_test(
-      NAME ab3d2_scene_rtx_visibility_test
-      COMMAND ab3d2_scene_rtx_visibility_test "$<TARGET_FILE_DIR:ab3d2>/data"
-    )
-  endif()
+  add_executable(ab3d2_renderer_rtx_stub_test
+                 tests/renderer_rtx_stub_test.c src/renderer_rtx_stub.c)
+  target_include_directories(ab3d2_renderer_rtx_stub_test PRIVATE src)
+  add_test(NAME ab3d2_renderer_rtx_stub_test COMMAND ab3d2_renderer_rtx_stub_test)
   add_executable(ab3d2_desktop_settings_test tests/desktop_settings_test.c)
   target_link_libraries(ab3d2_desktop_settings_test PRIVATE ab3d2_core)
   target_include_directories(ab3d2_desktop_settings_test PRIVATE src)

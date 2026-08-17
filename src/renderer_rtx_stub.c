@@ -1,0 +1,97 @@
+#include "renderer_rtx.h"
+
+#include <stdio.h>
+
+struct RendererRtx {
+    unsigned reserved;
+};
+
+static void renderer_rtx_not_implemented(char *error, size_t error_size)
+{
+    if (error && error_size > 0u) {
+        (void)snprintf(
+            error, error_size,
+            "renderer=rtx is a clean-room scaffold; no RTX implementation is present");
+    }
+}
+
+RendererRtx *renderer_rtx_create(
+    int window_width, int window_height, const char *window_title,
+    int desktop_window, int hidden_window, uint8_t world_light_tessellation,
+    char *error, size_t error_size)
+{
+    (void)window_width;
+    (void)window_height;
+    (void)window_title;
+    (void)desktop_window;
+    (void)hidden_window;
+    (void)world_light_tessellation;
+    renderer_rtx_not_implemented(error, error_size);
+    return NULL;
+}
+
+void renderer_rtx_destroy(RendererRtx *renderer)
+{
+    (void)renderer;
+}
+
+int renderer_rtx_prepare_resources(
+    RendererRtx *renderer, const RendererResourceCatalog *catalog,
+    size_t *out_prepared_vector_material_count, char *error, size_t error_size)
+{
+    (void)renderer;
+    (void)catalog;
+    (void)out_prepared_vector_material_count;
+    renderer_rtx_not_implemented(error, error_size);
+    return 0;
+}
+
+int renderer_rtx_get_presentation_size(
+    const RendererRtx *renderer, int *out_width, int *out_height)
+{
+    (void)renderer;
+    (void)out_width;
+    (void)out_height;
+    return 0;
+}
+
+int renderer_rtx_present(
+    RendererRtx *renderer, const SceneFrame *frame, const RenderView *view,
+    char *error, size_t error_size)
+{
+    (void)renderer;
+    (void)frame;
+    (void)view;
+    renderer_rtx_not_implemented(error, error_size);
+    return 0;
+}
+
+size_t renderer_rtx_last_ui_coverage(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return 0u;
+}
+
+size_t renderer_rtx_last_view_weapon_coverage(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return 0u;
+}
+
+uint64_t renderer_rtx_last_view_weapon_rgb_checksum(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return UINT64_C(0);
+}
+
+size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return 0u;
+}
+
+uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return UINT64_C(0);
+}

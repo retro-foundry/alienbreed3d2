@@ -36,23 +36,8 @@ session. Supported keys are:
 - `world_light_tessellation=1|2|4|8` controls presentation-only world-light
   subdivision. The default is `4`; `1` retains the strict source mesh; and
 - `renderer=opengl|rtx` selects the desktop graphics backend. It defaults to
-  `opengl`; the Web build always uses OpenGL/WebGL;
-- `rtx_resolution_scale=50..100` sets the RTX internal resolution percentage.
-  It defaults to native-resolution `100`;
-- `rtx_denoiser_iterations=2|4` controls high-frequency a-trous filtering.
-  The Q2RTX-quality default is `4`; `2` is faster but leaves more noise;
-- `rtx_bloom=0|1` controls Q2RTX bloom and defaults to `1`;
-- `rtx_dynamic_resolution=0|1` opts into RTX internal-resolution scaling from
-  50% through `rtx_resolution_scale`. It defaults to `0`, matching Q2RTX's
-  fixed-resolution default;
-- `rtx_target_fps=30..240` sets the scaling target when
-  `rtx_dynamic_resolution=1` and defaults to `60`; and
-- `rtx_debug_view=final|albedo|normal|roughness|metalness|emissive|direct|indirect|specular|variance|history|gradients`
-  (`history`: red = specular, green = diffuse temporal history length, 64
-  frames saturate - black while moving means reprojection is failing;
-  `gradients`: red/green/blue = LF/HF/specular lighting-change gradients -
-  bright means the antilag is cutting history)
-  selects an RTX render-graph diagnostic and defaults to `final`.
+  `opengl`; `rtx` is a clean-room scaffold that currently fails explicitly,
+  and the Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
 port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
@@ -92,16 +77,14 @@ message-tag colours, and age through `c/message.c:Msg_Tick`'s exact one-line,
 2000 ms null insertion until they are replaced or disappear. Failed inventory pickups retain their
 source `Timer2` and EClock-deduplicated “cannot carry” notification. The SDL
 active presentation path is selected behind the API-neutral `renderer.h`
-boundary. OpenGL 2.1 / GLES 2 remains the default native and Web backend;
-native builds also provide a Vulkan KHR ray-tracing backend when
-`AB3D2_ENABLE_RTX=ON`. Both draw the complete loaded level without software
+boundary. OpenGL 2.1 / GLES 2 is the implemented native and Web backend. It
+draws the complete loaded level without software
 rasterization, PVS, portals, or zone ordering. It decodes the maintained
 5-bit packed wall WAD strips, `floortile` logical tiles, `256pal`, object
 WAD/PTR frame data, vector models, `rawbackpacked`, and `waterfile` into GPU
 resources. OpenGL forward-renders source-textured geometry with smooth
-source-driven light gradients; Vulkan RTX traces the same retained world and
-dynamic scene using emissive PBR textures as its only world/vector light
-source. Both render sky, animated water, bitmap/glare effects, vector objects,
+source-driven light gradients and renders sky, animated water,
+bitmap/glare effects, vector objects,
 and Player 1's live companion weapon. OpenGL world and vector materials are
 converted once to true colour with per-source-texel continuous linear-light
 responses, so source brightness retains its authored hue shift without runtime
@@ -119,10 +102,8 @@ directionally lighted bitmap classes also preserve `draw_bitmap_lighted`'s
 wrapped byte curve and non-positive-only `BrightToAdd+willybright` adjustment,
 so items and bitmap enemies no longer select artificially dark palette rows in
 bright spaces.
-OpenGL is original source art with a continuous lighting presentation. The
-optional RTX backend replaces source world/vector lighting with the supplied
-PBR maps and emissive-only traced light. Menus and multiplayer are not
-included. The
+OpenGL is original source art with a continuous lighting presentation. Menus
+and multiplayer are not included. The
 detailed inventory below records the source-backed foundations; older
 references to an unbound AI dispatcher are superseded by this live
 integration.
@@ -391,90 +372,24 @@ multiplayer flow is intentionally not ported.
 ## Build
 
 Requirements: CMake 3.16+, a C11/C++ compiler, Python 3 with Pillow, Git, and
-network access the first time CMake fetches SDL2 and the pinned Vulkan build
-dependencies. No separately installed Vulkan SDK or shader compiler is
-required. Set `-DAB3D2_ENABLE_RTX=OFF` for an OpenGL-only native build.
-The optional GPLv2 RTX implementation is pinned as a public Git submodule;
-initialize it before an RTX-enabled configure.
+network access the first time CMake fetches SDL2.
 
 ```sh
-git submodule update --init --recursive
 cmake -S . -B build/pc
 cmake --build build/pc --config Debug
 ctest --test-dir build/pc --output-on-failure
 # Opt-in real OpenGL context validation (hidden window, Levels A-P)
 cmake --build build/pc --config Debug --target ab3d2_gpu_smoke
-# Opt-in Vulkan ray-tracing validation (hidden window, Levels A-P)
-cmake --build build/pc --config Debug --target ab3d2_rtx_gpu_smoke
 ```
 
-### Vulkan RTX backend
+### RTX scaffold
 
 Set `renderer=rtx` in `ab3d2.ini`, or launch once with `--renderer rtx`.
-OpenGL remains the default. RTX startup fails explicitly when the Vulkan
-driver lacks `VK_KHR_acceleration_structure`,
-`VK_KHR_ray_tracing_pipeline`, buffer device address, or the required feature
-set; it never silently substitutes OpenGL.
-
-The renderer uses a Q2RTX-derived staged path: configurable-resolution primary
-visibility, fresh single-GPU emissive direct-light and diffuse/specular bounce
-samples at every pixel, separate ASVGF-style temporal/a-trous filtering, PBR composition,
-TAAU, exposure, and tone mapping. RTX runs at native resolution with four
-denoiser iterations and bloom by default;
-`rtx_dynamic_resolution=1` enables GPU timestamp feedback that varies internal
-resolution from 50% through `rtx_resolution_scale` around `rtx_target_fps`. PBR
-base/normal/roughness/metalness/emissive arrays are generated deterministically
-from `textures_pbr`, with complete mip chains, anisotropic sampling, authored
-material factors, and strict validation of every declared map. Q2RTX-style
-ray-cone gradients select texture mips from each primary or secondary hit's
-projected footprint. Camera cuts, level/material/geometry changes, and output
-resizes reset temporal history.
-Emissive polygons are clipped to their lit texels before sampling. The source
-BSP-conversion oracle supplies compact Q2RTX cluster/PVS sidecars; RTX startup
-rejects a missing, corrupt, or stale sidecar instead of substituting ZoneT
-proposals. Material
-arrays retain the widest 4x Q2 override resolution; every base/normal layer
-repeats its exact Q2-sized logical tile. Emissive masks occupy a complete
-normalized layer so sparse lights retain valid data through the entire mip
-chain. Only materials registered as lights by the working Q2RTX package create
-polygon emitters; `floor_0101` remains non-emissive. Authored wall faces are
-clipped before their render diagonal is introduced, then use Q2RTX's fixed
-front-side winding and one-unit BSP query. Invalid or solid-side emitters are
-discarded rather than reoriented heuristically.
-Native floor and water triangles use their fixed authored playable-side order
-for BSP assignment, matching the converted Q2 faces instead of querying the
-solid volume below the surface.
-Sampling and final 8-bit sRGB dithering use Q2RTX's exact CC0 256x256x512 R16
-blue-noise sequence. Camera jitter follows Q2RTX's 128-sample Halton(2,3)
-sequence. Its TAAU
-anti-sparkle clamp, low-frequency deflicker, prior-normal/depth reprojection,
-reprojected low-frequency history confidence, and separate low-frequency
-bilateral weights suppress isolated path-tracing outliers without blurring
-authored material detail. RTX snapshots the current G-buffer and raw lighting
-only after the gradient and temporal passes finish reading the previous frame,
-so motion-reprojected radiance is validated against the matching prior surface.
-Sprites, additive particles, the companion weapon, and UI are composited after
-the world so they retain their parity paths. The 50 Hz/interpolated
-`SceneFrame` remains the sole authority for doors, lifts, water, sprites,
-animated vector enemies and objects, and the companion weapon. Bitmap effects
-and vector models use their exact decoded source palettes and frame data.
-
-Legacy Amiga Gouraud shade rows remain outside traced PBR transport: they are
-not Q2 light styles and do not modulate emitted or reflected radiance. The
-converted BSP marks `technolights` faces with value 900, so both renderers use
-Q2RTX's final world-emission factor `900 * 0.001 * 200 = 180`, combining the
-BSP face radiance and material emissive factor. Secondary hits likewise follow
-Q2RTX's fixed texture mips, geometric-normal next-event estimate, and one-sided
-square-root emission term. Emissive PBR polygons remain the sole sampled,
-occludable direct lights.
-The complete GPLv2 backend, shaders, material tools, tests, license, pinned
-Q2RTX provenance, and implementation plan live in the public
-[`alienbreed3d2-rtx-renderer`](https://github.com/retro-foundry/alienbreed3d2-rtx-renderer)
-repository. This tree pins that repository under
-`external/alienbreed3d2-rtx-renderer` as a Git submodule; private game assets
-are supplied to it only as build inputs. RTX-enabled native builds recompile
-and restage every SPIR-V stage so the shader ray-payload ABI cannot lag behind
-the host scene upload.
+OpenGL remains the default. The `rtx` selection currently exits with a clear
+not-implemented error and never silently substitutes OpenGL. The host-owned
+`src/renderer_rtx.h` and `src/renderer_rtx_stub.c` preserve only the clean-room
+backend boundary for a future implementation. No ray-tracing library, shader,
+sidecar, material pipeline, or external renderer dependency is included.
 
 The same renderer compiles to a preloaded WebGL build through Emscripten:
 
@@ -510,10 +425,10 @@ from the first game port. The initial mappings are:
   `newaliencontrol.s:ViewpointToDraw`, and `objdrawhires.s`. It does not
   depend on `orderzones.s:Zone_OrderZones`, PVS errata, or portal traversal.
 
-`src/renderer.h` consumes `src/scene_frame.h` without exposing OpenGL or Vulkan
-to game simulation. `src/renderer_opengl.c` implements OpenGL/WebGL and
-the public RTX submodule implements native Vulkan ray tracing. Both keep the
-renderer-neutral scene and render-view contract rather than
+`src/renderer.h` consumes `src/scene_frame.h` without exposing a graphics API
+to game simulation. `src/renderer_opengl.c` implements OpenGL/WebGL, while the
+clean-room RTX stub reserves the same renderer-neutral scene and render-view
+contract for future work rather than
 depending on Amiga framebuffer, C2P, copper, or software-rasterizer state. It
 may submit a complete loaded level every frame; any visibility culling is an
 optional native optimisation rather than a porting prerequisite.

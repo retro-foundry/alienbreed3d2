@@ -464,9 +464,7 @@ static int scene_sprite_commands_match_source(const SceneFrame *frame,
             return 0;
         }
         if (slot[16u] == 0u) {
-            /* defs.i:OBJ_TYPE_ALIEN remains renderer-neutral object identity;
-             * the RTX backend uses it to distinguish enemy bitmap planes
-             * from other source-lit object art. */
+            /* defs.i:OBJ_TYPE_ALIEN remains renderer-neutral object identity. */
             expected_flags |= SCENE_SPRITE_FLAG_ALIEN;
         } else if (slot[16u] == 2u) {
             expected_flags |= SCENE_SPRITE_FLAG_PROJECTILE;

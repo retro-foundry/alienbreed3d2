@@ -4,24 +4,10 @@
 # Later builds leave your ab3d2.ini untouched. Boolean values accept
 # 0/1, false/true, no/yes, or off/on.
 
-# Graphics backend. OpenGL is the default and the only backend used by WebGL.
-# Select rtx only on a native Vulkan ray-tracing capable system.
+# Graphics backend. OpenGL is the implemented desktop and WebGL backend.
+# The rtx value reserves a clean-room integration boundary and currently exits
+# with an explicit not-implemented error.
 renderer=opengl
-
-# RTX quality controls. 100% resolution, four denoiser passes, and Q2RTX bloom
-# are the quality defaults. Lower resolution or two denoiser passes trade
-# detail/noise stability for performance.
-rtx_resolution_scale=100
-rtx_denoiser_iterations=4
-rtx_bloom=1
-
-# Dynamic resolution scales from 50% up to rtx_resolution_scale to meet the
-# target frame rate. It is opt-in so a fixed quality level remains the default.
-rtx_dynamic_resolution=0
-rtx_target_fps=60
-# final, albedo, normal, roughness, metalness, emissive, direct, indirect,
-# specular, or variance.
-rtx_debug_view=final
 
 # Campaign level A through P, written one-indexed.
 start_level=1

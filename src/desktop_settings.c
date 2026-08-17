@@ -201,67 +201,6 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         }
         return 1;
     }
-    if (desktop_settings_equals_ci(key, "rtx_target_fps")) {
-        if (!desktop_settings_parse_unsigned(value, 240u, &number) ||
-            number < 30u) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_target_fps must be 30 through 240",
-                           line_number);
-            return 0;
-        }
-        settings->rtx_target_fps = (uint16_t)number;
-        return 1;
-    }
-    if (desktop_settings_equals_ci(key, "rtx_dynamic_resolution")) {
-        if (!desktop_settings_parse_bool(value, &settings->rtx_dynamic_resolution)) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_dynamic_resolution must be a boolean",
-                           line_number);
-            return 0;
-        }
-        return 1;
-    }
-    if (desktop_settings_equals_ci(key, "rtx_resolution_scale")) {
-        if (!desktop_settings_parse_unsigned(value, 100u, &number) ||
-            number < 50u) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_resolution_scale must be 50 through 100",
-                           line_number);
-            return 0;
-        }
-        settings->rtx_resolution_scale = (uint8_t)number;
-        return 1;
-    }
-    if (desktop_settings_equals_ci(key, "rtx_denoiser_iterations")) {
-        if (!desktop_settings_parse_unsigned(value, 4u, &number) ||
-            (number != 2u && number != 4u)) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_denoiser_iterations must be 2 or 4",
-                           line_number);
-            return 0;
-        }
-        settings->rtx_denoiser_iterations = (uint8_t)number;
-        return 1;
-    }
-    if (desktop_settings_equals_ci(key, "rtx_bloom")) {
-        if (!desktop_settings_parse_bool(value, &settings->rtx_bloom)) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_bloom must be a boolean",
-                           line_number);
-            return 0;
-        }
-        return 1;
-    }
-    if (desktop_settings_equals_ci(key, "rtx_debug_view")) {
-        if (!renderer_rtx_debug_view_from_string(
-                value, &settings->rtx_debug_view)) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_debug_view must be final, albedo, normal, roughness, metalness, emissive, direct, indirect, specular, variance, history, or gradients",
-                           line_number);
-            return 0;
-        }
-        return 1;
-    }
     return 1;
 }
 
@@ -275,12 +214,6 @@ void desktop_settings_default(DesktopSettings *settings)
     settings->volume = 100u;
     settings->world_light_tessellation = 4u;
     settings->renderer_backend = RENDERER_BACKEND_OPENGL;
-    settings->rtx_dynamic_resolution = 0u;
-    settings->rtx_resolution_scale = 100u;
-    settings->rtx_denoiser_iterations = 4u;
-    settings->rtx_bloom = UINT8_MAX;
-    settings->rtx_target_fps = 60u;
-    settings->rtx_debug_view = RENDERER_RTX_DEBUG_FINAL;
 }
 
 int desktop_settings_parse(DesktopSettings *settings, const char *text, size_t text_size,

@@ -481,9 +481,7 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
     fprintf(stdout,
             "[SETTINGS] start_level=%u infinite_health=%u infinite_ammo=%u all_weapons=%u "
             "all_keys=%u volume=%u quicksave_load=%u load_autosave=%u always_run=%u "
-            "world_light_tessellation=%u renderer=%s rtx_dynamic_resolution=%u "
-            "rtx_resolution_scale=%u rtx_denoiser_iterations=%u rtx_bloom=%u "
-            "rtx_target_fps=%u rtx_debug_view=%s\n",
+            "world_light_tessellation=%u renderer=%s\n",
             (unsigned)(app->desktop_settings.start_level_index + 1u),
             app->desktop_settings.infinite_health != 0u ? 1u : 0u,
             app->desktop_settings.infinite_ammo != 0u ? 1u : 0u,
@@ -494,13 +492,7 @@ static int game_app_load_desktop_settings(GameApp *app, char *error, size_t erro
             app->desktop_settings.load_autosave != 0u ? 1u : 0u,
             app->desktop_settings.always_run != 0u ? 1u : 0u,
             (unsigned)app->desktop_settings.world_light_tessellation,
-            renderer_backend_name(app->desktop_settings.renderer_backend),
-            app->desktop_settings.rtx_dynamic_resolution != 0u ? 1u : 0u,
-            (unsigned)app->desktop_settings.rtx_resolution_scale,
-            (unsigned)app->desktop_settings.rtx_denoiser_iterations,
-            app->desktop_settings.rtx_bloom != 0u ? 1u : 0u,
-            (unsigned)app->desktop_settings.rtx_target_fps,
-            renderer_rtx_debug_view_name(app->desktop_settings.rtx_debug_view));
+            renderer_backend_name(app->desktop_settings.renderer_backend));
     return 1;
 }
 
@@ -596,15 +588,6 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         app->has_world_light_tessellation_from_command_line != 0u ?
         app->world_light_tessellation_from_command_line :
         app->desktop_settings.world_light_tessellation;
-    renderer_config.rtx_dynamic_resolution =
-        app->desktop_settings.rtx_dynamic_resolution;
-    renderer_config.rtx_resolution_scale =
-        app->desktop_settings.rtx_resolution_scale;
-    renderer_config.rtx_denoiser_iterations =
-        app->desktop_settings.rtx_denoiser_iterations;
-    renderer_config.rtx_bloom = app->desktop_settings.rtx_bloom;
-    renderer_config.rtx_target_fps = app->desktop_settings.rtx_target_fps;
-    renderer_config.rtx_debug_view = app->desktop_settings.rtx_debug_view;
     fprintf(stdout, "[RENDER] backend=%s world_light_tessellation=%u\n",
             renderer_backend_name(renderer_config.backend),
             (unsigned)renderer_config.world_light_tessellation);
@@ -615,8 +598,6 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         fprintf(stderr, "[RENDER] %s\n", error);
         return 0;
     }
-    game_bootstrap_set_rtx_visibility_required(
-        &app->game, renderer_config.backend == RENDERER_BACKEND_VULKAN_RTX);
     if (!game_app_prepare_renderer_resources(app, error, sizeof(error))) {
         fprintf(stderr, "[RENDER] %s\n", error);
         return 0;
@@ -775,7 +756,6 @@ static int game_app_present_level_transition(GameApp *app, uint8_t opacity,
     SceneCommand presentation;
     int has_camera = 0;
     int has_environment = 0;
-    int has_lighting = 0;
 
     if (!app) {
         return 0;
@@ -794,17 +774,9 @@ static int game_app_present_level_transition(GameApp *app, uint8_t opacity,
                 return 0;
             }
             has_environment = 1;
-        } else if (command->type == SCENE_COMMAND_LIGHTING && !has_lighting) {
-            /* The transition draws no world geometry, but RTX still requires
-             * the loaded level's validated immutable visibility view. */
-            if (!scene_frame_submit(&app->frame, command)) {
-                return 0;
-            }
-            has_lighting = 1;
         }
     }
-    if (!has_camera || !has_environment ||
-        (app->game.rtx_visibility_required != 0u && !has_lighting)) {
+    if (!has_camera || !has_environment) {
         if (error && error_size > 0u) {
             (void)snprintf(error, error_size,
                            "level transition is missing required scene state");
@@ -1355,14 +1327,6 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
-        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX &&
-            renderer_last_indirect_light_coverage(app->renderer) == 0u) {
-            fprintf(stderr,
-                    "[RENDER] RTX smoke traced no indirect-light intersections "
-                    "in Level %c\n", (char)('A' + level_index));
-            app->exit_code = 1;
-            return 0;
-        }
         source_text_background_checksum = renderer_last_frame_rgb_checksum(app->renderer);
         {
             SceneCommand message_command;
@@ -1584,8 +1548,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
             return 0;
         }
         /* Compare two explicit source states for OpenGL world lighting and
-         * the renderer-neutral companion overlay. RTX world transport is
-         * driven by traced emissive geometry. */
+         * the renderer-neutral companion overlay. */
         for (uint16_t zone_index = 0u;
              zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
             for (uint16_t point_index = 0u;
@@ -1603,9 +1566,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
         }
         source_lighting_checksum = renderer_last_frame_rgb_checksum(app->renderer);
         /* OpenGL world geometry must react directly to live
-         * CurrentPointBrights. RTX world lighting is derived from traced
-         * emissive geometry; source lighting remains confined to the
-         * non-PBR presentation overlays. */
+         * CurrentPointBrights. */
         for (uint16_t zone_index = 0u;
              zone_index < app->game.dynamic_level.runtime.zone_count; ++zone_index) {
             for (uint16_t point_index = 0u;
@@ -1630,225 +1591,13 @@ static int game_app_run_gpu_smoke(GameApp *app)
             app->exit_code = 1;
             return 0;
         }
-        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX &&
-            level_index == 1u) {
-            SceneCamera authored_camera;
-            SceneCamera history_camera;
-            SceneCamera *moving_camera = NULL;
-            size_t translation_attempts;
-            size_t translation_accepted;
-            size_t rotation_attempts;
-            size_t rotation_accepted;
-
-            for (size_t command_index = 0u;
-                 command_index < app->frame.count; ++command_index) {
-                if (app->frame.commands[command_index].type ==
-                    SCENE_COMMAND_CAMERA) {
-                    moving_camera =
-                        &app->frame.commands[command_index].data.camera;
-                    break;
-                }
-            }
-            if (!moving_camera) {
-                fprintf(stderr,
-                        "[SCENE] RTX motion-history smoke has no camera\n");
-                app->exit_code = 1;
-                return 0;
-            }
-            /* Level B's authored view produces per-light secondary samples.
-             * Level A's spawn is deliberately in an empty Q2 light-list
-             * region, so it cannot prove history consumption. */
-            authored_camera = *moving_camera;
-            history_camera = authored_camera;
-            *moving_camera = history_camera;
-            for (uint32_t convergence_frame = 0u;
-                 convergence_frame < 3u; ++convergence_frame) {
-                if (!renderer_present(
-                        app->renderer, &app->frame, &app->view,
-                        error, sizeof(error))) {
-                    fprintf(stderr,
-                            "[RENDER] RTX per-light convergence frame "
-                            "failed: %s\n", error);
-                    *moving_camera = authored_camera;
-                    app->exit_code = 1;
-                    return 0;
-                }
-            }
-            if (renderer_last_light_shadow_samples(app->renderer) == 0u ||
-                renderer_last_per_light_history_samples(app->renderer) == 0u) {
-                fprintf(stderr,
-                        "[RENDER] RTX per-light history was not consumed "
-                        "(shadow=%zu history=%zu)\n",
-                        renderer_last_light_shadow_samples(app->renderer),
-                        renderer_last_per_light_history_samples(app->renderer));
-                *moving_camera = authored_camera;
-                app->exit_code = 1;
-                return 0;
-            }
-            fprintf(stdout,
-                    "[RENDER] RTX per-light history consumed "
-                    "(shadow=%zu history=%zu)\n",
-                    renderer_last_light_shadow_samples(app->renderer),
-                    renderer_last_per_light_history_samples(app->renderer));
-            ++moving_camera->position.x;
-            moving_camera->source_position_x_16_16 += INT32_C(65536);
-            if (!renderer_present(
-                    app->renderer, &app->frame, &app->view,
-                    error, sizeof(error))) {
-                *moving_camera = authored_camera;
-                fprintf(stderr,
-                        "[RENDER] RTX motion-history frame failed: %s\n",
-                        error);
-                app->exit_code = 1;
-                return 0;
-            }
-            translation_attempts =
-                renderer_last_secondary_history_attempts(app->renderer);
-            translation_accepted =
-                renderer_last_secondary_history_accepted(app->renderer);
-            *moving_camera = history_camera;
-            if (translation_attempts == 0u ||
-                translation_accepted > translation_attempts ||
-                (double)translation_accepted /
-                    (double)translation_attempts < 0.25) {
-                *moving_camera = authored_camera;
-                fprintf(stderr,
-                        "[RENDER] RTX camera translation rejected too much "
-                        "secondary-light history (accepted=%zu attempted=%zu)\n",
-                        translation_accepted, translation_attempts);
-                app->exit_code = 1;
-                return 0;
-            }
-            /* Restore the fixture before testing angular reprojection, so
-             * yaw is measured independently from translation. */
-            if (!renderer_present(
-                    app->renderer, &app->frame, &app->view,
-                    error, sizeof(error))) {
-                *moving_camera = authored_camera;
-                fprintf(stderr,
-                        "[RENDER] RTX motion-history camera restore "
-                        "failed: %s\n", error);
-                app->exit_code = 1;
-                return 0;
-            }
-            moving_camera->yaw = (uint16_t)(moving_camera->yaw + 128u);
-            if (!renderer_present(
-                    app->renderer, &app->frame, &app->view,
-                    error, sizeof(error))) {
-                *moving_camera = authored_camera;
-                fprintf(stderr,
-                        "[RENDER] RTX rotation-history frame failed: %s\n",
-                        error);
-                app->exit_code = 1;
-                return 0;
-            }
-            rotation_attempts =
-                renderer_last_secondary_history_attempts(app->renderer);
-            rotation_accepted =
-                renderer_last_secondary_history_accepted(app->renderer);
-            *moving_camera = authored_camera;
-            if (rotation_attempts == 0u ||
-                rotation_accepted > rotation_attempts ||
-                (double)rotation_accepted /
-                    (double)rotation_attempts < 0.25) {
-                fprintf(stderr,
-                        "[RENDER] RTX camera rotation rejected too much "
-                        "secondary-light history (accepted=%zu attempted=%zu)\n",
-                        rotation_accepted, rotation_attempts);
-                app->exit_code = 1;
-                return 0;
-            }
-            fprintf(stdout,
-                    "[RENDER] RTX camera motion reprojected secondary "
-                    "history (translation=%zu/%zu rotation=%zu/%zu pixels)\n",
-                    translation_accepted, translation_attempts,
-                    rotation_accepted, rotation_attempts);
-        }
-        /* The companion is primary PBR geometry.  Its source projection must
-         * remain visible and its resolved material lighting must be nonzero;
-         * neither property may be inferred from CurrentPointBrights. */
+        /* The companion source projection must remain visible. */
         if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
             fprintf(stderr,
                     "[RENDER] GPU smoke view weapon has no visible vector coverage "
                     "for Level %c\n", (char)('A' + level_index));
             app->exit_code = 1;
             return 0;
-        }
-        /* Level A supplies the source backdrop used as the RTX environment.
-         * Other levels may deliberately have neither emissive visibility nor
-         * a backdrop, so zero radiance there is physically valid for metal. */
-        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX && level_index == 0u &&
-            renderer_last_view_weapon_rgb_checksum(app->renderer) == 0u) {
-            fprintf(stderr,
-                    "[RENDER] RTX smoke companion PBR path produced no resolved radiance "
-                    "from Level A's environment\n");
-            app->exit_code = 1;
-            return 0;
-        }
-        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX &&
-            level_index == (app->gpu_smoke_all_levels != 0u ? 1u :
-                                                               first_level)) {
-            static const RendererRtxDebugView capture_views[] = {
-                RENDERER_RTX_DEBUG_ALBEDO,
-                RENDERER_RTX_DEBUG_NORMAL,
-                RENDERER_RTX_DEBUG_ROUGHNESS,
-                RENDERER_RTX_DEBUG_METALNESS,
-                RENDERER_RTX_DEBUG_EMISSIVE,
-                RENDERER_RTX_DEBUG_DIRECT,
-                RENDERER_RTX_DEBUG_INDIRECT,
-                RENDERER_RTX_DEBUG_SPECULAR,
-                RENDERER_RTX_DEBUG_VARIANCE
-            };
-            uint64_t captures[
-                sizeof(capture_views) / sizeof(capture_views[0])] = {0};
-            int capture_has_direct =
-                renderer_last_direct_light_energy(app->renderer) != 0u;
-
-            for (size_t capture = 0u;
-                 capture < sizeof(capture_views) / sizeof(capture_views[0]);
-                 ++capture) {
-                if (!renderer_set_rtx_debug_view(
-                        app->renderer, capture_views[capture]) ||
-                    !renderer_present(app->renderer, &app->frame, &app->view,
-                                      error, sizeof(error))) {
-                    fprintf(stderr,
-                            "[RENDER] RTX %s debug capture failed: %s\n",
-                            renderer_rtx_debug_view_name(capture_views[capture]),
-                            error);
-                    app->exit_code = 1;
-                    return 0;
-                }
-                captures[capture] =
-                    renderer_last_frame_rgb_checksum(app->renderer);
-            }
-            /* The direct-light diagnostic includes diffuse and specular
-             * energy. A fully metallic view can therefore have a black
-             * direct-diffuse channel while its specular channel is live. */
-            if (captures[0] == captures[1] || captures[2] == captures[3] ||
-                (capture_has_direct && captures[5] == captures[6] &&
-                 captures[7] == captures[6])) {
-                fprintf(stderr,
-                        "[RENDER] RTX debug captures do not contain distinct PBR/lighting "
-                        "channels: albedo=%llu normal=%llu roughness=%llu metalness=%llu "
-                        "emissive=%llu direct=%llu indirect=%llu specular=%llu variance=%llu\n",
-                        (unsigned long long)captures[0],
-                        (unsigned long long)captures[1],
-                        (unsigned long long)captures[2],
-                        (unsigned long long)captures[3],
-                        (unsigned long long)captures[4],
-                        (unsigned long long)captures[5],
-                        (unsigned long long)captures[6],
-                        (unsigned long long)captures[7],
-                        (unsigned long long)captures[8]);
-                app->exit_code = 1;
-                return 0;
-            }
-            if (!renderer_set_rtx_debug_view(
-                    app->renderer, app->desktop_settings.rtx_debug_view)) {
-                fprintf(stderr, "[RENDER] RTX debug capture restore failed\n");
-                app->exit_code = 1;
-                return 0;
-            }
         }
     }
     return 1;

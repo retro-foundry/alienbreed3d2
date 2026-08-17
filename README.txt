@@ -34,23 +34,12 @@ Edit ab3d2.ini beside the executable before starting the game. It supports:
 - load_autosave=0 or 1 (restore savegame.bin at startup and skip initial flavour text)
 - volume=0 through 100
 - always_run=0 or 1
-- renderer=opengl or rtx (opengl by default)
-- rtx_resolution_scale=50 through 100 (100/native by default)
-- rtx_denoiser_iterations=2 or 4 (4/Q2RTX quality by default)
-- rtx_bloom=0 or 1 (enabled by default)
-- rtx_dynamic_resolution=0 or 1 (disabled by default)
-- rtx_target_fps=30 through 240 (60 by default; used by dynamic resolution)
-- rtx_debug_view=final, albedo, normal, roughness, metalness, emissive,
-  direct, indirect, specular, or variance (final by default)
+- renderer=opengl or rtx (opengl by default; rtx is an unimplemented scaffold)
 - world_light_tessellation=1, 2, 4, or 8 (4 by default)
 
-The native RTX option requires a Vulkan ray-tracing-capable GPU and driver.
-It uses the supplied PBR textures, fresh per-pixel direct/indirect rays,
-emissive-light visibility, ASVGF-style filtering, and temporal upscaling. The
-RTX world and vector lighting ignores the original game's brightness and uses
-only emissive PBR textures for direct light, indirect bounce, reflections, and
-refractions. It reports a startup error when required Vulkan features or
-declared PBR files are unavailable. The Web build always uses OpenGL/WebGL.
+The RTX name is reserved for a future clean-room renderer. Selecting it reports
+that no implementation is present; it never silently substitutes OpenGL. The
+Web build always uses OpenGL/WebGL.
 
 With always_run=1, hold Shift to walk. With always_run=0, hold Shift to run.
 

@@ -34,7 +34,6 @@
 #include "object_observation.h"
 #include "player_runtime.h"
 #include "scene_frame.h"
-#include "scene_rtx_visibility.h"
 
 typedef struct {
     AssetBlob game_link;
@@ -90,9 +89,6 @@ typedef struct {
     AssetBlob level_data;
     AssetBlob level_graphics;
     AssetBlob level_clips;
-    AssetBlob rtx_visibility_asset;
-    SceneRtxVisibility rtx_visibility;
-    uint8_t rtx_visibility_required;
     /* modules/res.s:Res_LoadLevelData optional per-level source overrides. */
     AssetBlob level_floor_override;
     AssetBlob level_property_overrides;
@@ -131,8 +127,6 @@ int game_bootstrap_init(GameBootstrap *game, const char *data_root,
 /* Source mapping: controlloop.s:SETPLAYERS (Game_LevelNumber_w + 'a'). */
 int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                               uint16_t level_index, char *error, size_t error_size);
-/* Select strict RTX sidecar loading after renderer creation and before level load. */
-void game_bootstrap_set_rtx_visibility_required(GameBootstrap *game, int required);
 /* game_ReadMainMenu:playgame followed by game_DoneMenu and Game_Begin. */
 int game_bootstrap_start_selected_single_player(GameBootstrap *game, const char *data_root,
                                                 char *error, size_t error_size);

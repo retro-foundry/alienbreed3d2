@@ -4,8 +4,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "scene_rtx_visibility.h"
-
 /*
  * GPU-neutral producer contract. It deliberately contains no SDL, Amiga
  * bitplane, C2P, palette-raster, or graphics-API state. The command data is
@@ -168,15 +166,9 @@ typedef struct {
     uint16_t point_brightness_count;
     const int16_t (*zone_brightness)[2];
     uint16_t zone_count;
-    /*
-     * ZoneT+48 PVST flattened as one viewer-zone bit row per source zone.
-     * This remains the authored source topology used by gameplay and by
-     * temporal surface validation; it is not the RTX light-list authority.
-     */
+    /* ZoneT+48 PVST flattened as one viewer-zone bit row per source zone. */
     const uint8_t *zone_potential_visibility;
     uint16_t zone_potential_visibility_stride;
-    /* Q2RTX BSP cluster/PVS authority; present only for an RTX-required load. */
-    const SceneRtxVisibility *rtx_visibility;
     /* Presentation phase 0..interval-1 for newanims.s:brightanim. */
     uint8_t ambient_animation_phase_tick;
     uint8_t ambient_animation_interval_ticks;
@@ -238,8 +230,7 @@ enum {
     /* newanims.s:ItsABullet's non-zero ShotT_Status_b stationary pop path. */
     SCENE_SPRITE_FLAG_PROJECTILE_CONTACT = 1u << 5,
     /* defs.i:OBJ_TYPE_ALIEN. Keep this source identity distinct from the
-     * bitmap/vector draw mode so an RTX backend can route only live enemies
-     * through its material path. */
+     * bitmap/vector draw mode for backend-specific presentation. */
     SCENE_SPRITE_FLAG_ALIEN = 1u << 6
 };
 
