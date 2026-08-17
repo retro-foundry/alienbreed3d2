@@ -497,6 +497,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   set_tests_properties(ab3d2_dxr_material_builder_test PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
   if(AB3D2_ENABLE_DXR)
+    add_executable(ab3d2_dxr_brdf_test tests/dxr_brdf_test.cpp)
+    set_target_properties(ab3d2_dxr_brdf_test
+                          PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+                                     CXX_EXTENSIONS OFF)
+    target_include_directories(ab3d2_dxr_brdf_test PRIVATE src)
+    add_test(NAME ab3d2_dxr_brdf_test
+             COMMAND $<TARGET_FILE:ab3d2_dxr_brdf_test>)
     add_executable(ab3d2_dxr_material_package_test
       tests/dxr_material_package_test.cpp
       src/renderer_dxr/dxr_materials.cpp
