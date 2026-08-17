@@ -635,17 +635,19 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     UINT64 total_bytes = 0;
     device->GetCopyableFootprints(&texture_description, 0, 1, 0, &footprint,
                                   &row_count, &row_bytes, &total_bytes);
-    constexpr std::array<const wchar_t *, 4> texture_names = {
+    constexpr std::array<const wchar_t *, 5> texture_names = {
         L"AB3D2 DXR Base Color Atlas",
         L"AB3D2 DXR Normal Atlas",
         L"AB3D2 DXR Metalness Atlas",
         L"AB3D2 DXR Roughness Atlas",
+        L"AB3D2 DXR Emissive Atlas",
     };
-    constexpr std::array<const wchar_t *, 4> upload_names = {
+    constexpr std::array<const wchar_t *, 5> upload_names = {
         L"AB3D2 DXR Base Color Atlas Upload",
         L"AB3D2 DXR Normal Atlas Upload",
         L"AB3D2 DXR Metalness Atlas Upload",
         L"AB3D2 DXR Roughness Atlas Upload",
+        L"AB3D2 DXR Emissive Atlas Upload",
     };
     for (size_t channel = 0; channel < atlas_textures_.size(); ++channel) {
         result = device->CreateCommittedResource(
@@ -688,7 +690,7 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         command_list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
     }
 
-    std::array<D3D12_RESOURCE_BARRIER, 7> uploads = {
+    std::array<D3D12_RESOURCE_BARRIER, 8> uploads = {
         transition(vertex_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
         transition(material_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
@@ -702,6 +704,8 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         transition(atlas_textures_[2].Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
         transition(atlas_textures_[3].Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(atlas_textures_[4].Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
     };
     command_list->ResourceBarrier(static_cast<UINT>(uploads.size()), uploads.data());
