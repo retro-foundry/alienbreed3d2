@@ -69,7 +69,7 @@ extern "C" int renderer_rtx_prepare_resources(
     if (!renderer || !renderer->implementation || !catalog ||
         !out_prepared_vector_material_count) {
         copy_error(error, error_size,
-                   "D3D12/DXR diagnostic resource preparation received invalid state");
+                   "D3D12/DXR resource preparation received invalid state");
         return 0;
     }
     *out_prepared_vector_material_count = 0;
@@ -91,18 +91,18 @@ extern "C" int renderer_rtx_present(
 {
     if (!renderer || !renderer->implementation || !frame || !view) {
         copy_error(error, error_size,
-                   "D3D12/DXR diagnostic presentation received invalid state");
+                   "D3D12/DXR presentation received invalid state");
         return 0;
     }
     try {
         std::string implementation_error;
-        if (!renderer->implementation->present(implementation_error)) {
+        if (!renderer->implementation->present(*frame, *view, implementation_error)) {
             copy_error(error, error_size, implementation_error);
             return 0;
         }
         return 1;
     } catch (const std::exception &exception) {
-        exception_error(error, error_size, "D3D12/DXR diagnostic presentation",
+        exception_error(error, error_size, "D3D12/DXR presentation",
                         exception);
         return 0;
     }
@@ -135,6 +135,6 @@ extern "C" size_t renderer_rtx_last_projectile_coverage(const RendererRtx *rende
 
 extern "C" uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *renderer)
 {
-    (void)renderer;
-    return UINT64_C(0);
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_rgb_checksum() : UINT64_C(0);
 }

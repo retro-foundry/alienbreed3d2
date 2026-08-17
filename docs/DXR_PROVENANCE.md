@@ -2,20 +2,22 @@
 
 This record applies to the clean-room Windows D3D12/DXR renderer introduced by
 Phase 2 of `DXR_RAY_RECONSTRUCTION_PLAN.md` and its renderer-native material
-build begun in Phase 4.
+and raw scene/image increments from Phases 4--7.
 
 ## Project-authored implementation
 
 The files under `src/renderer_dxr/`, `src/renderer_rtx.cpp`, and
 `tests/renderer_rtx_foundation_test.c` were written for this repository from
-the clean baseline. The diagnostic HLSL is project-authored. No source,
+the clean baseline. All diagnostic, ray-tracing, and presentation HLSL is
+project-authored. No source,
 shader, generated table, binary, scene data, or asset was imported from
 Q2RTX, a removed renderer, or repository history before clean baseline
 `86241dd`.
 
-The Phase 2 build produces DXIL in the build tree and stages only the two
-project-built diagnostic shader objects beside enabled executables. It does
-not include, link, discover, load, or stage NVIDIA Streamline or NGX files.
+The enabled build produces DXIL in the build tree and stages only its
+project-built diagnostic, ray-tracing, and presentation shader objects beside
+enabled executables. It does not include, link, discover, load, or stage NVIDIA
+Streamline or NGX files.
 
 The Phase 4 material build reads only the committed project-authored
 `textures_pbr/*.png` sheets and `data/renderer_dxr/material_sources.json`.
@@ -40,6 +42,17 @@ coordinate evidence remains `modules/transform.s:RotateLevelPts`,
 contract. OpenGL now calls this renderer-neutral implementation; no geometry
 rule came from a removed renderer or generated Q2 scene.
 
+`src/renderer_dxr/dxr_scene.cpp` independently consumes that shared geometry
+and the public `SceneFrame` contract. It decodes source wall data through the
+existing project `source_world_material_decode` path, creates a renderer-local
+albedo atlas, and constructs project-authored vertex/material buffers and
+BLAS/TLAS resources. The current ray shader uses a conventional per-pixel
+xorshift generator, jittered primary ray, cosine-weighted hemisphere sample,
+Lambertian source-albedo response, and analytic sky gradient. No constants,
+tables, shader text, scene data, or generated resources were imported from an
+external renderer. The committed PBR material build outputs are staged but are
+not yet consumed by this runtime slice.
+
 ## Approved conceptual references inspected
 
 - `binaryfoundry/dxr-demo`, commit
@@ -55,11 +68,12 @@ rule came from a removed renderer or generated Q2 scene.
 - `binaryfoundry/fisica-rt`, commit
   `1784cba270676b8c49f85a9022041dc98528ab54`, MIT, Copyright 2019 Paul
   Alexander Welch. The plan-listed geometry, camera, noise, environment, and
-  ray-tracing pipeline files were inspected. No Phase 2 code, shader, table,
-  or algorithm was copied or adapted from this reference.
+  ray-tracing pipeline files were inspected for conventional concepts only.
+  No code, shader, table, constant set, algorithm implementation, or data was
+  copied or adapted from this reference.
 
 Because no substantial reference implementation was copied, no third-party
-source file or licence text is embedded in the Phase 2 source set.
+source file or licence text is embedded in the DXR source set.
 
 ## Toolchain evidence
 

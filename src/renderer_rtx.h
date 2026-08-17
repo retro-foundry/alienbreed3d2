@@ -10,9 +10,10 @@
 
 /*
  * Clean-room boundary for the native RTX backend.  A disabled or unsupported
- * build supplies the fail-fast stub.  The Phase 2 Windows implementation is
- * deliberately a D3D12/DXR diagnostic presenter and consumes no SceneFrame
- * content until the later scene milestones are implemented.
+ * build supplies the fail-fast stub.  The enabled Windows implementation ray
+ * traces opaque SceneFrame world geometry into a fresh noisy image.  Sprites,
+ * vector objects, the view weapon, HUD, and text remain outside this raw
+ * milestone and therefore continue to report zero coverage.
  */
 typedef struct RendererRtx RendererRtx;
 

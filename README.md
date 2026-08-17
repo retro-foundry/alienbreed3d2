@@ -37,12 +37,14 @@ session. Supported keys are:
   subdivision. The default is `4`; `1` retains the strict source mesh; and
 - `renderer=opengl|rtx` selects the desktop graphics backend. It defaults to
   `opengl`. A normal build retains the clean-room RTX fail-fast stub. A native
-  Windows build configured with `AB3D2_ENABLE_DXR=ON` instead presents the
-  Phase 2 D3D12/DXR diagnostic pattern; it does not render game content yet.
-  That build also deterministically extracts the project-authored
-  `textures_pbr` sheets into separate renderer-native PBR textures and stages
-  their hashed manifest under `renderer_dxr/materials`; those textures are not
-  used by the diagnostic pass yet.
+  Windows build configured with `AB3D2_ENABLE_DXR=ON` ray traces the opaque
+  `SceneFrame` world into a fresh, visibly noisy HDR image. It currently uses
+  decoded source albedo with a stochastic Lambertian environment sample; it
+  does not yet draw sprites, vector objects, the weapon, HUD, or text. That
+  build also deterministically extracts the project-authored `textures_pbr`
+  sheets into separate renderer-native PBR textures and stages their hashed
+  manifest under `renderer_dxr/materials`; runtime sampling of those PBR
+  channels remains to be implemented.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
@@ -388,13 +390,13 @@ ctest --test-dir build/pc --output-on-failure
 cmake --build build/pc --config Debug --target ab3d2_gpu_smoke
 ```
 
-### Windows D3D12/DXR diagnostic foundation
+### Windows D3D12/DXR raw scene renderer
 
 Set `renderer=rtx` in `ab3d2.ini`, or launch once with `--renderer rtx`.
 OpenGL remains the default and an explicit RTX request never silently
 substitutes it. The default, non-Windows, and Web configurations retain the
-clear fail-fast stub. On native Windows, opt into the current Phase 2
-foundation with:
+clear fail-fast stub. On native Windows, opt into the experimental renderer
+with:
 
 ```powershell
 cmake -S . -B build/dxr -A x64 `
@@ -406,21 +408,37 @@ ctest --test-dir build/dxr -C Debug -R "dxr|rtx" --output-on-failure
 
 `dxc.exe` is discovered from `PATH` when no explicit override is supplied.
 The configure log records its version and SHA-256, and the project compiles
-the diagnostic HLSL as Shader Model 6.6 with warnings treated as errors. Debug
+its HLSL as Shader Model 6.6 with warnings treated as errors. Debug
 builds require the Windows Graphics Tools optional feature for the D3D12 debug
 layer. `AB3D2_DXR_GPU_VALIDATION=ON` additionally enables the much slower
 GPU-based validation mode.
 
 The enabled backend creates a native SDL/`HWND` window without OpenGL,
 selects a high-performance hardware adapter with feature level 12_0,
-`ID3D12Device5`, and a nonzero DXR tier, then presents a project-authored SDR
-diagnostic triangle through a three-frame flip-discard swap chain. It handles
-resize, minimize/restore, fences, DRED reporting, and orderly shutdown. This
-phase deliberately consumes no `SceneFrame` geometry, material, sprite,
-weapon, HUD, or text command; all coverage metrics remain zero. Use
-`ab3d2_renderer_rtx_foundation_test` for the dedicated hidden multi-thousand-
-frame GPU check. The existing `--gpu-smoke` remains OpenGL-only because its
-assertions require scene and UI output.
+`ID3D12Device5`, and a nonzero DXR tier. It compiles opaque world surfaces from
+the renderer-neutral `SceneFrame`, uploads their positions, UVs, decoded source
+albedo atlas, and material indices, builds one BLAS and TLAS, and dispatches
+primary rays into a fresh `R16G16B16A16_FLOAT` image. A full-screen pass tone
+maps that result to the three-frame flip-discard swap chain. The current
+closest-hit shader takes one independent cosine-weighted Lambertian environment
+sample per hit, so geometry and texture mapping are visible and naturally
+grainy even inside sealed rooms. This is a primary-visibility milestone, not
+the complete Phase 7 PBR integrator: authored PBR channels, emitters, traced
+light visibility, specular response, and indirect bounces remain outstanding.
+
+Empty/non-world frames retain the diagnostic triangle. Resize,
+minimize/restore, fences, DRED reporting, and orderly shutdown remain covered.
+Use `ab3d2_renderer_rtx_foundation_test` for the hidden multi-thousand-frame
+lifecycle check and run the game-content check with:
+
+```powershell
+.\build\dxr\Debug\ab3d2.exe --gpu-smoke all --renderer rtx
+```
+
+The RTX smoke renders each Level A--P frame twice and requires two nonzero,
+different readback checksums, proving both game-derived output and fresh random
+sampling. Sprite, vector-object, weapon, projectile, HUD, and text coverage
+remain zero at this milestone.
 
 Streamline and Ray Reconstruction are not linked, loaded, discovered, or
 staged by this foundation. `AB3D2_ENABLE_STREAMLINE` remains gated until the
@@ -429,12 +447,14 @@ See [DXR renderer provenance](docs/DXR_PROVENANCE.md) and the
 [implementation plan](DXR_RAY_RECONSTRUCTION_PLAN.md) for the clean-room
 record.
 
-Phase 2 implementation provenance: the independently written device lifecycle
+Implementation provenance: the independently written device lifecycle
 consulted `dxr-demo` commit `d08175a58e2737eb87b3cb81eb55416e3fa89ee9`
 files `src/d3d12/Renderer.{hpp,cpp}`, `Context.hpp`, and `Frame.hpp` for the
 approved swap-chain, frame-context, allocator, and fence concepts. No source
-or shader was copied; the diagnostic HLSL is project-authored. `fisica-rt` was
-not used by this foundation, and no external runtime binary is staged.
+or shader was copied; all HLSL is project-authored. The plan-listed files from
+approved `fisica-rt` commit `1784cba270676b8c49f85a9022041dc98528ab54`
+were consulted only for DXR geometry/pipeline/camera/noise concepts. No external
+runtime binary is staged.
 
 The same renderer compiles to a preloaded WebGL build through Emscripten:
 
@@ -472,9 +492,9 @@ from the first game port. The initial mappings are:
 
 `src/renderer.h` consumes `src/scene_frame.h` without exposing a graphics API
 to game simulation. `src/renderer_opengl.c` implements OpenGL/WebGL, while the
-clean-room RTX boundary supplies either the fail-fast stub or the opt-in Phase
-2 Windows diagnostic foundation. It reserves the same renderer-neutral scene
-and render-view contract for later scene work rather than
+clean-room RTX boundary supplies either the fail-fast stub or the opt-in
+Windows D3D12/DXR renderer. Both backends use the same renderer-neutral scene
+and render-view contract rather than
 depending on Amiga framebuffer, C2P, copper, or software-rasterizer state. It
 may submit a complete loaded level every frame; any visibility culling is an
 optional native optimisation rather than a porting prerequisite.

@@ -173,7 +173,10 @@ bool DxrDevice::select_adapter_and_device(std::string &error)
             return false;
         }
         info_queue_->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, TRUE);
-        info_queue_->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, TRUE);
+        /* Errors are returned through check_debug_messages so hidden GPU
+         * validation reports their full text instead of terminating with the
+         * debug layer's 0x87a breakpoint exception. */
+        info_queue_->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, FALSE);
         info_queue_->ClearStoredMessages();
     } else {
         error = "D3D12 debug layer was enabled but ID3D12InfoQueue is unavailable";
@@ -313,6 +316,81 @@ bool DxrDevice::create_render_targets(std::string &error)
     return true;
 }
 
+bool DxrDevice::ensure_scene_readback(std::string &error)
+{
+    if (scene_readback_ && readback_width_ == width_ &&
+        readback_height_ == height_) {
+        return true;
+    }
+    scene_readback_.Reset();
+    D3D12_RESOURCE_DESC source_description =
+        frames_[frame_index_].render_target->GetDesc();
+    UINT64 row_bytes = 0;
+    device_->GetCopyableFootprints(
+        &source_description, 0, 1, 0, &readback_footprint_,
+        &readback_row_count_, &row_bytes, &readback_total_bytes_);
+    if (readback_total_bytes_ == 0u || readback_row_count_ != height_) {
+        error = "D3D12 returned invalid swap-chain readback footprints";
+        return false;
+    }
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_READBACK;
+    heap.CreationNodeMask = 1;
+    heap.VisibleNodeMask = 1;
+    D3D12_RESOURCE_DESC buffer = {};
+    buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer.Width = readback_total_bytes_;
+    buffer.Height = 1;
+    buffer.DepthOrArraySize = 1;
+    buffer.MipLevels = 1;
+    buffer.SampleDesc.Count = 1;
+    buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    const HRESULT result = device_->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &buffer, D3D12_RESOURCE_STATE_COMMON,
+        nullptr, IID_PPV_ARGS(&scene_readback_));
+    if (FAILED(result)) {
+        return fail_device_operation(
+            "ID3D12Device::CreateCommittedResource(scene readback)", result,
+            error);
+    }
+    scene_readback_->SetName(L"AB3D2 DXR Hidden Smoke Readback");
+    readback_width_ = width_;
+    readback_height_ = height_;
+    return true;
+}
+
+bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
+{
+    if (!scene_readback_ || !wait_for_fence(
+            fence_value, "wait for DXR hidden smoke readback", error)) {
+        return false;
+    }
+    D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_total_bytes_)};
+    void *mapped = nullptr;
+    const HRESULT result = scene_readback_->Map(0, &read_range, &mapped);
+    if (FAILED(result)) {
+        return fail_device_operation("ID3D12Resource::Map(scene readback)",
+                                     result, error);
+    }
+    uint64_t checksum = UINT64_C(1469598103934665603);
+    const auto *pixels = static_cast<const uint8_t *>(mapped) +
+        readback_footprint_.Offset;
+    for (UINT y = 0; y < readback_height_; ++y) {
+        const uint8_t *row = pixels +
+            static_cast<size_t>(y) * readback_footprint_.Footprint.RowPitch;
+        for (UINT x = 0; x < readback_width_; ++x) {
+            for (UINT component = 0; component < 3u; ++component) {
+                checksum ^= row[static_cast<size_t>(x) * 4u + component];
+                checksum *= UINT64_C(1099511628211);
+            }
+        }
+    }
+    D3D12_RANGE no_write = {0, 0};
+    scene_readback_->Unmap(0, &no_write);
+    last_scene_rgb_checksum_ = checksum;
+    return true;
+}
+
 bool DxrDevice::initialize(HWND window, bool hidden_window, std::string &error)
 {
     RECT client = {};
@@ -407,13 +485,15 @@ bool DxrDevice::resize(UINT width, UINT height, std::string &error)
     return create_render_targets(error) && check_debug_messages(error);
 }
 
-bool DxrDevice::render(const DxrPipeline &pipeline, std::string &error)
+bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
+                       const RenderView &view, std::string &error)
 {
     RECT client = {};
+    bool scene_changed = false;
 
     if (!device_ || !swap_chain_ || !pipeline.pipeline_state() ||
         !pipeline.root_signature()) {
-        error = "DXR diagnostic render received incomplete device or pipeline state";
+        error = "DXR render received incomplete device or pipeline state";
         return false;
     }
     if (IsIconic(window_)) {
@@ -432,6 +512,12 @@ bool DxrDevice::render(const DxrPipeline &pipeline, std::string &error)
     if (!resize(static_cast<UINT>(client_width), static_cast<UINT>(client_height), error)) {
         return false;
     }
+    if (!pipeline.update_scene(scene_frame, scene_changed, error)) {
+        return false;
+    }
+    if (scene_changed && !flush(error)) {
+        return false;
+    }
 
     frame_index_ = swap_chain_->GetCurrentBackBufferIndex();
     if (frame_index_ >= frame_count) {
@@ -446,7 +532,7 @@ bool DxrDevice::render(const DxrPipeline &pipeline, std::string &error)
     if (FAILED(result)) {
         return fail_device_operation("ID3D12CommandAllocator::Reset", result, error);
     }
-    result = command_list_->Reset(frame.command_allocator.Get(), pipeline.pipeline_state());
+    result = command_list_->Reset(frame.command_allocator.Get(), nullptr);
     if (FAILED(result)) {
         return fail_device_operation("ID3D12GraphicsCommandList::Reset", result, error);
     }
@@ -455,9 +541,6 @@ bool DxrDevice::render(const DxrPipeline &pipeline, std::string &error)
         frame.render_target.Get(), D3D12_RESOURCE_STATE_PRESENT,
         D3D12_RESOURCE_STATE_RENDER_TARGET);
     command_list_->ResourceBarrier(1, &to_render_target);
-    command_list_->SetGraphicsRootSignature(pipeline.root_signature());
-    command_list_->SetPipelineState(pipeline.pipeline_state());
-    command_list_->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     D3D12_VIEWPORT viewport = {};
     viewport.Width = static_cast<float>(width_);
     viewport.Height = static_cast<float>(height_);
@@ -468,13 +551,46 @@ bool DxrDevice::render(const DxrPipeline &pipeline, std::string &error)
     command_list_->OMSetRenderTargets(1, &frame.render_target_view, FALSE, nullptr);
     static constexpr FLOAT clear_color[4] = {0.018f, 0.028f, 0.052f, 1.0f};
     command_list_->ClearRenderTargetView(frame.render_target_view, clear_color, 0, nullptr);
-    command_list_->DrawInstanced(3, 1, 0, 0);
-    const D3D12_RESOURCE_BARRIER to_present = transition_barrier(
-        frame.render_target.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
-        D3D12_RESOURCE_STATE_PRESENT);
-    command_list_->ResourceBarrier(1, &to_present);
+    if (!pipeline.record(device_.Get(), command_list_.Get(), width_, height_,
+                         scene_frame, view, rendered_frame_count_++, error)) {
+        return false;
+    }
+    const bool capture_scene = hidden_window_ && pipeline.has_scene();
+    if (capture_scene) {
+        if (!ensure_scene_readback(error)) {
+            return false;
+        }
+        const D3D12_RESOURCE_BARRIER to_copy = transition_barrier(
+            frame.render_target.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        command_list_->ResourceBarrier(1, &to_copy);
+        D3D12_TEXTURE_COPY_LOCATION destination = {};
+        destination.pResource = scene_readback_.Get();
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        destination.PlacedFootprint = readback_footprint_;
+        D3D12_TEXTURE_COPY_LOCATION source = {};
+        source.pResource = frame.render_target.Get();
+        source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        command_list_->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
+        const D3D12_RESOURCE_BARRIER to_present = transition_barrier(
+            frame.render_target.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_PRESENT);
+        command_list_->ResourceBarrier(1, &to_present);
+    } else {
+        last_scene_rgb_checksum_ = 0;
+        const D3D12_RESOURCE_BARRIER to_present = transition_barrier(
+            frame.render_target.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_PRESENT);
+        command_list_->ResourceBarrier(1, &to_present);
+    }
     result = command_list_->Close();
     if (FAILED(result)) {
+        std::string debug_error;
+        if (!check_debug_messages(debug_error)) {
+            error = hresult_error("ID3D12GraphicsCommandList::Close", result) +
+                "; " + debug_error;
+            return false;
+        }
         return fail_device_operation("ID3D12GraphicsCommandList::Close", result, error);
     }
     ID3D12CommandList *command_lists[] = {command_list_.Get()};
@@ -490,7 +606,8 @@ bool DxrDevice::render(const DxrPipeline &pipeline, std::string &error)
         return fail_device_operation("ID3D12CommandQueue::Signal(frame)", result, error);
     }
     frame.fence_value = fence_value;
-    return check_debug_messages(error);
+    return (!capture_scene || collect_scene_readback(fence_value, error)) &&
+        check_debug_messages(error);
 }
 
 bool DxrDevice::presentation_size(int &width, int &height) const
@@ -618,6 +735,7 @@ void DxrDevice::shutdown()
         frame.fence_value = 0;
     }
     command_list_.Reset();
+    scene_readback_.Reset();
     render_target_view_heap_.Reset();
     swap_chain_.Reset();
     command_queue_.Reset();
@@ -633,6 +751,13 @@ void DxrDevice::shutdown()
     window_ = nullptr;
     width_ = 0;
     height_ = 0;
+    rendered_frame_count_ = 0;
+    last_scene_rgb_checksum_ = 0;
+    readback_width_ = 0;
+    readback_height_ = 0;
+    readback_row_count_ = 0;
+    readback_total_bytes_ = 0;
+    readback_footprint_ = {};
 }
 
 }  // namespace ab3d2::dxr

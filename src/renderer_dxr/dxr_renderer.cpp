@@ -158,23 +158,29 @@ bool DxrRenderer::initialize(int window_width, int window_height,
         return false;
     }
     debug_output(
-        "Phase 2 diagnostic foundation initialized; SceneFrame, HUD, weapon, and "
-        "game geometry coverage are deliberately zero");
+        "raw opaque SceneFrame DXR renderer initialized; sprites, vector objects, "
+        "HUD, weapon, and text remain outside this milestone");
     return true;
 }
 
-bool DxrRenderer::present(std::string &error)
+bool DxrRenderer::present(const SceneFrame &frame, const RenderView &view,
+                          std::string &error)
 {
     if (!device_ || !pipeline_) {
-        error = "D3D12/DXR diagnostic presenter is not initialized";
+        error = "D3D12/DXR renderer is not initialized";
         return false;
     }
-    return device_->render(*pipeline_, error);
+    return device_->render(*pipeline_, frame, view, error);
 }
 
 bool DxrRenderer::presentation_size(int &width, int &height) const
 {
     return device_ && device_->presentation_size(width, height);
+}
+
+uint64_t DxrRenderer::last_scene_rgb_checksum() const
+{
+    return device_ ? device_->last_scene_rgb_checksum() : UINT64_C(0);
 }
 
 }  // namespace ab3d2::dxr

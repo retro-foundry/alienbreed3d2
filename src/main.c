@@ -566,12 +566,6 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     app->frame_initialized = 1;
     renderer_config.backend = app->has_renderer_backend_from_command_line != 0u ?
         app->renderer_backend_from_command_line : app->desktop_settings.renderer_backend;
-    if (app->gpu_smoke && renderer_config.backend != RENDERER_BACKEND_OPENGL) {
-        fprintf(stderr,
-                "[RENDER] --gpu-smoke is an OpenGL scene/UI validation; "
-                "the Phase 2 RTX diagnostic uses ab3d2_renderer_rtx_foundation_test\n");
-        return 0;
-    }
     if (app->gpu_smoke) {
         /* Keep the opt-in hidden smoke bounded and independent of desktop layout. */
         renderer_config.window_width = 1280;
@@ -1325,6 +1319,32 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     (char)('A' + level_index), error);
             app->exit_code = 1;
             return 0;
+        }
+        if (smoke_backend == RENDERER_BACKEND_RTX) {
+            uint64_t first_checksum = renderer_last_frame_rgb_checksum(app->renderer);
+
+            /* The raw DXR milestone currently covers opaque SceneFrame world
+             * geometry only. Keep its all-level smoke focused on successful
+             * material decode, BLAS/TLAS construction, and DispatchRays; the
+             * OpenGL branch below retains the complete UI/effect contract. */
+            if (first_checksum == UINT64_C(0) ||
+                !renderer_present(app->renderer, &app->frame, &app->view,
+                                  error, sizeof(error)) ||
+                renderer_last_frame_rgb_checksum(app->renderer) == UINT64_C(0) ||
+                renderer_last_frame_rgb_checksum(app->renderer) == first_checksum) {
+                fprintf(stderr,
+                        "[RENDER] DXR raw smoke did not produce two distinct fresh samples "
+                        "for Level %c: %s\n",
+                        (char)('A' + level_index), error);
+                app->exit_code = 1;
+                return 0;
+            }
+            fprintf(stdout,
+                    "[RENDER] DXR Level %c fresh noisy samples=%016llx,%016llx\n",
+                    (char)('A' + level_index),
+                    (unsigned long long)first_checksum,
+                    (unsigned long long)renderer_last_frame_rgb_checksum(app->renderer));
+            continue;
         }
         if (renderer_last_ui_coverage(app->renderer) == 0u) {
             fprintf(stderr,

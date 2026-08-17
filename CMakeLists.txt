@@ -7,7 +7,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 option(AB3D2_ENABLE_DXR
-       "Build the Windows DirectX 12/DXR diagnostic renderer foundation" OFF)
+       "Build the experimental Windows DirectX 12/DXR renderer" OFF)
 option(AB3D2_ENABLE_STREAMLINE
        "Enable the separately gated NVIDIA Streamline integration" OFF)
 option(AB3D2_DXR_GPU_VALIDATION
@@ -206,6 +206,7 @@ if(AB3D2_ENABLE_DXR)
     src/renderer_dxr/dxr_device.cpp
     src/renderer_dxr/dxr_pipeline.cpp
     src/renderer_dxr/dxr_renderer.cpp
+    src/renderer_dxr/dxr_scene.cpp
   )
 endif()
 
@@ -242,6 +243,16 @@ if(AB3D2_ENABLE_DXR)
       "${AB3D2_DXR_SHADER_BUILD_DIR}/diagnostic_vs.dxil")
   set(AB3D2_DXR_PIXEL_SHADER
       "${AB3D2_DXR_SHADER_BUILD_DIR}/diagnostic_ps.dxil")
+  set(AB3D2_DXR_PRESENT_SHADER_SOURCE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer_dxr/shaders/present.hlsl")
+  set(AB3D2_DXR_PRESENT_PIXEL_SHADER
+      "${AB3D2_DXR_SHADER_BUILD_DIR}/present_ps.dxil")
+  set(AB3D2_DXR_PRESENT_VERTEX_SHADER
+      "${AB3D2_DXR_SHADER_BUILD_DIR}/present_vs.dxil")
+  set(AB3D2_DXR_PATH_TRACE_SHADER_SOURCE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer_dxr/shaders/path_trace.hlsl")
+  set(AB3D2_DXR_PATH_TRACE_SHADER
+      "${AB3D2_DXR_SHADER_BUILD_DIR}/path_trace.dxil")
   add_custom_command(
     OUTPUT "${AB3D2_DXR_VERTEX_SHADER}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
@@ -262,9 +273,45 @@ if(AB3D2_ENABLE_DXR)
     COMMENT "Compile the DXR diagnostic pixel shader with DXC"
     VERBATIM
   )
+  add_custom_command(
+    OUTPUT "${AB3D2_DXR_PRESENT_VERTEX_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
+    COMMAND "${AB3D2_DXC_EXECUTABLE}" -nologo -WX -Ges -O3 -Qstrip_debug
+            -Qstrip_reflect -T vs_6_6 -E vs_main
+            -Fo "${AB3D2_DXR_PRESENT_VERTEX_SHADER}"
+            "${AB3D2_DXR_PRESENT_SHADER_SOURCE}"
+    DEPENDS "${AB3D2_DXR_PRESENT_SHADER_SOURCE}"
+    COMMENT "Compile the DXR noisy-HDR presentation vertex shader with DXC"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT "${AB3D2_DXR_PRESENT_PIXEL_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
+    COMMAND "${AB3D2_DXC_EXECUTABLE}" -nologo -WX -Ges -O3 -Qstrip_debug
+            -Qstrip_reflect -T ps_6_6 -E ps_main
+            -Fo "${AB3D2_DXR_PRESENT_PIXEL_SHADER}"
+            "${AB3D2_DXR_PRESENT_SHADER_SOURCE}"
+    DEPENDS "${AB3D2_DXR_PRESENT_SHADER_SOURCE}"
+    COMMENT "Compile the DXR noisy-HDR presentation shader with DXC"
+    VERBATIM
+  )
+  add_custom_command(
+    OUTPUT "${AB3D2_DXR_PATH_TRACE_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
+    COMMAND "${AB3D2_DXC_EXECUTABLE}" -nologo -WX -Ges -O3 -Qstrip_debug
+            -Qstrip_reflect -T lib_6_3
+            -Fo "${AB3D2_DXR_PATH_TRACE_SHADER}"
+            "${AB3D2_DXR_PATH_TRACE_SHADER_SOURCE}"
+    DEPENDS "${AB3D2_DXR_PATH_TRACE_SHADER_SOURCE}"
+    COMMENT "Compile the DXR fresh-sample path tracer with DXC"
+    VERBATIM
+  )
   add_custom_target(ab3d2_dxr_shaders
                     DEPENDS "${AB3D2_DXR_VERTEX_SHADER}"
-                            "${AB3D2_DXR_PIXEL_SHADER}")
+                            "${AB3D2_DXR_PIXEL_SHADER}"
+                            "${AB3D2_DXR_PRESENT_VERTEX_SHADER}"
+                            "${AB3D2_DXR_PRESENT_PIXEL_SHADER}"
+                            "${AB3D2_DXR_PATH_TRACE_SHADER}")
   add_dependencies(ab3d2 ab3d2_dxr_shaders)
 
   set(AB3D2_DXR_MATERIAL_SOURCE_SPEC
@@ -310,6 +357,15 @@ if(AB3D2_ENABLE_DXR)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${AB3D2_DXR_PIXEL_SHADER}"
             "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/diagnostic_ps.dxil"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${AB3D2_DXR_PRESENT_VERTEX_SHADER}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/present_vs.dxil"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${AB3D2_DXR_PRESENT_PIXEL_SHADER}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/present_ps.dxil"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${AB3D2_DXR_PATH_TRACE_SHADER}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/path_trace.dxil"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
             "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/materials"
@@ -445,7 +501,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_GPU_VALIDATION=1>
     )
     target_link_libraries(ab3d2_renderer_rtx_foundation_test
-                          PRIVATE SDL2-static d3d12 dxgi dxguid user32)
+                          PRIVATE ab3d2_core SDL2-static d3d12 dxgi dxguid user32)
     add_dependencies(ab3d2_renderer_rtx_foundation_test ab3d2_dxr_shaders)
     add_custom_command(TARGET ab3d2_renderer_rtx_foundation_test POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -456,10 +512,22 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "${AB3D2_DXR_PIXEL_SHADER}"
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/diagnostic_ps.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_PRESENT_VERTEX_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/present_vs.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_PRESENT_PIXEL_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/present_ps.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_PATH_TRACE_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/path_trace.dxil"
       COMMENT "Stage DXR diagnostic shaders for the foundation test"
     )
     add_test(NAME ab3d2_renderer_rtx_foundation_test
              COMMAND ab3d2_renderer_rtx_foundation_test)
+    add_test(NAME ab3d2_renderer_rtx_game_smoke
+             COMMAND $<TARGET_FILE:ab3d2> --gpu-smoke all --renderer rtx)
+    set_tests_properties(ab3d2_renderer_rtx_game_smoke PROPERTIES TIMEOUT 120)
   else()
     add_executable(ab3d2_renderer_rtx_stub_test
                    tests/renderer_rtx_stub_test.c src/renderer_rtx_stub.c)

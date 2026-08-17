@@ -11,25 +11,36 @@ The repository baseline for this work is commit `86241dd` (`Replace GPL RTX rend
 - No functional RTX renderer is present in the current tree.
 - The next implementation must replace the stub incrementally while leaving OpenGL and Web behavior unchanged.
 
-The Phase 2 implementation now adds the opt-in ID-independent D3D12/DXR
-diagnostic foundation described below.  It has been validated on a GeForce RTX
-4080 in Debug and Release builds with Windows SDK DXC 1.8.2502.11 (SHA-256
-`7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`).
-It deliberately renders no `SceneFrame` content.  Streamline remains absent.
-The first Phase 4 increment now builds the 13 project-authored PBR sheets into
-52 renderer-native, separately named channel textures and a hashed manifest;
-the golden test locks the decoded content and the known `shared_wall` bindings.
-Runtime material upload and SceneFrame geometry remain the next
-ID-independent work needed for a raw noisy image.
+The ID-independent implementation has reached the requested raw noisy-image
+milestone. It has been validated on a GeForce RTX 4080 in Debug and Release
+builds with Windows SDK DXC 1.8.2502.11 (SHA-256
+`7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`). The
+Phase 2 D3D12/DXR lifecycle remains the foundation. Phase 4 deterministically
+builds the 13 project-authored PBR sheets into 52 renderer-native channel
+textures and a hashed manifest, with a golden test locking decoded content and
+known `shared_wall` bindings. Those channel textures are staged but not yet
+uploaded or sampled at runtime.
 
-The first Phase 5 increment has extracted the existing native world-coordinate
-conversion and concave X/Z ear clipping into `scene_geometry_compile`. OpenGL
-and future DXR compilation now share those tested results, so the new backend
-cannot silently acquire a different scale, winding, or polygon fan.
+The implemented Phase 5/6 slice shares the tested native world-coordinate
+conversion and concave X/Z ear clipping with OpenGL, compiles opaque
+`SceneFrame` world surfaces, decodes exact source albedo fallbacks, uploads
+positions/UVs/material indices and an atlas, and builds default-heap BLAS/TLAS
+resources. It deliberately excludes sprites, vector objects, water-specific
+behavior, the view weapon, HUD, and text.
+
+The first Phase 7 slice writes fresh un-denoised `R16G16B16A16_FLOAT` radiance
+and presents it with a full-screen tone-map pass. The current closest-hit
+shader takes one independent cosine-weighted Lambertian environment sample at
+each primary hit. This exposes recognizable game geometry, materials, UVs, and
+fresh per-frame noise even in sealed rooms, but it is explicitly a
+primary-visibility diagnostic rather than the complete physically coherent PBR
+integrator. Runtime PBR-channel sampling, authored emissive triangles, traced
+light visibility, specular response, indirect bounces, RR guides,
+transparencies, and overlays remain outstanding. Streamline remains absent.
 
 ### Current dependency gate
 
-The ID-independent DirectX 12 diagnostic foundation may proceed now.  The
+The ID-independent DirectX 12/DXR renderer may continue without Streamline. The
 Streamline source checkout has been verified at `v2.12.0` / `e8aaa6e`, and the
 official signed v2.12.0 release archive has been verified with SHA-256
 `F5C0A3D870707DDDC3570FB4BCD3655CF48A8A68C3A9D342910CFA21B77DCF48`.
@@ -438,6 +449,10 @@ Every commit should build and test independently. Do not batch the whole rendere
 
 ### 5. `Compile SceneFrame geometry for DXR`
 
+Current status: opaque world geometry, shared coordinate conversion and
+triangulation, stable material indices, and GPU upload are implemented. Dynamic
+object categories and previous/current transforms remain later work.
+
 - Add shared tested world-coordinate conversion and triangulation.
 - Add renderer-neutral object-space vector geometry where needed.
 - Upload static and dynamic meshes, material indices, stable identities, and previous/current transforms.
@@ -445,11 +460,20 @@ Every commit should build and test independently. Do not batch the whole rendere
 
 ### 6. `Build and validate DXR acceleration structures`
 
+Current status: one opaque, two-sided world BLAS and one TLAS are built and
+primary visibility is traced for all Levels A--P. Dynamic build/refit policy,
+auxiliary guide outputs, and PIX validation remain later work.
+
 - Add default-heap BLAS/TLAS resources, scratch allocation, barriers, build/update policy, and shader tables.
 - Trace primary visibility into IDs, normals, depth, and albedo.
 - Validate all game levels, moving doors/lifts/water, sprites, and vector objects in PIX.
 
 ### 7. `Add the clean-room noisy PBR path tracer`
+
+Current status: the fresh noisy HDR target, stochastic primary rays, source
+albedo sampling, and stochastic Lambertian primary-hit diagnostic are
+implemented. The physically coherent PBR/lighting items below are not yet
+complete.
 
 - Add deterministic stochastic sampling, metallic-roughness BRDF, emissive/environment next-event sampling, shadow rays, multiple bounces, and finite/PDF tests.
 - Produce fresh un-denoised `R16G16B16A16_FLOAT` radiance each frame.
@@ -488,7 +512,10 @@ Every commit should build and test independently. Do not batch the whole rendere
 ### Native GPU tests
 
 - ID-independent debug-layer-clean diagnostic create/render/resize/minimize/restore/shutdown loops, including a multi-thousand-frame run.
-- The dedicated foundation test must not reuse the OpenGL all-level smoke's UI, weapon, projectile, or frame-checksum assertions before those DXR outputs exist.
+- The dedicated foundation test does not require game content. The RTX
+  all-level smoke separately renders each opaque world frame twice and requires
+  nonzero, different readback checksums; it does not claim UI, weapon,
+  projectile, or complete scene-category coverage.
 - Adapter DXR-tier checks and clear unsupported-device diagnostics.
 - After phase 3, adapter-LUID consistency, signed-plugin loading, `presentCommon()` execution, and clear unsupported driver/plugin/RR diagnostics.
 - BLAS/TLAS correctness for static, updated, rebuilt, appearing, and disappearing instances.
@@ -511,7 +538,11 @@ Every commit should build and test independently. Do not batch the whole rendere
 The renderer is ready for normal use only when all of these are true:
 
 - It is implemented entirely from the clean baseline, the two recorded MIT references, AB3D2 project code/assets, public graphics specifications, and the pinned NVIDIA SDK/documentation.
-- Phase 2's explicit `renderer=rtx` creates only the documented D3D12 diagnostic backend on supported Windows/DXR hardware and fails clearly elsewhere; it is not a gameplay renderer.  The completed renderer additionally requires the Streamline gate and then creates the full DirectX 12/DXR/RR backend on supported NVIDIA hardware.
+- The current explicit `renderer=rtx` creates the documented experimental raw
+  opaque-world D3D12/DXR backend on supported Windows/DXR hardware and fails
+  clearly elsewhere. It is not yet the complete renderer. Normal-use
+  completion additionally requires the open scene/PBR/guide/presentation work
+  and the Streamline application-ID gate before claiming DXR/RR support.
 - The raw path-traced input is visibly noisy and physically coherent; disabling RR reveals no hidden temporal/spatial denoiser.
 - Every mandatory RR input is present at the correct resolution, format, range, space, and frame, with dense camera/dynamic motion and correct reset behavior.
 - Small camera movement does not erase lighting or reflection information from the reconstructed result.
@@ -528,10 +559,12 @@ The renderer is ready for normal use only when all of these are true:
 2. Read `README.md`, `PORT_PLAN.md`, `src/scene_frame.h`, `src/renderer.{h,c}`, `src/renderer_rtx.h`, and `src/renderer_rtx_stub.c` before editing.
 3. Read the two approved local references at the exact commits above and record any file actually adapted.
 4. Phase 2 requires only the pinned `dxc.exe` discovered through `PATH`; record its version and hash.  Do not copy, unpack, discover, link, or stage Streamline while `AB3D2_ENABLE_STREAMLINE=OFF`.
-5. Implement phase 2 only. Do not begin path-tracing or RR shader work until the D3D12 diagnostic frame, resize, fence, shutdown, and unsupported-hardware paths are validated.
-6. After Phase 2 is committed, either implement Phase 3 when the user supplies
-   the application ID or record it as deferred and continue only the
-   ID-independent Phases 4--7 needed for a raw noisy image.
+5. Preserve the validated Phase 2 lifecycle and current raw noisy-image
+   milestone. Continue only the explicitly outstanding Phase 4--7 items until
+   the Streamline gate can be satisfied; do not mistake the primary-visibility
+   diagnostic for the completed PBR integrator.
+6. Implement Phase 3 only when the user supplies the application ID. Until
+   then, keep it deferred and do not include, link, load, or stage Streamline.
 7. Before implementing Phase 3, extract the already verified v2.12.0 release
    archive outside the repository, set `AB3D2_STREAMLINE_ROOT` and
    `AB3D2_STREAMLINE_APPLICATION_ID` in the environment (or pass deliberate

@@ -7,6 +7,9 @@
 #include <memory>
 #include <string>
 
+#include "render_view.h"
+#include "scene_frame.h"
+
 namespace ab3d2::dxr {
 
 class DxrDevice;
@@ -22,8 +25,10 @@ public:
     bool initialize(int window_width, int window_height, const char *window_title,
                     bool desktop_window, bool hidden_window,
                     uint8_t world_light_tessellation, std::string &error);
-    bool present(std::string &error);
+    bool present(const SceneFrame &frame, const RenderView &view,
+                 std::string &error);
     bool presentation_size(int &width, int &height) const;
+    uint64_t last_scene_rgb_checksum() const;
 
 private:
     bool create_window(int window_width, int window_height, const char *window_title,

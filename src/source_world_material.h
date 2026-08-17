@@ -6,6 +6,10 @@
 
 #include "scene_frame.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     uint8_t *rgba;
     uint16_t width;
@@ -19,5 +23,9 @@ int source_world_material_decode(const SceneMaterial *material,
                                  SourceWorldMaterialImage *out_image,
                                  char *error, size_t error_size);
 void source_world_material_image_destroy(SourceWorldMaterialImage *image);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
