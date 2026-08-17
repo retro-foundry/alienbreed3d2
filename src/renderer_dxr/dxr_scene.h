@@ -1,11 +1,13 @@
 #ifndef AB3D2_DXR_SCENE_H
 #define AB3D2_DXR_SCENE_H
 
+#include "dxr_materials.h"
 #include "scene_frame.h"
 
 #include <d3d12.h>
 #include <wrl/client.h>
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -23,9 +25,8 @@ struct DxrSceneMaterial {
     uint32_t atlas_y;
     uint32_t width;
     uint32_t height;
-    float roughness;
-    float metalness;
-    float emissive[2];
+    float normal_strength;
+    float emissive[3];
 };
 
 class DxrScene final {
@@ -34,7 +35,9 @@ public:
     bool record_build(ID3D12Device5 *device,
                       ID3D12GraphicsCommandList4 *command_list,
                       D3D12_CPU_DESCRIPTOR_HANDLE tlas_descriptor,
-                      D3D12_CPU_DESCRIPTOR_HANDLE atlas_descriptor,
+                      const std::array<D3D12_CPU_DESCRIPTOR_HANDLE,
+                                       static_cast<size_t>(DxrMaterialChannel::count)>
+                          &atlas_descriptors,
                       std::string &error);
 
     bool ready() const { return tlas_ && !vertices_.empty(); }
@@ -57,13 +60,17 @@ private:
     uint32_t atlas_height_ = 0;
     std::vector<DxrSceneVertex> vertices_;
     std::vector<DxrSceneMaterial> materials_;
-    std::vector<uint8_t> atlas_pixels_;
+    std::array<std::vector<uint8_t>,
+               static_cast<size_t>(DxrMaterialChannel::count)> atlas_pixels_;
+    DxrMaterialLibrary material_library_;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> vertex_buffer_;
     Microsoft::WRL::ComPtr<ID3D12Resource> material_buffer_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> atlas_texture_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
+               static_cast<size_t>(DxrMaterialChannel::count)> atlas_textures_;
     Microsoft::WRL::ComPtr<ID3D12Resource> upload_buffer_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> atlas_upload_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
+               static_cast<size_t>(DxrMaterialChannel::count)> atlas_uploads_;
     Microsoft::WRL::ComPtr<ID3D12Resource> blas_scratch_;
     Microsoft::WRL::ComPtr<ID3D12Resource> blas_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tlas_scratch_;

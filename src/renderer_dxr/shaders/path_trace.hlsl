@@ -11,9 +11,8 @@ struct SceneMaterial
     uint atlasY;
     uint width;
     uint height;
-    float roughness;
-    float metalness;
-    float2 emissive;
+    float normalStrength;
+    float3 emissiveFactor;
 };
 
 struct RadiancePayload
@@ -27,6 +26,9 @@ RaytracingAccelerationStructure Scene : register(t0);
 StructuredBuffer<SceneVertex> Vertices : register(t1);
 StructuredBuffer<SceneMaterial> Materials : register(t2);
 Texture2D<float4> AlbedoAtlas : register(t3);
+Texture2D<float4> NormalAtlas : register(t4);
+Texture2D<float4> MetalnessAtlas : register(t5);
+Texture2D<float4> RoughnessAtlas : register(t6);
 RWTexture2D<float4> NoisyRadiance : register(u0);
 
 cbuffer FrameConstants : register(b0)

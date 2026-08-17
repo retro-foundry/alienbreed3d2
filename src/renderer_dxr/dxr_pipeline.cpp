@@ -19,9 +19,12 @@ namespace {
 enum DescriptorIndex : UINT {
     output_uav = 0,
     scene_tlas = 1,
-    albedo_atlas = 2,
-    output_srv = 3,
-    descriptor_count = 4,
+    base_color_atlas = 2,
+    normal_atlas = 3,
+    metalness_atlas = 4,
+    roughness_atlas = 5,
+    output_srv = 6,
+    descriptor_count = 7,
 };
 
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
@@ -286,7 +289,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[1].NumDescriptors = 1;
     ranges[1].BaseShaderRegister = 0;
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[2].NumDescriptors = 1;
+    ranges[2].NumDescriptors = 4;
     ranges[2].BaseShaderRegister = 3;
     std::array<D3D12_ROOT_PARAMETER, 6> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
@@ -525,8 +528,14 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         error = "DXR frame recording received incomplete D3D12 state";
         return false;
     }
+    const std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 4> atlas_descriptors = {
+        cpu_descriptor(base_color_atlas),
+        cpu_descriptor(normal_atlas),
+        cpu_descriptor(metalness_atlas),
+        cpu_descriptor(roughness_atlas),
+    };
     if (!scene_.record_build(device, command_list, cpu_descriptor(scene_tlas),
-                             cpu_descriptor(albedo_atlas), error)) {
+                             atlas_descriptors, error)) {
         return false;
     }
     if (!scene_.ready()) {
@@ -576,7 +585,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->SetComputeRootDescriptorTable(1, gpu_descriptor(scene_tlas));
     command_list->SetComputeRootShaderResourceView(2, scene_.vertex_address());
     command_list->SetComputeRootShaderResourceView(3, scene_.material_address());
-    command_list->SetComputeRootDescriptorTable(4, gpu_descriptor(albedo_atlas));
+    command_list->SetComputeRootDescriptorTable(4,
+                                                gpu_descriptor(base_color_atlas));
     command_list->SetComputeRoot32BitConstants(
         5, sizeof(constants) / sizeof(uint32_t), &constants, 0);
     command_list->SetPipelineState1(ray_state_object_.Get());

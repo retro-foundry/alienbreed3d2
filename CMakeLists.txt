@@ -204,6 +204,7 @@ if(AB3D2_ENABLE_DXR)
     src/renderer_rtx.cpp
     src/renderer_dxr/dxr_debug.cpp
     src/renderer_dxr/dxr_device.cpp
+    src/renderer_dxr/dxr_materials.cpp
     src/renderer_dxr/dxr_pipeline.cpp
     src/renderer_dxr/dxr_renderer.cpp
     src/renderer_dxr/dxr_scene.cpp
@@ -496,6 +497,20 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   set_tests_properties(ab3d2_dxr_material_builder_test PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
   if(AB3D2_ENABLE_DXR)
+    add_executable(ab3d2_dxr_material_package_test
+      tests/dxr_material_package_test.cpp
+      src/renderer_dxr/dxr_materials.cpp
+    )
+    set_target_properties(ab3d2_dxr_material_package_test
+                          PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+                                     CXX_EXTENSIONS OFF)
+    target_include_directories(ab3d2_dxr_material_package_test PRIVATE src)
+    target_compile_definitions(ab3d2_dxr_material_package_test
+                               PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    add_dependencies(ab3d2_dxr_material_package_test ab3d2_dxr_materials)
+    add_test(NAME ab3d2_dxr_material_package_test
+             COMMAND $<TARGET_FILE:ab3d2_dxr_material_package_test>
+                     "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_runtime.bin")
     add_executable(ab3d2_renderer_rtx_foundation_test
       tests/renderer_rtx_foundation_test.c
       ${AB3D2_RENDERER_RTX_SOURCES}

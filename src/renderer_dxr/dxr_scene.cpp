@@ -34,11 +34,15 @@ struct MaterialKey {
 
 struct MaterialImage {
     MaterialKey key = {};
-    std::vector<uint8_t> pixels;
+    std::array<std::vector<uint8_t>,
+               static_cast<size_t>(DxrMaterialChannel::count)> pixels;
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t x = 0;
     uint32_t y = 0;
+    float normal_strength = 1.0f;
+    float emissive_factor[3] = {};
+    bool uses_pbr = false;
 };
 
 uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
@@ -181,9 +185,13 @@ void DxrScene::release_gpu()
 {
     vertex_buffer_.Reset();
     material_buffer_.Reset();
-    atlas_texture_.Reset();
     upload_buffer_.Reset();
-    atlas_upload_.Reset();
+    for (auto &texture : atlas_textures_) {
+        texture.Reset();
+    }
+    for (auto &upload : atlas_uploads_) {
+        upload.Reset();
+    }
     blas_scratch_.Reset();
     blas_.Reset();
     tlas_scratch_.Reset();
@@ -207,6 +215,11 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
     std::vector<MaterialImage> images;
     std::map<MaterialKey, uint32_t> material_indices;
 
+    if (!material_library_.loaded() &&
+        !material_library_.load_from_executable(error)) {
+        return false;
+    }
+
     for (size_t command_index = 0; command_index < frame.count; ++command_index) {
         const SceneCommand &command = frame.commands[command_index];
         if (command.type != SCENE_COMMAND_GEOMETRY_INSTANCE) {
@@ -221,50 +234,89 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
              ++surface_index) {
             const SceneMeshSurface &surface = mesh.surfaces[surface_index];
             const SceneGeometry &geometry = surface.geometry;
+            const DxrMaterialDefinition *surface_pbr = material_library_.find(
+                surface.material.source, surface.material.source_asset_id);
             MaterialKey key = {
                 surface.material.source,
                 surface.material.source_asset_id,
-                geometry.texture_window.u_offset,
-                geometry.texture_window.u_period,
-                geometry.texture_window.v_period,
-                geometry.primitive,
+                surface_pbr ? 0u : geometry.texture_window.u_offset,
+                surface_pbr ? 0u : geometry.texture_window.u_period,
+                surface_pbr ? 0u : geometry.texture_window.v_period,
+                surface_pbr ? SCENE_GEOMETRY_PRIMITIVE_WALL : geometry.primitive,
             };
             uint32_t material_index;
             auto found = material_indices.find(key);
             if (found == material_indices.end()) {
-                SourceWorldMaterialImage decoded = {};
-                char decode_error[512] = {};
-                if (!source_world_material_decode(&surface.material, &geometry,
-                                                  &decoded, decode_error,
-                                                  sizeof(decode_error))) {
-                    error = "DXR source-albedo fallback failed: ";
-                    error += decode_error;
-                    return false;
-                }
-                if (!decoded.rgba || decoded.width == 0u || decoded.height == 0u) {
-                    source_world_material_image_destroy(&decoded);
-                    error = "DXR source-albedo fallback decoded an empty image";
-                    return false;
-                }
                 MaterialImage image;
                 image.key = key;
-                image.width = decoded.width;
-                image.height = decoded.height;
-                image.pixels.assign(
-                    decoded.rgba,
-                    decoded.rgba + static_cast<size_t>(decoded.width) *
-                                       decoded.height * 4u);
-                source_world_material_image_destroy(&decoded);
+                const DxrMaterialDefinition *pbr = surface_pbr;
+                if (pbr) {
+                    image.width = pbr->width;
+                    image.height = pbr->height;
+                    image.pixels = pbr->pixels;
+                    image.normal_strength = pbr->normal_strength;
+                    std::memcpy(image.emissive_factor, pbr->emissive_factor,
+                                sizeof(image.emissive_factor));
+                    image.uses_pbr = true;
+                } else {
+                    SourceWorldMaterialImage decoded = {};
+                    char decode_error[512] = {};
+                    if (!source_world_material_decode(&surface.material, &geometry,
+                                                      &decoded, decode_error,
+                                                      sizeof(decode_error))) {
+                        error = "DXR source-albedo fallback failed: ";
+                        error += decode_error;
+                        return false;
+                    }
+                    if (!decoded.rgba || decoded.width == 0u || decoded.height == 0u) {
+                        source_world_material_image_destroy(&decoded);
+                        error = "DXR source-albedo fallback decoded an empty image";
+                        return false;
+                    }
+                    image.width = decoded.width;
+                    image.height = decoded.height;
+                    const size_t byte_count = static_cast<size_t>(decoded.width) *
+                        decoded.height * 4u;
+                    image.pixels[static_cast<size_t>(DxrMaterialChannel::base_color)]
+                        .assign(decoded.rgba, decoded.rgba + byte_count);
+                    source_world_material_image_destroy(&decoded);
+                    image.pixels[static_cast<size_t>(DxrMaterialChannel::normal)]
+                        .resize(byte_count);
+                    image.pixels[static_cast<size_t>(DxrMaterialChannel::metalness)]
+                        .resize(byte_count);
+                    image.pixels[static_cast<size_t>(DxrMaterialChannel::roughness)]
+                        .resize(byte_count);
+                    for (size_t texel = 0; texel < byte_count; texel += 4u) {
+                        auto &normal = image.pixels[
+                            static_cast<size_t>(DxrMaterialChannel::normal)];
+                        normal[texel + 0u] = 128u;
+                        normal[texel + 1u] = 128u;
+                        normal[texel + 2u] = 255u;
+                        normal[texel + 3u] = 255u;
+                        auto &metalness = image.pixels[
+                            static_cast<size_t>(DxrMaterialChannel::metalness)];
+                        metalness[texel + 3u] = 255u;
+                        auto &roughness = image.pixels[
+                            static_cast<size_t>(DxrMaterialChannel::roughness)];
+                        roughness[texel + 0u] = 255u;
+                        roughness[texel + 1u] = 255u;
+                        roughness[texel + 2u] = 255u;
+                        roughness[texel + 3u] = 255u;
+                    }
+                }
                 material_index = static_cast<uint32_t>(images.size());
                 material_indices.emplace(key, material_index);
                 images.push_back(std::move(image));
 
                 std::ostringstream report;
-                report << "DXR material fallback: source="
+                report << (pbr ? "DXR PBR material: source=" :
+                                 "DXR material fallback: source=")
                        << static_cast<unsigned>(key.source)
-                       << " asset=" << key.source_asset_id
-                       << " uses decoded source albedo, roughness=1, metalness=0, "
-                          "emissive=0";
+                       << " asset=" << key.source_asset_id;
+                if (!pbr) {
+                    report << " uses decoded source albedo, roughness=1, "
+                              "metalness=0, emissive=0";
+                }
                 debug_output(report.str());
             } else {
                 material_index = found->second;
@@ -310,7 +362,8 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
     }
 
     std::vector<DxrSceneMaterial> compiled_materials(images.size());
-    std::vector<uint8_t> compiled_atlas;
+    std::array<std::vector<uint8_t>,
+               static_cast<size_t>(DxrMaterialChannel::count)> compiled_atlases;
     uint32_t atlas_width = 0;
     uint32_t atlas_height = 0;
     if (!images.empty()) {
@@ -352,32 +405,40 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
             error = "DXR source-albedo atlas exceeds the 8192-pixel limit";
             return false;
         }
-        compiled_atlas.assign(
-            static_cast<size_t>(atlas_width) * atlas_height * 4u, 0u);
+        const size_t atlas_bytes =
+            static_cast<size_t>(atlas_width) * atlas_height * 4u;
+        for (auto &atlas : compiled_atlases) {
+            atlas.assign(atlas_bytes, 0u);
+        }
         for (size_t image_index = 0; image_index < images.size(); ++image_index) {
             const MaterialImage &image = images[image_index];
-            for (uint32_t row = 0; row < image.height; ++row) {
-                std::memcpy(
-                    compiled_atlas.data() +
-                        (static_cast<size_t>(image.y + row) * atlas_width +
-                         image.x) * 4u,
-                    image.pixels.data() +
-                        static_cast<size_t>(row) * image.width * 4u,
-                    static_cast<size_t>(image.width) * 4u);
+            for (size_t channel = 0;
+                 channel < static_cast<size_t>(DxrMaterialChannel::count);
+                 ++channel) {
+                for (uint32_t row = 0; row < image.height; ++row) {
+                    std::memcpy(
+                        compiled_atlases[channel].data() +
+                            (static_cast<size_t>(image.y + row) * atlas_width +
+                             image.x) * 4u,
+                        image.pixels[channel].data() +
+                            static_cast<size_t>(row) * image.width * 4u,
+                        static_cast<size_t>(image.width) * 4u);
+                }
             }
             DxrSceneMaterial &material = compiled_materials[image_index];
             material.atlas_x = image.x;
             material.atlas_y = image.y;
             material.width = image.width;
             material.height = image.height;
-            material.roughness = 1.0f;
-            material.metalness = 0.0f;
+            material.normal_strength = image.normal_strength;
+            std::memcpy(material.emissive, image.emissive_factor,
+                        sizeof(material.emissive));
         }
     }
 
     vertices_ = std::move(compiled_vertices);
     materials_ = std::move(compiled_materials);
-    atlas_pixels_ = std::move(compiled_atlas);
+    atlas_pixels_ = std::move(compiled_atlases);
     atlas_width_ = atlas_width;
     atlas_height_ = atlas_height;
     scene_hash_ = hash;
@@ -389,7 +450,10 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
 bool DxrScene::record_build(ID3D12Device5 *device,
                             ID3D12GraphicsCommandList4 *command_list,
                             D3D12_CPU_DESCRIPTOR_HANDLE tlas_descriptor,
-                            D3D12_CPU_DESCRIPTOR_HANDLE atlas_descriptor,
+                            const std::array<D3D12_CPU_DESCRIPTOR_HANDLE,
+                                             static_cast<size_t>(
+                                                 DxrMaterialChannel::count)>
+                                &atlas_descriptors,
                             std::string &error)
 {
     if (!gpu_build_pending_) {
@@ -400,7 +464,10 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     if (vertices_.empty()) {
         return true;
     }
-    if (!device || !command_list || materials_.empty() || atlas_pixels_.empty() ||
+    const bool missing_atlas = std::any_of(
+        atlas_pixels_.begin(), atlas_pixels_.end(),
+        [](const std::vector<uint8_t> &pixels) { return pixels.empty(); });
+    if (!device || !command_list || materials_.empty() || missing_atlas ||
         atlas_width_ == 0u || atlas_height_ == 0u) {
         error = "DXR scene build received incomplete CPU or D3D12 state";
         return false;
@@ -450,58 +517,80 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     texture_description.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
     const D3D12_HEAP_PROPERTIES default_heap =
         heap_properties(D3D12_HEAP_TYPE_DEFAULT);
-    result = device->CreateCommittedResource(
-        &default_heap, D3D12_HEAP_FLAG_NONE, &texture_description,
-        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&atlas_texture_));
-    if (FAILED(result)) {
-        error = hresult_error("ID3D12Device::CreateCommittedResource(albedo atlas)",
-                              result);
-        return false;
-    }
-    atlas_texture_->SetName(L"AB3D2 DXR Source Albedo Atlas");
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint = {};
     UINT row_count = 0;
     UINT64 row_bytes = 0;
     UINT64 total_bytes = 0;
     device->GetCopyableFootprints(&texture_description, 0, 1, 0, &footprint,
                                   &row_count, &row_bytes, &total_bytes);
-    if (!create_buffer(device, total_bytes, D3D12_HEAP_TYPE_UPLOAD,
-                       D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_FLAG_NONE,
-                       L"AB3D2 DXR Albedo Atlas Upload", atlas_upload_, error)) {
-        return false;
+    constexpr std::array<const wchar_t *, 4> texture_names = {
+        L"AB3D2 DXR Base Color Atlas",
+        L"AB3D2 DXR Normal Atlas",
+        L"AB3D2 DXR Metalness Atlas",
+        L"AB3D2 DXR Roughness Atlas",
+    };
+    constexpr std::array<const wchar_t *, 4> upload_names = {
+        L"AB3D2 DXR Base Color Atlas Upload",
+        L"AB3D2 DXR Normal Atlas Upload",
+        L"AB3D2 DXR Metalness Atlas Upload",
+        L"AB3D2 DXR Roughness Atlas Upload",
+    };
+    for (size_t channel = 0; channel < atlas_textures_.size(); ++channel) {
+        result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &texture_description,
+            D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+            IID_PPV_ARGS(&atlas_textures_[channel]));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(PBR atlas)", result);
+            return false;
+        }
+        atlas_textures_[channel]->SetName(texture_names[channel]);
+        if (!create_buffer(device, total_bytes, D3D12_HEAP_TYPE_UPLOAD,
+                           D3D12_RESOURCE_STATE_GENERIC_READ,
+                           D3D12_RESOURCE_FLAG_NONE, upload_names[channel],
+                           atlas_uploads_[channel], error)) {
+            return false;
+        }
+        result = atlas_uploads_[channel]->Map(0, &no_read, &mapped);
+        if (FAILED(result)) {
+            error = hresult_error("ID3D12Resource::Map(PBR atlas upload)", result);
+            return false;
+        }
+        for (UINT row = 0; row < row_count; ++row) {
+            std::memcpy(
+                static_cast<uint8_t *>(mapped) + footprint.Offset +
+                    static_cast<size_t>(row) * footprint.Footprint.RowPitch,
+                atlas_pixels_[channel].data() +
+                    static_cast<size_t>(row) * atlas_width_ * 4u,
+                static_cast<size_t>(atlas_width_) * 4u);
+        }
+        atlas_uploads_[channel]->Unmap(0, nullptr);
+        D3D12_TEXTURE_COPY_LOCATION destination = {};
+        destination.pResource = atlas_textures_[channel].Get();
+        destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        D3D12_TEXTURE_COPY_LOCATION source = {};
+        source.pResource = atlas_uploads_[channel].Get();
+        source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        source.PlacedFootprint = footprint;
+        command_list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
     }
-    result = atlas_upload_->Map(0, &no_read, &mapped);
-    if (FAILED(result)) {
-        error = hresult_error("ID3D12Resource::Map(albedo atlas upload)", result);
-        return false;
-    }
-    for (UINT row = 0; row < row_count; ++row) {
-        std::memcpy(static_cast<uint8_t *>(mapped) +
-                        footprint.Offset +
-                        static_cast<size_t>(row) * footprint.Footprint.RowPitch,
-                    atlas_pixels_.data() +
-                        static_cast<size_t>(row) * atlas_width_ * 4u,
-                    static_cast<size_t>(atlas_width_) * 4u);
-    }
-    atlas_upload_->Unmap(0, nullptr);
-    D3D12_TEXTURE_COPY_LOCATION destination = {};
-    destination.pResource = atlas_texture_.Get();
-    destination.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-    D3D12_TEXTURE_COPY_LOCATION source = {};
-    source.pResource = atlas_upload_.Get();
-    source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
-    source.PlacedFootprint = footprint;
-    command_list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
 
-    D3D12_RESOURCE_BARRIER uploads[] = {
+    std::array<D3D12_RESOURCE_BARRIER, 6> uploads = {
         transition(vertex_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
         transition(material_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
-        transition(atlas_texture_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+        transition(atlas_textures_[0].Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(atlas_textures_[1].Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(atlas_textures_[2].Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(atlas_textures_[3].Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
     };
-    command_list->ResourceBarrier(static_cast<UINT>(std::size(uploads)), uploads);
+    command_list->ResourceBarrier(static_cast<UINT>(uploads.size()), uploads.data());
 
     D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
     geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
@@ -611,15 +700,19 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         tlas_->GetGPUVirtualAddress();
     device->CreateShaderResourceView(nullptr, &tlas_view, tlas_descriptor);
     D3D12_SHADER_RESOURCE_VIEW_DESC atlas_view = {};
-    atlas_view.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
     atlas_view.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     atlas_view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     atlas_view.Texture2D.MipLevels = 1;
-    device->CreateShaderResourceView(atlas_texture_.Get(), &atlas_view,
-                                     atlas_descriptor);
+    for (size_t channel = 0; channel < atlas_textures_.size(); ++channel) {
+        atlas_view.Format = channel == static_cast<size_t>(
+                                        DxrMaterialChannel::base_color) ?
+            DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
+        device->CreateShaderResourceView(atlas_textures_[channel].Get(), &atlas_view,
+                                         atlas_descriptors[channel]);
+    }
     debug_output("DXR SceneFrame build: " + std::to_string(triangle_count()) +
                  " triangles, " + std::to_string(materials_.size()) +
-                 " decoded source-albedo materials");
+                 " PBR-capable materials");
     return true;
 }
 
