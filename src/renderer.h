@@ -72,8 +72,6 @@ size_t renderer_last_secondary_history_accepted(const Renderer *renderer);
 size_t renderer_last_indirect_light_energy(const Renderer *renderer);
 /* Quantized emissive direct-light radiance delivered by hidden RTX smoke. */
 size_t renderer_last_direct_light_energy(const Renderer *renderer);
-/* Quantized diffuse radiance contributed by authored secondary Gouraud hits. */
-size_t renderer_last_source_gouraud_energy(const Renderer *renderer);
 /* Hidden RTX smoke counters proving Q2RTX light sampling is exercised. */
 size_t renderer_last_light_shadow_samples(const Renderer *renderer);
 size_t renderer_last_per_light_history_samples(const Renderer *renderer);
