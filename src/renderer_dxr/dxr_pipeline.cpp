@@ -28,7 +28,7 @@ enum DescriptorIndex : UINT {
 };
 
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-constexpr UINT shader_table_size = shader_record_size * 3u;
+constexpr UINT shader_table_size = shader_record_size * 4u;
 constexpr float pi = 3.14159265358979323846f;
 constexpr float source_fullscreen_depth_scale =
     4.0f * (32767.0f / 65536.0f) * (85.0f / 256.0f) * (927.0f / 1024.0f);
@@ -45,7 +45,7 @@ struct FrameConstants {
     uint32_t atlas_width;
     uint32_t atlas_height;
     uint32_t triangle_count;
-    uint32_t reserved;
+    uint32_t emitter_count;
 };
 
 static_assert(sizeof(FrameConstants) == 20u * sizeof(uint32_t));
@@ -291,7 +291,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     ranges[2].NumDescriptors = 4;
     ranges[2].BaseShaderRegister = 3;
-    std::array<D3D12_ROOT_PARAMETER, 6> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 7> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -302,9 +302,11 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[2].Descriptor.ShaderRegister = 1;
     parameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     parameters[3].Descriptor.ShaderRegister = 2;
-    parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    parameters[5].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
-    parameters[5].Constants.ShaderRegister = 0;
+    parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    parameters[5].Descriptor.ShaderRegister = 7;
+    parameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[6].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
+    parameters[6].Constants.ShaderRegister = 0;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -318,13 +320,15 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     }
 
     static constexpr wchar_t ray_generation[] = L"RayGeneration";
-    static constexpr wchar_t miss[] = L"Miss";
+    static constexpr wchar_t surface_miss[] = L"SurfaceMiss";
+    static constexpr wchar_t shadow_miss[] = L"ShadowMiss";
     static constexpr wchar_t closest_hit[] = L"ClosestHit";
     static constexpr wchar_t hit_group_name[] = L"HitGroup";
-    std::array<D3D12_EXPORT_DESC, 3> exports = {};
+    std::array<D3D12_EXPORT_DESC, 4> exports = {};
     exports[0].Name = ray_generation;
-    exports[1].Name = miss;
-    exports[2].Name = closest_hit;
+    exports[1].Name = surface_miss;
+    exports[2].Name = shadow_miss;
+    exports[3].Name = closest_hit;
     D3D12_DXIL_LIBRARY_DESC library_description = {};
     library_description.DXILLibrary = {library.data(), library.size()};
     library_description.NumExports = static_cast<UINT>(exports.size());
@@ -336,8 +340,8 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     D3D12_RAYTRACING_SHADER_CONFIG shader_configuration = {};
     shader_configuration.MaxPayloadSizeInBytes = 20u;
     shader_configuration.MaxAttributeSizeInBytes = 8u;
-    std::array<const wchar_t *, 3> configured_exports = {
-        ray_generation, miss, hit_group_name};
+    std::array<const wchar_t *, 4> configured_exports = {
+        ray_generation, surface_miss, shadow_miss, hit_group_name};
     D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION shader_association = {};
     shader_association.NumExports = static_cast<UINT>(configured_exports.size());
     shader_association.pExports = configured_exports.data();
@@ -393,10 +397,11 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     std::memset(mapped, 0, shader_table_size);
     const void *identifiers[] = {
         properties->GetShaderIdentifier(ray_generation),
-        properties->GetShaderIdentifier(miss),
+        properties->GetShaderIdentifier(surface_miss),
+        properties->GetShaderIdentifier(shadow_miss),
         properties->GetShaderIdentifier(hit_group_name),
     };
-    for (UINT index = 0; index < 3u; ++index) {
+    for (UINT index = 0; index < 4u; ++index) {
         if (!identifiers[index]) {
             shader_table_->Unmap(0, nullptr);
             error = "DXR state object did not expose every shader identifier";
@@ -577,6 +582,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.atlas_width = scene_.atlas_width();
     constants.atlas_height = scene_.atlas_height();
     constants.triangle_count = scene_.triangle_count();
+    constants.emitter_count = scene_.emitter_count();
 
     ID3D12DescriptorHeap *heaps[] = {descriptor_heap_.Get()};
     command_list->SetDescriptorHeaps(1, heaps);
@@ -587,15 +593,16 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->SetComputeRootShaderResourceView(3, scene_.material_address());
     command_list->SetComputeRootDescriptorTable(4,
                                                 gpu_descriptor(base_color_atlas));
+    command_list->SetComputeRootShaderResourceView(5, scene_.emitter_address());
     command_list->SetComputeRoot32BitConstants(
-        5, sizeof(constants) / sizeof(uint32_t), &constants, 0);
+        6, sizeof(constants) / sizeof(uint32_t), &constants, 0);
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};
     dispatch.RayGenerationShaderRecord = {table, shader_record_size};
-    dispatch.MissShaderTable = {table + shader_record_size, shader_record_size,
-                                shader_record_size};
-    dispatch.HitGroupTable = {table + shader_record_size * 2u, shader_record_size,
+    dispatch.MissShaderTable = {table + shader_record_size,
+                                shader_record_size * 2u, shader_record_size};
+    dispatch.HitGroupTable = {table + shader_record_size * 3u, shader_record_size,
                               shader_record_size};
     dispatch.Width = width;
     dispatch.Height = height;

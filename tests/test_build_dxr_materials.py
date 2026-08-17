@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "build_dxr_materials.py"
 SOURCE = ROOT / "textures_pbr"
 SPEC = ROOT / "data" / "renderer_dxr" / "material_sources.json"
-EXPECTED_CONTENT_DIGEST = "99553bad43c722e06c3ad16e62dfbc9a09ea9a28a171bee94b7af6ebafb1ad7b"
+EXPECTED_CONTENT_DIGEST = "42c5402f1d47f0b252d656445ced46c4fe1ea59428a4c51f39dc91fa0c42f5f6"
 RUNTIME_HEADER = struct.Struct("<8sIIII")
 RUNTIME_RECORD = struct.Struct("<IIIIffffII")
 
@@ -95,9 +95,17 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 self.assertEqual(material["normal_space"], "linear_tangent")
                 self.assertEqual(material["roughness_space"], "linear")
                 self.assertEqual(material["metalness_space"], "linear")
-                if material["name"] == "technolights":
+                authored_emission = {
+                    "brownspeakers": [4.0, 4.0, 4.0],
+                    "technolights": [8.0, 8.0, 8.0],
+                    "technotritile": [4.0, 4.0, 4.0],
+                }
+                if material["name"] in authored_emission:
                     self.assertEqual(material["emissive_source"], "base_color")
-                    self.assertEqual(material["emissive_factor"], [8.0, 8.0, 8.0])
+                    self.assertEqual(
+                        material["emissive_factor"],
+                        authored_emission[material["name"]],
+                    )
                 else:
                     self.assertEqual(material["emissive_source"], "none")
                     self.assertEqual(material["emissive_factor"], [0.0, 0.0, 0.0])

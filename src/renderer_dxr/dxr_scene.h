@@ -18,6 +18,7 @@ struct DxrSceneVertex {
     float position[3];
     float texture_coordinate[2];
     uint32_t material_index;
+    uint32_t emitter_index;
 };
 
 struct DxrSceneMaterial {
@@ -27,6 +28,13 @@ struct DxrSceneMaterial {
     uint32_t height;
     float normal_strength;
     float emissive[3];
+};
+
+struct DxrEmissiveTriangle {
+    uint32_t first_vertex;
+    float selection_cdf;
+    float selection_probability;
+    float inverse_area;
 };
 
 class DxrScene final {
@@ -43,10 +51,14 @@ public:
     bool ready() const { return tlas_ && !vertices_.empty(); }
     D3D12_GPU_VIRTUAL_ADDRESS vertex_address() const;
     D3D12_GPU_VIRTUAL_ADDRESS material_address() const;
+    D3D12_GPU_VIRTUAL_ADDRESS emitter_address() const;
     uint32_t atlas_width() const { return atlas_width_; }
     uint32_t atlas_height() const { return atlas_height_; }
     uint32_t triangle_count() const {
         return static_cast<uint32_t>(vertices_.size() / 3u);
+    }
+    uint32_t emitter_count() const {
+        return static_cast<uint32_t>(emissive_triangles_.size());
     }
 
 private:
@@ -60,12 +72,14 @@ private:
     uint32_t atlas_height_ = 0;
     std::vector<DxrSceneVertex> vertices_;
     std::vector<DxrSceneMaterial> materials_;
+    std::vector<DxrEmissiveTriangle> emissive_triangles_;
     std::array<std::vector<uint8_t>,
                static_cast<size_t>(DxrMaterialChannel::count)> atlas_pixels_;
     DxrMaterialLibrary material_library_;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> vertex_buffer_;
     Microsoft::WRL::ComPtr<ID3D12Resource> material_buffer_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> emitter_buffer_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
                static_cast<size_t>(DxrMaterialChannel::count)> atlas_textures_;
     Microsoft::WRL::ComPtr<ID3D12Resource> upload_buffer_;

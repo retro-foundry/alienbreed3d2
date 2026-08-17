@@ -5,6 +5,7 @@
 #include "source_world_material.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -42,8 +43,38 @@ struct MaterialImage {
     uint32_t y = 0;
     float normal_strength = 1.0f;
     float emissive_factor[3] = {};
-    bool uses_pbr = false;
+    float average_emissive_luminance = 0.0f;
 };
+
+float srgb_to_linear(uint8_t encoded)
+{
+    const float value = static_cast<float>(encoded) / 255.0f;
+    return value <= 0.04045f ? value / 12.92f :
+        std::pow((value + 0.055f) / 1.055f, 2.4f);
+}
+
+float average_emissive_luminance(const MaterialImage &image)
+{
+    if (image.emissive_factor[0] == 0.0f &&
+        image.emissive_factor[1] == 0.0f &&
+        image.emissive_factor[2] == 0.0f) {
+        return 0.0f;
+    }
+    const std::vector<uint8_t> &base = image.pixels[
+        static_cast<size_t>(DxrMaterialChannel::base_color)];
+    double luminance = 0.0;
+    for (size_t offset = 0; offset < base.size(); offset += 4u) {
+        const double red = srgb_to_linear(base[offset + 0u]) *
+            image.emissive_factor[0];
+        const double green = srgb_to_linear(base[offset + 1u]) *
+            image.emissive_factor[1];
+        const double blue = srgb_to_linear(base[offset + 2u]) *
+            image.emissive_factor[2];
+        luminance += red * 0.2126 + green * 0.7152 + blue * 0.0722;
+    }
+    return base.empty() ? 0.0f :
+        static_cast<float>(luminance / static_cast<double>(base.size() / 4u));
+}
 
 uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
 {
@@ -181,10 +212,16 @@ D3D12_GPU_VIRTUAL_ADDRESS DxrScene::material_address() const
     return material_buffer_ ? material_buffer_->GetGPUVirtualAddress() : 0;
 }
 
+D3D12_GPU_VIRTUAL_ADDRESS DxrScene::emitter_address() const
+{
+    return emitter_buffer_ ? emitter_buffer_->GetGPUVirtualAddress() : 0;
+}
+
 void DxrScene::release_gpu()
 {
     vertex_buffer_.Reset();
     material_buffer_.Reset();
+    emitter_buffer_.Reset();
     upload_buffer_.Reset();
     for (auto &texture : atlas_textures_) {
         texture.Reset();
@@ -257,7 +294,6 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
                     image.normal_strength = pbr->normal_strength;
                     std::memcpy(image.emissive_factor, pbr->emissive_factor,
                                 sizeof(image.emissive_factor));
-                    image.uses_pbr = true;
                 } else {
                     SourceWorldMaterialImage decoded = {};
                     char decode_error[512] = {};
@@ -304,6 +340,8 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
                         roughness[texel + 3u] = 255u;
                     }
                 }
+                image.average_emissive_luminance =
+                    average_emissive_luminance(image);
                 material_index = static_cast<uint32_t>(images.size());
                 material_indices.emplace(key, material_index);
                 images.push_back(std::move(image));
@@ -355,10 +393,63 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
                 vertex.texture_coordinate[0] = source.texture_u * u_scale;
                 vertex.texture_coordinate[1] = source.texture_v * v_scale;
                 vertex.material_index = material_index;
+                vertex.emitter_index = UINT32_MAX;
                 compiled_vertices.push_back(vertex);
             }
             scene_geometry_triangle_indices_release(indices);
         }
+    }
+
+    std::vector<DxrEmissiveTriangle> compiled_emitters;
+    std::vector<float> emitter_weights;
+    double emitter_weight_sum = 0.0;
+    for (size_t first_vertex = 0; first_vertex < compiled_vertices.size();
+         first_vertex += 3u) {
+        const uint32_t material_index =
+            compiled_vertices[first_vertex].material_index;
+        const float luminance = images[material_index].average_emissive_luminance;
+        if (!(luminance > 0.0f)) {
+            continue;
+        }
+        const float *first = compiled_vertices[first_vertex + 0u].position;
+        const float *second = compiled_vertices[first_vertex + 1u].position;
+        const float *third = compiled_vertices[first_vertex + 2u].position;
+        const float edge_a[3] = {
+            second[0] - first[0], second[1] - first[1], second[2] - first[2]};
+        const float edge_b[3] = {
+            third[0] - first[0], third[1] - first[1], third[2] - first[2]};
+        const float cross[3] = {
+            edge_a[1] * edge_b[2] - edge_a[2] * edge_b[1],
+            edge_a[2] * edge_b[0] - edge_a[0] * edge_b[2],
+            edge_a[0] * edge_b[1] - edge_a[1] * edge_b[0],
+        };
+        const float area = 0.5f * std::sqrt(
+            cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]);
+        const float weight = area * luminance;
+        if (!(area > 1.0e-6f) || !std::isfinite(weight) || !(weight > 0.0f)) {
+            continue;
+        }
+        DxrEmissiveTriangle emitter = {};
+        emitter.first_vertex = static_cast<uint32_t>(first_vertex);
+        emitter.inverse_area = 1.0f / area;
+        const uint32_t emitter_index =
+            static_cast<uint32_t>(compiled_emitters.size());
+        for (size_t vertex = 0; vertex < 3u; ++vertex) {
+            compiled_vertices[first_vertex + vertex].emitter_index = emitter_index;
+        }
+        compiled_emitters.push_back(emitter);
+        emitter_weights.push_back(weight);
+        emitter_weight_sum += weight;
+    }
+    double emitter_cdf = 0.0;
+    for (size_t index = 0; index < compiled_emitters.size(); ++index) {
+        const float probability = static_cast<float>(
+            static_cast<double>(emitter_weights[index]) / emitter_weight_sum);
+        emitter_cdf += probability;
+        compiled_emitters[index].selection_probability = probability;
+        compiled_emitters[index].selection_cdf = index + 1u ==
+                compiled_emitters.size() ?
+            1.0f : static_cast<float>(emitter_cdf);
     }
 
     std::vector<DxrSceneMaterial> compiled_materials(images.size());
@@ -438,6 +529,7 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
 
     vertices_ = std::move(compiled_vertices);
     materials_ = std::move(compiled_materials);
+    emissive_triangles_ = std::move(compiled_emitters);
     atlas_pixels_ = std::move(compiled_atlases);
     atlas_width_ = atlas_width;
     atlas_height_ = atlas_height;
@@ -477,14 +569,23 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         static_cast<UINT64>(vertices_.size()) * sizeof(vertices_[0]);
     const UINT64 material_bytes =
         static_cast<UINT64>(materials_.size()) * sizeof(materials_[0]);
+    const UINT64 emitter_bytes = std::max<UINT64>(
+        sizeof(DxrEmissiveTriangle),
+        static_cast<UINT64>(emissive_triangles_.size()) *
+            sizeof(DxrEmissiveTriangle));
     const UINT64 material_offset = (vertex_bytes + 255u) & ~UINT64_C(255);
-    const UINT64 upload_bytes = material_offset + material_bytes;
+    const UINT64 emitter_offset =
+        (material_offset + material_bytes + 255u) & ~UINT64_C(255);
+    const UINT64 upload_bytes = emitter_offset + emitter_bytes;
     if (!create_buffer(device, vertex_bytes, D3D12_HEAP_TYPE_DEFAULT,
                        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE,
                        L"AB3D2 DXR Scene Vertices", vertex_buffer_, error) ||
         !create_buffer(device, material_bytes, D3D12_HEAP_TYPE_DEFAULT,
                        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE,
                        L"AB3D2 DXR Scene Materials", material_buffer_, error) ||
+        !create_buffer(device, emitter_bytes, D3D12_HEAP_TYPE_DEFAULT,
+                       D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE,
+                       L"AB3D2 DXR Emissive Triangles", emitter_buffer_, error) ||
         !create_buffer(device, upload_bytes, D3D12_HEAP_TYPE_UPLOAD,
                        D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_FLAG_NONE,
                        L"AB3D2 DXR Scene Upload", upload_buffer_, error)) {
@@ -500,11 +601,20 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     std::memcpy(mapped, vertices_.data(), static_cast<size_t>(vertex_bytes));
     std::memcpy(static_cast<uint8_t *>(mapped) + material_offset,
                 materials_.data(), static_cast<size_t>(material_bytes));
+    std::memset(static_cast<uint8_t *>(mapped) + emitter_offset, 0,
+                static_cast<size_t>(emitter_bytes));
+    if (!emissive_triangles_.empty()) {
+        std::memcpy(static_cast<uint8_t *>(mapped) + emitter_offset,
+                    emissive_triangles_.data(),
+                    emissive_triangles_.size() * sizeof(emissive_triangles_[0]));
+    }
     upload_buffer_->Unmap(0, nullptr);
     command_list->CopyBufferRegion(vertex_buffer_.Get(), 0, upload_buffer_.Get(), 0,
                                    vertex_bytes);
     command_list->CopyBufferRegion(material_buffer_.Get(), 0, upload_buffer_.Get(),
                                    material_offset, material_bytes);
+    command_list->CopyBufferRegion(emitter_buffer_.Get(), 0, upload_buffer_.Get(),
+                                   emitter_offset, emitter_bytes);
 
     D3D12_RESOURCE_DESC texture_description = {};
     texture_description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -576,10 +686,12 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         command_list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
     }
 
-    std::array<D3D12_RESOURCE_BARRIER, 6> uploads = {
+    std::array<D3D12_RESOURCE_BARRIER, 7> uploads = {
         transition(vertex_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
         transition(material_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(emitter_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
         transition(atlas_textures_[0].Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
@@ -712,7 +824,8 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     }
     debug_output("DXR SceneFrame build: " + std::to_string(triangle_count()) +
                  " triangles, " + std::to_string(materials_.size()) +
-                 " PBR-capable materials");
+                 " PBR-capable materials, " +
+                 std::to_string(emitter_count()) + " emissive triangles");
     return true;
 }
 

@@ -56,6 +56,11 @@ void debug_output(const std::string &message)
 {
     std::string line = "[AB3D2 DXR] " + message + "\n";
     OutputDebugStringA(line.c_str());
+    char mirror[2] = {};
+    if (GetEnvironmentVariableA("AB3D2_DXR_DEBUG_LOG", mirror,
+                                static_cast<DWORD>(sizeof(mirror))) != 0u) {
+        std::fputs(line.c_str(), stderr);
+    }
 }
 
 }  // namespace ab3d2::dxr

@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
 #include <limits>
 #include <sstream>
@@ -373,21 +375,57 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
                                      result, error);
     }
     uint64_t checksum = UINT64_C(1469598103934665603);
+    uint64_t nonzero_pixels = 0u;
+    double luminance_sum = 0.0;
+    uint8_t maximum_component = 0u;
     const auto *pixels = static_cast<const uint8_t *>(mapped) +
         readback_footprint_.Offset;
     for (UINT y = 0; y < readback_height_; ++y) {
         const uint8_t *row = pixels +
             static_cast<size_t>(y) * readback_footprint_.Footprint.RowPitch;
         for (UINT x = 0; x < readback_width_; ++x) {
+            const uint8_t *pixel = row + static_cast<size_t>(x) * 4u;
+            nonzero_pixels += pixel[0] != 0u || pixel[1] != 0u || pixel[2] != 0u;
+            luminance_sum += pixel[0] * 0.2126 + pixel[1] * 0.7152 +
+                pixel[2] * 0.0722;
             for (UINT component = 0; component < 3u; ++component) {
-                checksum ^= row[static_cast<size_t>(x) * 4u + component];
+                maximum_component = std::max(maximum_component, pixel[component]);
+                checksum ^= pixel[component];
                 checksum *= UINT64_C(1099511628211);
+            }
+        }
+    }
+    wchar_t capture_path[32768] = {};
+    const DWORD capture_length = GetEnvironmentVariableW(
+        L"AB3D2_DXR_CAPTURE_PPM", capture_path,
+        static_cast<DWORD>(std::size(capture_path)));
+    if (capture_length > 0u && capture_length < std::size(capture_path)) {
+        std::ofstream capture(std::filesystem::path(capture_path),
+                              std::ios::binary | std::ios::trunc);
+        if (capture) {
+            capture << "P6\n" << readback_width_ << ' ' << readback_height_
+                    << "\n255\n";
+            for (UINT y = 0; y < readback_height_; ++y) {
+                const uint8_t *row = pixels + static_cast<size_t>(y) *
+                    readback_footprint_.Footprint.RowPitch;
+                for (UINT x = 0; x < readback_width_; ++x) {
+                    capture.write(reinterpret_cast<const char *>(
+                                      row + static_cast<size_t>(x) * 4u), 3);
+                }
             }
         }
     }
     D3D12_RANGE no_write = {0, 0};
     scene_readback_->Unmap(0, &no_write);
-    last_scene_rgb_checksum_ = checksum;
+    last_scene_rgb_checksum_ = nonzero_pixels == 0u ? 0u : checksum;
+    std::ostringstream statistics;
+    statistics << "readback: nonzero=" << nonzero_pixels << '/'
+               << static_cast<uint64_t>(readback_width_) * readback_height_
+               << " mean="
+               << luminance_sum /
+                    (static_cast<double>(readback_width_) * readback_height_)
+               << " max=" << static_cast<unsigned>(maximum_component);
+    debug_output(statistics.str());
     return true;
 }
 
