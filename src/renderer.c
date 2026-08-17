@@ -312,7 +312,7 @@ size_t renderer_last_indirect_light_coverage(const Renderer *renderer)
     }
 }
 
-size_t renderer_last_secondary_history_coverage(const Renderer *renderer)
+size_t renderer_last_secondary_history_attempts(const Renderer *renderer)
 {
     if (!renderer) {
         return 0u;
@@ -320,7 +320,26 @@ size_t renderer_last_secondary_history_coverage(const Renderer *renderer)
     switch (renderer->backend) {
     case RENDERER_BACKEND_VULKAN_RTX:
 #if defined(AB3D2_ENABLE_RTX)
-        return renderer_vulkan_rtx_last_secondary_history_coverage(
+        return renderer_vulkan_rtx_last_secondary_history_attempts(
+            renderer->vulkan_rtx);
+#else
+        return 0u;
+#endif
+    case RENDERER_BACKEND_OPENGL:
+    default:
+        return 0u;
+    }
+}
+
+size_t renderer_last_secondary_history_accepted(const Renderer *renderer)
+{
+    if (!renderer) {
+        return 0u;
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_VULKAN_RTX:
+#if defined(AB3D2_ENABLE_RTX)
+        return renderer_vulkan_rtx_last_secondary_history_accepted(
             renderer->vulkan_rtx);
 #else
         return 0u;
@@ -400,24 +419,12 @@ size_t renderer_last_light_shadow_samples(const Renderer *renderer)
     return 0u;
 }
 
-size_t renderer_last_partition_guided_samples(const Renderer *renderer)
+size_t renderer_last_per_light_history_samples(const Renderer *renderer)
 {
     if (!renderer) return 0u;
     if (renderer->backend == RENDERER_BACKEND_VULKAN_RTX) {
 #if defined(AB3D2_ENABLE_RTX)
-        return renderer_vulkan_rtx_last_partition_guided_samples(
-            renderer->vulkan_rtx);
-#endif
-    }
-    return 0u;
-}
-
-size_t renderer_last_light_guided_samples(const Renderer *renderer)
-{
-    if (!renderer) return 0u;
-    if (renderer->backend == RENDERER_BACKEND_VULKAN_RTX) {
-#if defined(AB3D2_ENABLE_RTX)
-        return renderer_vulkan_rtx_last_light_guided_samples(
+        return renderer_vulkan_rtx_last_per_light_history_samples(
             renderer->vulkan_rtx);
 #endif
     }

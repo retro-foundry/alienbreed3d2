@@ -76,5 +76,8 @@ int32_t scene_rtx_visibility_point_cluster(const SceneRtxVisibility *visibility,
                                            const float q2_point[3]);
 int32_t scene_rtx_visibility_triangle_cluster(
     const SceneRtxVisibility *visibility, const float native_positions[9]);
+int32_t scene_rtx_visibility_triangle_cluster_at_offset(
+    const SceneRtxVisibility *visibility, const float native_positions[9],
+    float offset);
 
 #endif

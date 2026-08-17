@@ -430,16 +430,20 @@ ray-cone gradients select texture mips from each primary or secondary hit's
 projected footprint. Camera cuts, level/material/geometry changes, and output
 resizes reset temporal history.
 Emissive polygons are clipped to their lit texels before sampling. The source
-ZoneT PVST supplies Q2RTX-style per-zone light lists, preventing emitters in
-unrelated rooms from consuming samples or leaking through walls. Material
+BSP-conversion oracle supplies compact Q2RTX cluster/PVS sidecars; RTX startup
+rejects a missing, corrupt, or stale sidecar instead of substituting ZoneT
+proposals. Material
 arrays retain the widest 4x Q2 override resolution; every base/normal layer
 repeats its exact Q2-sized logical tile. Emissive masks occupy a complete
 normalized layer so sparse lights retain valid data through the entire mip
-chain. The source-authored `floor_0101` light panel is decoded from the exact
-`floortile`/`newtexturemaps.pal`/`256pal` assets into its packaged emissive
-mask; other source materials without a declared emissive map remain
-non-emissive. Polygon lights follow Q2RTX's one-sided emission rule, so a
-floor or ceiling light cannot illuminate through its back face.
+chain. Only materials registered as lights by the working Q2RTX package create
+polygon emitters; `floor_0101` remains non-emissive. Authored wall faces are
+clipped before their render diagonal is introduced, then use Q2RTX's fixed
+front-side winding and one-unit BSP query. Invalid or solid-side emitters are
+discarded rather than reoriented heuristically.
+Native floor and water triangles use their fixed authored playable-side order
+for BSP assignment, matching the converted Q2 faces instead of querying the
+solid volume below the surface.
 Sampling and final 8-bit sRGB dithering use Q2RTX's exact CC0 256x256x512 R16
 blue-noise sequence. Camera jitter follows Q2RTX's 128-sample Halton(2,3)
 sequence. Its TAAU

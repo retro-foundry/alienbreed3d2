@@ -412,12 +412,14 @@ static int scene_rtx_visibility_off_center(const float positions[9], float offse
     return 1;
 }
 
-int32_t scene_rtx_visibility_triangle_cluster(
-    const SceneRtxVisibility *visibility, const float native_positions[9])
+int32_t scene_rtx_visibility_triangle_cluster_at_offset(
+    const SceneRtxVisibility *visibility, const float native_positions[9],
+    float offset)
 {
     float q2_positions[9];
+    float center[3];
 
-    if (!visibility || !native_positions) {
+    if (!visibility || !native_positions || !(offset > 0.0f)) {
         return -1;
     }
     for (uint32_t vertex = 0u; vertex < 3u; ++vertex) {
@@ -425,16 +427,24 @@ int32_t scene_rtx_visibility_triangle_cluster(
                                              native_positions + vertex * 3u,
                                              q2_positions + vertex * 3u);
     }
+    if (!scene_rtx_visibility_off_center(q2_positions, offset, center)) {
+        return -1;
+    }
+    return scene_rtx_visibility_point_cluster(visibility, center);
+}
+
+int32_t scene_rtx_visibility_triangle_cluster(
+    const SceneRtxVisibility *visibility, const float native_positions[9])
+{
+    if (!visibility || !native_positions) {
+        return -1;
+    }
     /* Q2RTX bsp_mesh.c retries exactly these two offsets. */
     for (uint32_t attempt = 0u; attempt < 2u; ++attempt) {
-        float center[3];
         float offset = attempt == 0u ? 0.01f : 1.0f;
-        int32_t cluster;
+        int32_t cluster = scene_rtx_visibility_triangle_cluster_at_offset(
+            visibility, native_positions, offset);
 
-        if (!scene_rtx_visibility_off_center(q2_positions, offset, center)) {
-            return -1;
-        }
-        cluster = scene_rtx_visibility_point_cluster(visibility, center);
         if (cluster >= 0) {
             return cluster;
         }

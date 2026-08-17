@@ -615,6 +615,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         fprintf(stderr, "[RENDER] %s\n", error);
         return 0;
     }
+    game_bootstrap_set_rtx_visibility_required(
+        &app->game, renderer_config.backend == RENDERER_BACKEND_VULKAN_RTX);
     if (!game_app_prepare_renderer_resources(app, error, sizeof(error))) {
         fprintf(stderr, "[RENDER] %s\n", error);
         return 0;
@@ -773,6 +775,7 @@ static int game_app_present_level_transition(GameApp *app, uint8_t opacity,
     SceneCommand presentation;
     int has_camera = 0;
     int has_environment = 0;
+    int has_lighting = 0;
 
     if (!app) {
         return 0;
@@ -791,12 +794,20 @@ static int game_app_present_level_transition(GameApp *app, uint8_t opacity,
                 return 0;
             }
             has_environment = 1;
+        } else if (command->type == SCENE_COMMAND_LIGHTING && !has_lighting) {
+            /* The transition draws no world geometry, but RTX still requires
+             * the loaded level's validated immutable visibility view. */
+            if (!scene_frame_submit(&app->frame, command)) {
+                return 0;
+            }
+            has_lighting = 1;
         }
     }
-    if (!has_camera || !has_environment) {
+    if (!has_camera || !has_environment ||
+        (app->game.rtx_visibility_required != 0u && !has_lighting)) {
         if (error && error_size > 0u) {
             (void)snprintf(error, error_size,
-                           "level transition has no camera or source palette");
+                           "level transition is missing required scene state");
         }
         return 0;
     }
@@ -1307,6 +1318,8 @@ static int game_app_run_gpu_smoke(GameApp *app)
 
     for (uint16_t level_index = first_level; level_index <= last_level; ++level_index) {
         SceneCommand source_effect_camera;
+        SceneCommand source_effect_lighting;
+        int source_effect_has_lighting = 0;
         uint64_t source_effect_background_checksum;
         uint64_t source_text_background_checksum;
         uint64_t source_lighting_checksum;
@@ -1346,17 +1359,6 @@ static int game_app_run_gpu_smoke(GameApp *app)
             renderer_last_indirect_light_coverage(app->renderer) == 0u) {
             fprintf(stderr,
                     "[RENDER] RTX smoke traced no indirect-light intersections "
-                    "in Level %c\n", (char)('A' + level_index));
-            app->exit_code = 1;
-            return 0;
-        }
-        /* Level B starts with authored emissive polygons in its source PVST.
-         * Level A's emitters are behind zones excluded by the spawn PVST and
-         * must not leak through those walls merely to satisfy this check. */
-        if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX && level_index == 1u &&
-            renderer_last_direct_light_energy(app->renderer) == 0u) {
-            fprintf(stderr,
-                    "[RENDER] RTX smoke produced no emissive direct-light radiance "
                     "in Level %c\n", (char)('A' + level_index));
             app->exit_code = 1;
             return 0;
@@ -1467,8 +1469,19 @@ static int game_app_run_gpu_smoke(GameApp *app)
         /* Exercise the effect conversion in an isolated camera frame so a
          * valid near-wall spawn cannot hide it behind source geometry. */
         source_effect_camera = app->frame.commands[0u];
+        for (size_t command_index = 0u;
+             command_index < app->frame.count; ++command_index) {
+            if (app->frame.commands[command_index].type ==
+                    SCENE_COMMAND_LIGHTING) {
+                source_effect_lighting = app->frame.commands[command_index];
+                source_effect_has_lighting = 1;
+                break;
+            }
+        }
         scene_frame_begin(&app->frame);
         if (!scene_frame_submit(&app->frame, &source_effect_camera) ||
+            (source_effect_has_lighting &&
+             !scene_frame_submit(&app->frame, &source_effect_lighting)) ||
             !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
             fprintf(stderr, "[RENDER] GPU effect background smoke failed for Level %c: %s\n",
                     (char)('A' + level_index), error);
@@ -1479,6 +1492,8 @@ static int game_app_run_gpu_smoke(GameApp *app)
         for (int glare = 0; glare <= 1; ++glare) {
             scene_frame_begin(&app->frame);
             if (!scene_frame_submit(&app->frame, &source_effect_camera) ||
+                (source_effect_has_lighting &&
+                 !scene_frame_submit(&app->frame, &source_effect_lighting)) ||
                 !game_app_append_source_effect_smoke(app, glare, error, sizeof(error)) ||
                 !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
                 fprintf(stderr, "[RENDER] GPU %s effect smoke failed for Level %c: %s\n",
@@ -1626,120 +1641,138 @@ static int game_app_run_gpu_smoke(GameApp *app)
             return 0;
         }
         if (smoke_backend == RENDERER_BACKEND_VULKAN_RTX &&
-            level_index == 0u) {
+            level_index == 1u) {
+            SceneCamera authored_camera;
+            SceneCamera history_camera;
+            SceneCamera *moving_camera = NULL;
+            size_t translation_attempts;
+            size_t translation_accepted;
+            size_t rotation_attempts;
+            size_t rotation_accepted;
+
+            for (size_t command_index = 0u;
+                 command_index < app->frame.count; ++command_index) {
+                if (app->frame.commands[command_index].type ==
+                    SCENE_COMMAND_CAMERA) {
+                    moving_camera =
+                        &app->frame.commands[command_index].data.camera;
+                    break;
+                }
+            }
+            if (!moving_camera) {
+                fprintf(stderr,
+                        "[SCENE] RTX motion-history smoke has no camera\n");
+                app->exit_code = 1;
+                return 0;
+            }
+            /* Level B's authored view produces per-light secondary samples.
+             * Level A's spawn is deliberately in an empty Q2 light-list
+             * region, so it cannot prove history consumption. */
+            authored_camera = *moving_camera;
+            history_camera = authored_camera;
+            *moving_camera = history_camera;
             for (uint32_t convergence_frame = 0u;
                  convergence_frame < 3u; ++convergence_frame) {
                 if (!renderer_present(
                         app->renderer, &app->frame, &app->view,
                         error, sizeof(error))) {
                     fprintf(stderr,
-                            "[RENDER] RTX adaptive-light convergence frame "
+                            "[RENDER] RTX per-light convergence frame "
                             "failed: %s\n", error);
+                    *moving_camera = authored_camera;
                     app->exit_code = 1;
                     return 0;
                 }
             }
             if (renderer_last_light_shadow_samples(app->renderer) == 0u ||
-                renderer_last_partition_guided_samples(app->renderer) == 0u ||
-                renderer_last_light_guided_samples(app->renderer) == 0u) {
+                renderer_last_per_light_history_samples(app->renderer) == 0u) {
                 fprintf(stderr,
-                        "[RENDER] RTX adaptive-light history was not consumed "
-                        "(shadow=%zu partition=%zu light=%zu)\n",
+                        "[RENDER] RTX per-light history was not consumed "
+                        "(shadow=%zu history=%zu)\n",
                         renderer_last_light_shadow_samples(app->renderer),
-                        renderer_last_partition_guided_samples(app->renderer),
-                        renderer_last_light_guided_samples(app->renderer));
+                        renderer_last_per_light_history_samples(app->renderer));
+                *moving_camera = authored_camera;
                 app->exit_code = 1;
                 return 0;
             }
             fprintf(stdout,
-                    "[RENDER] RTX adaptive-light history consumed "
-                    "(shadow=%zu partition=%zu light=%zu)\n",
+                    "[RENDER] RTX per-light history consumed "
+                    "(shadow=%zu history=%zu)\n",
                     renderer_last_light_shadow_samples(app->renderer),
-                    renderer_last_partition_guided_samples(app->renderer),
-                    renderer_last_light_guided_samples(app->renderer));
-            {
-                SceneCamera saved_camera;
-                SceneCamera *moving_camera = NULL;
-                size_t translation_coverage;
-                size_t rotation_coverage;
-
-                for (size_t command_index = 0u;
-                     command_index < app->frame.count; ++command_index) {
-                    if (app->frame.commands[command_index].type ==
-                        SCENE_COMMAND_CAMERA) {
-                        moving_camera =
-                            &app->frame.commands[command_index].data.camera;
-                        break;
-                    }
-                }
-                if (!moving_camera) {
-                    fprintf(stderr,
-                            "[SCENE] RTX motion-history smoke has no camera\n");
-                    app->exit_code = 1;
-                    return 0;
-                }
-                saved_camera = *moving_camera;
-                ++moving_camera->position.x;
-                if (moving_camera->has_source_position_16_16 != 0u)
-                    moving_camera->source_position_x_16_16 += INT32_C(65536);
-                if (!renderer_present(
-                        app->renderer, &app->frame, &app->view,
-                        error, sizeof(error))) {
-                    *moving_camera = saved_camera;
-                    fprintf(stderr,
-                            "[RENDER] RTX motion-history frame failed: %s\n",
-                            error);
-                    app->exit_code = 1;
-                    return 0;
-                }
-                translation_coverage =
-                    renderer_last_secondary_history_coverage(app->renderer);
-                *moving_camera = saved_camera;
-                if (translation_coverage == 0u) {
-                    fprintf(stderr,
-                            "[RENDER] RTX camera translation retained no valid "
-                            "secondary-light history\n");
-                    app->exit_code = 1;
-                    return 0;
-                }
-                /* Return to the authored camera before testing angular
-                 * reprojection, so the yaw check has a clean preceding view
-                 * instead of combining rotation with the translation above. */
-                if (!renderer_present(
-                        app->renderer, &app->frame, &app->view,
-                        error, sizeof(error))) {
-                    fprintf(stderr,
-                            "[RENDER] RTX motion-history camera restore "
-                            "failed: %s\n", error);
-                    app->exit_code = 1;
-                    return 0;
-                }
-                moving_camera->yaw = (uint16_t)(moving_camera->yaw + 128u);
-                if (!renderer_present(
-                        app->renderer, &app->frame, &app->view,
-                        error, sizeof(error))) {
-                    *moving_camera = saved_camera;
-                    fprintf(stderr,
-                            "[RENDER] RTX rotation-history frame failed: %s\n",
-                            error);
-                    app->exit_code = 1;
-                    return 0;
-                }
-                rotation_coverage =
-                    renderer_last_secondary_history_coverage(app->renderer);
-                *moving_camera = saved_camera;
-                if (rotation_coverage == 0u) {
-                    fprintf(stderr,
-                            "[RENDER] RTX camera rotation retained no valid "
-                            "secondary-light history\n");
-                    app->exit_code = 1;
-                    return 0;
-                }
-                fprintf(stdout,
-                        "[RENDER] RTX camera motion reprojected secondary "
-                        "history (translation=%zu rotation=%zu pixels)\n",
-                        translation_coverage, rotation_coverage);
+                    renderer_last_per_light_history_samples(app->renderer));
+            ++moving_camera->position.x;
+            moving_camera->source_position_x_16_16 += INT32_C(65536);
+            if (!renderer_present(
+                    app->renderer, &app->frame, &app->view,
+                    error, sizeof(error))) {
+                *moving_camera = authored_camera;
+                fprintf(stderr,
+                        "[RENDER] RTX motion-history frame failed: %s\n",
+                        error);
+                app->exit_code = 1;
+                return 0;
             }
+            translation_attempts =
+                renderer_last_secondary_history_attempts(app->renderer);
+            translation_accepted =
+                renderer_last_secondary_history_accepted(app->renderer);
+            *moving_camera = history_camera;
+            if (translation_attempts == 0u ||
+                translation_accepted > translation_attempts ||
+                (double)translation_accepted /
+                    (double)translation_attempts < 0.25) {
+                *moving_camera = authored_camera;
+                fprintf(stderr,
+                        "[RENDER] RTX camera translation rejected too much "
+                        "secondary-light history (accepted=%zu attempted=%zu)\n",
+                        translation_accepted, translation_attempts);
+                app->exit_code = 1;
+                return 0;
+            }
+            /* Restore the fixture before testing angular reprojection, so
+             * yaw is measured independently from translation. */
+            if (!renderer_present(
+                    app->renderer, &app->frame, &app->view,
+                    error, sizeof(error))) {
+                *moving_camera = authored_camera;
+                fprintf(stderr,
+                        "[RENDER] RTX motion-history camera restore "
+                        "failed: %s\n", error);
+                app->exit_code = 1;
+                return 0;
+            }
+            moving_camera->yaw = (uint16_t)(moving_camera->yaw + 128u);
+            if (!renderer_present(
+                    app->renderer, &app->frame, &app->view,
+                    error, sizeof(error))) {
+                *moving_camera = authored_camera;
+                fprintf(stderr,
+                        "[RENDER] RTX rotation-history frame failed: %s\n",
+                        error);
+                app->exit_code = 1;
+                return 0;
+            }
+            rotation_attempts =
+                renderer_last_secondary_history_attempts(app->renderer);
+            rotation_accepted =
+                renderer_last_secondary_history_accepted(app->renderer);
+            *moving_camera = authored_camera;
+            if (rotation_attempts == 0u ||
+                rotation_accepted > rotation_attempts ||
+                (double)rotation_accepted /
+                    (double)rotation_attempts < 0.25) {
+                fprintf(stderr,
+                        "[RENDER] RTX camera rotation rejected too much "
+                        "secondary-light history (accepted=%zu attempted=%zu)\n",
+                        rotation_accepted, rotation_attempts);
+                app->exit_code = 1;
+                return 0;
+            }
+            fprintf(stdout,
+                    "[RENDER] RTX camera motion reprojected secondary "
+                    "history (translation=%zu/%zu rotation=%zu/%zu pixels)\n",
+                    translation_accepted, translation_attempts,
+                    rotation_accepted, rotation_attempts);
         }
         /* The companion is primary PBR geometry.  Its source projection must
          * remain visible and its resolved material lighting must be nonzero;

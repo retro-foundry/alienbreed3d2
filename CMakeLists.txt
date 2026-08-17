@@ -157,9 +157,6 @@ if(AB3D2_ENABLE_RTX)
     HOST_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src"
     MATERIAL_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/textures_pbr"
     FONTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/fonts"
-    FLOOR_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/floortile"
-    FLOOR_REMAP "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/newtexturemaps.pal"
-    DISPLAY_PALETTE "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/256pal"
     OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}"
   )
 endif()
@@ -271,6 +268,13 @@ else()
       PRIVATE ab3d2_vulkan_rtx_platform ab3d2_core
     )
     target_include_directories(ab3d2_vulkan_rtx_scene_test PRIVATE src)
+    add_executable(ab3d2_rtx_cluster_light_oracle_test
+      tests/rtx_cluster_light_oracle_test.c
+    )
+    target_link_libraries(ab3d2_rtx_cluster_light_oracle_test
+      PRIVATE ab3d2_vulkan_rtx_platform ab3d2_core
+    )
+    target_include_directories(ab3d2_rtx_cluster_light_oracle_test PRIVATE src)
   endif()
 endif()
 
@@ -286,6 +290,7 @@ if(MSVC)
     target_compile_options(ab3d2_vulkan_rtx_probe PRIVATE /W4)
     target_compile_options(ab3d2_vulkan_rtx_context_smoke PRIVATE /W4)
     target_compile_options(ab3d2_vulkan_rtx_scene_test PRIVATE /W4)
+    target_compile_options(ab3d2_rtx_cluster_light_oracle_test PRIVATE /W4)
   endif()
   if(NOT EMSCRIPTEN)
     target_compile_options(ab3d2_audio_export PRIVATE /W4)
@@ -299,6 +304,9 @@ if(MSVC)
       PRIVATE _CRT_SECURE_NO_WARNINGS
     )
     target_compile_definitions(ab3d2_vulkan_rtx_scene_test
+      PRIVATE _CRT_SECURE_NO_WARNINGS
+    )
+    target_compile_definitions(ab3d2_rtx_cluster_light_oracle_test
       PRIVATE _CRT_SECURE_NO_WARNINGS
     )
   endif()
@@ -317,6 +325,9 @@ else()
     target_compile_options(ab3d2_vulkan_rtx_scene_test
       PRIVATE -Wall -Wextra -Wpedantic
     )
+    target_compile_options(ab3d2_rtx_cluster_light_oracle_test
+      PRIVATE -Wall -Wextra -Wpedantic
+    )
   endif()
   if(NOT EMSCRIPTEN)
     target_compile_options(ab3d2_audio_export PRIVATE -Wall -Wextra -Wpedantic)
@@ -332,6 +343,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   if(AB3D2_ENABLE_RTX)
     add_test(NAME ab3d2_vulkan_rtx_scene_test
              COMMAND ab3d2_vulkan_rtx_scene_test)
+    add_dependencies(ab3d2_rtx_cluster_light_oracle_test ab3d2)
+    add_test(
+      NAME ab3d2_rtx_cluster_light_oracle_test
+      COMMAND ab3d2_rtx_cluster_light_oracle_test
+              "$<TARGET_FILE_DIR:ab3d2>/data"
+              "$<TARGET_FILE_DIR:ab3d2>/rtx_materials"
+    )
     add_test(
       NAME ab3d2_rtx_material_tools_test
       COMMAND ${CMAKE_COMMAND} -E env
