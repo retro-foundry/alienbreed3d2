@@ -168,6 +168,7 @@ set(AB3D2_CORE_SOURCES
   src/render_view.c
   src/renderer_backend.c
   src/scene_frame.c
+  src/scene_geometry_compile.c
   src/source_bitmap_lighting.c
   src/source_bitmap_sprite.c
   src/source_flat_visibility.c
@@ -484,6 +485,12 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   target_include_directories(ab3d2_world_light_tessellation_test PRIVATE src)
   add_test(NAME ab3d2_world_light_tessellation_test
            COMMAND ab3d2_world_light_tessellation_test)
+  add_executable(ab3d2_scene_geometry_compile_test
+                 tests/scene_geometry_compile_test.c)
+  target_link_libraries(ab3d2_scene_geometry_compile_test PRIVATE ab3d2_core)
+  target_include_directories(ab3d2_scene_geometry_compile_test PRIVATE src)
+  add_test(NAME ab3d2_scene_geometry_compile_test
+           COMMAND ab3d2_scene_geometry_compile_test)
   add_executable(ab3d2_source_flat_visibility_test
                  tests/source_flat_visibility_test.c)
   target_link_libraries(ab3d2_source_flat_visibility_test PRIVATE ab3d2_core)

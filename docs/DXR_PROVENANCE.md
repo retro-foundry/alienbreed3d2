@@ -33,6 +33,13 @@ wall IDs 0 and 12 deliberately use the plan's visible fallback until matching
 authored PBR entries exist. No emissive intensity or metalness is inferred
 from image brightness.
 
+`src/scene_geometry_compile.c` is a project-authored extraction of the native
+port's current coordinate interpretation and polygon triangulation. Its
+coordinate evidence remains `modules/transform.s:RotateLevelPts`,
+`hires.s:Draw_Flats`, and the `SceneWorldPoint`/`SceneGeometry` producer
+contract. OpenGL now calls this renderer-neutral implementation; no geometry
+rule came from a removed renderer or generated Q2 scene.
+
 ## Approved conceptual references inspected
 
 - `binaryfoundry/dxr-demo`, commit

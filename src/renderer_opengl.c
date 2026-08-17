@@ -1,5 +1,6 @@
 #include "renderer_opengl.h"
 
+#include "scene_geometry_compile.h"
 #include "source_bitmap_lighting.h"
 
 #include "bitmap_source_decode.h"
@@ -45,7 +46,7 @@ enum {
  * while `Draw_Flats` supplies Y as flat_height<<6.  Dividing source Y by 128
  * puts both axes in the same native projection space.
  */
-static const float renderer_opengl_source_y_unit = 1.0f / 128.0f;
+static const float renderer_opengl_source_y_unit = SCENE_RENDER_SOURCE_Y_UNIT;
 static const float renderer_opengl_pi = 3.14159265358979323846f;
 static const float renderer_opengl_near_plane = 0.05f;
 static const float renderer_opengl_far_plane = 8192.0f;
@@ -231,20 +232,21 @@ static void renderer_opengl_set_sdl_error(char *error, size_t error_size, const 
 static void renderer_opengl_world_point(const SceneWorldPoint *point, float *out_x,
                                         float *out_y, float *out_z)
 {
-    *out_x = (float)(int16_t)(uint16_t)point->x;
-    *out_y = -(float)point->y * renderer_opengl_source_y_unit;
-    *out_z = (float)(int16_t)(uint16_t)point->z;
+    SceneRenderPoint converted = scene_render_world_point(*point);
+
+    *out_x = converted.x;
+    *out_y = converted.y;
+    *out_z = converted.z;
 }
 
 static void renderer_opengl_camera_point(const SceneCamera *camera, float *out_x,
                                          float *out_y, float *out_z)
 {
-    renderer_opengl_world_point(&camera->position, out_x, out_y, out_z);
-    if (camera->has_source_position_16_16 != 0u) {
-        /* Match the first port's interpolation of raw player endpoints. */
-        *out_x = (float)((double)camera->source_position_x_16_16 / 65536.0);
-        *out_z = (float)((double)camera->source_position_z_16_16 / 65536.0);
-    }
+    SceneRenderPoint converted = scene_render_camera_point(camera);
+
+    *out_x = converted.x;
+    *out_y = converted.y;
+    *out_z = converted.z;
 }
 
 /* Keep translucent ordering on the identical eye ray used by the view matrix. */
@@ -463,30 +465,6 @@ static void renderer_opengl_make_tessellated_vertex(
     out_vertex->source_blue = 1.0f;
 }
 
-static double renderer_opengl_cross_xz(const SceneVertex *first, const SceneVertex *second,
-                                       const SceneVertex *third)
-{
-    double ab_x = (double)second->position.x - first->position.x;
-    double ab_z = (double)second->position.z - first->position.z;
-    double ac_x = (double)third->position.x - first->position.x;
-    double ac_z = (double)third->position.z - first->position.z;
-
-    return ab_x * ac_z - ab_z * ac_x;
-}
-
-static int renderer_opengl_point_in_triangle_xz(const SceneVertex *point,
-                                                const SceneVertex *first,
-                                                const SceneVertex *second,
-                                                const SceneVertex *third,
-                                                int winding)
-{
-    double first_cross = renderer_opengl_cross_xz(first, second, point) * winding;
-    double second_cross = renderer_opengl_cross_xz(second, third, point) * winding;
-    double third_cross = renderer_opengl_cross_xz(third, first, point) * winding;
-
-    return first_cross >= 0.0 && second_cross >= 0.0 && third_cross >= 0.0;
-}
-
 static int renderer_opengl_triangulate_polygon(const SceneGeometry *geometry,
                                                float texture_u_scale,
                                                float texture_v_scale,
@@ -498,125 +476,36 @@ static int renderer_opengl_triangulate_polygon(const SceneGeometry *geometry,
 {
     uint32_t *indices;
     RendererOpenGLVertex *vertices;
-    uint32_t active_count;
-    uint32_t output_index = 0u;
-    uint32_t guard;
-    double signed_area = 0.0;
-    int winding;
+    uint32_t index_count;
 
-    if (geometry->vertex_count < 3u) {
+    if (!scene_geometry_triangle_indices(geometry, &indices, &index_count,
+                                         error, error_size)) {
+        return 0;
+    }
+    if ((size_t)index_count > SIZE_MAX / sizeof(*vertices)) {
+        scene_geometry_triangle_indices_release(indices);
         renderer_opengl_set_error(error, error_size,
-                                  "source polygon has fewer than three boundary vertices");
+                                  "polygon GPU vertex allocation is too large");
         return 0;
     }
-    if (geometry->vertex_count > UINT32_MAX / 3u + 2u ||
-        (size_t)(geometry->vertex_count - 2u) > SIZE_MAX / (3u * sizeof(*vertices))) {
-        renderer_opengl_set_error(error, error_size, "source polygon is too large to triangulate");
+    vertices = malloc((size_t)index_count * sizeof(*vertices));
+    if (!vertices) {
+        scene_geometry_triangle_indices_release(indices);
+        renderer_opengl_set_error(error, error_size,
+                                  "polygon GPU vertex allocation failed");
         return 0;
     }
-    indices = malloc((size_t)geometry->vertex_count * sizeof(*indices));
-    vertices = malloc((size_t)(geometry->vertex_count - 2u) * 3u * sizeof(*vertices));
-    if (!indices || !vertices) {
-        free(indices);
-        free(vertices);
-        renderer_opengl_set_error(error, error_size, "polygon triangulation allocation failed");
-        return 0;
+    for (uint32_t output_index = 0u; output_index < index_count; ++output_index) {
+        const SceneVertex *source = &geometry->vertices[indices[output_index]];
+        renderer_opengl_make_vertex(
+            &vertices[output_index], source,
+            (float)source->texture_u * texture_u_scale,
+            ((float)source->texture_v + texture_v_offset) * texture_v_scale,
+            camera, geometry->primitive);
     }
-    for (uint32_t index = 0u; index < geometry->vertex_count; ++index) {
-        const SceneVertex *first = &geometry->vertices[index];
-        const SceneVertex *second = &geometry->vertices[(index + 1u) % geometry->vertex_count];
-
-        signed_area += (double)first->position.x * second->position.z -
-            (double)second->position.x * first->position.z;
-        indices[index] = index;
-    }
-    if (signed_area == 0.0) {
-        free(indices);
-        free(vertices);
-        renderer_opengl_set_error(error, error_size, "source polygon has zero X/Z area");
-        return 0;
-    }
-    winding = signed_area > 0.0 ? 1 : -1;
-    active_count = geometry->vertex_count;
-    /* Ear clipping preserves concave authored boundary polygons without a fan shortcut. */
-    for (guard = 0u; active_count > 3u; ++guard) {
-        uint32_t ear_index;
-        int clipped = 0;
-
-        if (guard > geometry->vertex_count) {
-            free(indices);
-            free(vertices);
-            renderer_opengl_set_error(error, error_size,
-                                      "source polygon triangulation did not converge");
-            return 0;
-        }
-        for (ear_index = 0u; ear_index < active_count; ++ear_index) {
-            uint32_t previous = (ear_index + active_count - 1u) % active_count;
-            uint32_t next = (ear_index + 1u) % active_count;
-            const SceneVertex *first = &geometry->vertices[indices[previous]];
-            const SceneVertex *second = &geometry->vertices[indices[ear_index]];
-            const SceneVertex *third = &geometry->vertices[indices[next]];
-            uint32_t point_index;
-            int contains_point = 0;
-
-            if (renderer_opengl_cross_xz(first, second, third) * winding <= 0.0) {
-                continue;
-            }
-            for (point_index = 0u; point_index < active_count; ++point_index) {
-                if (point_index == previous || point_index == ear_index || point_index == next) {
-                    continue;
-                }
-                if (renderer_opengl_point_in_triangle_xz(
-                        &geometry->vertices[indices[point_index]], first, second, third,
-                        winding)) {
-                    contains_point = 1;
-                    break;
-                }
-            }
-            if (contains_point) {
-                continue;
-            }
-            renderer_opengl_make_vertex(&vertices[output_index++], first,
-                                        (float)first->texture_u * texture_u_scale,
-                                        ((float)first->texture_v + texture_v_offset) *
-                                            texture_v_scale, camera, geometry->primitive);
-            renderer_opengl_make_vertex(&vertices[output_index++], second,
-                                        (float)second->texture_u * texture_u_scale,
-                                        ((float)second->texture_v + texture_v_offset) *
-                                            texture_v_scale, camera, geometry->primitive);
-            renderer_opengl_make_vertex(&vertices[output_index++], third,
-                                        (float)third->texture_u * texture_u_scale,
-                                        ((float)third->texture_v + texture_v_offset) *
-                                            texture_v_scale, camera, geometry->primitive);
-            memmove(&indices[ear_index], &indices[ear_index + 1u],
-                    (size_t)(active_count - ear_index - 1u) * sizeof(*indices));
-            --active_count;
-            clipped = 1;
-            break;
-        }
-        if (!clipped) {
-            free(indices);
-            free(vertices);
-            renderer_opengl_set_error(error, error_size,
-                                      "source polygon is not a simple X/Z boundary");
-            return 0;
-        }
-    }
-    renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[0u]],
-                                (float)geometry->vertices[indices[0u]].texture_u * texture_u_scale,
-                                ((float)geometry->vertices[indices[0u]].texture_v +
-                                 texture_v_offset) * texture_v_scale, camera, geometry->primitive);
-    renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[1u]],
-                                (float)geometry->vertices[indices[1u]].texture_u * texture_u_scale,
-                                ((float)geometry->vertices[indices[1u]].texture_v +
-                                 texture_v_offset) * texture_v_scale, camera, geometry->primitive);
-    renderer_opengl_make_vertex(&vertices[output_index++], &geometry->vertices[indices[2u]],
-                                (float)geometry->vertices[indices[2u]].texture_u * texture_u_scale,
-                                ((float)geometry->vertices[indices[2u]].texture_v +
-                                 texture_v_offset) * texture_v_scale, camera, geometry->primitive);
-    free(indices);
+    scene_geometry_triangle_indices_release(indices);
     *out_vertices = vertices;
-    *out_vertex_count = output_index;
+    *out_vertex_count = index_count;
     return 1;
 }
 

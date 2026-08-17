@@ -22,6 +22,11 @@ the golden test locks the decoded content and the known `shared_wall` bindings.
 Runtime material upload and SceneFrame geometry remain the next
 ID-independent work needed for a raw noisy image.
 
+The first Phase 5 increment has extracted the existing native world-coordinate
+conversion and concave X/Z ear clipping into `scene_geometry_compile`. OpenGL
+and future DXR compilation now share those tested results, so the new backend
+cannot silently acquire a different scale, winding, or polygon fan.
+
 ### Current dependency gate
 
 The ID-independent DirectX 12 diagnostic foundation may proceed now.  The
