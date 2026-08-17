@@ -19,7 +19,8 @@ enum class DxrMaterialChannel : size_t {
     normal = 1,
     metalness = 2,
     roughness = 3,
-    count = 4,
+    emissive = 4,
+    count = 5,
 };
 
 struct DxrMaterialDefinition {

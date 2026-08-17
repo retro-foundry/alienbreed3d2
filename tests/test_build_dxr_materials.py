@@ -7,12 +7,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from PIL import Image
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "build_dxr_materials.py"
 SOURCE = ROOT / "textures_pbr"
 SPEC = ROOT / "data" / "renderer_dxr" / "material_sources.json"
-EXPECTED_CONTENT_DIGEST = "42c5402f1d47f0b252d656445ced46c4fe1ea59428a4c51f39dc91fa0c42f5f6"
+FLOOR_SOURCE = ROOT / "amiga" / "media" / "includes" / "floortile"
+FLOOR_REMAP = ROOT / "amiga" / "media" / "includes" / "newtexturemaps.pal"
+DISPLAY_PALETTE = ROOT / "amiga" / "media" / "includes" / "256pal"
+EXPECTED_CONTENT_DIGEST = "f58bed00b3a2593a969391b5355b96b2783392be1d9289c7a4a63be1795bdadd"
 RUNTIME_HEADER = struct.Struct("<8sIIII")
 RUNTIME_RECORD = struct.Struct("<IIIIffffII")
 
@@ -38,6 +43,12 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 str(SPEC),
                 "--output-dir",
                 str(output),
+                "--floor-source",
+                str(FLOOR_SOURCE),
+                "--floor-remap",
+                str(FLOOR_REMAP),
+                "--display-palette",
+                str(DISPLAY_PALETTE),
             ],
             check=True,
             capture_output=True,
@@ -63,18 +74,18 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 ).encode("utf-8")
             ).hexdigest()
             self.assertEqual(content_digest, EXPECTED_CONTENT_DIGEST)
-            self.assertEqual(manifest["schema_version"], 1)
-            self.assertEqual(len(manifest["materials"]), 13)
+            self.assertEqual(manifest["schema_version"], 2)
+            self.assertEqual(len(manifest["materials"]), 14)
             runtime = (first / "material_runtime.bin").read_bytes()
             magic, version, material_count, channel_count, record_size = (
                 RUNTIME_HEADER.unpack_from(runtime)
             )
-            self.assertEqual(magic, b"AB3PBR1\0")
-            self.assertEqual(version, 1)
+            self.assertEqual(magic, b"AB3PBR2\0")
+            self.assertEqual(version, 2)
             self.assertEqual(material_count, len(manifest["materials"]))
-            self.assertEqual(channel_count, 4)
+            self.assertEqual(channel_count, 5)
             self.assertEqual(record_size, RUNTIME_RECORD.size)
-            self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR1")
+            self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR2")
             self.assertEqual(
                 manifest["runtime_package"]["sha256"], hashlib.sha256(runtime).hexdigest()
             )
@@ -84,6 +95,7 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                     "base_color": "decoded_source_albedo",
                     "roughness": 1.0,
                     "metalness": 0.0,
+                    "emissive": 0.0,
                     "emissive_factor": [0.0, 0.0, 0.0],
                 },
             )
@@ -95,13 +107,13 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 self.assertEqual(material["normal_space"], "linear_tangent")
                 self.assertEqual(material["roughness_space"], "linear")
                 self.assertEqual(material["metalness_space"], "linear")
+                self.assertEqual(material["emissive_space"], "srgb")
                 authored_emission = {
-                    "brownspeakers": [4.0, 4.0, 4.0],
-                    "technolights": [8.0, 8.0, 8.0],
-                    "technotritile": [4.0, 4.0, 4.0],
+                    "floor_0101": [200.0, 200.0, 200.0],
+                    "technolights": [200.0, 200.0, 200.0],
                 }
                 if material["name"] in authored_emission:
-                    self.assertEqual(material["emissive_source"], "base_color")
+                    self.assertEqual(material["emissive_source"], "texture")
                     self.assertEqual(
                         material["emissive_factor"],
                         authored_emission[material["name"]],
@@ -109,7 +121,13 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 else:
                     self.assertEqual(material["emissive_source"], "none")
                     self.assertEqual(material["emissive_factor"], [0.0, 0.0, 0.0])
-                for channel in ("base_color", "normal", "metalness", "roughness"):
+                for channel in (
+                    "base_color",
+                    "normal",
+                    "metalness",
+                    "roughness",
+                    "emissive",
+                ):
                     channel_info = material["channels"][channel]
                     self.assertEqual(channel_info["mode"], "RGB")
                     self.assertTrue((first / channel_info["file"]).is_file())
@@ -132,6 +150,8 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                     ("shared_wall", 9): "gieger",
                     ("shared_wall", 10): "rocky",
                     ("shared_wall", 11): "steampunk",
+                    ("shared_floor", 257): "floor_0101",
+                    ("shared_floor", 513): "floor_0201",
                 },
             )
             pixel_offset = RUNTIME_HEADER.size + material_count * RUNTIME_RECORD.size
@@ -152,8 +172,29 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 )
             ]
             self.assertEqual(technolights[0:2], (1, 6))
-            self.assertEqual(technolights[5:8], (8.0, 8.0, 8.0))
+            self.assertEqual(technolights[5:8], (200.0, 200.0, 200.0))
             self.assertEqual(technolights[8], 1)
+            floor_light = records[
+                next(
+                    index
+                    for index, material in enumerate(manifest["materials"])
+                    if material["name"] == "floor_0101"
+                )
+            ]
+            self.assertEqual(floor_light[0:2], (2, 257))
+            self.assertEqual(floor_light[5:8], (200.0, 200.0, 200.0))
+            self.assertEqual(floor_light[8], 1)
+
+            with Image.open(first / "technolights_emissive.png") as image:
+                pixels = list(image.convert("RGB").getdata())
+                self.assertTrue(any(pixel == (0, 0, 0) for pixel in pixels))
+                self.assertTrue(any(pixel != (0, 0, 0) for pixel in pixels))
+            with Image.open(first / "floor_0101_emissive.png") as image:
+                lit = sum(pixel != (0, 0, 0) for pixel in image.convert("RGB").getdata())
+                self.assertEqual(lit, 3541)
+            for name in ("brownspeakers", "technotritile"):
+                with Image.open(first / f"{name}_emissive.png") as image:
+                    self.assertIsNone(image.convert("RGB").getbbox())
 
 
 if __name__ == "__main__":

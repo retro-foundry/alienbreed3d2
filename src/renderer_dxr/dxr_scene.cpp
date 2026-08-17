@@ -60,20 +60,20 @@ float average_emissive_luminance(const MaterialImage &image)
         image.emissive_factor[2] == 0.0f) {
         return 0.0f;
     }
-    const std::vector<uint8_t> &base = image.pixels[
-        static_cast<size_t>(DxrMaterialChannel::base_color)];
+    const std::vector<uint8_t> &emissive = image.pixels[
+        static_cast<size_t>(DxrMaterialChannel::emissive)];
     double luminance = 0.0;
-    for (size_t offset = 0; offset < base.size(); offset += 4u) {
-        const double red = srgb_to_linear(base[offset + 0u]) *
+    for (size_t offset = 0; offset < emissive.size(); offset += 4u) {
+        const double red = srgb_to_linear(emissive[offset + 0u]) *
             image.emissive_factor[0];
-        const double green = srgb_to_linear(base[offset + 1u]) *
+        const double green = srgb_to_linear(emissive[offset + 1u]) *
             image.emissive_factor[1];
-        const double blue = srgb_to_linear(base[offset + 2u]) *
+        const double blue = srgb_to_linear(emissive[offset + 2u]) *
             image.emissive_factor[2];
         luminance += red * 0.2126 + green * 0.7152 + blue * 0.0722;
     }
-    return base.empty() ? 0.0f :
-        static_cast<float>(luminance / static_cast<double>(base.size() / 4u));
+    return emissive.empty() ? 0.0f :
+        static_cast<float>(luminance / static_cast<double>(emissive.size() / 4u));
 }
 
 uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
@@ -321,6 +321,8 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
                     image.pixels[static_cast<size_t>(DxrMaterialChannel::metalness)]
                         .resize(byte_count);
                     image.pixels[static_cast<size_t>(DxrMaterialChannel::roughness)]
+                        .resize(byte_count);
+                    image.pixels[static_cast<size_t>(DxrMaterialChannel::emissive)]
                         .resize(byte_count);
                     for (size_t texel = 0; texel < byte_count; texel += 4u) {
                         auto &normal = image.pixels[
@@ -816,8 +818,9 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     atlas_view.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     atlas_view.Texture2D.MipLevels = 1;
     for (size_t channel = 0; channel < atlas_textures_.size(); ++channel) {
-        atlas_view.Format = channel == static_cast<size_t>(
-                                        DxrMaterialChannel::base_color) ?
+        atlas_view.Format =
+            (channel == static_cast<size_t>(DxrMaterialChannel::base_color) ||
+             channel == static_cast<size_t>(DxrMaterialChannel::emissive)) ?
             DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
         device->CreateShaderResourceView(atlas_textures_[channel].Get(), &atlas_view,
                                          atlas_descriptors[channel]);

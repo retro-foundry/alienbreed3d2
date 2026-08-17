@@ -1,5 +1,14 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "source_materials": [
+    {
+      "name": "floor_0101",
+      "source_generator": "floor_0101",
+      "binding": {"source": "shared_floor", "source_asset_id": 257},
+      "emissive_source": "albedo_mask",
+      "emissive_factor": [200.0, 200.0, 200.0]
+    }
+  ],
   "materials": [
     {
       "name": "alienredwall",
@@ -17,9 +26,7 @@
       "name": "brownspeakers",
       "sheet": "brownspeakers.png",
       "layout": "grid",
-      "binding": {"source": "shared_wall", "source_asset_id": 4},
-      "emissive_source": "base_color",
-      "emissive_factor": [4.0, 4.0, 4.0]
+      "binding": {"source": "shared_wall", "source_asset_id": 4}
     },
     {
       "name": "brownwithyellowstripes",
@@ -35,7 +42,8 @@
     {
       "name": "floor_0201",
       "sheet": "floor_0201.png",
-      "layout": "grid"
+      "layout": "grid",
+      "binding": {"source": "shared_floor", "source_asset_id": 513}
     },
     {
       "name": "gieger",
@@ -72,16 +80,14 @@
       "sheet": "technolights.png",
       "layout": "grid",
       "binding": {"source": "shared_wall", "source_asset_id": 6},
-      "emissive_source": "base_color",
-      "emissive_factor": [8.0, 8.0, 8.0]
+      "emissive_source": "albedo_mask",
+      "emissive_factor": [200.0, 200.0, 200.0]
     },
     {
       "name": "technotritile",
       "sheet": "technotritile.png",
       "layout": "grid",
-      "binding": {"source": "shared_wall", "source_asset_id": 3},
-      "emissive_source": "base_color",
-      "emissive_factor": [4.0, 4.0, 4.0]
+      "binding": {"source": "shared_wall", "source_asset_id": 3}
     }
   ],
   "material_defaults": {
@@ -90,6 +96,7 @@
     "normal_strength": 1.0,
     "emissive_source": "none",
     "emissive_factor": [0.0, 0.0, 0.0],
+    "emissive_space": "srgb",
     "base_color_space": "srgb",
     "normal_space": "linear_tangent",
     "roughness_space": "linear",

@@ -23,8 +23,9 @@ enum DescriptorIndex : UINT {
     normal_atlas = 3,
     metalness_atlas = 4,
     roughness_atlas = 5,
-    output_srv = 6,
-    descriptor_count = 7,
+    emissive_atlas = 6,
+    output_srv = 7,
+    descriptor_count = 8,
 };
 
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
@@ -289,7 +290,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[1].NumDescriptors = 1;
     ranges[1].BaseShaderRegister = 0;
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[2].NumDescriptors = 4;
+    ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
     std::array<D3D12_ROOT_PARAMETER, 7> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
@@ -303,7 +304,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     parameters[3].Descriptor.ShaderRegister = 2;
     parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    parameters[5].Descriptor.ShaderRegister = 7;
+    parameters[5].Descriptor.ShaderRegister = 8;
     parameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     parameters[6].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
     parameters[6].Constants.ShaderRegister = 0;
@@ -533,11 +534,14 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         error = "DXR frame recording received incomplete D3D12 state";
         return false;
     }
-    const std::array<D3D12_CPU_DESCRIPTOR_HANDLE, 4> atlas_descriptors = {
+    const std::array<D3D12_CPU_DESCRIPTOR_HANDLE,
+                     static_cast<size_t>(DxrMaterialChannel::count)>
+        atlas_descriptors = {
         cpu_descriptor(base_color_atlas),
         cpu_descriptor(normal_atlas),
         cpu_descriptor(metalness_atlas),
         cpu_descriptor(roughness_atlas),
+        cpu_descriptor(emissive_atlas),
     };
     if (!scene_.record_build(device, command_list, cpu_descriptor(scene_tlas),
                              atlas_descriptors, error)) {

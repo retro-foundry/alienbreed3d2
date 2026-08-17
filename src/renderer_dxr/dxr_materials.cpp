@@ -11,12 +11,13 @@ namespace ab3d2::dxr {
 
 namespace {
 
-constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '1', 0};
-constexpr uint32_t runtime_version = 1u;
+constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '2', 0};
+constexpr uint32_t runtime_version = 2u;
 constexpr uint32_t runtime_source_none = 0u;
 constexpr uint32_t runtime_source_shared_wall = 1u;
+constexpr uint32_t runtime_source_shared_floor = 2u;
 constexpr uint32_t runtime_emissive_none = 0u;
-constexpr uint32_t runtime_emissive_base_color = 1u;
+constexpr uint32_t runtime_emissive_texture = 1u;
 constexpr size_t runtime_header_size = 24u;
 constexpr size_t runtime_record_size = 40u;
 constexpr uint32_t runtime_material_limit = 4096u;
@@ -121,7 +122,7 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
             !std::isfinite(normal_strength) || normal_strength <= 0.0f ||
             reserved != 0u ||
             (emissive_source != runtime_emissive_none &&
-             emissive_source != runtime_emissive_base_color)) {
+             emissive_source != runtime_emissive_texture)) {
             error = "DXR PBR material package contains an invalid material record";
             return false;
         }
@@ -134,7 +135,7 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
             has_emission = has_emission || value > 0.0f;
         }
         if ((emissive_source == runtime_emissive_none && has_emission) ||
-            (emissive_source == runtime_emissive_base_color && !has_emission)) {
+            (emissive_source == runtime_emissive_texture && !has_emission)) {
             error = "DXR PBR material package emissive source and radiance disagree";
             return false;
         }
@@ -167,6 +168,14 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
 
         if (source_kind == runtime_source_shared_wall) {
             definition.source = SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE;
+            definition.source_asset_id = source_asset_id;
+            const auto key = std::make_pair(definition.source, source_asset_id);
+            if (!bindings_.emplace(key, definitions_.size()).second) {
+                error = "DXR PBR material package contains a duplicate source binding";
+                return false;
+            }
+        } else if (source_kind == runtime_source_shared_floor) {
+            definition.source = SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE;
             definition.source_asset_id = source_asset_id;
             const auto key = std::make_pair(definition.source, source_asset_id);
             if (!bindings_.emplace(key, definitions_.size()).second) {

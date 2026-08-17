@@ -328,15 +328,21 @@ if(AB3D2_ENABLE_DXR)
       "${CMAKE_CURRENT_SOURCE_DIR}/data/renderer_dxr/material_sources.json")
   set(AB3D2_DXR_MATERIAL_BUILD_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_dxr/materials")
+  set(AB3D2_DXR_FLOOR_SOURCE
+      "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/floortile")
+  set(AB3D2_DXR_FLOOR_REMAP
+      "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/newtexturemaps.pal")
+  set(AB3D2_DXR_DISPLAY_PALETTE
+      "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/256pal")
   set(AB3D2_DXR_MATERIAL_OUTPUTS
       "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_manifest.json"
       "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_runtime.bin")
   set(AB3D2_DXR_MATERIAL_NAMES
       alienredwall brownpipes brownspeakers brownwithyellowstripes chevrondoor
-      floor_0201 gieger hullmetal redhullmetal rocky steampunk technolights
+      floor_0101 floor_0201 gieger hullmetal redhullmetal rocky steampunk technolights
       technotritile)
   foreach(AB3D2_DXR_MATERIAL_NAME IN LISTS AB3D2_DXR_MATERIAL_NAMES)
-    foreach(AB3D2_DXR_MATERIAL_CHANNEL IN ITEMS base_color normal metalness roughness)
+    foreach(AB3D2_DXR_MATERIAL_CHANNEL IN ITEMS base_color normal metalness roughness emissive)
       list(APPEND AB3D2_DXR_MATERIAL_OUTPUTS
            "${AB3D2_DXR_MATERIAL_BUILD_DIR}/${AB3D2_DXR_MATERIAL_NAME}_${AB3D2_DXR_MATERIAL_CHANNEL}.png")
     endforeach()
@@ -351,8 +357,14 @@ if(AB3D2_ENABLE_DXR)
             --source-dir "${CMAKE_CURRENT_SOURCE_DIR}/textures_pbr"
             --spec "${AB3D2_DXR_MATERIAL_SOURCE_SPEC}"
             --output-dir "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
+            --floor-source "${AB3D2_DXR_FLOOR_SOURCE}"
+            --floor-remap "${AB3D2_DXR_FLOOR_REMAP}"
+            --display-palette "${AB3D2_DXR_DISPLAY_PALETTE}"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dxr_materials.py"
             "${AB3D2_DXR_MATERIAL_SOURCE_SPEC}"
+            "${AB3D2_DXR_FLOOR_SOURCE}"
+            "${AB3D2_DXR_FLOOR_REMAP}"
+            "${AB3D2_DXR_DISPLAY_PALETTE}"
             ${AB3D2_DXR_MATERIAL_SHEETS}
     COMMENT "Build renderer-native DXR material textures"
     VERBATIM

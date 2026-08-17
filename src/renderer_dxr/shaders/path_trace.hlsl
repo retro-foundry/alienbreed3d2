@@ -68,7 +68,8 @@ Texture2D<float4> BaseColorAtlas : register(t3);
 Texture2D<float4> NormalAtlas : register(t4);
 Texture2D<float4> MetalnessAtlas : register(t5);
 Texture2D<float4> RoughnessAtlas : register(t6);
-StructuredBuffer<EmissiveTriangle> Emitters : register(t7);
+Texture2D<float4> EmissiveAtlas : register(t7);
+StructuredBuffer<EmissiveTriangle> Emitters : register(t8);
 RWTexture2D<float4> NoisyRadiance : register(u0);
 
 cbuffer FrameConstants : register(b0)
@@ -221,7 +222,8 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
         saturate(MetalnessAtlas.Load(int3(texel, 0)).r);
     surface.roughness = clamp(
         RoughnessAtlas.Load(int3(texel, 0)).r, 0.045, 1.0);
-    surface.emission = surface.baseColor * material.emissiveFactor;
+    surface.emission = EmissiveAtlas.Load(int3(texel, 0)).rgb *
+        material.emissiveFactor;
     return surface;
 }
 
@@ -435,7 +437,7 @@ float3 sampleEmitterLighting(SurfaceData surface, float3 viewDirection,
     SceneMaterial lightMaterial = Materials[first.materialIndex];
     uint2 lightTexel = materialTexel(lightMaterial, lightUv);
     float3 emittedRadiance =
-        BaseColorAtlas.Load(int3(lightTexel, 0)).rgb *
+        EmissiveAtlas.Load(int3(lightTexel, 0)).rgb *
         lightMaterial.emissiveFactor;
     BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
     float weight = powerHeuristic(lightPdf, bsdf.pdf);
