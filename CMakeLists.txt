@@ -38,7 +38,16 @@ endif()
 
 if(AB3D2_ENABLE_DXR)
   if(NOT AB3D2_DXC_EXECUTABLE)
-    find_program(AB3D2_DXC_EXECUTABLE NAMES dxc.exe dxc)
+    # The documented cache entry is deliberately initialized to an empty
+    # string, which CMake considers a completed find result. Search through a
+    # separate variable so PATH discovery still runs when no override exists.
+    find_program(AB3D2_DXC_FROM_PATH NAMES dxc.exe dxc)
+    if(AB3D2_DXC_FROM_PATH)
+      set(AB3D2_DXC_EXECUTABLE "${AB3D2_DXC_FROM_PATH}" CACHE FILEPATH
+          "Explicit dxc executable for the DXR shader build (otherwise resolved from PATH)"
+          FORCE)
+    endif()
+    unset(AB3D2_DXC_FROM_PATH CACHE)
   endif()
   ab3d2_validate_dxc(AB3D2_DXR_DXC_ERROR "${AB3D2_DXC_EXECUTABLE}")
   if(AB3D2_DXR_DXC_ERROR)
