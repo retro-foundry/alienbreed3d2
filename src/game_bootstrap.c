@@ -289,6 +289,8 @@ static int game_bootstrap_add_dynamic_mesh_group(
 
 static void game_bootstrap_release_level(GameBootstrap *game)
 {
+    asset_blob_release(&game->rtx_visibility_asset);
+    memset(&game->rtx_visibility, 0, sizeof(game->rtx_visibility));
     asset_blob_release(&game->level_map);
     asset_blob_release(&game->level_fly_map);
     asset_blob_release(&game->level_music);
@@ -850,6 +852,15 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         game_bootstrap_release_level(game);
         return 0;
     }
+    if (game->rtx_visibility_required != 0u &&
+        !scene_rtx_visibility_load(data_root, level_index,
+                                   game->level_data.bytes, game->level_data.size,
+                                   game->level_graphics.bytes, game->level_graphics.size,
+                                   &game->rtx_visibility_asset,
+                                   &game->rtx_visibility, error, error_size)) {
+        game_bootstrap_release_level(game);
+        return 0;
+    }
     /* Res_LoadLevelData tests wall_0.256wad through wall_F.256wad in order. */
     for (wall_index = 0; wall_index < GAME_LINK_WALL_COUNT; ++wall_index) {
         written = snprintf(wall_file_name, sizeof(wall_file_name), "wall_%x.256wad", wall_index);
@@ -911,6 +922,13 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
     game->active_level_index = level_index;
     game->lighting_presentation_baseline_valid = 0u;
     return 1;
+}
+
+void game_bootstrap_set_rtx_visibility_required(GameBootstrap *game, int required)
+{
+    if (game) {
+        game->rtx_visibility_required = required != 0 ? UINT8_MAX : 0u;
+    }
 }
 
 void game_bootstrap_destroy(GameBootstrap *game)
@@ -1290,6 +1308,8 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
             &game->scene_zone_visibility[0][0];
         command.data.lighting.zone_potential_visibility_stride =
             (LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY + 7u) / 8u;
+        command.data.lighting.rtx_visibility =
+            game->rtx_visibility.cluster_count != 0u ? &game->rtx_visibility : NULL;
         command.data.lighting.ambient_animation_phase_tick =
             ambient_animation_phase_tick;
         command.data.lighting.ambient_animation_interval_ticks =

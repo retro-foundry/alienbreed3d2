@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "scene_rtx_visibility.h"
+
 /*
  * GPU-neutral producer contract. It deliberately contains no SDL, Amiga
  * bitplane, C2P, palette-raster, or graphics-API state. The command data is
@@ -168,12 +170,13 @@ typedef struct {
     uint16_t zone_count;
     /*
      * ZoneT+48 PVST flattened as one viewer-zone bit row per source zone.
-     * This immutable level topology is renderer-neutral: the Vulkan path
-     * uses it as Q2RTX's cluster/PVS light-list authority, while gameplay
-     * continues to read the original signed-terminated records directly.
+     * This remains the authored source topology used by gameplay and by
+     * temporal surface validation; it is not the RTX light-list authority.
      */
     const uint8_t *zone_potential_visibility;
     uint16_t zone_potential_visibility_stride;
+    /* Q2RTX BSP cluster/PVS authority; present only for an RTX-required load. */
+    const SceneRtxVisibility *rtx_visibility;
     /* Presentation phase 0..interval-1 for newanims.s:brightanim. */
     uint8_t ambient_animation_phase_tick;
     uint8_t ambient_animation_interval_ticks;

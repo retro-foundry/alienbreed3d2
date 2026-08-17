@@ -106,6 +106,7 @@ set(AB3D2_CORE_SOURCES
   src/render_view.c
   src/renderer_backend.c
   src/scene_frame.c
+  src/scene_rtx_visibility.c
   src/source_bitmap_lighting.c
   src/source_bitmap_sprite.c
   src/source_flat_visibility.c
@@ -241,6 +242,12 @@ else()
     COMMENT "Run the opt-in hidden-window OpenGL scene/shader smoke test"
   )
   if(AB3D2_ENABLE_RTX)
+    add_custom_command(TARGET ab3d2 POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${CMAKE_CURRENT_SOURCE_DIR}/assets/rtx_visibility"
+              "$<TARGET_FILE_DIR:ab3d2>/data/rtx_visibility"
+      COMMENT "Stage compact Q2RTX visibility sidecars"
+    )
     add_custom_target(ab3d2_rtx_gpu_smoke
       COMMAND $<TARGET_FILE:ab3d2> --gpu-smoke all --renderer rtx
       DEPENDS ab3d2
@@ -331,6 +338,20 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
               "AB3D2_HOST_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
               ${Python3_EXECUTABLE}
               "${AB3D2_RTX_SUBMODULE_DIR}/tools/test_rtx_material_builders.py"
+    )
+    add_test(
+      NAME ab3d2_rtx_visibility_extractor_test
+      COMMAND ${Python3_EXECUTABLE}
+              "${CMAKE_CURRENT_SOURCE_DIR}/tools/test_extract_q2rtx_visibility.py"
+    )
+    add_executable(ab3d2_scene_rtx_visibility_test
+                   tests/scene_rtx_visibility_test.c)
+    target_link_libraries(ab3d2_scene_rtx_visibility_test PRIVATE ab3d2_core)
+    target_include_directories(ab3d2_scene_rtx_visibility_test PRIVATE src)
+    add_dependencies(ab3d2_scene_rtx_visibility_test ab3d2)
+    add_test(
+      NAME ab3d2_scene_rtx_visibility_test
+      COMMAND ab3d2_scene_rtx_visibility_test "$<TARGET_FILE_DIR:ab3d2>/data"
     )
   endif()
   add_executable(ab3d2_desktop_settings_test tests/desktop_settings_test.c)
