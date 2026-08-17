@@ -11,7 +11,8 @@ static void renderer_rtx_not_implemented(char *error, size_t error_size)
     if (error && error_size > 0u) {
         (void)snprintf(
             error, error_size,
-            "renderer=rtx is a clean-room scaffold; no RTX implementation is present");
+            "renderer=rtx was compiled out (AB3D2_ENABLE_DXR=OFF); "
+            "configure a native Windows build with -DAB3D2_ENABLE_DXR=ON");
     }
 }
 

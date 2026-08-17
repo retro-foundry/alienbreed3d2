@@ -406,6 +406,12 @@ cmake --build build/dxr --config Debug
 ctest --test-dir build/dxr -C Debug -R "dxr|rtx" --output-on-failure
 ```
 
+For Visual Studio generators, the DXR-enabled solution selects `ab3d2` as its
+startup project, launches it with `--renderer rtx`, and uses the executable
+directory as its working directory. A solution generated with
+`AB3D2_ENABLE_DXR=OFF` cannot enable DXR at runtime; its error reports the
+missing build option explicitly.
+
 `dxc.exe` is discovered from `PATH` when no explicit override is supplied.
 The configure log records its version and SHA-256, and the project compiles
 its HLSL as Shader Model 6.6 with warnings treated as errors. Debug

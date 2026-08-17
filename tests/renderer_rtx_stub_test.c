@@ -15,8 +15,8 @@ int main(void)
         renderer_rtx_destroy(renderer);
         return 1;
     }
-    if (strstr(error, "clean-room scaffold") == NULL ||
-        strstr(error, "no RTX implementation") == NULL) {
+    if (strstr(error, "AB3D2_ENABLE_DXR=OFF") == NULL ||
+        strstr(error, "AB3D2_ENABLE_DXR=ON") == NULL) {
         fprintf(stderr, "RTX scaffold failure was not explicit: %s\n", error);
         return 1;
     }

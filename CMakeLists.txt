@@ -222,10 +222,19 @@ if(NOT EMSCRIPTEN)
   target_link_libraries(ab3d2 PRIVATE SDL2-static OpenGL::GL)
 endif()
 target_include_directories(ab3d2 PRIVATE src "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+if(MSVC)
+  set_property(DIRECTORY PROPERTY VS_STARTUP_PROJECT ab3d2)
+endif()
 
 if(AB3D2_ENABLE_DXR)
-  set_target_properties(ab3d2 PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
-                                               CXX_EXTENSIONS OFF)
+  set_target_properties(
+    ab3d2 PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    VS_DEBUGGER_COMMAND_ARGUMENTS "--renderer rtx"
+    VS_DEBUGGER_WORKING_DIRECTORY "$<TARGET_FILE_DIR:ab3d2>"
+  )
   target_compile_definitions(ab3d2 PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
   target_compile_definitions(
     ab3d2 PRIVATE

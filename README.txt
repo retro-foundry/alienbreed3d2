@@ -37,8 +37,8 @@ Edit ab3d2.ini beside the executable before starting the game. It supports:
 - renderer=opengl or rtx (opengl by default; rtx requires an opt-in DXR build)
 - world_light_tessellation=1, 2, 4, or 8 (4 by default)
 
-The default build reports that no RTX implementation is present and never
-silently substitutes OpenGL. A native Windows build configured with
+The default build reports that DXR was compiled out and never silently
+substitutes OpenGL. A native Windows build configured with
 AB3D2_ENABLE_DXR=ON ray traces opaque game-world geometry into a fresh, visibly
 noisy image on supported hardware. It currently uses decoded source albedo and
 one stochastic Lambertian environment sample. Sprites, vector objects, weapon,
