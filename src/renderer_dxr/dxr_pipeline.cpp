@@ -5,8 +5,11 @@
 
 #include <dxgi1_6.h>
 
+#include <algorithm>
 #include <array>
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -31,8 +34,8 @@ enum DescriptorIndex : UINT {
     metalness_atlas = 11,
     roughness_atlas = 12,
     emissive_atlas = 13,
-    output_srv = 14,
-    descriptor_count = 15,
+    reconstruction_srv_start = 14,
+    descriptor_count = 22,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -108,6 +111,13 @@ struct FrameConstants {
 };
 
 static_assert(sizeof(FrameConstants) == 40u * sizeof(uint32_t));
+
+struct PresentConstants {
+    uint32_t debug_view;
+    float scalar_range;
+};
+
+static_assert(sizeof(PresentConstants) == 2u * sizeof(uint32_t));
 
 std::string path_text(const std::filesystem::path &path)
 {
@@ -310,6 +320,69 @@ bool DxrPipeline::load_shader(const wchar_t *filename,
     return true;
 }
 
+bool DxrPipeline::configure_debug_view(std::string &error)
+{
+    constexpr std::array<const char *,
+                         static_cast<size_t>(DxrReconstructionBuffer::count)>
+        names = {
+            "noisy",
+            "diffuse-albedo",
+            "specular-albedo",
+            "normal",
+            "roughness",
+            "depth",
+            "motion",
+            "specular-hit-distance",
+        };
+    char value[64] = {};
+    const DWORD length = GetEnvironmentVariableA(
+        "AB3D2_DXR_DEBUG_VIEW", value, static_cast<DWORD>(sizeof(value)));
+    if (length >= sizeof(value)) {
+        error = "AB3D2_DXR_DEBUG_VIEW exceeds 63 bytes";
+        return false;
+    }
+    debug_view_ = 0u;
+    if (length != 0u) {
+        const auto found = std::find_if(
+            names.begin(), names.end(),
+            [&value](const char *name) { return std::strcmp(value, name) == 0; });
+        if (found == names.end()) {
+            error = "AB3D2_DXR_DEBUG_VIEW must be noisy, diffuse-albedo, "
+                    "specular-albedo, normal, roughness, depth, motion, or "
+                    "specular-hit-distance";
+            return false;
+        }
+        debug_view_ = static_cast<uint32_t>(found - names.begin());
+    }
+
+    char range_text[64] = {};
+    const DWORD range_length = GetEnvironmentVariableA(
+        "AB3D2_DXR_DEBUG_RANGE", range_text,
+        static_cast<DWORD>(sizeof(range_text)));
+    if (range_length >= sizeof(range_text)) {
+        error = "AB3D2_DXR_DEBUG_RANGE exceeds 63 bytes";
+        return false;
+    }
+    debug_scalar_range_ = debug_view_ == static_cast<uint32_t>(
+        DxrReconstructionBuffer::scene_motion) ? 32.0f : 8192.0f;
+    if (range_length != 0u) {
+        char *end = nullptr;
+        errno = 0;
+        const float parsed = std::strtof(range_text, &end);
+        if (errno != 0 || end == range_text || *end != '\0' ||
+            !std::isfinite(parsed) || !(parsed > 0.0f)) {
+            error = "AB3D2_DXR_DEBUG_RANGE must be a finite positive number";
+            return false;
+        }
+        debug_scalar_range_ = parsed;
+    }
+    if (debug_view_ != 0u) {
+        debug_output(std::string("DXR reconstruction debug view: ") +
+                     names[debug_view_]);
+    }
+    return true;
+}
+
 bool DxrPipeline::create_diagnostic_pipeline(
     ID3D12Device5 *device, const std::vector<unsigned char> &vertex_shader,
     const std::vector<unsigned char> &pixel_shader, std::string &error)
@@ -344,16 +417,22 @@ bool DxrPipeline::create_present_pipeline(
     }
     D3D12_DESCRIPTOR_RANGE range = {};
     range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    range.NumDescriptors = 1;
+    range.NumDescriptors =
+        static_cast<UINT>(DxrReconstructionBuffer::count);
     range.BaseShaderRegister = 0;
-    D3D12_ROOT_PARAMETER parameter = {};
-    parameter.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    parameter.DescriptorTable.NumDescriptorRanges = 1;
-    parameter.DescriptorTable.pDescriptorRanges = &range;
-    parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    std::array<D3D12_ROOT_PARAMETER, 2> parameters = {};
+    parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[0].DescriptorTable.NumDescriptorRanges = 1;
+    parameters[0].DescriptorTable.pDescriptorRanges = &range;
+    parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[1].Constants.Num32BitValues =
+        sizeof(PresentConstants) / sizeof(uint32_t);
+    parameters[1].Constants.ShaderRegister = 0;
+    parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     D3D12_ROOT_SIGNATURE_DESC root_description = {};
-    root_description.NumParameters = 1;
-    root_description.pParameters = &parameter;
+    root_description.NumParameters = static_cast<UINT>(parameters.size());
+    root_description.pParameters = parameters.data();
     root_description.Flags =
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
     if (!serialize_root_signature(root_description, device, present_root_signature_,
@@ -605,10 +684,12 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
-    device->CreateShaderResourceView(
-        reconstruction_targets_[static_cast<size_t>(
-            DxrReconstructionBuffer::noisy_radiance)].Get(),
-        &srv, cpu_descriptor(output_srv));
+    for (size_t index = 0; index < reconstruction_targets_.size(); ++index) {
+        srv.Format = reconstruction_formats[index];
+        device->CreateShaderResourceView(
+            reconstruction_targets_[index].Get(), &srv,
+            cpu_descriptor(reconstruction_srv_start + static_cast<UINT>(index)));
+    }
     output_width_ = width;
     output_height_ = height;
     recreated = true;
@@ -633,7 +714,8 @@ bool DxrPipeline::initialize(ID3D12Device5 *device, std::string &error)
         error = "DXR pipeline received no D3D12 device";
         return false;
     }
-    return load_shader(L"diagnostic_vs.dxil", vertex_shader, error) &&
+    return configure_debug_view(error) &&
+        load_shader(L"diagnostic_vs.dxil", vertex_shader, error) &&
         load_shader(L"diagnostic_ps.dxil", pixel_shader, error) &&
         load_shader(L"present_vs.dxil", present_vertex_shader, error) &&
         create_diagnostic_pipeline(device, vertex_shader, pixel_shader, error) &&
@@ -770,18 +852,25 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         return false;
     }
 
+    ID3D12Resource *present_resource =
+        reconstruction_targets_[debug_view_].Get();
     const D3D12_RESOURCE_BARRIER to_present_shader = transition(
-        reconstruction_resource(DxrReconstructionBuffer::noisy_radiance),
+        present_resource,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     command_list->ResourceBarrier(1, &to_present_shader);
     command_list->SetGraphicsRootSignature(present_root_signature_.Get());
     command_list->SetPipelineState(present_pipeline_state_.Get());
-    command_list->SetGraphicsRootDescriptorTable(0, gpu_descriptor(output_srv));
+    command_list->SetGraphicsRootDescriptorTable(
+        0, gpu_descriptor(reconstruction_srv_start));
+    const PresentConstants present_constants = {
+        debug_view_, debug_scalar_range_};
+    command_list->SetGraphicsRoot32BitConstants(
+        1, sizeof(present_constants) / sizeof(uint32_t), &present_constants, 0);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->DrawInstanced(3, 1, 0, 0);
     const D3D12_RESOURCE_BARRIER to_next_sample = transition(
-        reconstruction_resource(DxrReconstructionBuffer::noisy_radiance),
+        present_resource,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     command_list->ResourceBarrier(1, &to_next_sample);

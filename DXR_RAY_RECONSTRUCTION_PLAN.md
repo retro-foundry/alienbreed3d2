@@ -57,8 +57,17 @@ consumed. CPU tests cover
 the material equations, lobe probability, sampler/PDF agreement, normal
 transform, deterministic random sequence, PDF mass, and finite throughput.
 The visible Level A capture has also been checked through the hidden readback
-path. RR guides, dynamic sprite/vector-object geometry, transparencies, and
-overlays remain outstanding. Streamline remains absent.
+path. Phase 8 now allocates and writes the seven required RR guide resources at
+the primary hit. Diffuse/specular albedo, world shading normal, perceptual
+roughness, linear view depth, dense scene motion, and stochastic GGX specular
+hit distance use the formats in the frame contract below. A renderer-owned
+history retains the previous camera basis, per-frame Halton jitter, dimensions,
+history epoch, and a GPU copy of the previous vertices; motion is
+`previousPixel - currentPixel` in pixel units. `SceneFrame.history_epoch`
+invalidates history across level loads and quickloads, while scene rebuilds and
+resizes also reset it. Dynamic sprite/vector-object geometry, raw per-guide
+readback statistics and ID overlays, transparencies, and overlays remain
+outstanding. Streamline remains absent.
 
 ### Current dependency gate
 
@@ -517,6 +526,15 @@ incomplete.
 
 ### 8. `Generate complete Ray Reconstruction guides`
 
+- Current status: all seven mandatory guide textures are separate, named, and
+  written by the opaque-world path tracer. Primary misses write zero albedo,
+  normal, roughness, depth, and hit distance; a zero hit distance also denotes
+  a specular-ray miss. History-invalid motion is `(65504, 65504)`, reserving the
+  largest finite FP16 value outside the clamped valid range, while valid sky
+  pixels retain rotational camera motion. Surface albedo/normal alpha is one and
+  miss alpha is zero for inspection. Environment-selected debug views cover
+  every guide; raw asynchronous guide statistics and the ID/history overlay
+  remain to finish the diagnostics bullet.
 - Add separate diffuse/specular albedo, normals, roughness, linear depth, dense motion, and specular hit-distance resources.
 - Add previous-frame identity/transform history and explicit reset epochs.
 - Add every debug view/readback statistic and synthetic camera/object motion test.

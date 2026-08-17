@@ -1,4 +1,17 @@
 Texture2D<float4> NoisyRadiance : register(t0);
+Texture2D<float4> DiffuseAlbedo : register(t1);
+Texture2D<float4> SpecularAlbedo : register(t2);
+Texture2D<float4> ShadingNormal : register(t3);
+Texture2D<float4> LinearRoughness : register(t4);
+Texture2D<float4> LinearDepth : register(t5);
+Texture2D<float4> SceneMotion : register(t6);
+Texture2D<float4> SpecularHitDistance : register(t7);
+
+cbuffer PresentConstants : register(b0)
+{
+    uint DebugView;
+    float ScalarRange;
+};
 
 struct PixelInput
 {
@@ -17,9 +30,57 @@ PixelInput vs_main(uint vertexId : SV_VertexID)
     return output;
 }
 
+float3 displayLinear(float3 color)
+{
+    return pow(saturate(color), 1.0 / 2.2);
+}
+
+float3 hsvToRgb(float3 hsv)
+{
+    float3 shifted = abs(frac(hsv.xxx + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) *
+                         6.0 - 3.0);
+    return hsv.z * lerp(1.0.xxx, saturate(shifted - 1.0), hsv.y);
+}
+
 float4 ps_main(PixelInput input) : SV_Target
 {
-    float3 hdr = max(NoisyRadiance.Load(int3(uint2(input.position.xy), 0)).rgb, 0.0);
+    uint2 pixel = uint2(input.position.xy);
+    if (DebugView == 1u) {
+        return float4(displayLinear(DiffuseAlbedo.Load(int3(pixel, 0)).rgb),
+                      1.0);
+    }
+    if (DebugView == 2u) {
+        return float4(displayLinear(SpecularAlbedo.Load(int3(pixel, 0)).rgb),
+                      1.0);
+    }
+    if (DebugView == 3u) {
+        float4 normal = ShadingNormal.Load(int3(pixel, 0));
+        return float4(normal.a > 0.0 ? normal.rgb * 0.5 + 0.5 : 0.0, 1.0);
+    }
+    if (DebugView == 4u) {
+        float roughness = LinearRoughness.Load(int3(pixel, 0)).r;
+        return float4(roughness.xxx, 1.0);
+    }
+    if (DebugView == 5u) {
+        float depth = LinearDepth.Load(int3(pixel, 0)).r;
+        return float4(saturate(depth / ScalarRange).xxx, 1.0);
+    }
+    if (DebugView == 6u) {
+        float2 motion = SceneMotion.Load(int3(pixel, 0)).rg;
+        if (any(abs(motion) >= 65503.0)) {
+            return float4(1.0, 0.0, 1.0, 1.0);
+        }
+        float magnitude = length(motion);
+        float hue = frac(atan2(motion.y, motion.x) / (2.0 * 3.14159265358979323846) +
+                         1.0);
+        return float4(hsvToRgb(float3(hue, magnitude > 0.0 ? 1.0 : 0.0,
+                                      saturate(magnitude / ScalarRange))), 1.0);
+    }
+    if (DebugView == 7u) {
+        float distance = SpecularHitDistance.Load(int3(pixel, 0)).r;
+        return float4(saturate(distance / ScalarRange).xxx, 1.0);
+    }
+    float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
     float3 mapped = hdr / (1.0 + hdr);
     mapped = pow(mapped, 1.0 / 2.2);
     return float4(mapped, 1.0);

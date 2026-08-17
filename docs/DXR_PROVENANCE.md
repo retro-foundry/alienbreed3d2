@@ -70,6 +70,14 @@ explicit emissive/environment next-event sampling, MIS, and an analytic sky
 gradient. The renderer-native PBR material package is consumed directly by
 this runtime slice.
 
+The Phase 8 guide resources and motion/history implementation are
+project-authored. The specular-albedo guide deliberately implements the compact
+`EnvBRDFApprox2` integration formula published in section 4.2.1 of NVIDIA's
+pinned Streamline v2.12.0 `ProgrammingGuideDLSS_RR.md`; both the HLSL and the
+independent CPU check cite that exact source. No Streamline header, library,
+plugin, sample shader, or binary is included, linked, loaded, or staged by this
+ID-independent guide slice.
+
 ## Approved conceptual references inspected
 
 - `binaryfoundry/dxr-demo`, commit

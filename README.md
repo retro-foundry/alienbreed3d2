@@ -433,9 +433,14 @@ with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,
 authored emissive-triangle and environment next-event sampling, visibility
 rays, and multiple-importance sampling. A full-screen pass tone maps the fresh
 `R16G16B16A16_FLOAT` result to the three-frame flip-discard swap chain; there is
-no temporal accumulation or denoiser. This completes the opaque-world noisy PBR
-slice, not the full renderer: dynamic objects, RR guides, transparencies, and
-overlays remain outstanding.
+no temporal accumulation or denoiser. The same dispatch now writes separate
+diffuse/specular albedo, world shading normal, linear roughness, linear depth,
+dense scene motion, and specular-hit-distance resources in the formats recorded
+by the implementation plan. A renderer-neutral history epoch resets camera and
+geometry history across level/quickload discontinuities; topology-stable world
+motion uses the previous vertex positions at the current hit barycentrics.
+Dynamic sprite/vector-object geometry, Streamline evaluation, transparencies,
+and overlays remain outstanding.
 
 Empty/non-world frames retain the diagnostic triangle. Resize,
 minimize/restore, fences, DRED reporting, and orderly shutdown remain covered.
@@ -453,6 +458,14 @@ sampling. An all-black image now fails the readback check. Set
 set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
 smoke to save the latest presented frame. Sprite, vector-object, weapon,
 projectile, HUD, and text coverage remain zero at this milestone.
+
+Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
+`normal`, `roughness`, `depth`, `motion`, or `specular-hit-distance` to present
+one reconstruction input directly. `AB3D2_DXR_DEBUG_RANGE` sets the positive
+linear visualization range for depth, motion magnitude, and hit distance.
+Invalid motion/history pixels are magenta; surface/background guide alpha and
+the raw values retain the documented shader sentinels rather than this display
+colour.
 
 Streamline and Ray Reconstruction are not linked, loaded, discovered, or
 staged by this foundation. `AB3D2_ENABLE_STREAMLINE` remains gated until the

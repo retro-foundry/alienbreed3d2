@@ -58,6 +58,7 @@ private:
                                  std::string &error);
     bool create_raytracing_pipeline(ID3D12Device5 *device, std::string &error);
     bool create_descriptor_heap(ID3D12Device5 *device, std::string &error);
+    bool configure_debug_view(std::string &error);
     bool ensure_reconstruction_targets(ID3D12Device5 *device, UINT width,
                                        UINT height, bool &recreated,
                                        std::string &error);
@@ -78,6 +79,8 @@ private:
     UINT descriptor_size_ = 0;
     UINT output_width_ = 0;
     UINT output_height_ = 0;
+    uint32_t debug_view_ = 0;
+    float debug_scalar_range_ = 8192.0f;
     struct DxrFrameHistory {
         reconstruction::CameraProjection previous_camera = {};
         reconstruction::PixelJitter previous_jitter = {};
