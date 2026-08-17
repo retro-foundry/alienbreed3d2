@@ -462,10 +462,11 @@ and vector models use their exact decoded source palettes and frame data.
 Legacy Amiga Gouraud shade rows remain outside traced PBR transport: they are
 not Q2 light styles and do not modulate emitted or reflected radiance. The
 converted BSP marks `technolights` faces with value 900, so both renderers use
-Q2RTX's resolved world-emission factor `900 * 0.001 = 0.9` rather than the
-material fallback factor. Secondary hits likewise follow Q2RTX's fixed texture
-mips, geometric-normal next-event estimate, and one-sided square-root emission
-term. Emissive PBR polygons remain the sole sampled, occludable direct lights.
+Q2RTX's final world-emission factor `900 * 0.001 * 200 = 180`, combining the
+BSP face radiance and material emissive factor. Secondary hits likewise follow
+Q2RTX's fixed texture mips, geometric-normal next-event estimate, and one-sided
+square-root emission term. Emissive PBR polygons remain the sole sampled,
+occludable direct lights.
 The complete GPLv2 backend, shaders, material tools, tests, license, pinned
 Q2RTX provenance, and implementation plan live in the public
 [`alienbreed3d2-rtx-renderer`](https://github.com/retro-foundry/alienbreed3d2-rtx-renderer)
