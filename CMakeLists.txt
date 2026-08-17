@@ -208,6 +208,7 @@ if(AB3D2_ENABLE_DXR)
     src/renderer_dxr/dxr_pipeline.cpp
     src/renderer_dxr/dxr_renderer.cpp
     src/renderer_dxr/dxr_scene.cpp
+    src/renderer_dxr/dxr_scene_update.cpp
   )
 endif()
 
@@ -530,6 +531,16 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     add_test(NAME ab3d2_dxr_material_package_test
              COMMAND $<TARGET_FILE:ab3d2_dxr_material_package_test>
                      "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_runtime.bin")
+    add_executable(ab3d2_dxr_scene_update_test
+      tests/dxr_scene_update_test.cpp
+      src/renderer_dxr/dxr_scene_update.cpp
+    )
+    set_target_properties(ab3d2_dxr_scene_update_test
+                          PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+                                     CXX_EXTENSIONS OFF)
+    target_include_directories(ab3d2_dxr_scene_update_test PRIVATE src)
+    add_test(NAME ab3d2_dxr_scene_update_test
+             COMMAND $<TARGET_FILE:ab3d2_dxr_scene_update_test>)
     add_executable(ab3d2_renderer_rtx_foundation_test
       tests/renderer_rtx_foundation_test.c
       ${AB3D2_RENDERER_RTX_SOURCES}
