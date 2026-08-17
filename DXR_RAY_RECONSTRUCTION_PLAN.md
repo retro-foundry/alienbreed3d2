@@ -37,8 +37,12 @@ The implemented Phase 5/6 slice shares the tested native world-coordinate
 conversion and concave X/Z ear clipping with OpenGL, compiles opaque
 `SceneFrame` world surfaces, decodes exact source albedo fallbacks, uploads
 positions/UVs/material indices and an atlas, and builds default-heap BLAS/TLAS
-resources. It deliberately excludes sprites, vector objects, water-specific
-behavior, the view weapon, HUD, and text.
+resources. Stable static world meshes and dynamic door/lift/water meshes use
+separate BLAS objects. Topology-stable dynamic frames reuse material atlases,
+upload only geometry/emitter buffers through a three-frame upload set, refit
+changed dynamic BLAS objects, and update the TLAS without a queue flush. It
+deliberately excludes sprites, vector objects, water-specific behavior, the
+view weapon, HUD, and text.
 
 Phase 7 now writes one fresh un-denoised `R16G16B16A16_FLOAT` sample per pixel
 and presents it with a full-screen tone-map pass. The path integrator evaluates
@@ -53,8 +57,8 @@ consumed. CPU tests cover
 the material equations, lobe probability, sampler/PDF agreement, normal
 transform, deterministic random sequence, PDF mass, and finite throughput.
 The visible Level A capture has also been checked through the hidden readback
-path. RR guides, dynamic/object geometry, transparencies, and overlays remain
-outstanding. Streamline remains absent.
+path. RR guides, dynamic sprite/vector-object geometry, transparencies, and
+overlays remain outstanding. Streamline remains absent.
 
 ### Current dependency gate
 
@@ -474,9 +478,10 @@ later work.
 
 ### 5. `Compile SceneFrame geometry for DXR`
 
-Current status: opaque world geometry, shared coordinate conversion and
-triangulation, stable material indices, and GPU upload are implemented. Dynamic
-object categories and previous/current transforms remain later work.
+Current status: opaque static and door/lift/water world geometry, shared
+coordinate conversion and triangulation, stable material indices, and bounded
+three-frame dynamic GPU upload are implemented. Dynamic sprite/vector-object
+categories and previous/current transforms remain later work.
 
 - Add shared tested world-coordinate conversion and triangulation.
 - Add renderer-neutral object-space vector geometry where needed.
@@ -485,9 +490,13 @@ object categories and previous/current transforms remain later work.
 
 ### 6. `Build and validate DXR acceleration structures`
 
-Current status: one opaque, two-sided world BLAS and one TLAS are built and
-primary visibility is traced for all Levels A--P. Dynamic build/refit policy,
-auxiliary guide outputs, and PIX validation remain later work.
+Current status: opaque, two-sided static and dynamic world BLAS objects plus one
+TLAS are built and primary visibility is traced for all Levels A--P. Moving
+door/lift/water vertex ranges retain PBR/emissive atlases, refit only changed
+dynamic BLAS objects, and update the TLAS in place without the old per-frame
+queue flush. The D3D debug-layer foundation test exercises this update path.
+Dynamic sprite/vector-object acceleration structures, auxiliary guide outputs,
+and PIX validation remain later work.
 
 - Add default-heap BLAS/TLAS resources, scratch allocation, barriers, build/update policy, and shader tables.
 - Trace primary visibility into IDs, normals, depth, and albedo.

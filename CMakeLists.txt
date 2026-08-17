@@ -557,7 +557,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     )
     target_link_libraries(ab3d2_renderer_rtx_foundation_test
                           PRIVATE ab3d2_core SDL2-static d3d12 dxgi dxguid user32)
-    add_dependencies(ab3d2_renderer_rtx_foundation_test ab3d2_dxr_shaders)
+    add_dependencies(ab3d2_renderer_rtx_foundation_test
+                     ab3d2_dxr_shaders ab3d2_dxr_materials)
     add_custom_command(TARGET ab3d2_renderer_rtx_foundation_test POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E make_directory
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr"
@@ -576,6 +577,9 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "${AB3D2_DXR_PATH_TRACE_SHADER}"
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/path_trace.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/materials"
       COMMENT "Stage DXR diagnostic shaders for the foundation test"
     )
     add_test(NAME ab3d2_renderer_rtx_foundation_test

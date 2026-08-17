@@ -16,10 +16,12 @@ namespace ab3d2::dxr {
 class DxrPipeline final {
 public:
     bool initialize(ID3D12Device5 *device, std::string &error);
-    bool update_scene(const SceneFrame &frame, bool &changed, std::string &error);
+    bool update_scene(const SceneFrame &frame, bool &requires_flush,
+                      std::string &error);
     bool record(ID3D12Device5 *device, ID3D12GraphicsCommandList4 *command_list,
                 UINT width, UINT height, const SceneFrame &frame,
                 const RenderView &view, uint32_t frame_number,
+                uint32_t frame_slot,
                 std::string &error);
 
     ID3D12RootSignature *root_signature() const { return root_signature_.Get(); }

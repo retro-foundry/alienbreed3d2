@@ -518,16 +518,17 @@ bool DxrPipeline::initialize(ID3D12Device5 *device, std::string &error)
         create_descriptor_heap(device, error);
 }
 
-bool DxrPipeline::update_scene(const SceneFrame &frame, bool &changed,
+bool DxrPipeline::update_scene(const SceneFrame &frame, bool &requires_flush,
                                std::string &error)
 {
-    return scene_.update(frame, changed, error);
+    return scene_.update(frame, requires_flush, error);
 }
 
 bool DxrPipeline::record(ID3D12Device5 *device,
                          ID3D12GraphicsCommandList4 *command_list,
                          UINT width, UINT height, const SceneFrame &frame,
                          const RenderView &view, uint32_t frame_number,
+                         uint32_t frame_slot,
                          std::string &error)
 {
     if (!device || !command_list) {
@@ -543,7 +544,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         cpu_descriptor(roughness_atlas),
         cpu_descriptor(emissive_atlas),
     };
-    if (!scene_.record_build(device, command_list, cpu_descriptor(scene_tlas),
+    if (!scene_.record_build(device, command_list, frame_slot,
+                             cpu_descriptor(scene_tlas),
                              atlas_descriptors, error)) {
         return false;
     }

@@ -31,6 +31,22 @@ static int present_frame(RendererRtx *renderer, SceneFrame *frame,
     return 1;
 }
 
+static int present_scene_frame(RendererRtx *renderer, SceneFrame *frame,
+                               RenderView *view, char *error,
+                               size_t error_size)
+{
+    error[0] = '\0';
+    if (!renderer_rtx_present(renderer, frame, view, error, error_size)) {
+        fprintf(stderr, "DXR dynamic-scene present failed: %s\n", error);
+        return 0;
+    }
+    if (renderer_rtx_last_frame_rgb_checksum(renderer) == UINT64_C(0)) {
+        fprintf(stderr, "DXR dynamic scene produced no RGB coverage\n");
+        return 0;
+    }
+    return 1;
+}
+
 int main(void)
 {
     static const char window_title[] = "AB3D2 DXR foundation test";
@@ -115,6 +131,51 @@ int main(void)
         fprintf(stderr,
                 "DXR foundation resize was not observed (before %dx%d, after %dx%d)\n",
                 original_width, original_height, width, height);
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+
+    SceneVertex moving_vertices[3] = {0};
+    moving_vertices[0].position = (SceneWorldPoint){-64, 128, 256};
+    moving_vertices[1].position = (SceneWorldPoint){64, 128, 256};
+    moving_vertices[2].position = (SceneWorldPoint){0, -128, 256};
+    moving_vertices[1].texture_u = 64;
+    moving_vertices[2].texture_u = 32;
+    moving_vertices[2].texture_v = 64;
+    SceneMeshSurface moving_surface = {0};
+    moving_surface.material.source =
+        SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE;
+    moving_surface.material.source_asset_id = 5u;
+    moving_surface.geometry.vertices = moving_vertices;
+    moving_surface.geometry.vertex_count = 3u;
+    moving_surface.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
+    moving_surface.geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_WALL;
+    moving_surface.geometry.texture_window.u_period = 64u;
+    moving_surface.geometry.texture_window.v_period = 64u;
+    SceneCommand moving_commands[2] = {0};
+    moving_commands[0].type = SCENE_COMMAND_CAMERA;
+    moving_commands[1].type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+    moving_commands[1].data.geometry_instance.source_instance_id = 1u;
+    moving_commands[1].data.geometry_instance.mesh.source_mesh_id = 1u;
+    moving_commands[1].data.geometry_instance.mesh.acceleration_class =
+        SCENE_ACCELERATION_CLASS_DYNAMIC;
+    moving_commands[1].data.geometry_instance.mesh.surfaces = &moving_surface;
+    moving_commands[1].data.geometry_instance.mesh.surface_count = 1u;
+    SceneFrame moving_frame = {0};
+    moving_frame.commands = moving_commands;
+    moving_frame.count = 2u;
+    if (!present_scene_frame(renderer, &moving_frame, &view, error,
+                             sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+    for (size_t vertex = 0; vertex < 3u; ++vertex) {
+        moving_vertices[vertex].position.y += 32;
+    }
+    if (!present_scene_frame(renderer, &moving_frame, &view, error,
+                             sizeof(error))) {
         renderer_rtx_destroy(renderer);
         SDL_Quit();
         return 1;

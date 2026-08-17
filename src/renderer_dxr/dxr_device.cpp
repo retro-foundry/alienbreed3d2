@@ -16,6 +16,8 @@ namespace ab3d2::dxr {
 
 namespace {
 
+static_assert(DxrDevice::frame_count == DxrScene::upload_frame_count);
+
 std::string adapter_name(const DXGI_ADAPTER_DESC1 &description)
 {
     const std::string name = wide_to_utf8(description.Description);
@@ -527,7 +529,7 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
                        const RenderView &view, std::string &error)
 {
     RECT client = {};
-    bool scene_changed = false;
+    bool scene_requires_flush = false;
 
     if (!device_ || !swap_chain_ || !pipeline.pipeline_state() ||
         !pipeline.root_signature()) {
@@ -550,10 +552,10 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     if (!resize(static_cast<UINT>(client_width), static_cast<UINT>(client_height), error)) {
         return false;
     }
-    if (!pipeline.update_scene(scene_frame, scene_changed, error)) {
+    if (!pipeline.update_scene(scene_frame, scene_requires_flush, error)) {
         return false;
     }
-    if (scene_changed && !flush(error)) {
+    if (scene_requires_flush && !flush(error)) {
         return false;
     }
 
@@ -590,7 +592,8 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     static constexpr FLOAT clear_color[4] = {0.018f, 0.028f, 0.052f, 1.0f};
     command_list_->ClearRenderTargetView(frame.render_target_view, clear_color, 0, nullptr);
     if (!pipeline.record(device_.Get(), command_list_.Get(), width_, height_,
-                         scene_frame, view, rendered_frame_count_++, error)) {
+                         scene_frame, view, rendered_frame_count_++,
+                         frame_index_, error)) {
         return false;
     }
     const bool capture_scene = hidden_window_ && pipeline.has_scene();

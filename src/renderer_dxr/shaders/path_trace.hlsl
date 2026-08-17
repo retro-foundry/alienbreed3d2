@@ -567,6 +567,6 @@ void ClosestHit(inout SurfacePayload payload,
 {
     payload.rayDistance = RayTCurrent();
     payload.barycentrics = attributes.barycentrics;
-    payload.primitiveIndex = PrimitiveIndex();
+    payload.primitiveIndex = InstanceID() + PrimitiveIndex();
     payload.hit = 1u;
 }

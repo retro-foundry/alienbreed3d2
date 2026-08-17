@@ -76,62 +76,6 @@ float average_emissive_luminance(const MaterialImage &image)
         static_cast<float>(luminance / static_cast<double>(emissive.size() / 4u));
 }
 
-uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
-{
-    constexpr uint64_t prime = UINT64_C(1099511628211);
-    const auto *bytes = static_cast<const uint8_t *>(data);
-    for (size_t index = 0; index < size; ++index) {
-        hash ^= bytes[index];
-        hash *= prime;
-    }
-    return hash;
-}
-
-uint64_t frame_geometry_hash(const SceneFrame &frame)
-{
-    uint64_t hash = UINT64_C(1469598103934665603);
-    for (size_t command_index = 0; command_index < frame.count; ++command_index) {
-        const SceneCommand &command = frame.commands[command_index];
-        if (command.type != SCENE_COMMAND_GEOMETRY_INSTANCE) {
-            continue;
-        }
-        const SceneGeometryInstance &instance = command.data.geometry_instance;
-        hash = hash_bytes(hash, &instance.source_instance_id,
-                          sizeof(instance.source_instance_id));
-        hash = hash_bytes(hash, &instance.mesh.source_mesh_id,
-                          sizeof(instance.mesh.source_mesh_id));
-        hash = hash_bytes(hash, &instance.mesh.acceleration_class,
-                          sizeof(instance.mesh.acceleration_class));
-        hash = hash_bytes(hash, &instance.mesh.surface_count,
-                          sizeof(instance.mesh.surface_count));
-        for (uint32_t surface_index = 0; surface_index < instance.mesh.surface_count;
-             ++surface_index) {
-            const SceneMeshSurface &surface = instance.mesh.surfaces[surface_index];
-            hash = hash_bytes(hash, &surface.material.source,
-                              sizeof(surface.material.source));
-            hash = hash_bytes(hash, &surface.material.source_asset_id,
-                              sizeof(surface.material.source_asset_id));
-            hash = hash_bytes(hash, &surface.geometry.vertex_count,
-                              sizeof(surface.geometry.vertex_count));
-            hash = hash_bytes(hash, &surface.geometry.topology,
-                              sizeof(surface.geometry.topology));
-            hash = hash_bytes(hash, &surface.geometry.primitive,
-                              sizeof(surface.geometry.primitive));
-            hash = hash_bytes(hash, &surface.geometry.texture_window,
-                              sizeof(surface.geometry.texture_window));
-            for (uint32_t vertex_index = 0;
-                 surface.geometry.vertices &&
-                 vertex_index < surface.geometry.vertex_count; ++vertex_index) {
-                const SceneVertex &vertex = surface.geometry.vertices[vertex_index];
-                hash = hash_bytes(hash, &vertex.position, sizeof(vertex.position));
-                hash = hash_bytes(hash, &vertex.texture_u, sizeof(vertex.texture_u));
-                hash = hash_bytes(hash, &vertex.texture_v, sizeof(vertex.texture_v));
-            }
-        }
-    }
-    return hash;
-}
-
 D3D12_HEAP_PROPERTIES heap_properties(D3D12_HEAP_TYPE type)
 {
     D3D12_HEAP_PROPERTIES properties = {};
@@ -200,6 +144,118 @@ D3D12_RESOURCE_BARRIER uav_barrier(ID3D12Resource *resource)
     return barrier;
 }
 
+bool append_geometry_vertices(const SceneGeometry &geometry,
+                              uint32_t material_index,
+                              std::vector<DxrSceneVertex> &vertices,
+                              std::string &error)
+{
+    uint32_t *indices = nullptr;
+    uint32_t index_count = 0;
+    char triangulation_error[512] = {};
+    if (!scene_geometry_triangle_indices(
+            &geometry, &indices, &index_count, triangulation_error,
+            sizeof(triangulation_error))) {
+        error = "DXR SceneFrame triangulation failed: ";
+        error += triangulation_error;
+        return false;
+    }
+    const float u_scale =
+        geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL ?
+        1.0f / static_cast<float>(geometry.texture_window.u_period) :
+        1.0f / 64.0f;
+    const float v_scale =
+        geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL ?
+        1.0f / static_cast<float>(geometry.texture_window.v_period) :
+        1.0f / 64.0f;
+    if (vertices.size() > std::numeric_limits<uint32_t>::max() - index_count) {
+        scene_geometry_triangle_indices_release(indices);
+        error = "DXR SceneFrame has too many triangle vertices";
+        return false;
+    }
+    for (uint32_t index = 0; index < index_count; ++index) {
+        const SceneVertex &source = geometry.vertices[indices[index]];
+        const SceneRenderPoint position =
+            scene_render_world_point(source.position);
+        DxrSceneVertex vertex = {};
+        vertex.position[0] = position.x;
+        vertex.position[1] = position.y;
+        vertex.position[2] = position.z;
+        vertex.texture_coordinate[0] = source.texture_u * u_scale;
+        vertex.texture_coordinate[1] = source.texture_v * v_scale;
+        vertex.material_index = material_index;
+        vertex.emitter_index = UINT32_MAX;
+        vertices.push_back(vertex);
+    }
+    scene_geometry_triangle_indices_release(indices);
+    return true;
+}
+
+bool compile_emissive_triangles(
+    std::vector<DxrSceneVertex> &vertices,
+    const std::vector<float> &material_luminance,
+    std::vector<DxrEmissiveTriangle> &emitters, std::string &error)
+{
+    emitters.clear();
+    std::vector<float> emitter_weights;
+    double emitter_weight_sum = 0.0;
+    for (DxrSceneVertex &vertex : vertices) {
+        vertex.emitter_index = UINT32_MAX;
+    }
+    for (size_t first_vertex = 0; first_vertex < vertices.size();
+         first_vertex += 3u) {
+        const uint32_t material_index = vertices[first_vertex].material_index;
+        if (material_index >= material_luminance.size()) {
+            error = "DXR geometry references an out-of-range material";
+            return false;
+        }
+        const float luminance = material_luminance[material_index];
+        if (!(luminance > 0.0f)) {
+            continue;
+        }
+        const float *first = vertices[first_vertex + 0u].position;
+        const float *second = vertices[first_vertex + 1u].position;
+        const float *third = vertices[first_vertex + 2u].position;
+        const float edge_a[3] = {
+            second[0] - first[0], second[1] - first[1],
+            second[2] - first[2]};
+        const float edge_b[3] = {
+            third[0] - first[0], third[1] - first[1], third[2] - first[2]};
+        const float cross[3] = {
+            edge_a[1] * edge_b[2] - edge_a[2] * edge_b[1],
+            edge_a[2] * edge_b[0] - edge_a[0] * edge_b[2],
+            edge_a[0] * edge_b[1] - edge_a[1] * edge_b[0],
+        };
+        const float area = 0.5f * std::sqrt(
+            cross[0] * cross[0] + cross[1] * cross[1] +
+            cross[2] * cross[2]);
+        const float weight = area * luminance;
+        if (!(area > 1.0e-6f) || !std::isfinite(weight) ||
+            !(weight > 0.0f)) {
+            continue;
+        }
+        DxrEmissiveTriangle emitter = {};
+        emitter.first_vertex = static_cast<uint32_t>(first_vertex);
+        emitter.inverse_area = 1.0f / area;
+        const uint32_t emitter_index = static_cast<uint32_t>(emitters.size());
+        for (size_t vertex = 0; vertex < 3u; ++vertex) {
+            vertices[first_vertex + vertex].emitter_index = emitter_index;
+        }
+        emitters.push_back(emitter);
+        emitter_weights.push_back(weight);
+        emitter_weight_sum += weight;
+    }
+    double emitter_cdf = 0.0;
+    for (size_t index = 0; index < emitters.size(); ++index) {
+        const float probability = static_cast<float>(
+            static_cast<double>(emitter_weights[index]) / emitter_weight_sum);
+        emitter_cdf += probability;
+        emitters[index].selection_probability = probability;
+        emitters[index].selection_cdf = index + 1u == emitters.size() ?
+            1.0f : static_cast<float>(emitter_cdf);
+    }
+    return true;
+}
+
 }  // namespace
 
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::vertex_address() const
@@ -223,6 +279,9 @@ void DxrScene::release_gpu()
     material_buffer_.Reset();
     emitter_buffer_.Reset();
     upload_buffer_.Reset();
+    for (auto &upload : geometry_uploads_) {
+        upload.Reset();
+    }
     for (auto &texture : atlas_textures_) {
         texture.Reset();
     }
@@ -230,27 +289,52 @@ void DxrScene::release_gpu()
         upload.Reset();
     }
     blas_scratch_.Reset();
-    blas_.Reset();
+    blases_.clear();
     tlas_scratch_.Reset();
     tlas_.Reset();
     instance_upload_.Reset();
 }
 
-bool DxrScene::update(const SceneFrame &frame, bool &changed, std::string &error)
+bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
+                      std::string &error)
 {
-    const uint64_t hash = frame_geometry_hash(frame);
-    changed = !has_hash_ || scene_hash_ != hash;
-    if (!changed) {
+    const DxrSceneGeometryHashes hashes = dxr_scene_geometry_hashes(frame);
+    const DxrSceneUpdateKind update_kind =
+        dxr_scene_classify_update(has_hashes_, scene_hashes_, hashes);
+    requires_flush = false;
+    if (update_kind == DxrSceneUpdateKind::unchanged) {
         return true;
     }
-    return compile(frame, hash, error);
+    if (update_kind == DxrSceneUpdateKind::rebuild) {
+        requires_flush = true;
+        return compile(frame, hashes, error);
+    }
+
+    bool static_changed = false;
+    if (!compile_geometry_update(frame, static_changed, error)) {
+        return false;
+    }
+    if (static_changed) {
+        debug_output(
+            "DXR static SceneFrame geometry changed; rebuilding scene resources");
+        requires_flush = true;
+        return compile(frame, hashes, error);
+    }
+    scene_hashes_ = hashes;
+    has_hashes_ = true;
+    gpu_geometry_update_pending_ = true;
+    return true;
 }
 
-bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &error)
+bool DxrScene::compile(const SceneFrame &frame,
+                       const DxrSceneGeometryHashes &hashes,
+                       std::string &error)
 {
     std::vector<DxrSceneVertex> compiled_vertices;
     std::vector<MaterialImage> images;
     std::map<MaterialKey, uint32_t> material_indices;
+    std::vector<uint32_t> compiled_surface_material_indices;
+    std::vector<CompiledInstance> compiled_instances;
 
     if (!material_library_.loaded() &&
         !material_library_.load_from_executable(error)) {
@@ -262,7 +346,11 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
         if (command.type != SCENE_COMMAND_GEOMETRY_INSTANCE) {
             continue;
         }
-        const SceneMesh &mesh = command.data.geometry_instance.mesh;
+        const SceneGeometryInstance &instance = command.data.geometry_instance;
+        const SceneMesh &mesh = instance.mesh;
+        const size_t first_vertex = compiled_vertices.size();
+        const size_t first_surface =
+            compiled_surface_material_indices.size();
         if (!mesh.surfaces && mesh.surface_count != 0u) {
             error = "SceneFrame geometry instance has no surface array";
             return false;
@@ -361,97 +449,46 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
             } else {
                 material_index = found->second;
             }
-
-            uint32_t *indices = nullptr;
-            uint32_t index_count = 0;
-            char triangulation_error[512] = {};
-            if (!scene_geometry_triangle_indices(
-                    &geometry, &indices, &index_count, triangulation_error,
-                    sizeof(triangulation_error))) {
-                error = "DXR SceneFrame triangulation failed: ";
-                error += triangulation_error;
+            compiled_surface_material_indices.push_back(material_index);
+            if (!append_geometry_vertices(geometry, material_index,
+                                          compiled_vertices, error)) {
                 return false;
             }
-            const float u_scale = geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL ?
-                1.0f / static_cast<float>(geometry.texture_window.u_period) :
-                1.0f / 64.0f;
-            const float v_scale = geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL ?
-                1.0f / static_cast<float>(geometry.texture_window.v_period) :
-                1.0f / 64.0f;
-            if (compiled_vertices.size() >
-                std::numeric_limits<uint32_t>::max() - index_count) {
-                scene_geometry_triangle_indices_release(indices);
-                error = "DXR SceneFrame has too many triangle vertices";
+        }
+        if (compiled_vertices.size() != first_vertex) {
+            const size_t vertex_count = compiled_vertices.size() - first_vertex;
+            if (first_surface > UINT32_MAX || first_vertex > UINT32_MAX ||
+                vertex_count > UINT32_MAX ||
+                first_vertex / 3u > UINT32_C(0x00ffffff)) {
+                error = "DXR SceneFrame instance exceeds DXR index limits";
                 return false;
             }
-            for (uint32_t index = 0; index < index_count; ++index) {
-                const SceneVertex &source = geometry.vertices[indices[index]];
-                const SceneRenderPoint position =
-                    scene_render_world_point(source.position);
-                DxrSceneVertex vertex = {};
-                vertex.position[0] = position.x;
-                vertex.position[1] = position.y;
-                vertex.position[2] = position.z;
-                vertex.texture_coordinate[0] = source.texture_u * u_scale;
-                vertex.texture_coordinate[1] = source.texture_v * v_scale;
-                vertex.material_index = material_index;
-                vertex.emitter_index = UINT32_MAX;
-                compiled_vertices.push_back(vertex);
-            }
-            scene_geometry_triangle_indices_release(indices);
+            CompiledInstance compiled_instance;
+            compiled_instance.source_instance_id = instance.source_instance_id;
+            compiled_instance.source_mesh_id = mesh.source_mesh_id;
+            compiled_instance.first_surface =
+                static_cast<uint32_t>(first_surface);
+            compiled_instance.surface_count = mesh.surface_count;
+            compiled_instance.first_vertex = static_cast<uint32_t>(first_vertex);
+            compiled_instance.vertex_count = static_cast<uint32_t>(vertex_count);
+            compiled_instance.acceleration_class = mesh.acceleration_class;
+            compiled_instance.vertex_hash =
+                dxr_scene_instance_vertex_hash(instance);
+            compiled_instances.push_back(compiled_instance);
         }
     }
 
     std::vector<DxrEmissiveTriangle> compiled_emitters;
-    std::vector<float> emitter_weights;
-    double emitter_weight_sum = 0.0;
-    for (size_t first_vertex = 0; first_vertex < compiled_vertices.size();
-         first_vertex += 3u) {
-        const uint32_t material_index =
-            compiled_vertices[first_vertex].material_index;
-        const float luminance = images[material_index].average_emissive_luminance;
-        if (!(luminance > 0.0f)) {
-            continue;
-        }
-        const float *first = compiled_vertices[first_vertex + 0u].position;
-        const float *second = compiled_vertices[first_vertex + 1u].position;
-        const float *third = compiled_vertices[first_vertex + 2u].position;
-        const float edge_a[3] = {
-            second[0] - first[0], second[1] - first[1], second[2] - first[2]};
-        const float edge_b[3] = {
-            third[0] - first[0], third[1] - first[1], third[2] - first[2]};
-        const float cross[3] = {
-            edge_a[1] * edge_b[2] - edge_a[2] * edge_b[1],
-            edge_a[2] * edge_b[0] - edge_a[0] * edge_b[2],
-            edge_a[0] * edge_b[1] - edge_a[1] * edge_b[0],
-        };
-        const float area = 0.5f * std::sqrt(
-            cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]);
-        const float weight = area * luminance;
-        if (!(area > 1.0e-6f) || !std::isfinite(weight) || !(weight > 0.0f)) {
-            continue;
-        }
-        DxrEmissiveTriangle emitter = {};
-        emitter.first_vertex = static_cast<uint32_t>(first_vertex);
-        emitter.inverse_area = 1.0f / area;
-        const uint32_t emitter_index =
-            static_cast<uint32_t>(compiled_emitters.size());
-        for (size_t vertex = 0; vertex < 3u; ++vertex) {
-            compiled_vertices[first_vertex + vertex].emitter_index = emitter_index;
-        }
-        compiled_emitters.push_back(emitter);
-        emitter_weights.push_back(weight);
-        emitter_weight_sum += weight;
+    std::vector<float> compiled_material_luminance;
+    compiled_material_luminance.reserve(images.size());
+    for (const MaterialImage &image : images) {
+        compiled_material_luminance.push_back(
+            image.average_emissive_luminance);
     }
-    double emitter_cdf = 0.0;
-    for (size_t index = 0; index < compiled_emitters.size(); ++index) {
-        const float probability = static_cast<float>(
-            static_cast<double>(emitter_weights[index]) / emitter_weight_sum);
-        emitter_cdf += probability;
-        compiled_emitters[index].selection_probability = probability;
-        compiled_emitters[index].selection_cdf = index + 1u ==
-                compiled_emitters.size() ?
-            1.0f : static_cast<float>(emitter_cdf);
+    if (!compile_emissive_triangles(compiled_vertices,
+                                    compiled_material_luminance,
+                                    compiled_emitters, error)) {
+        return false;
     }
 
     std::vector<DxrSceneMaterial> compiled_materials(images.size());
@@ -532,17 +569,122 @@ bool DxrScene::compile(const SceneFrame &frame, uint64_t hash, std::string &erro
     vertices_ = std::move(compiled_vertices);
     materials_ = std::move(compiled_materials);
     emissive_triangles_ = std::move(compiled_emitters);
+    surface_material_indices_ =
+        std::move(compiled_surface_material_indices);
+    material_emissive_luminance_ =
+        std::move(compiled_material_luminance);
+    instances_ = std::move(compiled_instances);
+    blas_update_pending_.assign(instances_.size(), false);
     atlas_pixels_ = std::move(compiled_atlases);
     atlas_width_ = atlas_width;
     atlas_height_ = atlas_height;
-    scene_hash_ = hash;
-    has_hash_ = true;
+    scene_hashes_ = hashes;
+    has_hashes_ = true;
     gpu_build_pending_ = true;
+    gpu_geometry_update_pending_ = false;
+    geometry_update_count_ = 0;
+    return true;
+}
+
+bool DxrScene::compile_geometry_update(const SceneFrame &frame,
+                                       bool &static_changed,
+                                       std::string &error)
+{
+    std::vector<DxrSceneVertex> compiled_vertices = vertices_;
+    std::vector<CompiledInstance> compiled_instances;
+    std::vector<bool> compiled_updates;
+    size_t surface_cursor = 0;
+    size_t instance_cursor = 0;
+
+    static_changed = false;
+    compiled_instances.reserve(instances_.size());
+    compiled_updates.reserve(instances_.size());
+    for (size_t command_index = 0; command_index < frame.count;
+         ++command_index) {
+        const SceneCommand &command = frame.commands[command_index];
+        if (command.type != SCENE_COMMAND_GEOMETRY_INSTANCE) {
+            continue;
+        }
+        const SceneGeometryInstance &instance = command.data.geometry_instance;
+        const SceneMesh &mesh = instance.mesh;
+        if (!mesh.surfaces && mesh.surface_count != 0u) {
+            error = "SceneFrame geometry instance has no surface array";
+            return false;
+        }
+        if (mesh.surface_count == 0u) {
+            continue;
+        }
+        if (instance_cursor >= instances_.size()) {
+            error = "DXR geometry-only update added a BLAS instance";
+            return false;
+        }
+        CompiledInstance compiled_instance = instances_[instance_cursor];
+        compiled_instance.vertex_hash =
+            dxr_scene_instance_vertex_hash(instance);
+        const CompiledInstance &previous = instances_[instance_cursor];
+        if (instance.source_instance_id != previous.source_instance_id ||
+            mesh.source_mesh_id != previous.source_mesh_id ||
+            mesh.acceleration_class != previous.acceleration_class ||
+            surface_cursor != previous.first_surface ||
+            mesh.surface_count != previous.surface_count ||
+            surface_cursor + mesh.surface_count >
+                surface_material_indices_.size()) {
+            error = "DXR geometry-only update changed the BLAS layout";
+            return false;
+        }
+        const bool instance_changed =
+            compiled_instance.vertex_hash != previous.vertex_hash;
+        if (instance_changed && compiled_instance.acceleration_class ==
+                                    SCENE_ACCELERATION_CLASS_STATIC) {
+            static_changed = true;
+            return true;
+        }
+        if (instance_changed) {
+            std::vector<DxrSceneVertex> updated_vertices;
+            updated_vertices.reserve(previous.vertex_count);
+            for (uint32_t surface_index = 0;
+                 surface_index < mesh.surface_count; ++surface_index) {
+                if (!append_geometry_vertices(
+                        mesh.surfaces[surface_index].geometry,
+                        surface_material_indices_[surface_cursor + surface_index],
+                        updated_vertices, error)) {
+                    return false;
+                }
+            }
+            if (updated_vertices.size() != previous.vertex_count) {
+                error = "DXR dynamic BLAS update changed its vertex count";
+                return false;
+            }
+            std::copy(updated_vertices.begin(), updated_vertices.end(),
+                      compiled_vertices.begin() + previous.first_vertex);
+        }
+        compiled_instances.push_back(compiled_instance);
+        compiled_updates.push_back(instance_changed);
+        surface_cursor += mesh.surface_count;
+        ++instance_cursor;
+    }
+    if (surface_cursor != surface_material_indices_.size() ||
+        instance_cursor != instances_.size()) {
+        error = "DXR geometry-only update did not preserve the scene layout";
+        return false;
+    }
+
+    std::vector<DxrEmissiveTriangle> compiled_emitters;
+    if (!compile_emissive_triangles(compiled_vertices,
+                                    material_emissive_luminance_,
+                                    compiled_emitters, error)) {
+        return false;
+    }
+    vertices_ = std::move(compiled_vertices);
+    instances_ = std::move(compiled_instances);
+    emissive_triangles_ = std::move(compiled_emitters);
+    blas_update_pending_ = std::move(compiled_updates);
     return true;
 }
 
 bool DxrScene::record_build(ID3D12Device5 *device,
                             ID3D12GraphicsCommandList4 *command_list,
+                            uint32_t frame_slot,
                             D3D12_CPU_DESCRIPTOR_HANDLE tlas_descriptor,
                             const std::array<D3D12_CPU_DESCRIPTOR_HANDLE,
                                              static_cast<size_t>(
@@ -550,6 +692,157 @@ bool DxrScene::record_build(ID3D12Device5 *device,
                                 &atlas_descriptors,
                             std::string &error)
 {
+    if (gpu_geometry_update_pending_) {
+        if (!device || !command_list || frame_slot >= geometry_uploads_.size() ||
+            !geometry_uploads_[frame_slot] || !vertex_buffer_ ||
+            !emitter_buffer_ || !blas_scratch_ || !tlas_scratch_ || !tlas_ ||
+            !instance_upload_ ||
+            blases_.size() != instances_.size() ||
+            blas_update_pending_.size() != instances_.size()) {
+            error = "DXR geometry update received incomplete reusable GPU state";
+            return false;
+        }
+        const UINT64 vertex_bytes =
+            static_cast<UINT64>(vertices_.size()) * sizeof(vertices_[0]);
+        const UINT64 emitter_bytes = std::max<UINT64>(
+            sizeof(DxrEmissiveTriangle),
+            static_cast<UINT64>(triangle_count()) *
+                sizeof(DxrEmissiveTriangle));
+        const UINT64 emitter_offset =
+            (vertex_bytes + 255u) & ~UINT64_C(255);
+        void *mapped = nullptr;
+        D3D12_RANGE no_read = {0, 0};
+        HRESULT result =
+            geometry_uploads_[frame_slot]->Map(0, &no_read, &mapped);
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Resource::Map(dynamic scene upload)", result);
+            return false;
+        }
+        std::memcpy(mapped, vertices_.data(), static_cast<size_t>(vertex_bytes));
+        std::memset(static_cast<uint8_t *>(mapped) + emitter_offset, 0,
+                    static_cast<size_t>(emitter_bytes));
+        if (!emissive_triangles_.empty()) {
+            std::memcpy(static_cast<uint8_t *>(mapped) + emitter_offset,
+                        emissive_triangles_.data(),
+                        emissive_triangles_.size() *
+                            sizeof(emissive_triangles_[0]));
+        }
+        geometry_uploads_[frame_slot]->Unmap(0, nullptr);
+
+        const std::array<D3D12_RESOURCE_BARRIER, 2> to_copy = {
+            transition(vertex_buffer_.Get(),
+                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                       D3D12_RESOURCE_STATE_COPY_DEST),
+            transition(emitter_buffer_.Get(),
+                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                       D3D12_RESOURCE_STATE_COPY_DEST),
+        };
+        command_list->ResourceBarrier(static_cast<UINT>(to_copy.size()),
+                                      to_copy.data());
+        command_list->CopyBufferRegion(vertex_buffer_.Get(), 0,
+                                       geometry_uploads_[frame_slot].Get(), 0,
+                                       vertex_bytes);
+        command_list->CopyBufferRegion(
+            emitter_buffer_.Get(), 0, geometry_uploads_[frame_slot].Get(),
+            emitter_offset, emitter_bytes);
+        const std::array<D3D12_RESOURCE_BARRIER, 2> to_read = {
+            transition(vertex_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+            transition(emitter_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        };
+        command_list->ResourceBarrier(static_cast<UINT>(to_read.size()),
+                                      to_read.data());
+
+        uint32_t updated_blas_count = 0;
+        for (size_t index = 0; index < instances_.size(); ++index) {
+            if (!blas_update_pending_[index]) {
+                continue;
+            }
+            const CompiledInstance &instance = instances_[index];
+            if (instance.acceleration_class !=
+                SCENE_ACCELERATION_CLASS_DYNAMIC) {
+                error = "DXR attempted to refit a static BLAS";
+                return false;
+            }
+            D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
+            geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+            geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+            geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
+            geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+            geometry.Triangles.VertexCount = instance.vertex_count;
+            geometry.Triangles.VertexBuffer.StartAddress = vertex_address() +
+                static_cast<UINT64>(instance.first_vertex) *
+                    sizeof(DxrSceneVertex);
+            geometry.Triangles.VertexBuffer.StrideInBytes =
+                sizeof(DxrSceneVertex);
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+            inputs.Type =
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+            inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+            inputs.Flags =
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+            inputs.NumDescs = 1;
+            inputs.pGeometryDescs = &geometry;
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build = {};
+            build.Inputs = inputs;
+            build.SourceAccelerationStructureData =
+                blases_[index]->GetGPUVirtualAddress();
+            build.ScratchAccelerationStructureData =
+                blas_scratch_->GetGPUVirtualAddress();
+            build.DestAccelerationStructureData =
+                blases_[index]->GetGPUVirtualAddress();
+            command_list->BuildRaytracingAccelerationStructure(
+                &build, 0, nullptr);
+            const std::array<D3D12_RESOURCE_BARRIER, 2> barriers = {
+                uav_barrier(blas_scratch_.Get()),
+                uav_barrier(blases_[index].Get()),
+            };
+            command_list->ResourceBarrier(static_cast<UINT>(barriers.size()),
+                                          barriers.data());
+            ++updated_blas_count;
+        }
+        if (updated_blas_count == 0u) {
+            error = "DXR geometry update did not identify a dynamic BLAS";
+            return false;
+        }
+
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlas_inputs = {};
+        tlas_inputs.Type =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+        tlas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        tlas_inputs.Flags =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE |
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+        tlas_inputs.NumDescs = static_cast<UINT>(blases_.size());
+        tlas_inputs.InstanceDescs = instance_upload_->GetGPUVirtualAddress();
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC tlas_build = {};
+        tlas_build.Inputs = tlas_inputs;
+        tlas_build.SourceAccelerationStructureData =
+            tlas_->GetGPUVirtualAddress();
+        tlas_build.ScratchAccelerationStructureData =
+            tlas_scratch_->GetGPUVirtualAddress();
+        tlas_build.DestAccelerationStructureData =
+            tlas_->GetGPUVirtualAddress();
+        command_list->BuildRaytracingAccelerationStructure(
+            &tlas_build, 0, nullptr);
+        const D3D12_RESOURCE_BARRIER tlas_barrier = uav_barrier(tlas_.Get());
+        command_list->ResourceBarrier(1, &tlas_barrier);
+
+        gpu_geometry_update_pending_ = false;
+        std::fill(blas_update_pending_.begin(), blas_update_pending_.end(),
+                  false);
+        if (geometry_update_count_++ == 0u) {
+            debug_output(
+                "DXR dynamic update: retained PBR atlases and refit " +
+                std::to_string(updated_blas_count) + " BLAS instance(s)");
+        }
+        return true;
+    }
     if (!gpu_build_pending_) {
         return true;
     }
@@ -573,12 +866,15 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         static_cast<UINT64>(materials_.size()) * sizeof(materials_[0]);
     const UINT64 emitter_bytes = std::max<UINT64>(
         sizeof(DxrEmissiveTriangle),
-        static_cast<UINT64>(emissive_triangles_.size()) *
+        static_cast<UINT64>(triangle_count()) *
             sizeof(DxrEmissiveTriangle));
     const UINT64 material_offset = (vertex_bytes + 255u) & ~UINT64_C(255);
     const UINT64 emitter_offset =
         (material_offset + material_bytes + 255u) & ~UINT64_C(255);
     const UINT64 upload_bytes = emitter_offset + emitter_bytes;
+    const UINT64 geometry_emitter_offset =
+        (vertex_bytes + 255u) & ~UINT64_C(255);
+    const UINT64 geometry_upload_bytes = geometry_emitter_offset + emitter_bytes;
     if (!create_buffer(device, vertex_bytes, D3D12_HEAP_TYPE_DEFAULT,
                        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE,
                        L"AB3D2 DXR Scene Vertices", vertex_buffer_, error) ||
@@ -592,6 +888,17 @@ bool DxrScene::record_build(ID3D12Device5 *device,
                        D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_FLAG_NONE,
                        L"AB3D2 DXR Scene Upload", upload_buffer_, error)) {
         return false;
+    }
+    for (size_t slot = 0; slot < geometry_uploads_.size(); ++slot) {
+        wchar_t name[96] = {};
+        (void)swprintf_s(name, L"AB3D2 DXR Dynamic Scene Upload %zu", slot);
+        if (!create_buffer(device, geometry_upload_bytes,
+                           D3D12_HEAP_TYPE_UPLOAD,
+                           D3D12_RESOURCE_STATE_GENERIC_READ,
+                           D3D12_RESOURCE_FLAG_NONE, name,
+                           geometry_uploads_[slot], error)) {
+            return false;
+        }
     }
     void *mapped = nullptr;
     D3D12_RANGE no_read = {0, 0};
@@ -710,62 +1017,125 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     };
     command_list->ResourceBarrier(static_cast<UINT>(uploads.size()), uploads.data());
 
-    D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
-    geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-    geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-    geometry.Triangles.Transform3x4 = 0;
-    geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
-    geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-    geometry.Triangles.VertexCount = static_cast<UINT>(vertices_.size());
-    geometry.Triangles.VertexBuffer.StartAddress = vertex_address();
-    geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(DxrSceneVertex);
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS blas_inputs = {};
-    blas_inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
-    blas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-    blas_inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-    blas_inputs.NumDescs = 1;
-    blas_inputs.pGeometryDescs = &geometry;
-    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO blas_info = {};
-    device->GetRaytracingAccelerationStructurePrebuildInfo(&blas_inputs, &blas_info);
-    if (blas_info.ResultDataMaxSizeInBytes == 0u ||
-        blas_info.ScratchDataSizeInBytes == 0u ||
-        !create_buffer(device, blas_info.ScratchDataSizeInBytes,
-                       D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                       L"AB3D2 DXR BLAS Scratch", blas_scratch_, error) ||
-        !create_buffer(device, blas_info.ResultDataMaxSizeInBytes,
-                       D3D12_HEAP_TYPE_DEFAULT,
-                       D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
-                       D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
-                       L"AB3D2 DXR World BLAS", blas_, error)) {
-        if (error.empty()) {
-            error = "DXR BLAS prebuild returned zero-sized storage";
-        }
+    if (instances_.empty() || instances_.size() > UINT32_MAX) {
+        error = "DXR scene build has no valid BLAS instances";
         return false;
+    }
+    std::vector<UINT64> blas_result_sizes(instances_.size());
+    UINT64 blas_scratch_bytes = 0;
+    for (size_t index = 0; index < instances_.size(); ++index) {
+        const CompiledInstance &instance = instances_[index];
+        D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
+        geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+        geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
+        geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        geometry.Triangles.VertexCount = instance.vertex_count;
+        geometry.Triangles.VertexBuffer.StartAddress = vertex_address() +
+            static_cast<UINT64>(instance.first_vertex) * sizeof(DxrSceneVertex);
+        geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(DxrSceneVertex);
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+        inputs.Type =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        inputs.Flags =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        if (instance.acceleration_class == SCENE_ACCELERATION_CLASS_DYNAMIC) {
+            inputs.Flags |=
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+        }
+        inputs.NumDescs = 1;
+        inputs.pGeometryDescs = &geometry;
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO info = {};
+        device->GetRaytracingAccelerationStructurePrebuildInfo(&inputs, &info);
+        if (info.ResultDataMaxSizeInBytes == 0u ||
+            info.ScratchDataSizeInBytes == 0u) {
+            error = "DXR BLAS prebuild returned zero-sized storage";
+            return false;
+        }
+        blas_result_sizes[index] = info.ResultDataMaxSizeInBytes;
+        blas_scratch_bytes = std::max(
+            blas_scratch_bytes,
+            std::max(info.ScratchDataSizeInBytes,
+                     info.UpdateScratchDataSizeInBytes));
+    }
+    if (!create_buffer(device, blas_scratch_bytes, D3D12_HEAP_TYPE_DEFAULT,
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
+                       L"AB3D2 DXR BLAS Scratch", blas_scratch_, error)) {
+        return false;
+    }
+    blases_.resize(instances_.size());
+    for (size_t index = 0; index < blases_.size(); ++index) {
+        wchar_t name[96] = {};
+        (void)swprintf_s(name, L"AB3D2 DXR BLAS %zu", index);
+        if (!create_buffer(
+                device, blas_result_sizes[index], D3D12_HEAP_TYPE_DEFAULT,
+                D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
+                D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, name,
+                blases_[index], error)) {
+            return false;
+        }
     }
     const D3D12_RESOURCE_BARRIER blas_scratch_state = transition(
         blas_scratch_.Get(), D3D12_RESOURCE_STATE_COMMON,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     command_list->ResourceBarrier(1, &blas_scratch_state);
-    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC blas_build = {};
-    blas_build.Inputs = blas_inputs;
-    blas_build.ScratchAccelerationStructureData =
-        blas_scratch_->GetGPUVirtualAddress();
-    blas_build.DestAccelerationStructureData = blas_->GetGPUVirtualAddress();
-    command_list->BuildRaytracingAccelerationStructure(&blas_build, 0, nullptr);
-    const D3D12_RESOURCE_BARRIER blas_barrier = uav_barrier(blas_.Get());
-    command_list->ResourceBarrier(1, &blas_barrier);
+    for (size_t index = 0; index < instances_.size(); ++index) {
+        const CompiledInstance &instance = instances_[index];
+        D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
+        geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+        geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
+        geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        geometry.Triangles.VertexCount = instance.vertex_count;
+        geometry.Triangles.VertexBuffer.StartAddress = vertex_address() +
+            static_cast<UINT64>(instance.first_vertex) * sizeof(DxrSceneVertex);
+        geometry.Triangles.VertexBuffer.StrideInBytes = sizeof(DxrSceneVertex);
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS inputs = {};
+        inputs.Type =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+        inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+        inputs.Flags =
+            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+        if (instance.acceleration_class == SCENE_ACCELERATION_CLASS_DYNAMIC) {
+            inputs.Flags |=
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+        }
+        inputs.NumDescs = 1;
+        inputs.pGeometryDescs = &geometry;
+        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC build = {};
+        build.Inputs = inputs;
+        build.ScratchAccelerationStructureData =
+            blas_scratch_->GetGPUVirtualAddress();
+        build.DestAccelerationStructureData =
+            blases_[index]->GetGPUVirtualAddress();
+        command_list->BuildRaytracingAccelerationStructure(&build, 0, nullptr);
+        const std::array<D3D12_RESOURCE_BARRIER, 2> barriers = {
+            uav_barrier(blas_scratch_.Get()),
+            uav_barrier(blases_[index].Get()),
+        };
+        command_list->ResourceBarrier(static_cast<UINT>(barriers.size()),
+                                      barriers.data());
+    }
 
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlas_inputs = {};
     tlas_inputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
     tlas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-    tlas_inputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-    tlas_inputs.NumDescs = 1;
+    tlas_inputs.Flags =
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+        D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE;
+    tlas_inputs.NumDescs = static_cast<UINT>(blases_.size());
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlas_info = {};
     device->GetRaytracingAccelerationStructurePrebuildInfo(&tlas_inputs, &tlas_info);
+    const UINT64 tlas_scratch_bytes = std::max(
+        tlas_info.ScratchDataSizeInBytes,
+        tlas_info.UpdateScratchDataSizeInBytes);
+    const UINT64 instance_bytes = static_cast<UINT64>(blases_.size()) *
+        sizeof(D3D12_RAYTRACING_INSTANCE_DESC);
     if (tlas_info.ResultDataMaxSizeInBytes == 0u ||
-        tlas_info.ScratchDataSizeInBytes == 0u ||
-        !create_buffer(device, tlas_info.ScratchDataSizeInBytes,
+        tlas_scratch_bytes == 0u ||
+        !create_buffer(device, tlas_scratch_bytes,
                        D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                        L"AB3D2 DXR TLAS Scratch", tlas_scratch_, error) ||
@@ -774,9 +1144,9 @@ bool DxrScene::record_build(ID3D12Device5 *device,
                        D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE,
                        D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
                        L"AB3D2 DXR World TLAS", tlas_, error) ||
-        !create_buffer(device, sizeof(D3D12_RAYTRACING_INSTANCE_DESC),
+        !create_buffer(device, instance_bytes,
                        D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ,
-                       D3D12_RESOURCE_FLAG_NONE, L"AB3D2 DXR TLAS Instance",
+                       D3D12_RESOURCE_FLAG_NONE, L"AB3D2 DXR TLAS Instances",
                        instance_upload_, error)) {
         if (error.empty()) {
             error = "DXR TLAS prebuild returned zero-sized storage";
@@ -792,14 +1162,22 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         error = hresult_error("ID3D12Resource::Map(TLAS instance)", result);
         return false;
     }
-    auto *instance = static_cast<D3D12_RAYTRACING_INSTANCE_DESC *>(mapped);
-    std::memset(instance, 0, sizeof(*instance));
-    instance->Transform[0][0] = 1.0f;
-    instance->Transform[1][1] = 1.0f;
-    instance->Transform[2][2] = 1.0f;
-    instance->InstanceMask = 0xffu;
-    instance->Flags = D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
-    instance->AccelerationStructure = blas_->GetGPUVirtualAddress();
+    auto *instance_descriptions =
+        static_cast<D3D12_RAYTRACING_INSTANCE_DESC *>(mapped);
+    std::memset(instance_descriptions, 0, static_cast<size_t>(instance_bytes));
+    for (size_t index = 0; index < instances_.size(); ++index) {
+        D3D12_RAYTRACING_INSTANCE_DESC &description =
+            instance_descriptions[index];
+        description.Transform[0][0] = 1.0f;
+        description.Transform[1][1] = 1.0f;
+        description.Transform[2][2] = 1.0f;
+        description.InstanceID = instances_[index].first_vertex / 3u;
+        description.InstanceMask = 0xffu;
+        description.Flags =
+            D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
+        description.AccelerationStructure =
+            blases_[index]->GetGPUVirtualAddress();
+    }
     instance_upload_->Unmap(0, nullptr);
     tlas_inputs.InstanceDescs = instance_upload_->GetGPUVirtualAddress();
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC tlas_build = {};
@@ -832,7 +1210,8 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     debug_output("DXR SceneFrame build: " + std::to_string(triangle_count()) +
                  " triangles, " + std::to_string(materials_.size()) +
                  " PBR-capable materials, " +
-                 std::to_string(emitter_count()) + " emissive triangles");
+                 std::to_string(emitter_count()) + " emissive triangles, " +
+                 std::to_string(blases_.size()) + " BLAS instances");
     return true;
 }
 
