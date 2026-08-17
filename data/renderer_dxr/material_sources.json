@@ -69,7 +69,9 @@
       "name": "technolights",
       "sheet": "technolights.png",
       "layout": "grid",
-      "binding": {"source": "shared_wall", "source_asset_id": 6}
+      "binding": {"source": "shared_wall", "source_asset_id": 6},
+      "emissive_source": "base_color",
+      "emissive_factor": [8.0, 8.0, 8.0]
     },
     {
       "name": "technotritile",
@@ -82,6 +84,7 @@
     "alpha_mode": "opaque",
     "two_sided": false,
     "normal_strength": 1.0,
+    "emissive_source": "none",
     "emissive_factor": [0.0, 0.0, 0.0],
     "base_color_space": "srgb",
     "normal_space": "linear_tangent",

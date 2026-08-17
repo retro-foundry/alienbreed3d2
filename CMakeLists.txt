@@ -328,7 +328,8 @@ if(AB3D2_ENABLE_DXR)
   set(AB3D2_DXR_MATERIAL_BUILD_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_dxr/materials")
   set(AB3D2_DXR_MATERIAL_OUTPUTS
-      "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_manifest.json")
+      "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_manifest.json"
+      "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_runtime.bin")
   set(AB3D2_DXR_MATERIAL_NAMES
       alienredwall brownpipes brownspeakers brownwithyellowstripes chevrondoor
       floor_0201 gieger hullmetal redhullmetal rocky steampunk technolights

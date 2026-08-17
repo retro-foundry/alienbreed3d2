@@ -1,6 +1,7 @@
 import hashlib
 import json
 import subprocess
+import struct
 import sys
 import tempfile
 import unittest
@@ -11,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOL = ROOT / "tools" / "build_dxr_materials.py"
 SOURCE = ROOT / "textures_pbr"
 SPEC = ROOT / "data" / "renderer_dxr" / "material_sources.json"
-EXPECTED_CONTENT_DIGEST = "b3c20b7bb08cbdfc3f29399360b179ffca2bd2a5d8870f8467e96e7275907be0"
+EXPECTED_CONTENT_DIGEST = "99553bad43c722e06c3ad16e62dfbc9a09ea9a28a171bee94b7af6ebafb1ad7b"
+RUNTIME_HEADER = struct.Struct("<8sIIII")
+RUNTIME_RECORD = struct.Struct("<IIIIffffII")
 
 
 def directory_digest(directory: Path) -> str:
@@ -62,6 +65,19 @@ class DxrMaterialBuilderTest(unittest.TestCase):
             self.assertEqual(content_digest, EXPECTED_CONTENT_DIGEST)
             self.assertEqual(manifest["schema_version"], 1)
             self.assertEqual(len(manifest["materials"]), 13)
+            runtime = (first / "material_runtime.bin").read_bytes()
+            magic, version, material_count, channel_count, record_size = (
+                RUNTIME_HEADER.unpack_from(runtime)
+            )
+            self.assertEqual(magic, b"AB3PBR1\0")
+            self.assertEqual(version, 1)
+            self.assertEqual(material_count, len(manifest["materials"]))
+            self.assertEqual(channel_count, 4)
+            self.assertEqual(record_size, RUNTIME_RECORD.size)
+            self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR1")
+            self.assertEqual(
+                manifest["runtime_package"]["sha256"], hashlib.sha256(runtime).hexdigest()
+            )
             self.assertEqual(
                 manifest["missing_material"],
                 {
@@ -79,7 +95,12 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 self.assertEqual(material["normal_space"], "linear_tangent")
                 self.assertEqual(material["roughness_space"], "linear")
                 self.assertEqual(material["metalness_space"], "linear")
-                self.assertEqual(material["emissive_factor"], [0.0, 0.0, 0.0])
+                if material["name"] == "technolights":
+                    self.assertEqual(material["emissive_source"], "base_color")
+                    self.assertEqual(material["emissive_factor"], [8.0, 8.0, 8.0])
+                else:
+                    self.assertEqual(material["emissive_source"], "none")
+                    self.assertEqual(material["emissive_factor"], [0.0, 0.0, 0.0])
                 for channel in ("base_color", "normal", "metalness", "roughness"):
                     channel_info = material["channels"][channel]
                     self.assertEqual(channel_info["mode"], "RGB")
@@ -105,6 +126,26 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                     ("shared_wall", 11): "steampunk",
                 },
             )
+            pixel_offset = RUNTIME_HEADER.size + material_count * RUNTIME_RECORD.size
+            records = []
+            for index, material in enumerate(manifest["materials"]):
+                record = RUNTIME_RECORD.unpack_from(
+                    runtime, RUNTIME_HEADER.size + index * RUNTIME_RECORD.size
+                )
+                records.append(record)
+                self.assertEqual(record[2:4], (material["width"], material["height"]))
+                pixel_offset += material["width"] * material["height"] * 4 * channel_count
+            self.assertEqual(pixel_offset, len(runtime))
+            technolights = records[
+                next(
+                    index
+                    for index, material in enumerate(manifest["materials"])
+                    if material["name"] == "technolights"
+                )
+            ]
+            self.assertEqual(technolights[0:2], (1, 6))
+            self.assertEqual(technolights[5:8], (8.0, 8.0, 8.0))
+            self.assertEqual(technolights[8], 1)
 
 
 if __name__ == "__main__":

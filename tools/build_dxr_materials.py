@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -19,6 +21,14 @@ except ImportError as error:  # pragma: no cover - exercised by build hosts with
 
 
 CHANNELS = ("base_color", "normal", "metalness", "roughness")
+RUNTIME_MAGIC = b"AB3PBR1\0"
+RUNTIME_VERSION = 1
+RUNTIME_SOURCE_NONE = 0
+RUNTIME_SOURCE_SHARED_WALL = 1
+RUNTIME_EMISSIVE_NONE = 0
+RUNTIME_EMISSIVE_BASE_COLOR = 1
+RUNTIME_HEADER = struct.Struct("<8sIIII")
+RUNTIME_RECORD = struct.Struct("<IIIIffffII")
 FOREGROUND_THRESHOLD = 12
 ROW_COVERAGE = 0.35
 COLUMN_COVERAGE = 0.30
@@ -145,6 +155,35 @@ def validate_spec(spec: object, source_dir: Path) -> dict:
             if key in bindings:
                 raise ValueError(f"duplicate DXR material source binding: {key}")
             bindings.add(key)
+        emissive_source = material.get(
+            "emissive_source", defaults.get("emissive_source", "none")
+        )
+        emissive_factor = material.get(
+            "emissive_factor", defaults.get("emissive_factor")
+        )
+        if emissive_source not in ("none", "base_color"):
+            raise ValueError(f"DXR material {name} has an invalid emissive source")
+        if (
+            not isinstance(emissive_factor, list)
+            or len(emissive_factor) != 3
+            or any(
+                not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0.0
+                for value in emissive_factor
+            )
+        ):
+            raise ValueError(f"DXR material {name} has an invalid emissive factor")
+        if emissive_source == "none" and any(value != 0.0 for value in emissive_factor):
+            raise ValueError(
+                f"DXR material {name} has emissive radiance without an emissive source"
+            )
+        if emissive_source == "base_color" and not any(
+            value > 0.0 for value in emissive_factor
+        ):
+            raise ValueError(
+                f"DXR material {name} selects base-color emission with zero radiance"
+            )
         names.add(name)
         sheets.add(sheet)
     discovered = {path.name for path in source_dir.glob("*.png")}
@@ -168,10 +207,54 @@ def save_png(image: Image.Image, path: Path) -> dict[str, object]:
     }
 
 
+def build_runtime_package(materials: list[dict[str, object]]) -> bytes:
+    package = bytearray(
+        RUNTIME_HEADER.pack(
+            RUNTIME_MAGIC,
+            RUNTIME_VERSION,
+            len(materials),
+            len(CHANNELS),
+            RUNTIME_RECORD.size,
+        )
+    )
+    pixels = bytearray()
+    for material in materials:
+        binding = material.get("binding")
+        source_kind = RUNTIME_SOURCE_NONE
+        source_asset_id = 0xFFFFFFFF
+        if binding is not None:
+            source_kind = RUNTIME_SOURCE_SHARED_WALL
+            source_asset_id = binding["source_asset_id"]
+        emissive_source = (
+            RUNTIME_EMISSIVE_BASE_COLOR
+            if material["emissive_source"] == "base_color"
+            else RUNTIME_EMISSIVE_NONE
+        )
+        emissive = material["emissive_factor"]
+        package.extend(
+            RUNTIME_RECORD.pack(
+                source_kind,
+                source_asset_id,
+                material["width"],
+                material["height"],
+                material["normal_strength"],
+                emissive[0],
+                emissive[1],
+                emissive[2],
+                emissive_source,
+                0,
+            )
+        )
+        for channel in CHANNELS:
+            pixels.extend(material["runtime_pixels"][channel])
+    package.extend(pixels)
+    return bytes(package)
+
+
 def build_materials(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     spec = validate_spec(json.loads(spec_path.read_text(encoding="utf-8")), source_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    expected_files = {"material_manifest.json"}
+    expected_files = {"material_manifest.json", "material_runtime.bin"}
     output_materials = []
     defaults = spec["material_defaults"]
 
@@ -192,6 +275,7 @@ def build_materials(source_dir: Path, spec_path: Path, output_dir: Path) -> Path
         base_box = boxes["base_color"]
         output_size = (base_box[2] - base_box[0], base_box[3] - base_box[1])
         channels = {}
+        runtime_pixels = {}
         for channel in CHANNELS:
             panel = source_image.crop(boxes[channel])
             if panel.size != output_size:
@@ -199,6 +283,14 @@ def build_materials(source_dir: Path, spec_path: Path, output_dir: Path) -> Path
             filename = f"{material['name']}_{channel}.png"
             expected_files.add(filename)
             channels[channel] = save_png(panel, output_dir / filename)
+            runtime_pixels[channel] = panel.convert("RGBA").tobytes()
+
+        emissive_source = material.get(
+            "emissive_source", defaults.get("emissive_source", "none")
+        )
+        emissive_factor = material.get(
+            "emissive_factor", defaults["emissive_factor"]
+        )
 
         output_entry = {
             "name": material["name"],
@@ -211,10 +303,17 @@ def build_materials(source_dir: Path, spec_path: Path, output_dir: Path) -> Path
             "height": output_size[1],
             "channels": channels,
             **defaults,
+            "emissive_source": emissive_source,
+            "emissive_factor": emissive_factor,
+            "runtime_pixels": runtime_pixels,
         }
         if "binding" in material:
             output_entry["binding"] = material["binding"]
         output_materials.append(output_entry)
+
+    runtime_package = build_runtime_package(output_materials)
+    runtime_path = output_dir / "material_runtime.bin"
+    runtime_path.write_bytes(runtime_package)
 
     unexpected = sorted(
         existing.name
@@ -223,10 +322,20 @@ def build_materials(source_dir: Path, spec_path: Path, output_dir: Path) -> Path
     )
     if unexpected:
         raise ValueError(f"DXR material output contains unexpected files: {unexpected}")
+    manifest_materials = []
+    for material in output_materials:
+        manifest_material = dict(material)
+        del manifest_material["runtime_pixels"]
+        manifest_materials.append(manifest_material)
     manifest = {
         "schema_version": 1,
         "generator": "tools/build_dxr_materials.py",
-        "materials": output_materials,
+        "materials": manifest_materials,
+        "runtime_package": {
+            "file": runtime_path.name,
+            "format": "AB3PBR1",
+            "sha256": sha256_bytes(runtime_package),
+        },
         "missing_material": {
             "base_color": "decoded_source_albedo",
             "roughness": 1.0,
