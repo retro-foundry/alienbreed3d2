@@ -52,9 +52,12 @@ public:
                                        static_cast<size_t>(DxrMaterialChannel::count)>
                           &atlas_descriptors,
                       std::string &error);
+    bool record_promote_vertex_history(
+        ID3D12GraphicsCommandList4 *command_list, std::string &error);
 
     bool ready() const { return tlas_ && !vertices_.empty(); }
     D3D12_GPU_VIRTUAL_ADDRESS vertex_address() const;
+    D3D12_GPU_VIRTUAL_ADDRESS previous_vertex_address() const;
     D3D12_GPU_VIRTUAL_ADDRESS material_address() const;
     D3D12_GPU_VIRTUAL_ADDRESS emitter_address() const;
     uint32_t atlas_width() const { return atlas_width_; }
@@ -65,6 +68,8 @@ public:
     uint32_t emitter_count() const {
         return static_cast<uint32_t>(emissive_triangles_.size());
     }
+    bool history_reset_pending() const { return history_reset_pending_; }
+    void mark_history_promoted() { history_reset_pending_ = false; }
 
 private:
     struct CompiledInstance {
@@ -89,6 +94,7 @@ private:
     bool has_hashes_ = false;
     bool gpu_build_pending_ = false;
     bool gpu_geometry_update_pending_ = false;
+    bool history_reset_pending_ = true;
     uint64_t geometry_update_count_ = 0;
     uint32_t atlas_width_ = 0;
     uint32_t atlas_height_ = 0;
@@ -104,6 +110,7 @@ private:
     DxrMaterialLibrary material_library_;
 
     Microsoft::WRL::ComPtr<ID3D12Resource> vertex_buffer_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> previous_vertex_buffer_;
     Microsoft::WRL::ComPtr<ID3D12Resource> material_buffer_;
     Microsoft::WRL::ComPtr<ID3D12Resource> emitter_buffer_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,

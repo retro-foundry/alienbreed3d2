@@ -241,6 +241,7 @@ typedef struct {
     SceneFrame source_frame;
     SceneFrame previous_source_frame;
     SceneFrame frame;
+    uint64_t scene_history_epoch;
     SceneVectorPoseHistory vector_pose_history;
     Renderer *renderer;
     AudioSdl *audio;
@@ -645,7 +646,9 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     render_view_set_source_yaw(&app->view, app->game.player.yaw);
     render_view_set_source_look(&app->view, app->game.player.aim_speed,
                                 app->game.player.look_offset);
+    app->scene_history_epoch = 1u;
     scene_frame_begin(&app->source_frame);
+    app->source_frame.history_epoch = app->scene_history_epoch;
     if (!game_bootstrap_submit_scene_frame(&app->game, &app->source_frame) ||
         !scene_vector_pose_history_update(&app->vector_pose_history, &app->source_frame) ||
         !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
@@ -694,6 +697,7 @@ static int game_app_capture_source_frame(GameApp *app)
         return 0;
     }
     scene_frame_begin(&app->source_frame);
+    app->source_frame.history_epoch = app->scene_history_epoch;
     return game_bootstrap_submit_scene_frame(&app->game, &app->source_frame) &&
         scene_vector_pose_history_update(&app->vector_pose_history, &app->source_frame);
 }
@@ -749,6 +753,7 @@ static int game_app_load_transition_level(GameApp *app,
     render_view_set_source_look(&app->view, app->game.player.aim_speed,
                                 app->game.player.look_offset);
     scene_vector_pose_history_reset(&app->vector_pose_history);
+    ++app->scene_history_epoch;
     if (!game_app_capture_source_frame(app) ||
         !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
         if (error && error_size > 0u) {
@@ -1003,6 +1008,7 @@ static void game_app_tick(GameApp *app)
             app->mouse_remainder_x = 0;
             app->mouse_remainder_y = 0;
             scene_vector_pose_history_reset(&app->vector_pose_history);
+            ++app->scene_history_epoch;
             if (!game_app_capture_source_frame(app) ||
                 !scene_frame_clone(&app->previous_source_frame, &app->source_frame)) {
                 fprintf(stderr, "[SCENE] unable to capture quickloaded source frame\n");

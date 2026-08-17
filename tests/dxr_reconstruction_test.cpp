@@ -29,6 +29,18 @@ int fail(const char *message)
 
 int main()
 {
+    const PixelJitter first_jitter = frame_jitter(0u);
+    const PixelJitter second_jitter = frame_jitter(1u);
+    const PixelJitter repeated_jitter = frame_jitter(1024u);
+    if (!near(first_jitter.x, 0.0f) ||
+        !near(first_jitter.y, -1.0f / 6.0f) ||
+        !near(second_jitter.x, -0.25f) ||
+        !near(second_jitter.y, 1.0f / 6.0f) ||
+        !near(repeated_jitter.x, first_jitter.x) ||
+        !near(repeated_jitter.y, first_jitter.y)) {
+        return fail("frame jitter sequence is not deterministic");
+    }
+
     const Vec3 dielectric = specular_albedo({0.04f, 0.04f, 0.04f}, 0.5f,
                                              1.0f);
     const Vec3 metal = specular_albedo({0.8f, 0.2f, 0.1f}, 0.25f, 0.5f);

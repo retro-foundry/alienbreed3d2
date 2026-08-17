@@ -65,6 +65,33 @@ struct PixelPosition {
     bool valid;
 };
 
+struct PixelJitter {
+    float x;
+    float y;
+};
+
+inline float radical_inverse(uint32_t index, uint32_t base)
+{
+    float inverse = 1.0f / static_cast<float>(base);
+    float place = inverse;
+    float result = 0.0f;
+    while (index != 0u) {
+        result += static_cast<float>(index % base) * place;
+        index /= base;
+        place *= inverse;
+    }
+    return result;
+}
+
+inline PixelJitter frame_jitter(uint64_t rendered_frame)
+{
+    /* A 1024-frame project-owned Halton cycle stays exactly representable. */
+    const uint32_t sample =
+        static_cast<uint32_t>(rendered_frame % 1024u) + 1u;
+    return {radical_inverse(sample, 2u) - 0.5f,
+            radical_inverse(sample, 3u) - 0.5f};
+}
+
 inline PixelPosition project_world(const CameraProjection &camera,
                                    Vec3 world_position)
 {

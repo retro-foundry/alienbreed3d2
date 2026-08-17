@@ -557,6 +557,7 @@ int scene_frame_init(SceneFrame *frame, size_t command_capacity)
     if (!frame || command_capacity == 0) {
         return 0;
     }
+    frame->history_epoch = 0u;
     frame->commands = calloc(command_capacity, sizeof(*frame->commands));
     if (!frame->commands) {
         frame->count = 0;
@@ -591,6 +592,7 @@ void scene_frame_destroy(SceneFrame *frame)
     free(frame->owned_point_brightness);
     free(frame->owned_zone_brightness);
     frame->commands = NULL;
+    frame->history_epoch = 0u;
     frame->count = 0;
     frame->capacity = 0;
     frame->owned_vertices = NULL;
@@ -610,6 +612,7 @@ void scene_frame_destroy(SceneFrame *frame)
 void scene_frame_begin(SceneFrame *frame)
 {
     if (frame) {
+        frame->history_epoch = 0u;
         frame->count = 0;
         frame->owned_vertex_count = 0u;
         frame->owned_mesh_surface_count = 0u;
@@ -755,6 +758,7 @@ int scene_frame_clone(SceneFrame *destination, const SceneFrame *source)
         return 0;
     }
     scene_frame_begin(destination);
+    destination->history_epoch = source->history_epoch;
     for (size_t index = 0u; index < source->count; ++index) {
         SceneCommand command = source->commands[index];
 

@@ -448,6 +448,13 @@ typedef struct {
 } SceneCommand;
 
 typedef struct {
+    /*
+     * Renderer-neutral discontinuity signal. Producers increment it after a
+     * level load, quickload, teleport, or other non-contiguous scene change.
+     * It is copied through snapshots/interpolation but never interpreted by
+     * gameplay or a specific graphics API.
+     */
+    uint64_t history_epoch;
     SceneCommand *commands;
     size_t count;
     size_t capacity;

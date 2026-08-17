@@ -1,6 +1,7 @@
 static const float Pi = 3.14159265358979323846;
 static const float RayEpsilon = 0.05;
 static const uint InvalidIndex = 0xffffffffu;
+static const float InvalidMotion = 65504.0;
 
 struct SceneVertex
 {
@@ -70,7 +71,15 @@ Texture2D<float4> MetalnessAtlas : register(t5);
 Texture2D<float4> RoughnessAtlas : register(t6);
 Texture2D<float4> EmissiveAtlas : register(t7);
 StructuredBuffer<EmissiveTriangle> Emitters : register(t8);
+StructuredBuffer<SceneVertex> PreviousVertices : register(t9);
 RWTexture2D<float4> NoisyRadiance : register(u0);
+RWTexture2D<float4> DiffuseAlbedo : register(u1);
+RWTexture2D<float4> SpecularAlbedo : register(u2);
+RWTexture2D<float4> ShadingNormal : register(u3);
+RWTexture2D<float> LinearRoughness : register(u4);
+RWTexture2D<float> LinearDepth : register(u5);
+RWTexture2D<float2> SceneMotion : register(u6);
+RWTexture2D<float> SpecularHitDistance : register(u7);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -86,6 +95,18 @@ cbuffer FrameConstants : register(b0)
     uint AtlasHeight;
     uint TriangleCount;
     uint EmitterCount;
+    float3 PreviousCameraPosition;
+    uint HistoryValid;
+    float3 PreviousCameraForward;
+    float PreviousTanHalfFovY;
+    float3 PreviousCameraRight;
+    float PreviousAspect;
+    float3 PreviousCameraUp;
+    float JitterX;
+    float JitterY;
+    float PreviousJitterX;
+    float PreviousJitterY;
+    uint FrameConstantsPadding;
 };
 
 uint randomUint(inout uint state)
@@ -225,6 +246,119 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     surface.emission = EmissiveAtlas.Load(int3(texel, 0)).rgb *
         material.emissiveFactor;
     return surface;
+}
+
+float3 previousSurfacePosition(SurfacePayload payload)
+{
+    uint firstVertex = payload.primitiveIndex * 3u;
+    SceneVertex first = PreviousVertices[firstVertex + 0u];
+    SceneVertex second = PreviousVertices[firstVertex + 1u];
+    SceneVertex third = PreviousVertices[firstVertex + 2u];
+    float firstWeight =
+        1.0 - payload.barycentrics.x - payload.barycentrics.y;
+    return first.position * firstWeight +
+        second.position * payload.barycentrics.x +
+        third.position * payload.barycentrics.y;
+}
+
+/* NVIDIA Streamline v2.12.0 ProgrammingGuideDLSS_RR.md section 4.2.1. */
+float3 reconstructionSpecularAlbedo(float3 specularColor,
+                                    float linearRoughness,
+                                    float normalView)
+{
+    float alpha = linearRoughness * linearRoughness;
+    float noV = abs(normalView);
+    float4 x = float4(1.0, noV, noV * noV, noV * noV * noV);
+    float4 y = float4(1.0, alpha, alpha * alpha, alpha * alpha * alpha);
+    float2x2 m1 = float2x2(0.99044, -1.28514,
+                           1.29678, -0.755907);
+    float3x3 m2 = float3x3(1.0, 2.92338, 59.4188,
+                           20.3225, -27.0302, 222.592,
+                           121.563, 626.13, 316.627);
+    float2x2 m3 = float2x2(0.0365463, 3.32707,
+                           9.0632, -9.04756);
+    float3x3 m4 = float3x3(1.0, 3.59685, -1.36772,
+                           9.04401, -16.3174, 9.22949,
+                           5.56589, 19.7886, -20.2123);
+    float bias = dot(mul(m1, x.xy), y.xy) /
+        dot(mul(m2, x.xyw), y.xyw);
+    float scale = dot(mul(m3, x.xy), y.xy) /
+        dot(mul(m4, x.xzw), y.xyw);
+    bias *= saturate(specularColor.g * 50.0);
+    return specularColor * max(0.0, scale) + max(0.0, bias);
+}
+
+bool projectWorldToPixel(float3 worldPosition, float3 cameraPosition,
+                         float3 cameraForward, float3 cameraRight,
+                         float3 cameraUp, float tanHalfFovY, float aspect,
+                         float2 dimensions, out float2 pixel)
+{
+    float3 relative = worldPosition - cameraPosition;
+    float viewDepth = dot(relative, cameraForward);
+    if (viewDepth <= 1.0e-6) {
+        pixel = 0.0;
+        return false;
+    }
+    float2 ndc = float2(
+        dot(relative, cameraRight) / (viewDepth * aspect * tanHalfFovY),
+        dot(relative, cameraUp) / (viewDepth * tanHalfFovY));
+    if (any(isnan(ndc)) || any(isinf(ndc))) {
+        pixel = 0.0;
+        return false;
+    }
+    pixel = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * dimensions;
+    return true;
+}
+
+bool projectDirectionToPixel(float3 direction, float3 cameraForward,
+                             float3 cameraRight, float3 cameraUp,
+                             float tanHalfFovY, float aspect,
+                             float2 dimensions, out float2 pixel)
+{
+    return projectWorldToPixel(direction, 0.0, cameraForward, cameraRight,
+                               cameraUp, tanHalfFovY, aspect, dimensions,
+                               pixel);
+}
+
+float2 surfaceMotion(SurfacePayload payload, SurfaceData surface,
+                     float2 dimensions)
+{
+    if (HistoryValid == 0u) {
+        return InvalidMotion.xx;
+    }
+    float2 currentPixel;
+    float2 previousPixel;
+    bool currentValid = projectWorldToPixel(
+        surface.position, CameraPosition, CameraForward, CameraRight, CameraUp,
+        TanHalfFovY, Aspect, dimensions, currentPixel);
+    bool previousValid = projectWorldToPixel(
+        previousSurfacePosition(payload), PreviousCameraPosition,
+        PreviousCameraForward, PreviousCameraRight, PreviousCameraUp,
+        PreviousTanHalfFovY, PreviousAspect, dimensions, previousPixel);
+    if (!currentValid || !previousValid) {
+        return InvalidMotion.xx;
+    }
+    return clamp(previousPixel - currentPixel, -65500.0, 65500.0);
+}
+
+float2 environmentMotion(float3 direction, float2 dimensions)
+{
+    if (HistoryValid == 0u) {
+        return InvalidMotion.xx;
+    }
+    float2 currentPixel;
+    float2 previousPixel;
+    bool currentValid = projectDirectionToPixel(
+        direction, CameraForward, CameraRight, CameraUp, TanHalfFovY, Aspect,
+        dimensions, currentPixel);
+    bool previousValid = projectDirectionToPixel(
+        direction, PreviousCameraForward, PreviousCameraRight,
+        PreviousCameraUp, PreviousTanHalfFovY, PreviousAspect, dimensions,
+        previousPixel);
+    if (!currentValid || !previousValid) {
+        return InvalidMotion.xx;
+    }
+    return clamp(previousPixel - currentPixel, -65500.0, 65500.0);
 }
 
 float3 fresnelSchlick(float cosine, float3 reflectance)
@@ -464,6 +598,70 @@ float emitterPdfForHit(SurfaceData surface, float3 previousPosition)
             distanceSquared / lightCosine : 0.0;
 }
 
+float traceSpecularHitDistance(SurfaceData surface, float3 viewDirection,
+                               inout uint seed)
+{
+    float3 tangent;
+    float3 bitangent;
+    coordinateSystem(surface.shadingNormal, tangent, bitangent);
+    float3 localView = float3(dot(viewDirection, tangent),
+                              dot(viewDirection, bitangent),
+                              dot(viewDirection, surface.shadingNormal));
+    float alpha = surface.roughness * surface.roughness;
+    float3 localHalf = sampleGgxVisibleNormal(localView, alpha, seed);
+    float3 halfVector = normalize(tangent * localHalf.x +
+        bitangent * localHalf.y + surface.shadingNormal * localHalf.z);
+    float3 direction = reflect(-viewDirection, halfVector);
+    if (dot(surface.geometricNormal, direction) <= 0.0) {
+        return 0.0;
+    }
+
+    RayDesc ray;
+    ray.Origin = surface.position + surface.geometricNormal * RayEpsilon;
+    ray.Direction = direction;
+    ray.TMin = RayEpsilon;
+    ray.TMax = 8192.0;
+    SurfacePayload payload;
+    payload.rayDistance = 0.0;
+    payload.barycentrics = 0.0;
+    payload.primitiveIndex = InvalidIndex;
+    payload.hit = 0u;
+    TraceRay(Scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
+    return payload.hit != 0u ? payload.rayDistance : 0.0;
+}
+
+void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
+                     float2 dimensions)
+{
+    DiffuseAlbedo[pixel] = 0.0;
+    SpecularAlbedo[pixel] = 0.0;
+    ShadingNormal[pixel] = 0.0;
+    LinearRoughness[pixel] = 0.0;
+    LinearDepth[pixel] = 0.0;
+    SceneMotion[pixel] = environmentMotion(unjitteredDirection, dimensions);
+    SpecularHitDistance[pixel] = 0.0;
+}
+
+void writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
+                        SurfaceData surface, float3 viewDirection,
+                        float2 dimensions, uint guideSeed)
+{
+    float3 diffuseReflectance = surface.baseColor * (1.0 - surface.metalness);
+    float3 specularColor = lerp(0.04.xxx, surface.baseColor,
+                                surface.metalness);
+    float normalView = saturate(dot(surface.shadingNormal, viewDirection));
+    DiffuseAlbedo[pixel] = float4(diffuseReflectance, 1.0);
+    SpecularAlbedo[pixel] = float4(reconstructionSpecularAlbedo(
+        specularColor, surface.roughness, normalView), 1.0);
+    ShadingNormal[pixel] = float4(surface.shadingNormal, 1.0);
+    LinearRoughness[pixel] = surface.roughness;
+    LinearDepth[pixel] = max(0.0, dot(surface.position - CameraPosition,
+                                      CameraForward));
+    SceneMotion[pixel] = surfaceMotion(payload, surface, dimensions);
+    SpecularHitDistance[pixel] = traceSpecularHitDistance(
+        surface, viewDirection, guideSeed);
+}
+
 [shader("raygeneration")]
 void RayGeneration()
 {
@@ -471,12 +669,20 @@ void RayGeneration()
     uint2 dimensions = DispatchRaysDimensions().xy;
     uint seed = pixel.x * 1973u + pixel.y * 9277u +
         FrameIndex * 26699u + 911u;
-    float2 jitter = float2(randomUnit(seed), randomUnit(seed));
-    float2 screen = (float2(pixel) + jitter) / float2(dimensions);
+    uint guideSeed = seed ^ 0xa511e9b3u;
+    float2 jitter = float2(JitterX, JitterY);
+    float2 screen = (float2(pixel) + 0.5 + jitter) / float2(dimensions);
     float2 ndc = float2(screen.x * 2.0 - 1.0, 1.0 - screen.y * 2.0);
     float3 direction = normalize(CameraForward +
         CameraRight * (ndc.x * Aspect * TanHalfFovY) +
         CameraUp * (ndc.y * TanHalfFovY));
+    float2 unjitteredScreen =
+        (float2(pixel) + 0.5) / float2(dimensions);
+    float2 unjitteredNdc = float2(unjitteredScreen.x * 2.0 - 1.0,
+                                  1.0 - unjitteredScreen.y * 2.0);
+    float3 unjitteredDirection = normalize(CameraForward +
+        CameraRight * (unjitteredNdc.x * Aspect * TanHalfFovY) +
+        CameraUp * (unjitteredNdc.y * TanHalfFovY));
 
     float3 radiance = 0.0;
     float3 throughput = 1.0;
@@ -497,6 +703,10 @@ void RayGeneration()
         payload.hit = 0u;
         TraceRay(Scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
         if (payload.hit == 0u) {
+            if (depth == 0u) {
+                writeMissGuides(pixel, unjitteredDirection,
+                                float2(dimensions));
+            }
             float weight = 1.0;
             if (depth > 0u) {
                 float lightPdf =
@@ -509,6 +719,10 @@ void RayGeneration()
 
         SurfaceData surface = loadSurface(payload, ray.Direction);
         float3 viewDirection = -ray.Direction;
+        if (depth == 0u) {
+            writeSurfaceGuides(pixel, payload, surface, viewDirection,
+                               float2(dimensions), guideSeed);
+        }
         if (any(surface.emission > 0.0)) {
             float weight = depth == 0u ? 1.0 : powerHeuristic(
                 previousBsdfPdf,

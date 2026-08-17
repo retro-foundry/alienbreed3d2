@@ -641,6 +641,7 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     if (FAILED(result)) {
         return fail_device_operation("IDXGISwapChain::Present", result, error);
     }
+    pipeline.commit_presented_frame();
     const UINT64 fence_value = next_fence_value_++;
     result = command_queue_->Signal(fence_.Get(), fence_value);
     if (FAILED(result)) {

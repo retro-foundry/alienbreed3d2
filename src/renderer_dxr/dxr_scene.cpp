@@ -263,6 +263,12 @@ D3D12_GPU_VIRTUAL_ADDRESS DxrScene::vertex_address() const
     return vertex_buffer_ ? vertex_buffer_->GetGPUVirtualAddress() : 0;
 }
 
+D3D12_GPU_VIRTUAL_ADDRESS DxrScene::previous_vertex_address() const
+{
+    return previous_vertex_buffer_ ?
+        previous_vertex_buffer_->GetGPUVirtualAddress() : 0;
+}
+
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::material_address() const
 {
     return material_buffer_ ? material_buffer_->GetGPUVirtualAddress() : 0;
@@ -276,6 +282,7 @@ D3D12_GPU_VIRTUAL_ADDRESS DxrScene::emitter_address() const
 void DxrScene::release_gpu()
 {
     vertex_buffer_.Reset();
+    previous_vertex_buffer_.Reset();
     material_buffer_.Reset();
     emitter_buffer_.Reset();
     upload_buffer_.Reset();
@@ -306,6 +313,7 @@ bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
         return true;
     }
     if (update_kind == DxrSceneUpdateKind::rebuild) {
+        history_reset_pending_ = true;
         requires_flush = true;
         return compile(frame, hashes, error);
     }
@@ -318,6 +326,7 @@ bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
         debug_output(
             "DXR static SceneFrame geometry changed; rebuilding scene resources");
         requires_flush = true;
+        history_reset_pending_ = true;
         return compile(frame, hashes, error);
     }
     scene_hashes_ = hashes;
@@ -695,6 +704,7 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     if (gpu_geometry_update_pending_) {
         if (!device || !command_list || frame_slot >= geometry_uploads_.size() ||
             !geometry_uploads_[frame_slot] || !vertex_buffer_ ||
+            !previous_vertex_buffer_ ||
             !emitter_buffer_ || !blas_scratch_ || !tlas_scratch_ || !tlas_ ||
             !instance_upload_ ||
             blases_.size() != instances_.size() ||
@@ -878,6 +888,10 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     if (!create_buffer(device, vertex_bytes, D3D12_HEAP_TYPE_DEFAULT,
                        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE,
                        L"AB3D2 DXR Scene Vertices", vertex_buffer_, error) ||
+        !create_buffer(device, vertex_bytes, D3D12_HEAP_TYPE_DEFAULT,
+                       D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE,
+                       L"AB3D2 DXR Previous Scene Vertices",
+                       previous_vertex_buffer_, error) ||
         !create_buffer(device, material_bytes, D3D12_HEAP_TYPE_DEFAULT,
                        D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_FLAG_NONE,
                        L"AB3D2 DXR Scene Materials", material_buffer_, error) ||
@@ -920,6 +934,8 @@ bool DxrScene::record_build(ID3D12Device5 *device,
     upload_buffer_->Unmap(0, nullptr);
     command_list->CopyBufferRegion(vertex_buffer_.Get(), 0, upload_buffer_.Get(), 0,
                                    vertex_bytes);
+    command_list->CopyBufferRegion(previous_vertex_buffer_.Get(), 0,
+                                   upload_buffer_.Get(), 0, vertex_bytes);
     command_list->CopyBufferRegion(material_buffer_.Get(), 0, upload_buffer_.Get(),
                                    material_offset, material_bytes);
     command_list->CopyBufferRegion(emitter_buffer_.Get(), 0, upload_buffer_.Get(),
@@ -997,8 +1013,10 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         command_list->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
     }
 
-    std::array<D3D12_RESOURCE_BARRIER, 8> uploads = {
+    std::array<D3D12_RESOURCE_BARRIER, 9> uploads = {
         transition(vertex_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(previous_vertex_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
         transition(material_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
                    D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
@@ -1212,6 +1230,37 @@ bool DxrScene::record_build(ID3D12Device5 *device,
                  " PBR-capable materials, " +
                  std::to_string(emitter_count()) + " emissive triangles, " +
                  std::to_string(blases_.size()) + " BLAS instances");
+    return true;
+}
+
+bool DxrScene::record_promote_vertex_history(
+    ID3D12GraphicsCommandList4 *command_list, std::string &error)
+{
+    if (!command_list || !vertex_buffer_ || !previous_vertex_buffer_ ||
+        vertices_.empty()) {
+        error = "DXR vertex-history promotion received incomplete scene state";
+        return false;
+    }
+    const std::array<D3D12_RESOURCE_BARRIER, 2> to_copy = {
+        transition(vertex_buffer_.Get(),
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                   D3D12_RESOURCE_STATE_COPY_SOURCE),
+        transition(previous_vertex_buffer_.Get(),
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                   D3D12_RESOURCE_STATE_COPY_DEST),
+    };
+    command_list->ResourceBarrier(static_cast<UINT>(to_copy.size()),
+                                  to_copy.data());
+    command_list->CopyResource(previous_vertex_buffer_.Get(),
+                               vertex_buffer_.Get());
+    const std::array<D3D12_RESOURCE_BARRIER, 2> to_read = {
+        transition(vertex_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+        transition(previous_vertex_buffer_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE),
+    };
+    command_list->ResourceBarrier(static_cast<UINT>(to_read.size()),
+                                  to_read.data());
     return true;
 }
 

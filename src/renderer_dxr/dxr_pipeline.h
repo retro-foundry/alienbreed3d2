@@ -4,14 +4,29 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 
+#include <array>
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "render_view.h"
 #include "scene_frame.h"
+#include "dxr_reconstruction_math.h"
 #include "dxr_scene.h"
 
 namespace ab3d2::dxr {
+
+enum class DxrReconstructionBuffer : size_t {
+    noisy_radiance,
+    diffuse_albedo,
+    specular_albedo,
+    shading_normal,
+    linear_roughness,
+    linear_depth,
+    scene_motion,
+    specular_hit_distance,
+    count,
+};
 
 class DxrPipeline final {
 public:
@@ -23,10 +38,13 @@ public:
                 const RenderView &view, uint32_t frame_number,
                 uint32_t frame_slot,
                 std::string &error);
+    void commit_presented_frame();
 
     ID3D12RootSignature *root_signature() const { return root_signature_.Get(); }
     ID3D12PipelineState *pipeline_state() const { return pipeline_state_.Get(); }
     bool has_scene() const { return scene_.ready(); }
+    ID3D12Resource *reconstruction_resource(
+        DxrReconstructionBuffer buffer) const;
 
 private:
     static bool load_shader(const wchar_t *filename, std::vector<unsigned char> &bytes,
@@ -40,8 +58,9 @@ private:
                                  std::string &error);
     bool create_raytracing_pipeline(ID3D12Device5 *device, std::string &error);
     bool create_descriptor_heap(ID3D12Device5 *device, std::string &error);
-    bool ensure_output(ID3D12Device5 *device, UINT width, UINT height,
-                       std::string &error);
+    bool ensure_reconstruction_targets(ID3D12Device5 *device, UINT width,
+                                       UINT height, bool &recreated,
+                                       std::string &error);
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor(UINT index) const;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor(UINT index) const;
 
@@ -53,10 +72,28 @@ private:
     Microsoft::WRL::ComPtr<ID3D12StateObject> ray_state_object_;
     Microsoft::WRL::ComPtr<ID3D12Resource> shader_table_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> noisy_radiance_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
+               static_cast<size_t>(DxrReconstructionBuffer::count)>
+        reconstruction_targets_;
     UINT descriptor_size_ = 0;
     UINT output_width_ = 0;
     UINT output_height_ = 0;
+    struct DxrFrameHistory {
+        reconstruction::CameraProjection previous_camera = {};
+        reconstruction::PixelJitter previous_jitter = {};
+        reconstruction::CameraProjection pending_camera = {};
+        reconstruction::PixelJitter pending_jitter = {};
+        uint64_t history_epoch = 0;
+        uint64_t pending_history_epoch = 0;
+        uint64_t presented_frame = 0;
+        uint64_t pending_presented_frame = 0;
+        UINT input_width = 0;
+        UINT input_height = 0;
+        UINT pending_input_width = 0;
+        UINT pending_input_height = 0;
+        bool valid = false;
+        bool pending = false;
+    } history_;
     DxrScene scene_;
 };
 

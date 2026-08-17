@@ -17,16 +17,62 @@ namespace ab3d2::dxr {
 namespace {
 
 enum DescriptorIndex : UINT {
-    output_uav = 0,
-    scene_tlas = 1,
-    base_color_atlas = 2,
-    normal_atlas = 3,
-    metalness_atlas = 4,
-    roughness_atlas = 5,
-    emissive_atlas = 6,
-    output_srv = 7,
-    descriptor_count = 8,
+    noisy_radiance_uav = 0,
+    diffuse_albedo_uav = 1,
+    specular_albedo_uav = 2,
+    shading_normal_uav = 3,
+    linear_roughness_uav = 4,
+    linear_depth_uav = 5,
+    scene_motion_uav = 6,
+    specular_hit_distance_uav = 7,
+    scene_tlas = 8,
+    base_color_atlas = 9,
+    normal_atlas = 10,
+    metalness_atlas = 11,
+    roughness_atlas = 12,
+    emissive_atlas = 13,
+    output_srv = 14,
+    descriptor_count = 15,
 };
+
+constexpr std::array<DescriptorIndex,
+                     static_cast<size_t>(DxrReconstructionBuffer::count)>
+    reconstruction_uavs = {
+        noisy_radiance_uav,
+        diffuse_albedo_uav,
+        specular_albedo_uav,
+        shading_normal_uav,
+        linear_roughness_uav,
+        linear_depth_uav,
+        scene_motion_uav,
+        specular_hit_distance_uav,
+    };
+
+constexpr std::array<DXGI_FORMAT,
+                     static_cast<size_t>(DxrReconstructionBuffer::count)>
+    reconstruction_formats = {
+        DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT_R16_FLOAT,
+        DXGI_FORMAT_R32_FLOAT,
+        DXGI_FORMAT_R16G16_FLOAT,
+        DXGI_FORMAT_R32_FLOAT,
+    };
+
+constexpr std::array<const wchar_t *,
+                     static_cast<size_t>(DxrReconstructionBuffer::count)>
+    reconstruction_names = {
+        L"AB3D2 Fresh Noisy HDR Radiance",
+        L"AB3D2 RR Diffuse Albedo",
+        L"AB3D2 RR Specular Albedo",
+        L"AB3D2 RR World Shading Normal",
+        L"AB3D2 RR Linear Roughness",
+        L"AB3D2 RR Linear View Depth",
+        L"AB3D2 RR Scene Motion Pixels",
+        L"AB3D2 RR Specular Hit Distance",
+    };
 
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
 constexpr UINT shader_table_size = shader_record_size * 4u;
@@ -47,9 +93,21 @@ struct FrameConstants {
     uint32_t atlas_height;
     uint32_t triangle_count;
     uint32_t emitter_count;
+    float previous_camera_position[3];
+    uint32_t history_valid;
+    float previous_camera_forward[3];
+    float previous_tan_half_fov_y;
+    float previous_camera_right[3];
+    float previous_aspect;
+    float previous_camera_up[3];
+    float jitter_x;
+    float jitter_y;
+    float previous_jitter_x;
+    float previous_jitter_y;
+    uint32_t padding;
 };
 
-static_assert(sizeof(FrameConstants) == 20u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 40u * sizeof(uint32_t));
 
 std::string path_text(const std::filesystem::path &path)
 {
@@ -107,6 +165,14 @@ D3D12_RESOURCE_BARRIER transition(ID3D12Resource *resource,
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     barrier.Transition.StateBefore = before;
     barrier.Transition.StateAfter = after;
+    return barrier;
+}
+
+D3D12_RESOURCE_BARRIER uav_barrier(ID3D12Resource *resource)
+{
+    D3D12_RESOURCE_BARRIER barrier = {};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = resource;
     return barrier;
 }
 
@@ -176,6 +242,38 @@ const SceneCamera *find_camera(const SceneFrame &frame)
         }
     }
     return nullptr;
+}
+
+reconstruction::CameraProjection camera_projection(
+    const SceneCamera &camera, const RenderView &view, UINT width, UINT height)
+{
+    const float yaw = static_cast<float>(camera.yaw) * (2.0f * pi / 8192.0f);
+    const float pitch = view.pitch_degrees * (pi / 180.0f);
+    const SceneRenderPoint eye = scene_render_camera_point(&camera);
+    reconstruction::CameraProjection result = {};
+    result.position = {eye.x, eye.y, eye.z};
+    result.tan_half_fov_y = 1.0f /
+        (16.0f / (15.0f * source_fullscreen_depth_scale));
+    result.forward = {std::sin(yaw) * std::cos(pitch), std::sin(pitch),
+                      std::cos(yaw) * std::cos(pitch)};
+    result.aspect = static_cast<float>(width) / static_cast<float>(height);
+    result.right = {std::cos(yaw), 0.0f, -std::sin(yaw)};
+    result.up = {
+        result.right.z * result.forward.y,
+        result.forward.z * result.right.x -
+            result.forward.x * result.right.z,
+        -result.right.x * result.forward.y,
+    };
+    result.width = width;
+    result.height = height;
+    return result;
+}
+
+void copy_vector(float destination[3], brdf::Vec3 source)
+{
+    destination[0] = source.x;
+    destination[1] = source.y;
+    destination[2] = source.z;
 }
 
 }  // namespace
@@ -284,7 +382,8 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     }
     std::array<D3D12_DESCRIPTOR_RANGE, 3> ranges = {};
     ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[0].NumDescriptors = 1;
+    ranges[0].NumDescriptors =
+        static_cast<UINT>(DxrReconstructionBuffer::count);
     ranges[0].BaseShaderRegister = 0;
     ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     ranges[1].NumDescriptors = 1;
@@ -292,7 +391,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
-    std::array<D3D12_ROOT_PARAMETER, 7> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 8> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -305,9 +404,11 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[3].Descriptor.ShaderRegister = 2;
     parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     parameters[5].Descriptor.ShaderRegister = 8;
-    parameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    parameters[6].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
-    parameters[6].Constants.ShaderRegister = 0;
+    parameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    parameters[6].Descriptor.ShaderRegister = 9;
+    parameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[7].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
+    parameters[7].Constants.ShaderRegister = 0;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -455,48 +556,71 @@ D3D12_GPU_DESCRIPTOR_HANDLE DxrPipeline::gpu_descriptor(UINT index) const
     return handle;
 }
 
-bool DxrPipeline::ensure_output(ID3D12Device5 *device, UINT width, UINT height,
-                                std::string &error)
+bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
+                                                UINT width, UINT height,
+                                                bool &recreated,
+                                                std::string &error)
 {
-    if (noisy_radiance_ && output_width_ == width && output_height_ == height) {
+    recreated = false;
+    if (reconstruction_targets_[0] && output_width_ == width &&
+        output_height_ == height) {
         return true;
     }
-    noisy_radiance_.Reset();
+    for (auto &target : reconstruction_targets_) {
+        target.Reset();
+    }
+    output_width_ = 0;
+    output_height_ = 0;
     D3D12_RESOURCE_DESC description = {};
     description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     description.Width = width;
     description.Height = height;
     description.DepthOrArraySize = 1;
     description.MipLevels = 1;
-    description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     description.SampleDesc.Count = 1;
     description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const D3D12_HEAP_PROPERTIES default_heap = heap_properties(D3D12_HEAP_TYPE_DEFAULT);
-    const HRESULT result = device->CreateCommittedResource(
-        &default_heap, D3D12_HEAP_FLAG_NONE, &description,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-        IID_PPV_ARGS(&noisy_radiance_));
-    if (FAILED(result)) {
-        error = hresult_error("ID3D12Device::CreateCommittedResource(noisy HDR)",
-                              result);
-        return false;
+    for (size_t index = 0; index < reconstruction_targets_.size(); ++index) {
+        description.Format = reconstruction_formats[index];
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&reconstruction_targets_[index]));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(RR guide)", result);
+            return false;
+        }
+        reconstruction_targets_[index]->SetName(reconstruction_names[index]);
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = description.Format;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(
+            reconstruction_targets_[index].Get(), nullptr, &uav,
+            cpu_descriptor(reconstruction_uavs[index]));
     }
-    noisy_radiance_->SetName(L"AB3D2 Fresh Noisy HDR Radiance");
-    D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-    uav.Format = description.Format;
-    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-    device->CreateUnorderedAccessView(noisy_radiance_.Get(), nullptr, &uav,
-                                      cpu_descriptor(output_uav));
     D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
-    srv.Format = description.Format;
+    srv.Format = reconstruction_formats[
+        static_cast<size_t>(DxrReconstructionBuffer::noisy_radiance)];
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
-    device->CreateShaderResourceView(noisy_radiance_.Get(), &srv,
-                                     cpu_descriptor(output_srv));
+    device->CreateShaderResourceView(
+        reconstruction_targets_[static_cast<size_t>(
+            DxrReconstructionBuffer::noisy_radiance)].Get(),
+        &srv, cpu_descriptor(output_srv));
     output_width_ = width;
     output_height_ = height;
+    recreated = true;
     return true;
+}
+
+ID3D12Resource *DxrPipeline::reconstruction_resource(
+    DxrReconstructionBuffer buffer) const
+{
+    const size_t index = static_cast<size_t>(buffer);
+    return index < reconstruction_targets_.size() ?
+        reconstruction_targets_[index].Get() : nullptr;
 }
 
 bool DxrPipeline::initialize(ID3D12Device5 *device, std::string &error)
@@ -550,6 +674,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         return false;
     }
     if (!scene_.ready()) {
+        history_.valid = false;
+        history_.pending = false;
         command_list->SetGraphicsRootSignature(root_signature_.Get());
         command_list->SetPipelineState(pipeline_state_.Get());
         command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -561,47 +687,63 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         error = "DXR SceneFrame has geometry but no camera command";
         return false;
     }
-    if (!ensure_output(device, width, height, error)) {
+    bool targets_recreated = false;
+    if (!ensure_reconstruction_targets(device, width, height,
+                                       targets_recreated, error)) {
         return false;
     }
-    const float yaw = static_cast<float>(camera->yaw) * (2.0f * pi / 8192.0f);
-    const float pitch = view.pitch_degrees * (pi / 180.0f);
-    const SceneRenderPoint eye = scene_render_camera_point(camera);
+    const reconstruction::CameraProjection current_camera =
+        camera_projection(*camera, view, width, height);
+    const reconstruction::PixelJitter current_jitter =
+        reconstruction::frame_jitter(frame_number);
+    const bool history_valid = history_.valid && !targets_recreated &&
+        !scene_.history_reset_pending() &&
+        history_.history_epoch == frame.history_epoch &&
+        history_.input_width == width && history_.input_height == height;
+    const reconstruction::CameraProjection &previous_camera =
+        history_valid ? history_.previous_camera : current_camera;
+    const reconstruction::PixelJitter previous_jitter = history_valid ?
+        history_.previous_jitter : current_jitter;
     FrameConstants constants = {};
-    constants.camera_position[0] = eye.x;
-    constants.camera_position[1] = eye.y;
-    constants.camera_position[2] = eye.z;
-    constants.tan_half_fov_y = 1.0f /
-        (16.0f / (15.0f * source_fullscreen_depth_scale));
-    constants.camera_forward[0] = std::sin(yaw) * std::cos(pitch);
-    constants.camera_forward[1] = std::sin(pitch);
-    constants.camera_forward[2] = std::cos(yaw) * std::cos(pitch);
-    constants.aspect = static_cast<float>(width) / static_cast<float>(height);
-    constants.camera_right[0] = std::cos(yaw);
-    constants.camera_right[2] = -std::sin(yaw);
+    copy_vector(constants.camera_position, current_camera.position);
+    constants.tan_half_fov_y = current_camera.tan_half_fov_y;
+    copy_vector(constants.camera_forward, current_camera.forward);
+    constants.aspect = current_camera.aspect;
+    copy_vector(constants.camera_right, current_camera.right);
     constants.frame_index = frame_number;
-    constants.camera_up[0] = constants.camera_right[2] * constants.camera_forward[1];
-    constants.camera_up[1] = constants.camera_forward[2] * constants.camera_right[0] -
-        constants.camera_forward[0] * constants.camera_right[2];
-    constants.camera_up[2] = -constants.camera_right[0] * constants.camera_forward[1];
+    copy_vector(constants.camera_up, current_camera.up);
     constants.maximum_depth = 3u;
     constants.atlas_width = scene_.atlas_width();
     constants.atlas_height = scene_.atlas_height();
     constants.triangle_count = scene_.triangle_count();
     constants.emitter_count = scene_.emitter_count();
+    copy_vector(constants.previous_camera_position, previous_camera.position);
+    constants.history_valid = history_valid ? 1u : 0u;
+    copy_vector(constants.previous_camera_forward, previous_camera.forward);
+    constants.previous_tan_half_fov_y = previous_camera.tan_half_fov_y;
+    copy_vector(constants.previous_camera_right, previous_camera.right);
+    constants.previous_aspect = previous_camera.aspect;
+    copy_vector(constants.previous_camera_up, previous_camera.up);
+    constants.jitter_x = current_jitter.x;
+    constants.jitter_y = current_jitter.y;
+    constants.previous_jitter_x = previous_jitter.x;
+    constants.previous_jitter_y = previous_jitter.y;
 
     ID3D12DescriptorHeap *heaps[] = {descriptor_heap_.Get()};
     command_list->SetDescriptorHeaps(1, heaps);
     command_list->SetComputeRootSignature(ray_root_signature_.Get());
-    command_list->SetComputeRootDescriptorTable(0, gpu_descriptor(output_uav));
+    command_list->SetComputeRootDescriptorTable(
+        0, gpu_descriptor(noisy_radiance_uav));
     command_list->SetComputeRootDescriptorTable(1, gpu_descriptor(scene_tlas));
     command_list->SetComputeRootShaderResourceView(2, scene_.vertex_address());
     command_list->SetComputeRootShaderResourceView(3, scene_.material_address());
     command_list->SetComputeRootDescriptorTable(4,
                                                 gpu_descriptor(base_color_atlas));
     command_list->SetComputeRootShaderResourceView(5, scene_.emitter_address());
+    command_list->SetComputeRootShaderResourceView(
+        6, scene_.previous_vertex_address());
     command_list->SetComputeRoot32BitConstants(
-        6, sizeof(constants) / sizeof(uint32_t), &constants, 0);
+        7, sizeof(constants) / sizeof(uint32_t), &constants, 0);
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};
@@ -615,8 +757,22 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     dispatch.Depth = 1;
     command_list->DispatchRays(&dispatch);
 
+    std::array<D3D12_RESOURCE_BARRIER,
+               static_cast<size_t>(DxrReconstructionBuffer::count)>
+        guide_barriers = {};
+    for (size_t index = 0; index < guide_barriers.size(); ++index) {
+        guide_barriers[index] =
+            uav_barrier(reconstruction_targets_[index].Get());
+    }
+    command_list->ResourceBarrier(static_cast<UINT>(guide_barriers.size()),
+                                  guide_barriers.data());
+    if (!scene_.record_promote_vertex_history(command_list, error)) {
+        return false;
+    }
+
     const D3D12_RESOURCE_BARRIER to_present_shader = transition(
-        noisy_radiance_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        reconstruction_resource(DxrReconstructionBuffer::noisy_radiance),
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     command_list->ResourceBarrier(1, &to_present_shader);
     command_list->SetGraphicsRootSignature(present_root_signature_.Get());
@@ -625,10 +781,34 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->DrawInstanced(3, 1, 0, 0);
     const D3D12_RESOURCE_BARRIER to_next_sample = transition(
-        noisy_radiance_.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        reconstruction_resource(DxrReconstructionBuffer::noisy_radiance),
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     command_list->ResourceBarrier(1, &to_next_sample);
+    history_.pending_camera = current_camera;
+    history_.pending_jitter = current_jitter;
+    history_.pending_history_epoch = frame.history_epoch;
+    history_.pending_presented_frame = frame_number;
+    history_.pending_input_width = width;
+    history_.pending_input_height = height;
+    history_.pending = true;
     return true;
+}
+
+void DxrPipeline::commit_presented_frame()
+{
+    if (!history_.pending) {
+        return;
+    }
+    history_.previous_camera = history_.pending_camera;
+    history_.previous_jitter = history_.pending_jitter;
+    history_.history_epoch = history_.pending_history_epoch;
+    history_.presented_frame = history_.pending_presented_frame;
+    history_.input_width = history_.pending_input_width;
+    history_.input_height = history_.pending_input_height;
+    history_.valid = true;
+    history_.pending = false;
+    scene_.mark_history_promoted();
 }
 
 }  // namespace ab3d2::dxr
