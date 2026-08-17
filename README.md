@@ -422,15 +422,16 @@ GPU-based validation mode.
 The enabled backend creates a native SDL/`HWND` window without OpenGL,
 selects a high-performance hardware adapter with feature level 12_0,
 `ID3D12Device5`, and a nonzero DXR tier. It compiles opaque world surfaces from
-the renderer-neutral `SceneFrame`, uploads their positions, UVs, decoded source
-albedo atlas, and material indices, builds one BLAS and TLAS, and dispatches
-primary rays into a fresh `R16G16B16A16_FLOAT` image. A full-screen pass tone
-maps that result to the three-frame flip-discard swap chain. The current
-closest-hit shader takes one independent cosine-weighted Lambertian environment
-sample per hit, so geometry and texture mapping are visible and naturally
-grainy even inside sealed rooms. This is a primary-visibility milestone, not
-the complete Phase 7 PBR integrator: authored PBR channels, emitters, traced
-light visibility, specular response, and indirect bounces remain outstanding.
+the renderer-neutral `SceneFrame`, uploads positions, UVs, material indices,
+and renderer-native base-color, tangent-normal, metalness, and roughness
+atlases, then builds one BLAS and TLAS. Each pixel traces a fresh three-hit path
+with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,
+authored emissive-triangle and environment next-event sampling, visibility
+rays, and multiple-importance sampling. A full-screen pass tone maps the fresh
+`R16G16B16A16_FLOAT` result to the three-frame flip-discard swap chain; there is
+no temporal accumulation or denoiser. This completes the opaque-world noisy PBR
+slice, not the full renderer: dynamic objects, RR guides, transparencies, and
+overlays remain outstanding.
 
 Empty/non-world frames retain the diagnostic triangle. Resize,
 minimize/restore, fences, DRED reporting, and orderly shutdown remain covered.
@@ -443,8 +444,11 @@ lifecycle check and run the game-content check with:
 
 The RTX smoke renders each Level A--P frame twice and requires two nonzero,
 different readback checksums, proving both game-derived output and fresh random
-sampling. Sprite, vector-object, weapon, projectile, HUD, and text coverage
-remain zero at this milestone.
+sampling. An all-black image now fails the readback check. Set
+`AB3D2_DXR_DEBUG_LOG=1` to mirror DXR diagnostics to stderr during a run, and
+set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
+smoke to save the latest presented frame. Sprite, vector-object, weapon,
+projectile, HUD, and text coverage remain zero at this milestone.
 
 Streamline and Ray Reconstruction are not linked, loaded, discovered, or
 staged by this foundation. `AB3D2_ENABLE_STREAMLINE` remains gated until the

@@ -8,18 +8,25 @@ The repository baseline for this work is commit `86241dd` (`Replace GPL RTX rend
 
 - The original gameplay port, `SceneFrame` producer, OpenGL renderer, Web build, and tests remain intact.
 - `renderer=rtx` selects a deliberately non-functional, fail-fast scaffold in `src/renderer_rtx_stub.c`.
-- No functional RTX renderer is present in the current tree.
-- The next implementation must replace the stub incrementally while leaving OpenGL and Web behavior unchanged.
+- No functional RTX renderer was present at that baseline.
+- The implementation had to replace the stub incrementally while leaving OpenGL and Web behavior unchanged.
+
+Those bullets describe the historical `86241dd` baseline, not the current
+tree. A Windows build configured with `AB3D2_ENABLE_DXR=ON` now contains the
+working experimental opaque-world DXR path tracer described below; an
+`AB3D2_ENABLE_DXR=OFF` build still contains the fail-fast stub by design.
 
 The ID-independent implementation has reached the requested raw noisy-image
-milestone. It has been validated on a GeForce RTX 4080 in Debug and Release
-builds with Windows SDK DXC 1.8.2502.11 (SHA-256
+milestone. The foundation was validated on a GeForce RTX 4080 in Debug and
+Release, and the current opaque PBR path was validated in Debug on a GeForce
+RTX 3090, with Windows SDK DXC 1.8.2502.11 (SHA-256
 `7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`). The
 Phase 2 D3D12/DXR lifecycle remains the foundation. Phase 4 deterministically
 builds the 13 project-authored PBR sheets into 52 renderer-native channel
-textures and a hashed manifest, with a golden test locking decoded content and
-known `shared_wall` bindings. Those channel textures are staged but not yet
-uploaded or sampled at runtime.
+textures, a hashed manifest, and a strict runtime package. Base color, tangent
+normal, metalness, and roughness are now loaded, atlased, uploaded, and sampled
+through their declared color spaces. Missing bindings retain the documented
+decoded-source fallback.
 
 The implemented Phase 5/6 slice shares the tested native world-coordinate
 conversion and concave X/Z ear clipping with OpenGL, compiles opaque
@@ -28,15 +35,19 @@ positions/UVs/material indices and an atlas, and builds default-heap BLAS/TLAS
 resources. It deliberately excludes sprites, vector objects, water-specific
 behavior, the view weapon, HUD, and text.
 
-The first Phase 7 slice writes fresh un-denoised `R16G16B16A16_FLOAT` radiance
-and presents it with a full-screen tone-map pass. The current closest-hit
-shader takes one independent cosine-weighted Lambertian environment sample at
-each primary hit. This exposes recognizable game geometry, materials, UVs, and
-fresh per-frame noise even in sealed rooms, but it is explicitly a
-primary-visibility diagnostic rather than the complete physically coherent PBR
-integrator. Runtime PBR-channel sampling, authored emissive triangles, traced
-light visibility, specular response, indirect bounces, RR guides,
-transparencies, and overlays remain outstanding. Streamline remains absent.
+Phase 7 now writes one fresh un-denoised `R16G16B16A16_FLOAT` sample per pixel
+and presents it with a full-screen tone-map pass. The path integrator evaluates
+energy-consistent Lambertian diffuse plus Cook-Torrance GGX specular, samples
+GGX visible normals with the matching mixture PDF, follows up to three surface
+hits, and performs environment and area-emitter next-event sampling with shadow
+rays and power-heuristic MIS. Emissive triangles come only from manifest-authored
+scene-linear base-color emission and use a global area-times-average-luminance
+distribution; source Gouraud/ZoneT lighting is not consumed. CPU tests cover
+the material equations, lobe probability, sampler/PDF agreement, normal
+transform, deterministic random sequence, PDF mass, and finite throughput.
+The visible Level A capture has also been checked through the hidden readback
+path. RR guides, dynamic/object geometry, transparencies, and overlays remain
+outstanding. Streamline remains absent.
 
 ### Current dependency gate
 
@@ -470,12 +481,14 @@ auxiliary guide outputs, and PIX validation remain later work.
 
 ### 7. `Add the clean-room noisy PBR path tracer`
 
-Current status: the fresh noisy HDR target, stochastic primary rays, source
-albedo sampling, and stochastic Lambertian primary-hit diagnostic are
-implemented. The physically coherent PBR/lighting items below are not yet
-complete.
+Current status: the fresh noisy HDR target, stochastic primary rays, authored
+PBR sampling, Lambertian/GGX mixture, visible-normal specular sampling,
+three-hit indirect paths, global emissive/environment next-event sampling,
+visibility rays, MIS, and CPU finite/PDF checks are implemented for opaque
+world geometry. Guide output and the later geometry/presentation classes remain
+incomplete.
 
-- Add deterministic stochastic sampling, metallic-roughness BRDF, emissive/environment next-event sampling, shadow rays, multiple bounces, and finite/PDF tests.
+- Add a better-distributed project-owned sampler and the small GPU material reference scenes; the current deterministic xorshift sequence is sufficient for the raw one-sample milestone but is not the final sampler.
 - Produce fresh un-denoised `R16G16B16A16_FLOAT` radiance each frame.
 - Keep source Gouraud/ZoneT/PVST data unused in this pass.
 
