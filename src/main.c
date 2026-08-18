@@ -1360,7 +1360,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 return 0;
             }
             fprintf(stdout,
-                    "[RENDER] DXR Level %c fresh noisy samples=%016llx,%016llx\n",
+                    "[RENDER] DXR Level %c presented frames=%016llx,%016llx\n",
                     (char)('A' + level_index),
                     (unsigned long long)first_checksum,
                     (unsigned long long)renderer_last_frame_rgb_checksum(app->renderer));

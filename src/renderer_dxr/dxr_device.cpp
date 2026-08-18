@@ -2,6 +2,9 @@
 
 #include "dxr_debug.h"
 #include "dxr_pipeline.h"
+#if defined(AB3D2_ENABLE_STREAMLINE)
+#include "dxr_streamline.h"
+#endif
 
 #include <algorithm>
 #include <cstdio>
@@ -83,11 +86,25 @@ bool DxrDevice::create_factory(std::string &error)
 #if defined(AB3D2_DXR_ENABLE_DEBUG_LAYER)
     flags |= DXGI_CREATE_FACTORY_DEBUG;
 #endif
-    const HRESULT result = CreateDXGIFactory2(flags, IID_PPV_ARGS(&factory_));
+    HRESULT result;
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    result = CreateDXGIFactory2(flags, IID_PPV_ARGS(&factory_proxy_));
+#else
+    result = CreateDXGIFactory2(flags, IID_PPV_ARGS(&factory_));
+#endif
     if (FAILED(result)) {
         error = hresult_error("CreateDXGIFactory2(IDXGIFactory6)", result);
         return false;
     }
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    IDXGIFactory6 *native_factory = nullptr;
+    if (!streamline_ ||
+        !streamline_->get_native_factory(factory_proxy_.Get(), &native_factory,
+                                         error)) {
+        return false;
+    }
+    factory_.Attach(native_factory);
+#endif
     return true;
 }
 
@@ -120,6 +137,33 @@ bool DxrDevice::select_adapter_and_device(std::string &error)
             continue;
         }
         saw_hardware_adapter = true;
+#if defined(AB3D2_ENABLE_STREAMLINE)
+        std::string support_reason;
+        if (!streamline_ ||
+            !streamline_->adapter_supported(description.AdapterLuid,
+                                            support_reason)) {
+            rejected << adapter_name(description) << " (" << support_reason
+                     << "); ";
+            continue;
+        }
+        Microsoft::WRL::ComPtr<ID3D12Device5> candidate_proxy_device;
+        result = D3D12CreateDevice(candidate.Get(), D3D_FEATURE_LEVEL_12_0,
+                                   IID_PPV_ARGS(&candidate_proxy_device));
+        if (FAILED(result)) {
+            rejected << adapter_name(description)
+                     << " (D3D feature level 12_0 / ID3D12Device5 unavailable); ";
+            continue;
+        }
+        Microsoft::WRL::ComPtr<ID3D12Device5> candidate_device;
+        ID3D12Device5 *native_device = nullptr;
+        if (!streamline_->get_native_device(candidate_proxy_device.Get(),
+                                            &native_device, support_reason)) {
+            rejected << adapter_name(description) << " (" << support_reason
+                     << "); ";
+            continue;
+        }
+        candidate_device.Attach(native_device);
+#else
         Microsoft::WRL::ComPtr<ID3D12Device5> candidate_device;
         result = D3D12CreateDevice(candidate.Get(), D3D_FEATURE_LEVEL_12_0,
                                    IID_PPV_ARGS(&candidate_device));
@@ -128,6 +172,7 @@ bool DxrDevice::select_adapter_and_device(std::string &error)
                      << " (D3D feature level 12_0 / ID3D12Device5 unavailable); ";
             continue;
         }
+#endif
         D3D12_FEATURE_DATA_D3D12_OPTIONS5 options = {};
         result = candidate_device->CheckFeatureSupport(
             D3D12_FEATURE_D3D12_OPTIONS5, &options, sizeof(options));
@@ -143,6 +188,13 @@ bool DxrDevice::select_adapter_and_device(std::string &error)
 
         adapter_ = std::move(candidate);
         device_ = std::move(candidate_device);
+#if defined(AB3D2_ENABLE_STREAMLINE)
+        device_proxy_ = std::move(candidate_proxy_device);
+        if (!streamline_->set_device(device_.Get(), description.AdapterLuid,
+                                     error)) {
+            return false;
+        }
+#endif
         device_->SetName(L"AB3D2 DXR Device");
         debug_output("selected high-performance adapter " + adapter_name(description) +
                      " with DXR tier " +
@@ -194,7 +246,12 @@ bool DxrDevice::create_command_objects(std::string &error)
 {
     D3D12_COMMAND_QUEUE_DESC queue_description = {};
     queue_description.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-    HRESULT result = device_->CreateCommandQueue(
+    HRESULT result =
+#if defined(AB3D2_ENABLE_STREAMLINE)
+        device_proxy_->CreateCommandQueue(
+#else
+        device_->CreateCommandQueue(
+#endif
         &queue_description, IID_PPV_ARGS(&command_queue_));
     if (FAILED(result)) {
         return fail_device_operation("ID3D12Device::CreateCommandQueue", result, error);
@@ -234,7 +291,12 @@ bool DxrDevice::create_swap_chain(std::string &error)
     description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
 
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain;
-    HRESULT result = factory_->CreateSwapChainForHwnd(
+    HRESULT result =
+#if defined(AB3D2_ENABLE_STREAMLINE)
+        factory_proxy_->CreateSwapChainForHwnd(
+#else
+        factory_->CreateSwapChainForHwnd(
+#endif
         command_queue_.Get(), window_, &description, nullptr, nullptr, &swap_chain);
     if (FAILED(result)) {
         error = hresult_error("IDXGIFactory::CreateSwapChainForHwnd", result);
@@ -431,7 +493,8 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
     return true;
 }
 
-bool DxrDevice::initialize(HWND window, bool hidden_window, std::string &error)
+bool DxrDevice::initialize(HWND window, bool hidden_window,
+                           DxrStreamline *streamline, std::string &error)
 {
     RECT client = {};
 
@@ -441,6 +504,7 @@ bool DxrDevice::initialize(HWND window, bool hidden_window, std::string &error)
     }
     window_ = window;
     hidden_window_ = hidden_window;
+    streamline_ = streamline;
     if (!GetClientRect(window_, &client)) {
         error = hresult_error("GetClientRect(DXR window)",
                               HRESULT_FROM_WIN32(GetLastError()));
@@ -592,8 +656,9 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     static constexpr FLOAT clear_color[4] = {0.018f, 0.028f, 0.052f, 1.0f};
     command_list_->ClearRenderTargetView(frame.render_target_view, clear_color, 0, nullptr);
     if (!pipeline.record(device_.Get(), command_list_.Get(), width_, height_,
-                         scene_frame, view, rendered_frame_count_++,
-                         frame_index_, error)) {
+                          frame.render_target_view, scene_frame, view,
+                          rendered_frame_count_++,
+                          frame_index_, streamline_, error)) {
         return false;
     }
     const bool capture_scene = hidden_window_ && pipeline.has_scene();
@@ -788,8 +853,15 @@ void DxrDevice::shutdown()
     }
     info_queue_.Reset();
     device_.Reset();
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    device_proxy_.Reset();
+#endif
     adapter_.Reset();
     factory_.Reset();
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    factory_proxy_.Reset();
+#endif
+    streamline_ = nullptr;
     window_ = nullptr;
     width_ = 0;
     height_ = 0;

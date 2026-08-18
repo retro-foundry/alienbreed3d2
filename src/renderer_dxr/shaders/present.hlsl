@@ -11,6 +11,10 @@ cbuffer PresentConstants : register(b0)
 {
     uint DebugView;
     float ScalarRange;
+    uint SourceWidth;
+    uint SourceHeight;
+    uint TargetWidth;
+    uint TargetHeight;
 };
 
 struct PixelInput
@@ -44,7 +48,10 @@ float3 hsvToRgb(float3 hsv)
 
 float4 ps_main(PixelInput input) : SV_Target
 {
-    uint2 pixel = uint2(input.position.xy);
+    float2 normalized = input.position.xy /
+        max(float2(TargetWidth, TargetHeight), float2(1.0, 1.0));
+    uint2 pixel = min(uint2(normalized * float2(SourceWidth, SourceHeight)),
+                      uint2(SourceWidth - 1u, SourceHeight - 1u));
     if (DebugView == 1u) {
         return float4(displayLinear(DiffuseAlbedo.Load(int3(pixel, 0)).rgb),
                       1.0);

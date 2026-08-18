@@ -1,7 +1,11 @@
 #include "dxr_pipeline.h"
 
+#include "dxr_blue_noise.h"
 #include "dxr_debug.h"
 #include "scene_geometry_compile.h"
+#if defined(AB3D2_ENABLE_STREAMLINE)
+#include "dxr_streamline.h"
+#endif
 
 #include <dxgi1_6.h>
 
@@ -89,7 +93,7 @@ struct FrameConstants {
     float camera_forward[3];
     float aspect;
     float camera_right[3];
-    uint32_t frame_index;
+    uint32_t sample_index;
     float camera_up[3];
     uint32_t maximum_depth;
     uint32_t atlas_width;
@@ -115,9 +119,13 @@ static_assert(sizeof(FrameConstants) == 40u * sizeof(uint32_t));
 struct PresentConstants {
     uint32_t debug_view;
     float scalar_range;
+    uint32_t source_width;
+    uint32_t source_height;
+    uint32_t target_width;
+    uint32_t target_height;
 };
 
-static_assert(sizeof(PresentConstants) == 2u * sizeof(uint32_t));
+static_assert(sizeof(PresentConstants) == 6u * sizeof(uint32_t));
 
 std::string path_text(const std::filesystem::path &path)
 {
@@ -342,6 +350,7 @@ bool DxrPipeline::configure_debug_view(std::string &error)
         return false;
     }
     debug_view_ = 0u;
+    debug_view_requested_ = length != 0u;
     if (length != 0u) {
         const auto found = std::find_if(
             names.begin(), names.end(),
@@ -470,7 +479,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
-    std::array<D3D12_ROOT_PARAMETER, 8> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 9> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -485,9 +494,11 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[5].Descriptor.ShaderRegister = 8;
     parameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     parameters[6].Descriptor.ShaderRegister = 9;
-    parameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    parameters[7].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
-    parameters[7].Constants.ShaderRegister = 0;
+    parameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    parameters[7].Descriptor.ShaderRegister = 10;
+    parameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[8].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
+    parameters[8].Constants.ShaderRegister = 0;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -619,6 +630,66 @@ bool DxrPipeline::create_descriptor_heap(ID3D12Device5 *device,
     return true;
 }
 
+bool DxrPipeline::create_blue_noise_sampler(ID3D12Device5 *device,
+                                            std::string &error)
+{
+    std::filesystem::path directory;
+    if (!executable_directory(directory, error)) {
+        return false;
+    }
+    const std::filesystem::path path =
+        directory / L"renderer_dxr" / L"blue_noise_spp256.bin";
+    std::error_code file_error;
+    const uintmax_t file_size = std::filesystem::file_size(path, file_error);
+    if (file_error) {
+        error = "DXR blue-noise sampler is unavailable: " + path_text(path) +
+                " (" + file_error.message() + ")";
+        return false;
+    }
+    if (file_size != blue_noise::package_size) {
+        error = "DXR blue-noise sampler has an invalid size: " +
+                path_text(path) + " (expected " +
+                std::to_string(blue_noise::package_size) + " bytes, found " +
+                std::to_string(file_size) + ")";
+        return false;
+    }
+    std::vector<uint8_t> bytes(static_cast<size_t>(file_size));
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream || !stream.read(reinterpret_cast<char *>(bytes.data()),
+                                static_cast<std::streamsize>(bytes.size()))) {
+        error = "DXR blue-noise sampler could not be read completely: " +
+                path_text(path);
+        return false;
+    }
+
+    const D3D12_HEAP_PROPERTIES upload_heap =
+        heap_properties(D3D12_HEAP_TYPE_UPLOAD);
+    const D3D12_RESOURCE_DESC description =
+        buffer_description(blue_noise::package_size);
+    HRESULT result = device->CreateCommittedResource(
+        &upload_heap, D3D12_HEAP_FLAG_NONE, &description,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+        IID_PPV_ARGS(&blue_noise_sampler_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateCommittedResource(blue-noise sampler)",
+            result);
+        return false;
+    }
+    blue_noise_sampler_->SetName(L"AB3D2 Blue-Noise Sobol Sampler");
+    void *mapped = nullptr;
+    const D3D12_RANGE no_read = {0, 0};
+    result = blue_noise_sampler_->Map(0, &no_read, &mapped);
+    if (FAILED(result)) {
+        error = hresult_error("ID3D12Resource::Map(blue-noise sampler)",
+                              result);
+        return false;
+    }
+    std::memcpy(mapped, bytes.data(), bytes.size());
+    blue_noise_sampler_->Unmap(0, nullptr);
+    return true;
+}
+
 D3D12_CPU_DESCRIPTOR_HANDLE DxrPipeline::cpu_descriptor(UINT index) const
 {
     D3D12_CPU_DESCRIPTOR_HANDLE handle =
@@ -636,20 +707,28 @@ D3D12_GPU_DESCRIPTOR_HANDLE DxrPipeline::gpu_descriptor(UINT index) const
 }
 
 bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
-                                                UINT width, UINT height,
-                                                bool &recreated,
-                                                std::string &error)
+                                                 UINT width, UINT height,
+                                                 UINT present_width,
+                                                 UINT present_height,
+                                                 bool create_streamline_output,
+                                                 bool &recreated,
+                                                 std::string &error)
 {
     recreated = false;
-    if (reconstruction_targets_[0] && output_width_ == width &&
-        output_height_ == height) {
+    if (reconstruction_targets_[0] && render_width_ == width &&
+        render_height_ == height && present_width_ == present_width &&
+        present_height_ == present_height &&
+        (streamline_output_.Get() != nullptr) == create_streamline_output) {
         return true;
     }
     for (auto &target : reconstruction_targets_) {
         target.Reset();
     }
-    output_width_ = 0;
-    output_height_ = 0;
+    streamline_output_.Reset();
+    render_width_ = 0;
+    render_height_ = 0;
+    present_width_ = 0;
+    present_height_ = 0;
     D3D12_RESOURCE_DESC description = {};
     description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
     description.Width = width;
@@ -690,8 +769,31 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             reconstruction_targets_[index].Get(), &srv,
             cpu_descriptor(reconstruction_srv_start + static_cast<UINT>(index)));
     }
-    output_width_ = width;
-    output_height_ = height;
+    if (create_streamline_output) {
+        description.Width = present_width;
+        description.Height = present_height;
+        description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&streamline_output_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(DLSS-RR output)", result);
+            return false;
+        }
+        streamline_output_->SetName(L"AB3D2 DLSS-RR Reconstructed HDR Output");
+        if (!debug_view_requested_) {
+            srv.Format = description.Format;
+            device->CreateShaderResourceView(
+                streamline_output_.Get(), &srv,
+                cpu_descriptor(reconstruction_srv_start));
+        }
+    }
+    render_width_ = width;
+    render_height_ = height;
+    present_width_ = present_width;
+    present_height_ = present_height;
     recreated = true;
     return true;
 }
@@ -720,6 +822,7 @@ bool DxrPipeline::initialize(ID3D12Device5 *device, std::string &error)
         load_shader(L"present_vs.dxil", present_vertex_shader, error) &&
         create_diagnostic_pipeline(device, vertex_shader, pixel_shader, error) &&
         create_present_pipeline(device, present_vertex_shader, error) &&
+        create_blue_noise_sampler(device, error) &&
         create_raytracing_pipeline(device, error) &&
         create_descriptor_heap(device, error);
 }
@@ -732,9 +835,11 @@ bool DxrPipeline::update_scene(const SceneFrame &frame, bool &requires_flush,
 
 bool DxrPipeline::record(ID3D12Device5 *device,
                          ID3D12GraphicsCommandList4 *command_list,
-                         UINT width, UINT height, const SceneFrame &frame,
+                         UINT width, UINT height,
+                         D3D12_CPU_DESCRIPTOR_HANDLE render_target_view,
+                         const SceneFrame &frame,
                          const RenderView &view, uint32_t frame_number,
-                         uint32_t frame_slot,
+                         uint32_t frame_slot, DxrStreamline *streamline,
                          std::string &error)
 {
     if (!device || !command_list) {
@@ -764,24 +869,42 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         command_list->DrawInstanced(3, 1, 0, 0);
         return true;
     }
+    UINT render_width = width;
+    UINT render_height = height;
+    bool streamline_active = false;
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    if (!streamline ||
+        !streamline->configure_output(width, height, render_width,
+                                      render_height, error)) {
+        return false;
+    }
+    streamline_active = streamline->active();
+#else
+    (void)streamline;
+    (void)frame_number;
+#endif
     const SceneCamera *camera = find_camera(frame);
     if (!camera) {
         error = "DXR SceneFrame has geometry but no camera command";
         return false;
     }
     bool targets_recreated = false;
-    if (!ensure_reconstruction_targets(device, width, height,
+    if (!ensure_reconstruction_targets(device, render_width, render_height,
+                                       width, height, streamline_active,
                                        targets_recreated, error)) {
         return false;
     }
     const reconstruction::CameraProjection current_camera =
-        camera_projection(*camera, view, width, height);
-    const reconstruction::PixelJitter current_jitter =
-        reconstruction::frame_jitter(frame_number);
+        camera_projection(*camera, view, render_width, render_height);
     const bool history_valid = history_.valid && !targets_recreated &&
         !scene_.history_reset_pending() &&
         history_.history_epoch == frame.history_epoch &&
-        history_.input_width == width && history_.input_height == height;
+        history_.input_width == render_width &&
+        history_.input_height == render_height;
+    const uint32_t sample_index =
+        history_valid ? history_.sample_index + 1u : 0u;
+    const reconstruction::PixelJitter current_jitter =
+        reconstruction::frame_jitter(sample_index);
     const reconstruction::CameraProjection &previous_camera =
         history_valid ? history_.previous_camera : current_camera;
     const reconstruction::PixelJitter previous_jitter = history_valid ?
@@ -792,7 +915,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     copy_vector(constants.camera_forward, current_camera.forward);
     constants.aspect = current_camera.aspect;
     copy_vector(constants.camera_right, current_camera.right);
-    constants.frame_index = frame_number;
+    constants.sample_index = sample_index;
     copy_vector(constants.camera_up, current_camera.up);
     constants.maximum_depth = 3u;
     constants.atlas_width = scene_.atlas_width();
@@ -824,8 +947,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->SetComputeRootShaderResourceView(5, scene_.emitter_address());
     command_list->SetComputeRootShaderResourceView(
         6, scene_.previous_vertex_address());
+    command_list->SetComputeRootShaderResourceView(
+        7, blue_noise_sampler_->GetGPUVirtualAddress());
     command_list->SetComputeRoot32BitConstants(
-        7, sizeof(constants) / sizeof(uint32_t), &constants, 0);
+        8, sizeof(constants) / sizeof(uint32_t), &constants, 0);
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};
@@ -834,8 +959,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                 shader_record_size * 2u, shader_record_size};
     dispatch.HitGroupTable = {table + shader_record_size * 3u, shader_record_size,
                               shader_record_size};
-    dispatch.Width = width;
-    dispatch.Height = height;
+    dispatch.Width = render_width;
+    dispatch.Height = render_height;
     dispatch.Depth = 1;
     command_list->DispatchRays(&dispatch);
 
@@ -848,23 +973,62 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     }
     command_list->ResourceBarrier(static_cast<UINT>(guide_barriers.size()),
                                   guide_barriers.data());
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    if (streamline_active) {
+        const DxrStreamlineResources resources = {
+            reconstruction_resource(DxrReconstructionBuffer::noisy_radiance),
+            streamline_output_.Get(),
+            reconstruction_resource(DxrReconstructionBuffer::diffuse_albedo),
+            reconstruction_resource(DxrReconstructionBuffer::specular_albedo),
+            reconstruction_resource(DxrReconstructionBuffer::shading_normal),
+            reconstruction_resource(DxrReconstructionBuffer::linear_roughness),
+            reconstruction_resource(DxrReconstructionBuffer::linear_depth),
+            reconstruction_resource(DxrReconstructionBuffer::scene_motion),
+            reconstruction_resource(
+                DxrReconstructionBuffer::specular_hit_distance),
+        };
+        if (!streamline->evaluate(command_list, frame_number, current_camera,
+                                  previous_camera, current_jitter,
+                                  history_valid, resources, error)) {
+            return false;
+        }
+        const D3D12_RESOURCE_BARRIER output_barrier =
+            uav_barrier(streamline_output_.Get());
+        command_list->ResourceBarrier(1, &output_barrier);
+    }
+#endif
     if (!scene_.record_promote_vertex_history(command_list, error)) {
         return false;
     }
 
-    ID3D12Resource *present_resource =
-        reconstruction_targets_[debug_view_].Get();
+    const bool present_streamline_output =
+        streamline_active && !debug_view_requested_;
+    ID3D12Resource *present_resource = present_streamline_output ?
+        streamline_output_.Get() : reconstruction_targets_[debug_view_].Get();
     const D3D12_RESOURCE_BARRIER to_present_shader = transition(
         present_resource,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     command_list->ResourceBarrier(1, &to_present_shader);
+    const D3D12_VIEWPORT viewport = {
+        0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height),
+        0.0f, 1.0f};
+    const D3D12_RECT scissor = {
+        0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    command_list->RSSetViewports(1, &viewport);
+    command_list->RSSetScissorRects(1, &scissor);
+    command_list->OMSetRenderTargets(1, &render_target_view, FALSE, nullptr);
+    ID3D12DescriptorHeap *present_heaps[] = {descriptor_heap_.Get()};
+    command_list->SetDescriptorHeaps(1, present_heaps);
     command_list->SetGraphicsRootSignature(present_root_signature_.Get());
     command_list->SetPipelineState(present_pipeline_state_.Get());
     command_list->SetGraphicsRootDescriptorTable(
         0, gpu_descriptor(reconstruction_srv_start));
     const PresentConstants present_constants = {
-        debug_view_, debug_scalar_range_};
+        debug_view_, debug_scalar_range_,
+        present_streamline_output ? width : render_width,
+        present_streamline_output ? height : render_height,
+        width, height};
     command_list->SetGraphicsRoot32BitConstants(
         1, sizeof(present_constants) / sizeof(uint32_t), &present_constants, 0);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -877,9 +1041,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     history_.pending_camera = current_camera;
     history_.pending_jitter = current_jitter;
     history_.pending_history_epoch = frame.history_epoch;
-    history_.pending_presented_frame = frame_number;
-    history_.pending_input_width = width;
-    history_.pending_input_height = height;
+    history_.pending_sample_index = sample_index;
+    history_.pending_input_width = render_width;
+    history_.pending_input_height = render_height;
     history_.pending = true;
     return true;
 }
@@ -892,7 +1056,7 @@ void DxrPipeline::commit_presented_frame()
     history_.previous_camera = history_.pending_camera;
     history_.previous_jitter = history_.pending_jitter;
     history_.history_epoch = history_.pending_history_epoch;
-    history_.presented_frame = history_.pending_presented_frame;
+    history_.sample_index = history_.pending_sample_index;
     history_.input_width = history_.pending_input_width;
     history_.input_height = history_.pending_input_height;
     history_.valid = true;

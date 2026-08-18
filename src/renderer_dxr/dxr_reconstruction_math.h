@@ -83,11 +83,9 @@ inline float radical_inverse(uint32_t index, uint32_t base)
     return result;
 }
 
-inline PixelJitter frame_jitter(uint64_t rendered_frame)
+inline PixelJitter frame_jitter(uint32_t sample_index)
 {
-    /* A 1024-frame project-owned Halton cycle stays exactly representable. */
-    const uint32_t sample =
-        static_cast<uint32_t>(rendered_frame % 1024u) + 1u;
+    const uint32_t sample = sample_index + 1u;
     return {radical_inverse(sample, 2u) - 0.5f,
             radical_inverse(sample, 3u) - 0.5f};
 }

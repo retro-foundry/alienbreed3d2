@@ -72,6 +72,7 @@ Texture2D<float4> RoughnessAtlas : register(t6);
 Texture2D<float4> EmissiveAtlas : register(t7);
 StructuredBuffer<EmissiveTriangle> Emitters : register(t8);
 StructuredBuffer<SceneVertex> PreviousVertices : register(t9);
+ByteAddressBuffer BlueNoiseSampler : register(t10);
 RWTexture2D<float4> NoisyRadiance : register(u0);
 RWTexture2D<float4> DiffuseAlbedo : register(u1);
 RWTexture2D<float4> SpecularAlbedo : register(u2);
@@ -88,7 +89,7 @@ cbuffer FrameConstants : register(b0)
     float3 CameraForward;
     float Aspect;
     float3 CameraRight;
-    uint FrameIndex;
+    uint SampleIndex;
     float3 CameraUp;
     uint MaximumDepth;
     uint AtlasWidth;
@@ -109,17 +110,50 @@ cbuffer FrameConstants : register(b0)
     uint FrameConstantsPadding;
 };
 
-uint randomUint(inout uint state)
+static const uint BlueNoiseSampleCount = 256u;
+static const uint BlueNoiseDimensionCount = 256u;
+static const uint BlueNoiseTileWidth = 128u;
+static const uint BlueNoiseOptimizedDimensions = 8u;
+static const uint BlueNoiseSobolOffset = 0u;
+static const uint BlueNoiseScramblingOffset = 65536u;
+static const uint BlueNoiseRankingOffset = 196608u;
+static const uint PathDimensionsPerBounce = 8u;
+
+uint blueNoiseByte(uint byteOffset)
 {
-    state ^= state << 13;
-    state ^= state >> 17;
-    state ^= state << 5;
-    return state;
+    uint word = BlueNoiseSampler.Load(byteOffset & ~3u);
+    return (word >> ((byteOffset & 3u) * 8u)) & 0xffu;
 }
 
-float randomUnit(inout uint state)
+/*
+ * Heitz et al., "A Low-Discrepancy Sampler that Distributes Monte Carlo
+ * Errors as a Blue Noise in Screen Space", SIGGRAPH Talks 2019. The source
+ * tables contain 256 Sobol dimensions and eight optimized ranking/scrambling
+ * channels. Higher dimension groups use translated tiles as recommended for
+ * padding the optimized channels without returning to mutable RNG state. A
+ * second translation between 256-sample blocks avoids an aligned long-run
+ * repeat while retaining the reference sequence within each block.
+ */
+float sampleBlueNoise(uint2 pixel, uint sampleIndex, uint dimension)
 {
-    return (randomUint(state) & 0x00ffffffu) * (1.0 / 16777216.0);
+    dimension &= BlueNoiseDimensionCount - 1u;
+    uint dimensionGroup = dimension / BlueNoiseOptimizedDimensions;
+    uint sampleCycle = sampleIndex / BlueNoiseSampleCount;
+    uint2 tilePixel = (pixel + uint2(dimensionGroup * 37u + sampleCycle * 53u,
+                                     dimensionGroup * 59u + sampleCycle * 97u)) & 127u;
+    uint tileIndex = tilePixel.x + tilePixel.y * BlueNoiseTileWidth;
+    uint optimizedDimension =
+        dimension & (BlueNoiseOptimizedDimensions - 1u);
+    uint keyIndex = optimizedDimension +
+        tileIndex * BlueNoiseOptimizedDimensions;
+    uint rankedSampleIndex =
+        (sampleIndex & (BlueNoiseSampleCount - 1u)) ^
+        blueNoiseByte(BlueNoiseRankingOffset + keyIndex);
+    uint value = blueNoiseByte(
+        BlueNoiseSobolOffset + dimension +
+        rankedSampleIndex * BlueNoiseDimensionCount);
+    value ^= blueNoiseByte(BlueNoiseScramblingOffset + keyIndex);
+    return (0.5 + float(value)) / float(BlueNoiseSampleCount);
 }
 
 float luminance(float3 color)
@@ -149,10 +183,10 @@ void coordinateSystem(float3 normal, out float3 tangent, out float3 bitangent)
     bitangent = cross(normal, tangent);
 }
 
-float3 cosineHemisphere(float3 normal, inout uint seed)
+float3 cosineHemisphere(float3 normal, float2 sampleValue)
 {
-    float first = randomUnit(seed);
-    float second = randomUnit(seed);
+    float first = sampleValue.x;
+    float second = sampleValue.y;
     float radius = sqrt(first);
     float angle = 2.0 * Pi * second;
     float3 tangent;
@@ -426,7 +460,7 @@ BsdfEvaluation evaluateBsdf(SurfaceData surface, float3 viewDirection,
 }
 
 float3 sampleGgxVisibleNormal(float3 viewDirection, float alpha,
-                              inout uint seed)
+                              float2 sampleValue)
 {
     float3 stretchedView = normalize(
         float3(alpha * viewDirection.x, alpha * viewDirection.y,
@@ -436,8 +470,8 @@ float3 sampleGgxVisibleNormal(float3 viewDirection, float alpha,
         float3(-stretchedView.y, stretchedView.x, 0.0) / sqrt(lensSquared) :
         float3(1.0, 0.0, 0.0);
     float3 secondTangent = cross(stretchedView, firstTangent);
-    float radius = sqrt(randomUnit(seed));
-    float angle = 2.0 * Pi * randomUnit(seed);
+    float radius = sqrt(sampleValue.x);
+    float angle = 2.0 * Pi * sampleValue.y;
     float first = radius * cos(angle);
     float second = radius * sin(angle);
     float interpolation = 0.5 * (1.0 + stretchedView.z);
@@ -450,13 +484,16 @@ float3 sampleGgxVisibleNormal(float3 viewDirection, float alpha,
                             max(0.0, stretchedNormal.z)));
 }
 
-bool sampleBsdf(SurfaceData surface, float3 viewDirection, inout uint seed,
-                out float3 lightDirection, out BsdfEvaluation evaluation)
+bool sampleBsdf(SurfaceData surface, float3 viewDirection,
+                float chooseSample, float2 directionSample,
+                out float3 lightDirection, out BsdfEvaluation evaluation,
+                out bool sampledSpecular)
 {
     float3 diffuseReflectance = surface.baseColor * (1.0 - surface.metalness);
     float3 f0 = lerp(0.04.xxx, surface.baseColor, surface.metalness);
     float chooseSpecular = specularProbability(diffuseReflectance, f0);
-    if (randomUnit(seed) < chooseSpecular) {
+    sampledSpecular = chooseSample < chooseSpecular;
+    if (sampledSpecular) {
         float3 tangent;
         float3 bitangent;
         coordinateSystem(surface.shadingNormal, tangent, bitangent);
@@ -464,12 +501,14 @@ bool sampleBsdf(SurfaceData surface, float3 viewDirection, inout uint seed,
                                   dot(viewDirection, bitangent),
                                   dot(viewDirection, surface.shadingNormal));
         float alpha = surface.roughness * surface.roughness;
-        float3 localHalf = sampleGgxVisibleNormal(localView, alpha, seed);
+        float3 localHalf = sampleGgxVisibleNormal(localView, alpha,
+                                                   directionSample);
         float3 halfVector = normalize(tangent * localHalf.x +
             bitangent * localHalf.y + surface.shadingNormal * localHalf.z);
         lightDirection = reflect(-viewDirection, halfVector);
     } else {
-        lightDirection = cosineHemisphere(surface.shadingNormal, seed);
+        lightDirection = cosineHemisphere(surface.shadingNormal,
+                                           directionSample);
     }
     evaluation = evaluateBsdf(surface, viewDirection, lightDirection);
     return evaluation.pdf > 0.0 &&
@@ -496,9 +535,10 @@ bool traceVisibility(float3 origin, float3 direction, float maximumDistance)
 }
 
 float3 sampleEnvironmentLighting(SurfaceData surface, float3 viewDirection,
-                                 inout uint seed)
+                                 float2 sampleValue)
 {
-    float3 lightDirection = cosineHemisphere(surface.shadingNormal, seed);
+    float3 lightDirection = cosineHemisphere(surface.shadingNormal,
+                                              sampleValue);
     float normalLight = saturate(dot(surface.shadingNormal, lightDirection));
     float lightPdf = normalLight / Pi;
     if (lightPdf <= 0.0 ||
@@ -515,12 +555,11 @@ float3 sampleEnvironmentLighting(SurfaceData surface, float3 viewDirection,
 }
 
 float3 sampleEmitterLighting(SurfaceData surface, float3 viewDirection,
-                             inout uint seed)
+                             float selection, float2 positionSample)
 {
     if (EmitterCount == 0u) {
         return 0.0;
     }
-    float selection = randomUnit(seed);
     uint emitterIndex = EmitterCount - 1u;
     for (uint index = 0u; index < EmitterCount; ++index) {
         if (selection <= Emitters[index].selectionCdf) {
@@ -532,8 +571,8 @@ float3 sampleEmitterLighting(SurfaceData surface, float3 viewDirection,
     SceneVertex first = Vertices[emitter.firstVertex + 0u];
     SceneVertex second = Vertices[emitter.firstVertex + 1u];
     SceneVertex third = Vertices[emitter.firstVertex + 2u];
-    float root = sqrt(randomUnit(seed));
-    float secondRandom = randomUnit(seed);
+    float root = sqrt(positionSample.x);
+    float secondRandom = positionSample.y;
     float3 barycentrics = float3(1.0 - root,
                                 root * (1.0 - secondRandom),
                                 root * secondRandom);
@@ -598,38 +637,6 @@ float emitterPdfForHit(SurfaceData surface, float3 previousPosition)
             distanceSquared / lightCosine : 0.0;
 }
 
-float traceSpecularHitDistance(SurfaceData surface, float3 viewDirection,
-                               inout uint seed)
-{
-    float3 tangent;
-    float3 bitangent;
-    coordinateSystem(surface.shadingNormal, tangent, bitangent);
-    float3 localView = float3(dot(viewDirection, tangent),
-                              dot(viewDirection, bitangent),
-                              dot(viewDirection, surface.shadingNormal));
-    float alpha = surface.roughness * surface.roughness;
-    float3 localHalf = sampleGgxVisibleNormal(localView, alpha, seed);
-    float3 halfVector = normalize(tangent * localHalf.x +
-        bitangent * localHalf.y + surface.shadingNormal * localHalf.z);
-    float3 direction = reflect(-viewDirection, halfVector);
-    if (dot(surface.geometricNormal, direction) <= 0.0) {
-        return 0.0;
-    }
-
-    RayDesc ray;
-    ray.Origin = surface.position + surface.geometricNormal * RayEpsilon;
-    ray.Direction = direction;
-    ray.TMin = RayEpsilon;
-    ray.TMax = 8192.0;
-    SurfacePayload payload;
-    payload.rayDistance = 0.0;
-    payload.barycentrics = 0.0;
-    payload.primitiveIndex = InvalidIndex;
-    payload.hit = 0u;
-    TraceRay(Scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
-    return payload.hit != 0u ? payload.rayDistance : 0.0;
-}
-
 void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
                      float2 dimensions)
 {
@@ -644,7 +651,7 @@ void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
 
 void writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
                         SurfaceData surface, float3 viewDirection,
-                        float2 dimensions, uint guideSeed)
+                        float2 dimensions)
 {
     float3 diffuseReflectance = surface.baseColor * (1.0 - surface.metalness);
     float3 specularColor = lerp(0.04.xxx, surface.baseColor,
@@ -658,8 +665,7 @@ void writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
     LinearDepth[pixel] = max(0.0, dot(surface.position - CameraPosition,
                                       CameraForward));
     SceneMotion[pixel] = surfaceMotion(payload, surface, dimensions);
-    SpecularHitDistance[pixel] = traceSpecularHitDistance(
-        surface, viewDirection, guideSeed);
+    SpecularHitDistance[pixel] = 0.0;
 }
 
 [shader("raygeneration")]
@@ -667,9 +673,6 @@ void RayGeneration()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 dimensions = DispatchRaysDimensions().xy;
-    uint seed = pixel.x * 1973u + pixel.y * 9277u +
-        FrameIndex * 26699u + 911u;
-    uint guideSeed = seed ^ 0xa511e9b3u;
     float2 jitter = float2(JitterX, JitterY);
     float2 screen = (float2(pixel) + 0.5 + jitter) / float2(dimensions);
     float2 ndc = float2(screen.x * 2.0 - 1.0, 1.0 - screen.y * 2.0);
@@ -689,6 +692,7 @@ void RayGeneration()
     float previousBsdfPdf = 0.0;
     float3 previousPosition = 0.0;
     float3 previousNormal = 0.0;
+    bool firstBounceSpecular = false;
     RayDesc ray;
     ray.Origin = CameraPosition;
     ray.Direction = direction;
@@ -702,6 +706,10 @@ void RayGeneration()
         payload.primitiveIndex = InvalidIndex;
         payload.hit = 0u;
         TraceRay(Scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
+        if (depth == 1u && firstBounceSpecular) {
+            SpecularHitDistance[pixel] =
+                payload.hit != 0u ? payload.rayDistance : 0.0;
+        }
         if (payload.hit == 0u) {
             if (depth == 0u) {
                 writeMissGuides(pixel, unjitteredDirection,
@@ -721,7 +729,7 @@ void RayGeneration()
         float3 viewDirection = -ray.Direction;
         if (depth == 0u) {
             writeSurfaceGuides(pixel, payload, surface, viewDirection,
-                               float2(dimensions), guideSeed);
+                               float2(dimensions));
         }
         if (any(surface.emission > 0.0)) {
             float weight = depth == 0u ? 1.0 : powerHeuristic(
@@ -729,17 +737,37 @@ void RayGeneration()
                 emitterPdfForHit(surface, previousPosition));
             radiance += throughput * surface.emission * weight;
         }
-        radiance += throughput *
-            sampleEnvironmentLighting(surface, viewDirection, seed);
-        radiance += throughput * sampleEmitterLighting(surface, viewDirection, seed);
+        uint sampleDimension = depth * PathDimensionsPerBounce;
+        float2 environmentSample = float2(
+            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 0u),
+            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 1u));
+        float emitterSelection =
+            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 2u);
+        float2 emitterSample = float2(
+            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 3u),
+            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 4u));
+        radiance += throughput * sampleEnvironmentLighting(
+            surface, viewDirection, environmentSample);
+        radiance += throughput * sampleEmitterLighting(
+            surface, viewDirection, emitterSelection, emitterSample);
 
         if (depth + 1u >= MaximumDepth) {
             break;
         }
         float3 bounceDirection;
         BsdfEvaluation bsdf;
-        if (!sampleBsdf(surface, viewDirection, seed, bounceDirection, bsdf)) {
+        bool sampledSpecular;
+        float chooseBsdf =
+            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 5u);
+        float2 bsdfSample = float2(
+            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 6u),
+            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 7u));
+        if (!sampleBsdf(surface, viewDirection, chooseBsdf, bsdfSample,
+                        bounceDirection, bsdf, sampledSpecular)) {
             break;
+        }
+        if (depth == 0u) {
+            firstBounceSpecular = sampledSpecular;
         }
         float normalBounce = saturate(dot(surface.shadingNormal, bounceDirection));
         throughput *= bsdf.value * (normalBounce / bsdf.pdf);

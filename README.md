@@ -41,7 +41,8 @@ session. Supported keys are:
   `SceneFrame` world into a fresh, visibly noisy HDR image. It samples the
   renderer-native base-color, normal, roughness, metalness, and explicit
   emissive channels with a multi-bounce Lambertian/GGX path tracer, authored
-  area emitters, environment lighting, shadow rays, and MIS. It does not yet
+  area emitters, environment lighting, shadow rays, MIS, and a pinned
+  dimension-addressed blue-noise/Owen-scrambled Sobol sequence. It does not yet
   draw sprites, vector objects,
   the weapon, HUD, or text.
   The Web build always uses OpenGL/WebGL.
@@ -391,7 +392,7 @@ ctest --test-dir build/pc --output-on-failure
 cmake --build build/pc --config Debug --target ab3d2_gpu_smoke
 ```
 
-### Windows D3D12/DXR raw scene renderer
+### Windows D3D12/DXR renderer and Ray Reconstruction
 
 Set `renderer=rtx` in `ab3d2.ini`, or launch once with `--renderer rtx`.
 OpenGL remains the default and an explicit RTX request never silently
@@ -421,7 +422,7 @@ builds require the Windows Graphics Tools optional feature for the D3D12 debug
 layer. `AB3D2_DXR_GPU_VALIDATION=ON` additionally enables the much slower
 GPU-based validation mode.
 
-The enabled backend creates a native SDL/`HWND` window without OpenGL,
+The DXR backend creates a native SDL/`HWND` window without OpenGL,
 selects a high-performance hardware adapter with feature level 12_0,
 `ID3D12Device5`, and a nonzero DXR tier. It compiles opaque world surfaces from
 the renderer-neutral `SceneFrame`, uploads positions, UVs, material indices,
@@ -431,16 +432,19 @@ emissive atlases, then builds one BLAS and TLAS. `technolights` and the source
 remain non-emissive. Each pixel traces a fresh three-hit path
 with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,
 authored emissive-triangle and environment next-event sampling, visibility
-rays, and multiple-importance sampling. A full-screen pass tone maps the fresh
-`R16G16B16A16_FLOAT` result to the three-frame flip-discard swap chain; there is
-no temporal accumulation or denoiser. The same dispatch now writes separate
+rays, and multiple-importance sampling. A full-screen pass tone maps the HDR
+result to the three-frame flip-discard swap chain; there is no project-authored
+temporal accumulation or denoiser. The same dispatch writes separate
 diffuse/specular albedo, world shading normal, linear roughness, linear depth,
 dense scene motion, and specular-hit-distance resources in the formats recorded
-by the implementation plan. A renderer-neutral history epoch resets camera and
+by the implementation plan. Specular hit distance comes from the actual first
+secondary path segment when the primary BSDF sample selects the glossy lobe,
+so the reflection guide and noisy radiance no longer use unrelated directions.
+A renderer-neutral history epoch resets camera and
 geometry history across level/quickload discontinuities; topology-stable world
 motion uses the previous vertex positions at the current hit barycentrics.
-Dynamic sprite/vector-object geometry, Streamline evaluation, transparencies,
-and overlays remain outstanding.
+Dynamic sprite/vector-object geometry, transparencies, and overlays remain
+outstanding.
 
 Empty/non-world frames retain the diagnostic triangle. Resize,
 minimize/restore, fences, DRED reporting, and orderly shutdown remain covered.
@@ -467,9 +471,41 @@ Invalid motion/history pixels are magenta; surface/background guide alpha and
 the raw values retain the documented shader sentinels rather than this display
 colour.
 
-Streamline and Ray Reconstruction are not linked, loaded, discovered, or
-staged by this foundation. `AB3D2_ENABLE_STREAMLINE` remains gated until the
-separate Phase 3 implementation and a user-supplied NVIDIA application ID.
+Ray Reconstruction is a second, explicit build gate. Download and extract the
+official NVIDIA Streamline 2.12.0 production release outside the repository,
+then configure with the extracted root:
+
+```powershell
+cmake -S . -B build/streamline -A x64 `
+  -DAB3D2_ENABLE_DXR=ON `
+  -DAB3D2_ENABLE_STREAMLINE=ON `
+  -DAB3D2_STREAMLINE_ROOT="C:/SDKs/Streamline/v2.12.0" `
+  -DAB3D2_DXC_EXECUTABLE="<path-to-dxc.exe>"
+cmake --build build/streamline --config Debug
+ctest --test-dir build/streamline -C Debug -R "dxr|rtx|streamline" --output-on-failure
+```
+
+The build uses the committed project GUID
+`6b0d5e3a-a774-4e9e-8937-e6ca29a6885e`, engine `CUSTOM`, and engine version
+`0.1.0`; it does not require an NVIDIA-issued numeric application ID. The SDK
+gate checks the exact official 2.12.0 headers, production library, signed
+runtime binaries, and notices. The runtime verifies the staged NVIDIA
+signatures before loading them, initializes Streamline before DXGI or D3D,
+disables OTA plugins, and checks DLSS-RR support against the selected adapter
+LUID.
+
+The default `AB3D2_DXR_RR_MODE=quality` traces at Streamline's fixed optimal
+input size and reconstructs into a full-resolution HDR output. `balanced`,
+`performance`, and `ultra-performance` select the other supported modes;
+`off` presents the raw noisy input for diagnosis. An explicit
+`AB3D2_DXR_DEBUG_VIEW` also bypasses the reconstructed output and displays the
+selected low-resolution guide. Streamline-enabled executables import the
+static interposer path as a delay-load dependency instead of directly importing
+DXGI/D3D, and package tests verify both that loader ordering and the minimal
+runtime/licence set.
+
+When `AB3D2_ENABLE_STREAMLINE=OFF`, Streamline and NGX are not linked, loaded,
+discovered, or staged.
 See [DXR renderer provenance](docs/DXR_PROVENANCE.md) and the
 [implementation plan](DXR_RAY_RECONSTRUCTION_PLAN.md) for the clean-room
 record.

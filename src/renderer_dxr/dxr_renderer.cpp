@@ -3,6 +3,9 @@
 #include "dxr_debug.h"
 #include "dxr_device.h"
 #include "dxr_pipeline.h"
+#if defined(AB3D2_ENABLE_STREAMLINE)
+#include "dxr_streamline.h"
+#endif
 
 #include <SDL_syswm.h>
 
@@ -40,7 +43,23 @@ DxrRenderer::~DxrRenderer()
             debug_output("renderer shutdown flush failed: " + flush_error);
         }
     }
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    if (streamline_) {
+        std::string release_error;
+        if (!streamline_->release_resources(release_error)) {
+            debug_output("DLSS-RR resource release failed: " + release_error);
+        }
+    }
+#endif
     pipeline_.reset();
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    if (streamline_) {
+        std::string shutdown_error;
+        if (!streamline_->shutdown(shutdown_error)) {
+            debug_output("Streamline shutdown failed: " + shutdown_error);
+        }
+    }
+#endif
     if (device_) {
         device_->shutdown();
         device_.reset();
@@ -134,6 +153,12 @@ bool DxrRenderer::initialize(int window_width, int window_height,
         error = "D3D12/DXR window configuration is invalid";
         return false;
     }
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    streamline_ = std::make_unique<DxrStreamline>();
+    if (!streamline_->initialize(error)) {
+        return false;
+    }
+#endif
     if (!create_window(window_width, window_height, window_title,
                        desktop_window, hidden_window, error)) {
         return false;
@@ -153,13 +178,24 @@ bool DxrRenderer::initialize(int window_width, int window_height,
 
     device_ = std::make_unique<DxrDevice>();
     pipeline_ = std::make_unique<DxrPipeline>();
-    if (!device_->initialize(window_information.info.win.window, hidden_window, error) ||
+    if (!device_->initialize(
+            window_information.info.win.window, hidden_window,
+#if defined(AB3D2_ENABLE_STREAMLINE)
+            streamline_.get(),
+#else
+            nullptr,
+#endif
+            error) ||
         !pipeline_->initialize(device_->device(), error)) {
         return false;
     }
     debug_output(
-        "raw opaque SceneFrame DXR renderer initialized; sprites, vector objects, "
-        "HUD, weapon, and text remain outside this milestone");
+        "opaque SceneFrame DXR renderer initialized; sprites, vector objects, "
+        "HUD, weapon, and text remain outside this milestone"
+#if defined(AB3D2_ENABLE_STREAMLINE)
+        "; Streamline DLSS Ray Reconstruction 2.12 integration is enabled"
+#endif
+    );
     return true;
 }
 

@@ -2,7 +2,7 @@
 
 This record applies to the clean-room Windows D3D12/DXR renderer introduced by
 Phase 2 of `DXR_RAY_RECONSTRUCTION_PLAN.md` and its renderer-native material
-and raw scene/image increments from Phases 4--7.
+and raw scene/image increments from Phases 4--9.
 On 2026-08-17 the user explicitly authorized a narrow comparison with the
 sibling `alienbreed3d2-rtx-renderer` to recover its emissive material behavior;
 that exception is recorded below.
@@ -17,7 +17,7 @@ asset was imported from Q2RTX, a removed renderer, or repository history
 before clean baseline `86241dd`. The later emissive compatibility comparison
 did not import a generated Q2RTX package, renderer binary, shader, or scene.
 
-The enabled build produces DXIL in the build tree and stages only its
+The DXR-only build produces DXIL in the build tree and stages only its
 project-built diagnostic, ray-tracing, and presentation shader objects beside
 enabled executables. It does not include, link, discover, load, or stage NVIDIA
 Streamline or NGX files.
@@ -64,8 +64,9 @@ rule came from a removed renderer or generated Q2 scene.
 and the public `SceneFrame` contract. It decodes source wall data through the
 existing project `source_world_material_decode` path, creates a renderer-local
 five-channel material atlas, and constructs project-authored vertex/material
-buffers and BLAS/TLAS resources. The current ray shader uses a conventional
-per-pixel xorshift generator, jittered primary ray, Lambertian/GGX sampling,
+buffers and BLAS/TLAS resources. The current ray shader uses the licensed
+blue-noise/Owen-scrambled Sobol package recorded below, jittered primary rays,
+explicit dimension-addressed Lambertian/GGX sampling,
 explicit emissive/environment next-event sampling, MIS, and an analytic sky
 gradient. The renderer-native PBR material package is consumed directly by
 this runtime slice.
@@ -77,6 +78,85 @@ pinned Streamline v2.12.0 `ProgrammingGuideDLSS_RR.md`; both the HLSL and the
 independent CPU check cite that exact source. No Streamline header, library,
 plugin, sample shader, or binary is included, linked, loaded, or staged by this
 ID-independent guide slice.
+
+## Streamline DLSS Ray Reconstruction integration
+
+Phase 9 uses the public NVIDIA Streamline 2.12.0 API and production SDK without
+importing NVIDIA sample application code or shaders. The implementation in
+`src/renderer_dxr/dxr_streamline.{h,cpp}` follows NVIDIA's public
+`ProgrammingGuide.md`, `ProgrammingGuideDLSS_RR.md`, and released headers for
+manual hooking, custom-project identification, per-frame resource tagging,
+constants/options, feature evaluation, resource release, and shutdown.
+
+The application identifies itself with project-authored GUID
+`6b0d5e3a-a774-4e9e-8937-e6ca29a6885e`, engine `CUSTOM`, and version `0.1.0`.
+The numeric application ID remains zero. This follows the current
+`sl::Preferences` contract, in which `applicationId` is optional and
+`projectId`, `engine`, and `engineVersion` provide the identity for projects
+without an NVIDIA-issued ID.
+
+The verified input is NVIDIA's official `streamline-sdk-v2.12.0.zip` release,
+SHA-256
+`F5C0A3D870707DDDC3570FB4BCD3655CF48A8A68C3A9D342910CFA21B77DCF48`,
+corresponding to public source tag `v2.12.0` / commit
+`e8aaa6eaac968711fb62473d4ae8256dde20919b`. It is extracted outside the
+repository. CMake pins the exact 24-header include set, production interposer
+library, four runtime binaries, and three notice/licence files consumed by the
+build. No NVIDIA binary is committed here.
+
+Only the production `sl.interposer.dll`, `sl.common.dll`, `sl.dlss_d.dll`, and
+`nvngx_dlssd.dll` are staged. Streamline modules must pass the SDK's embedded
+dual-signature check; the NGX module must pass Windows Authenticode chain
+validation with publisher `NVIDIA Corporation`. The static interposer import
+path is delay-loaded so this verification completes before the first
+Streamline call, and is audited so Streamline-enabled executables do not
+directly import DXGI, D3D11, D3D12, or Vulkan. OTA/downloaded plugins are
+disabled and runtime loading is restricted to the executable directory.
+
+The reconstruction matrices, camera constants, guide interpretation, fixed
+optimal input sizing, resource-state restoration, and raw diagnostic mode are
+project-authored integration code. Streamline and NGX supply the proprietary
+Ray Reconstruction implementation at runtime under their staged licences.
+
+## Blue-noise/Owen-scrambled Sobol sampler
+
+On 2026-08-18 the user explicitly supplied and approved the authors' project
+page for *A Low-Discrepancy Sampler that Distributes Monte Carlo Errors as a
+Blue Noise in Screen Space* by Eric Heitz, Laurent Belcour, Victor
+Ostromoukhov, David Coeurjolly, and Jean-Claude Iehl (SIGGRAPH Talks 2019).
+The project page is
+`https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html`.
+The algorithm uses an Owen-scrambled Sobol sequence, an optimized per-pixel
+ranking key, and an optimized per-pixel scrambling key; the lookup performs
+the two XOR operations documented by the authors.
+
+`data/renderer_dxr/blue_noise_spp256.bin` is a mechanical byte packing of the
+`SOBOL`, `SCRAMBLING_TILE`, and `RANKING_TILE` arrays from the MIT-licensed
+Rust transcription `Jasper-Bekkers/blue-noise-sampler` 0.1.0, commit
+`b1720f637a3580c8711580873dcf84cce82f6504`. The pinned `src/spp256.rs` source
+has SHA-256
+`1713E8F1A593B9505860E8CAB9E47976434EBD17915B2B5FCEAD635E00E71AC2`.
+The 327,680-byte renderer package has SHA-256
+`3381BA037DB1940BD3A9A82C4C09A1EE145060268C8E08D8A3D02AD5895D69AB`
+and is rejected by CMake if altered. The retained and staged licence is
+`docs/third_party/blue-noise-sampler-MIT.txt`.
+
+The HLSL lookup and renderer package loader are project-authored adaptations.
+Each bounce owns eight fixed dimensions: two for environment sampling, three
+for emitter selection/position, and three for BSDF lobe/direction. The actual
+first secondary ray now supplies the specular hit-distance guide when the
+primary BSDF event is glossy; the former independent guide dimensions were
+removed because they described a different reflection from the noisy radiance.
+This contract was checked against NVIDIA's public Apache-2.0
+`nvpro-samples/vk_denoise_dlssrr` `primary_rgen.slang`; the project implementation
+was written independently and no sample code was copied. The supplied tables
+optimize eight dimensions, so later eight-dimension groups use fixed
+tile translations, following Belcour and Heitz's published dimension-padding
+guidance. After each complete 256-sample block, a deterministic whole-tile
+translation selects a different per-pixel ranking/scrambling key. This retains
+the reference lookup within every block while preventing the aligned full-tile
+pattern from repeating every 256 presented frames. No temporal accumulation,
+radiance clamp, spatial filter, or alternate denoiser was added.
 
 ## Approved conceptual references inspected
 
@@ -97,8 +177,9 @@ ID-independent guide slice.
   No code, shader, table, constant set, algorithm implementation, or data was
   copied or adapted from this reference.
 
-Because no substantial reference implementation was copied, no third-party
-source file or licence text is embedded in the DXR source set.
+No substantial renderer implementation was copied. The sampler's third-party
+data and required MIT notice are the explicit, bounded exception documented
+above.
 
 ## Toolchain evidence
 

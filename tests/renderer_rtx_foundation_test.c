@@ -9,7 +9,8 @@
 #include <string.h>
 
 enum {
-    FOUNDATION_FRAME_COUNT = 2048
+    FOUNDATION_FRAME_COUNT = 2048,
+    STATIONARY_SCENE_FRAME_COUNT = 32
 };
 
 static int present_frame(RendererRtx *renderer, SceneFrame *frame,
@@ -165,11 +166,26 @@ int main(void)
     SceneFrame moving_frame = {0};
     moving_frame.commands = moving_commands;
     moving_frame.count = 2u;
-    if (!present_scene_frame(renderer, &moving_frame, &view, error,
-                             sizeof(error))) {
-        renderer_rtx_destroy(renderer);
-        SDL_Quit();
-        return 1;
+    uint64_t previous_scene_checksum = UINT64_C(0);
+    for (int scene_frame = 0; scene_frame < STATIONARY_SCENE_FRAME_COUNT;
+         ++scene_frame) {
+        if (!present_scene_frame(renderer, &moving_frame, &view, error,
+                                 sizeof(error))) {
+            renderer_rtx_destroy(renderer);
+            SDL_Quit();
+            return 1;
+        }
+        const uint64_t scene_checksum =
+            renderer_rtx_last_frame_rgb_checksum(renderer);
+        if (scene_frame != 0 && scene_checksum == previous_scene_checksum) {
+            fprintf(stderr,
+                    "DXR stationary scene repeated its temporal sample at frame %d\n",
+                    scene_frame);
+            renderer_rtx_destroy(renderer);
+            SDL_Quit();
+            return 1;
+        }
+        previous_scene_checksum = scene_checksum;
     }
     for (size_t vertex = 0; vertex < 3u; ++vertex) {
         moving_vertices[vertex].position.y += 32;

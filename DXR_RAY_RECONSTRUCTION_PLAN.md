@@ -20,7 +20,7 @@ Following explicit user direction on 2026-08-17, the sibling
 material catalog and mask behavior. Generated Q2RTX package output remains
 excluded; the result is rebuilt into the renderer-native material format.
 
-The ID-independent implementation has reached the requested raw noisy-image
+The implementation has reached the Streamline DLSS Ray Reconstruction
 milestone. The foundation was validated on a GeForce RTX 4080 in Debug and
 Release, and the current opaque PBR path was validated in Debug on a GeForce
 RTX 3090, with Windows SDK DXC 1.8.2502.11 (SHA-256
@@ -55,19 +55,34 @@ radiance by their manifest factors, and use a global
 area-times-average-luminance distribution; source Gouraud/ZoneT lighting is not
 consumed. CPU tests cover
 the material equations, lobe probability, sampler/PDF agreement, normal
-transform, deterministic random sequence, PDF mass, and finite throughput.
+transform, deterministic sample sequence, PDF mass, and finite throughput.
+The former linearly seeded xorshift stream has been replaced with the pinned
+256-spp Heitz et al. Owen-scrambled Sobol sampler. Eight explicit dimensions
+per bounce remove branch-dependent sample consumption, and translated optimized
+tiles pad later dimension groups. The specular hit-distance guide now records
+the actual first secondary ray when the sampled primary event is glossy instead
+of tracing an independently sampled guide ray. Each completed 256-sample block applies
+a deterministic tile translation so the reference package does not repeat the
+same aligned screen-space pattern every 256 presented frames.
 The visible Level A capture has also been checked through the hidden readback
 path. Phase 8 now allocates and writes the seven required RR guide resources at
 the primary hit. Diffuse/specular albedo, world shading normal, perceptual
 roughness, linear view depth, dense scene motion, and stochastic GGX specular
-hit distance use the formats in the frame contract below. A renderer-owned
+hit distance use the formats in the frame contract below. The hit-distance
+sample is coupled to the glossy radiance path rather than an unrelated random
+direction. A renderer-owned
 history retains the previous camera basis, per-frame Halton jitter, dimensions,
 history epoch, and a GPU copy of the previous vertices; motion is
 `previousPixel - currentPixel` in pixel units. `SceneFrame.history_epoch`
 invalidates history across level loads and quickloads, while scene rebuilds and
-resizes also reset it. Dynamic sprite/vector-object geometry, raw per-guide
-readback statistics and ID overlays, transparencies, and overlays remain
-outstanding. Streamline remains absent.
+resizes also reset it. Phase 9 integrates the pinned Streamline 2.12.0
+production runtime using manual hooks and a stable custom project GUID. On a
+GeForce RTX 3090 it initializes NGX, selects a fixed optimal low-resolution
+input for the chosen quality mode, evaluates DLSS-RR, and presents the
+full-resolution reconstructed HDR output. The raw-noise mode and every Phase 8
+guide view remain available for diagnosis. Dynamic sprite/vector-object
+geometry, raw per-guide readback statistics and ID overlays, transparencies,
+and overlays remain outstanding.
 
 ### Current dependency gate
 
@@ -79,14 +94,13 @@ Extract that archive outside this repository and expose the resulting directory
 through the `AB3D2_STREAMLINE_ROOT` environment variable; never commit its SDK
 files or a local path.
 
-No NVIDIA-issued Streamline application ID is currently available.  The pinned
-DLSS-RR guide requires one for its NGX component, so no code may call `slInit`
-or load Streamline until the user supplies it as an uncommitted configuration
-value.  This blocks only the Streamline activation milestone.  The
-ID-independent DirectX foundation, material/geometry compilation, acceleration
-structures, and raw noisy path tracer may proceed without Streamline; leave
-Phase 3 deferred and do not claim Ray Reconstruction support until its gate is
-satisfied.
+Current Streamline explicitly supports projects without an NVIDIA-issued
+numeric application ID. This project therefore commits its own stable GUID,
+`6b0d5e3a-a774-4e9e-8937-e6ca29a6885e`, and initializes Streamline with engine
+`CUSTOM`, engine version `0.1.0`, and numeric application ID zero. The build
+validates the exact official 2.12.0 production payload; the runtime verifies
+the staged NVIDIA signatures, disables OTA plugins, and loads only from the
+executable directory.
 
 ## Goal
 
@@ -155,6 +169,27 @@ Local path: `C:\Users\paula\Documents\Projects\dxr-demo`
 Use this project for SDL-to-`HWND` integration, D3D12 device/queue/swap-chain structure, per-frame allocators and fences, BLAS/TLAS build ordering, UAV barriers, a DXR state object, aligned shader tables, and `DispatchRays` flow.
 
 Do not copy its hard-coded scene, upload-heap geometry policy, default-adapter selection, old shader-header build, or minimal error handling. The production backend must select and validate an adapter explicitly, use default-heap geometry, diagnose device removal, and compile current HLSL with DXC.
+
+### Heitz et al. screen-space blue-noise sampler
+
+Following explicit user direction on 2026-08-18, use the sampler described by
+Eric Heitz, Laurent Belcour, Victor Ostromoukhov, David Coeurjolly, and
+Jean-Claude Iehl in *A Low-Discrepancy Sampler that Distributes Monte Carlo
+Errors as a Blue Noise in Screen Space* (SIGGRAPH Talks 2019). The sampler
+combines per-pixel Owen-scrambled Sobol sequences with optimized screen-space
+ranking and scrambling keys. Project page:
+`https://belcour.github.io/blog/research/publication/2019/06/17/sampling-bluenoise.html`.
+
+The committed 256-spp tables are the byte-exact MIT-licensed transcription in
+`Jasper-Bekkers/blue-noise-sampler`, commit
+`b1720f637a3580c8711580873dcf84cce82f6504`. The pinned `src/spp256.rs` input
+has SHA-256
+`1713E8F1A593B9505860E8CAB9E47976434EBD17915B2B5FCEAD635E00E71AC2`;
+the renderer-native contiguous byte package has SHA-256
+`3381BA037DB1940BD3A9A82C4C09A1EE145060268C8E08D8A3D02AD5895D69AB`.
+Retain `docs/third_party/blue-noise-sampler-MIT.txt` in source and packaged
+distributions. Use the authors' documented two-XOR addressing; do not replace
+it with a visually similar hash or a hidden accumulation/filter pass.
 
 ### NVIDIA Streamline and Ray Reconstruction
 
@@ -246,12 +281,12 @@ The exact subdivision can change when implementation reveals a better boundary, 
 1. Add `AB3D2_ENABLE_DXR`, default `OFF`, valid only on native Windows.  It enables the DirectX 12 diagnostic foundation.  The Emscripten configuration must never discover or stage DirectX/Streamline files.
 2. Keep the project C11 generally. Enable C++20 only for the Windows DXR source set. Export `extern "C"` functions matching `renderer_rtx.h`.
 3. When DXR is disabled or unsupported at build time, compile the existing stub.  When DXR is enabled, compile the D3D12 diagnostic backend and omit the stub from that target.  It must not claim to render `SceneFrame` content until the later scene phases implement it.
-4. Add `AB3D2_ENABLE_STREAMLINE`, default `OFF`, valid only when `AB3D2_ENABLE_DXR=ON`.  When enabled, resolve the extracted pinned release root from `AB3D2_STREAMLINE_ROOT`, with an identically named CMake cache path as an explicit per-build override.  Resolve the NVIDIA application ID from `AB3D2_STREAMLINE_APPLICATION_ID`, with an identically named CMake cache string as an explicit per-build override; never write its value to source or logs.  Fail configuration clearly when either value or a required signed production file is absent; do not download or unpack an SDK during configure.
+4. Add `AB3D2_ENABLE_STREAMLINE`, default `OFF`, valid only when `AB3D2_ENABLE_DXR=ON`. When enabled, resolve the extracted pinned release root from `AB3D2_STREAMLINE_ROOT`, with an identically named CMake cache path as an explicit per-build override. Use the committed stable `AB3D2_STREAMLINE_PROJECT_ID` GUID with engine `CUSTOM` and the project version; an NVIDIA-issued numeric application ID is not required by current NGX. Fail configuration clearly when the GUID, exact production payload, or a required signed file is invalid; do not download or unpack an SDK during configure.
 5. Follow the pinned manual-hooking guide only in the Streamline-enabled build.  Prefer static `sl.interposer.lib` integration for DirectX, and make the link graph explicit so that build has no incompatible direct DXGI/D3D entry path.  The ID-independent foundation may link the ordinary DirectX import libraries.
-6. The Streamline-enabled build must pass the supplied application ID to `slInit`, disable OTA/downloaded-plugin flags, use only the extracted production plugin directory, verify NVIDIA signatures, and log exact loaded plugin paths/versions.  Do not add an invented, sample, zero, or source-controlled application ID.
+6. The Streamline-enabled build must pass the project GUID, engine `CUSTOM`, and project version to `slInit`, with the optional numeric application ID set to zero. Disable OTA/downloaded-plugin flags, use only the extracted production plugin directory, verify NVIDIA signatures, and log exact loaded plugin paths/versions. Do not use an invented or sample NVIDIA-issued numeric ID.
 7. When DXR is enabled, resolve `dxc.exe` with `find_program` from `PATH`; retain `AB3D2_DXC_EXECUTABLE` only as an explicit per-build cache override.  Record the resolved compiler version and SHA-256 in build evidence, then compile HLSL with that pinned tool at build time, starting with Shader Model 6.6 unless the pinned Streamline/DXR requirements dictate otherwise. Warnings are errors; generated DXIL belongs in the build tree, not hand-maintained C headers.
 8. Stage only the material runtime files and, when Streamline is enabled, the needed production redistributables and licence/notice files beside the executable.  Runtime signature checks and loading use those full staged paths, never `PATH`.  The diagnostic-only build stages no Streamline DLLs.
-9. `renderer=rtx` must fail with a specific reason if the OS, adapter, driver, or DXR tier is unavailable.  In a Streamline-enabled build, it must additionally fail for a missing/invalid application ID, plugin, or RR feature.  Do not silently substitute OpenGL after an explicit RTX request.
+9. `renderer=rtx` must fail with a specific reason if the OS, adapter, driver, or DXR tier is unavailable. In a Streamline-enabled build, it must additionally fail for an invalid project GUID, SDK payload, plugin signature, or RR feature. Do not silently substitute OpenGL after an explicit RTX request.
 
 ## DirectX 12 foundation
 
@@ -266,16 +301,15 @@ Implement and test the platform layer before ray tracing:
 
 ### Streamline activation gate
 
-Perform this only after the user provides the NVIDIA-issued application ID and
-enables `AB3D2_ENABLE_STREAMLINE`:
+This gate is implemented when `AB3D2_ENABLE_STREAMLINE=ON`:
 
-1. Validate the extracted v2.12.0 release layout, its recorded archive hash,
+1. Validate the extracted v2.12.0 release layout, its recorded payload hashes,
    and the full paths and signatures of `sl.interposer.dll`, `sl.common.dll`,
-   `sl.dlss.dll`, and `nvngx_dlss.dll` before loading any module.
+   `sl.dlss_d.dll`, and `nvngx_dlssd.dll` before loading any module.
 2. Configure manual hooking with the production `sl.interposer.lib`; request
    the DLSS/RR features that the pinned headers require, install the log
-   callback, and call `slInit` with the supplied application ID before any
-   DXGI/D3D API call.  Do not enable OTA or downloaded plugins.
+   callback, and call `slInit` with the project GUID and custom-engine identity
+   before any DXGI/D3D API call. Do not enable OTA or downloaded plugins.
 3. Use each high-performance adapter's LUID for
    `slIsFeatureSupported(sl::kFeatureDLSS_RR, ...)`, create the D3D12 device
    only for that same adapter, then call `slSetD3DDevice`.  Fail explicitly if
@@ -330,7 +364,7 @@ Use the `SceneEnvironment` backdrop/sky through a documented lat-long or equival
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
 1. Dispatch one camera ray per input-resolution pixel per frame with a deterministic frame-varying subpixel jitter supplied by the same jitter generator used in Streamline constants.
-2. Use a project-owned blue-noise/Sobol or similarly well-distributed sampler. Key it by pixel, sample dimension, and monotonically increasing rendered-frame index. Reset the sequence only on an explicit history reset.
+2. Use the pinned, licensed blue-noise/Owen-scrambled Sobol sampler. Key it by pixel, explicit sample dimension, and monotonically increasing history sample index. Reset the sequence only on an explicit history reset.
 3. Trace primary visibility and write the RR guide values at the first opaque surface. Miss pixels get documented background sentinels and environment radiance.
 4. Evaluate an energy-consistent Lambertian diffuse plus GGX/Cook-Torrance metallic-roughness BRDF. Use cosine-weighted diffuse sampling and a well-defined GGX visible-normal sampling method with matching PDFs.
 5. Perform next-event sampling of emissive triangles and the environment with shadow rays. Combine light and BSDF sampling with multiple-importance sampling using the PDFs actually used.
@@ -466,10 +500,10 @@ Every commit should build and test independently. Do not batch the whole rendere
 
 ### 3. `Activate the Streamline-gated DXR foundation`
 
-- Require the NVIDIA-issued application ID from the uncommitted environment or explicit CMake override and validate the extracted signed Streamline v2.12.0 production layout.
+- Current status: implemented with the committed project GUID and custom-engine identity; the exact extracted signed Streamline v2.12.0 production payload is validated at configure time.
 - Integrate the manual-hooking, signature-validation, `slInit`-before-DXGI, LUID support-check, `slSetD3DDevice`, and shutdown ordering described above.
 - Verify the production interposer dependency graph and `presentCommon()` path before any RR resource/tag work begins.
-- If the application ID is unavailable, leave this phase deferred.  Phases 4--7 remain ID-independent and may proceed to the raw noisy-image milestone without loading or linking Streamline; Phases 8--10 must not claim a complete RR integration while this gate is open.
+- DXR-only builds remain ID-independent and do not include, link, load, discover, or stage Streamline.
 
 ### 4. `Add renderer-native AB3D2 PBR materials`
 
@@ -517,10 +551,14 @@ Current status: the fresh noisy HDR target, stochastic primary rays, authored
 PBR sampling, Lambertian/GGX mixture, visible-normal specular sampling,
 three-hit indirect paths, global emissive/environment next-event sampling,
 visibility rays, MIS, and CPU finite/PDF checks are implemented for opaque
-world geometry. Guide output and the later geometry/presentation classes remain
-incomplete.
+world geometry. Dynamic sprite/vector-object geometry and later presentation
+classes remain incomplete.
 
-- Add a better-distributed project-owned sampler and the small GPU material reference scenes; the current deterministic xorshift sequence is sufficient for the raw one-sample milestone but is not the final sampler.
+- The pinned 256-spp blue-noise/Owen-scrambled Sobol sampler is implemented
+  with explicit dimensions for every environment, emitter, BSDF, and specular
+  guide decision. Deterministic tile translation between 256-sample blocks
+  prevents an aligned long-run screen-space repeat. Add the small GPU material
+  reference scenes.
 - Produce fresh un-denoised `R16G16B16A16_FLOAT` radiance each frame.
 - Keep source Gouraud/ZoneT/PVST data unused in this pass.
 
@@ -541,6 +579,13 @@ incomplete.
 
 ### 9. `Integrate Streamline DLSS Ray Reconstruction 2.12`
 
+- Current status: implemented for the opaque-world pipeline. Quality,
+  balanced, performance, and ultra-performance modes use Streamline's fixed
+  optimal input dimensions and a full-resolution output. The renderer submits
+  all required Phase 8 guides, matrices/constants, options, frame token, and
+  viewport, restores presentation command-list state after evaluation, and frees
+  resources across resize/shutdown. `AB3D2_DXR_RR_MODE=off` is the raw-noise
+  diagnostic path.
 - Add pinned SDK detection, licence staging, secure plugin load, feature checks, optimal fixed resolution, options, tags, constants, and evaluation.
 - Restore command-list state after evaluation and validate with NVIDIA/PIX tooling.
 - Add an RR-off raw-noise mode for diagnosis only, not a shipping denoiser fallback.
@@ -560,7 +605,7 @@ incomplete.
 - PBR sheet extraction, color-space declarations, manifest parsing, hashes, missing/corrupt assets, and deterministic rebuilds.
 - BRDF energy sanity, finite output, PDFs, material guide values, and random-sequence reproducibility.
 - Current/previous transform lookup, level-generation isolation, camera resets, object births/deaths, and analytical motion vectors.
-- CMake configuration coverage for DXR-disabled, ID-independent DXR discovered through `PATH`, and Streamline-enabled builds discovered through environment variables, including missing-root or application-ID failures.
+- CMake configuration coverage for DXR-disabled, ID-independent DXR discovered through `PATH`, and Streamline-enabled builds discovered through environment variables, including missing-root, invalid-project-GUID, and altered-payload failures.
 - Streamline option/tag construction without invoking the proprietary runtime.
 
 ### Native GPU tests
@@ -569,7 +614,9 @@ incomplete.
 - The dedicated foundation test does not require game content. The RTX
   all-level smoke separately renders each opaque world frame twice and requires
   nonzero, different readback checksums; it does not claim UI, weapon,
-  projectile, or complete scene-category coverage.
+  projectile, or complete scene-category coverage. The foundation's synthetic
+  scene also retains one camera/geometry state for 32 presented frames and
+  rejects a repeated adjacent temporal sample before exercising motion.
 - Adapter DXR-tier checks and clear unsupported-device diagnostics.
 - After phase 3, adapter-LUID consistency, signed-plugin loading, `presentCommon()` execution, and clear unsupported driver/plugin/RR diagnostics.
 - BLAS/TLAS correctness for static, updated, rebuilt, appearing, and disappearing instances.
@@ -595,8 +642,9 @@ The renderer is ready for normal use only when all of these are true:
 - The current explicit `renderer=rtx` creates the documented experimental raw
   opaque-world D3D12/DXR backend on supported Windows/DXR hardware and fails
   clearly elsewhere. It is not yet the complete renderer. Normal-use
-  completion additionally requires the open scene/PBR/guide/presentation work
-  and the Streamline application-ID gate before claiming DXR/RR support.
+  completion additionally requires the open scene/PBR/guide/presentation work.
+  The opaque-world path does provide working Streamline DLSS-RR support on
+  compatible hardware.
 - The raw path-traced input is visibly noisy and physically coherent; disabling RR reveals no hidden temporal/spatial denoiser.
 - Every mandatory RR input is present at the correct resolution, format, range, space, and frame, with dense camera/dynamic motion and correct reset behavior.
 - Small camera movement does not erase lighting or reflection information from the reconstructed result.
@@ -613,17 +661,14 @@ The renderer is ready for normal use only when all of these are true:
 2. Read `README.md`, `PORT_PLAN.md`, `src/scene_frame.h`, `src/renderer.{h,c}`, `src/renderer_rtx.h`, and `src/renderer_rtx_stub.c` before editing.
 3. Read the two approved local references at the exact commits above and record any file actually adapted.
 4. Phase 2 requires only the pinned `dxc.exe` discovered through `PATH`; record its version and hash.  Do not copy, unpack, discover, link, or stage Streamline while `AB3D2_ENABLE_STREAMLINE=OFF`.
-5. Preserve the validated Phase 2 lifecycle and current raw noisy-image
-   milestone. Continue only the explicitly outstanding Phase 4--7 items until
-   the Streamline gate can be satisfied; do not mistake the primary-visibility
-   diagnostic for the completed PBR integrator.
-6. Implement Phase 3 only when the user supplies the application ID. Until
-   then, keep it deferred and do not include, link, load, or stage Streamline.
-7. Before implementing Phase 3, extract the already verified v2.12.0 release
-   archive outside the repository, set `AB3D2_STREAMLINE_ROOT` and
-   `AB3D2_STREAMLINE_APPLICATION_ID` in the environment (or pass deliberate
-   CMake overrides), and re-read the pinned licence, notices, headers, and
-   guides.
+5. Preserve the validated Phase 2 lifecycle, noisy path tracer, guide contract,
+   and Streamline evaluation while completing the outstanding geometry and
+   presentation work.
+6. Keep the stable project GUID and custom-engine identity intact unless the
+   project is deliberately assigned a different identity.
+7. For a Streamline build, extract the verified v2.12.0 release archive outside
+   the repository, set `AB3D2_STREAMLINE_ROOT` (or pass the deliberate CMake
+   override), and retain all configure-time payload and package audits.
 8. Commit each accepted phase separately with build/test evidence before advancing.
 
 ## Deliberately deferred decisions

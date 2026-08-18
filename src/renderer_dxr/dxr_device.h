@@ -15,6 +15,7 @@
 namespace ab3d2::dxr {
 
 class DxrPipeline;
+class DxrStreamline;
 
 class DxrDevice final {
 public:
@@ -25,7 +26,8 @@ public:
     DxrDevice(const DxrDevice &) = delete;
     DxrDevice &operator=(const DxrDevice &) = delete;
 
-    bool initialize(HWND window, bool hidden_window, std::string &error);
+    bool initialize(HWND window, bool hidden_window, DxrStreamline *streamline,
+                    std::string &error);
     bool render(DxrPipeline &pipeline, const SceneFrame &frame,
                 const RenderView &view, std::string &error);
     bool flush(std::string &error);
@@ -76,10 +78,17 @@ private:
     UINT64 readback_total_bytes_ = 0;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT readback_footprint_ = {};
     HANDLE fence_event_ = nullptr;
+    DxrStreamline *streamline_ = nullptr;
 
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory_;
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    Microsoft::WRL::ComPtr<IDXGIFactory6> factory_proxy_;
+#endif
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter_;
     Microsoft::WRL::ComPtr<ID3D12Device5> device_;
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    Microsoft::WRL::ComPtr<ID3D12Device5> device_proxy_;
+#endif
     Microsoft::WRL::ComPtr<ID3D12InfoQueue> info_queue_;
     Microsoft::WRL::ComPtr<ID3D12CommandQueue> command_queue_;
     Microsoft::WRL::ComPtr<IDXGISwapChain4> swap_chain_;

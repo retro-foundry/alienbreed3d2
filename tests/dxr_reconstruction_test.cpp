@@ -31,13 +31,13 @@ int main()
 {
     const PixelJitter first_jitter = frame_jitter(0u);
     const PixelJitter second_jitter = frame_jitter(1u);
-    const PixelJitter repeated_jitter = frame_jitter(1024u);
+    const PixelJitter later_jitter = frame_jitter(1024u);
     if (!near(first_jitter.x, 0.0f) ||
         !near(first_jitter.y, -1.0f / 6.0f) ||
         !near(second_jitter.x, -0.25f) ||
         !near(second_jitter.y, 1.0f / 6.0f) ||
-        !near(repeated_jitter.x, first_jitter.x) ||
-        !near(repeated_jitter.y, first_jitter.y)) {
+        !near(later_jitter.x, 0.00048828125f) ||
+        !near(later_jitter.y, 0.47713763f)) {
         return fail("frame jitter sequence is not deterministic");
     }
 

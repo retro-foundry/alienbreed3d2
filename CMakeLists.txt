@@ -18,8 +18,9 @@ set(AB3D2_DXC_EXECUTABLE "" CACHE FILEPATH
 if(AB3D2_ENABLE_STREAMLINE)
   set(AB3D2_STREAMLINE_ROOT "$ENV{AB3D2_STREAMLINE_ROOT}" CACHE PATH
       "Extracted NVIDIA Streamline v2.12.0 production release root")
-  set(AB3D2_STREAMLINE_APPLICATION_ID "$ENV{AB3D2_STREAMLINE_APPLICATION_ID}"
-      CACHE STRING "Uncommitted NVIDIA-issued Streamline application ID")
+  set(AB3D2_STREAMLINE_PROJECT_ID
+      "6b0d5e3a-a774-4e9e-8937-e6ca29a6885e" CACHE STRING
+      "Stable GUID identifying this project to Streamline/NGX")
 endif()
 
 include(cmake/validate_dxr_configuration.cmake)
@@ -30,10 +31,61 @@ ab3d2_validate_dxr_options(AB3D2_DXR_CONFIGURATION_ERROR
   GPU_VALIDATION "${AB3D2_DXR_GPU_VALIDATION}"
   ENABLE_STREAMLINE "${AB3D2_ENABLE_STREAMLINE}"
   STREAMLINE_ROOT "${AB3D2_STREAMLINE_ROOT}"
-  STREAMLINE_APPLICATION_ID "${AB3D2_STREAMLINE_APPLICATION_ID}"
+  STREAMLINE_PROJECT_ID "${AB3D2_STREAMLINE_PROJECT_ID}"
 )
 if(AB3D2_DXR_CONFIGURATION_ERROR)
   message(FATAL_ERROR "${AB3D2_DXR_CONFIGURATION_ERROR}")
+endif()
+
+if(AB3D2_ENABLE_STREAMLINE)
+  ab3d2_validate_streamline_sdk(AB3D2_STREAMLINE_SDK_ERROR
+                                "${AB3D2_STREAMLINE_ROOT}")
+  if(AB3D2_STREAMLINE_SDK_ERROR)
+    message(FATAL_ERROR "${AB3D2_STREAMLINE_SDK_ERROR}")
+  endif()
+  set(AB3D2_STREAMLINE_INCLUDE_DIR "${AB3D2_STREAMLINE_ROOT}/include")
+  set(AB3D2_STREAMLINE_LIBRARY
+      "${AB3D2_STREAMLINE_ROOT}/lib/x64/sl.interposer.lib")
+  set(AB3D2_STREAMLINE_RUNTIME_DIR "${AB3D2_STREAMLINE_ROOT}/bin/x64")
+  set(AB3D2_STREAMLINE_RUNTIME_FILES
+      sl.interposer.dll sl.common.dll sl.dlss_d.dll nvngx_dlssd.dll
+      nvngx_dlss.license.txt)
+  get_filename_component(AB3D2_LINKER_DIR "${CMAKE_LINKER}" DIRECTORY)
+  find_program(AB3D2_DUMPBIN_EXECUTABLE NAMES dumpbin.exe dumpbin
+               HINTS "${AB3D2_LINKER_DIR}" NO_DEFAULT_PATH)
+  if(NOT AB3D2_DUMPBIN_EXECUTABLE)
+    message(FATAL_ERROR
+            "A Streamline build requires dumpbin beside the configured linker for its interposer import audit")
+  endif()
+  message(STATUS "Streamline SDK: ${AB3D2_STREAMLINE_ROOT} (v2.12.0 production)")
+  message(STATUS "Streamline identity: CUSTOM engine ${PROJECT_VERSION}, project ${AB3D2_STREAMLINE_PROJECT_ID}")
+
+  function(ab3d2_enable_streamline_for_target target)
+    target_include_directories(${target} PRIVATE "${AB3D2_STREAMLINE_INCLUDE_DIR}")
+    target_compile_definitions(${target} PRIVATE
+      AB3D2_ENABLE_STREAMLINE=1
+      "AB3D2_STREAMLINE_PROJECT_ID=\"${AB3D2_STREAMLINE_PROJECT_ID}\""
+      "AB3D2_STREAMLINE_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
+    target_link_libraries(${target} PRIVATE "${AB3D2_STREAMLINE_LIBRARY}"
+                          delayimp dxguid wintrust crypt32)
+    if(MSVC)
+      target_link_options(${target} PRIVATE "/DELAYLOAD:sl.interposer.dll")
+    endif()
+    foreach(runtime_file IN LISTS AB3D2_STREAMLINE_RUNTIME_FILES)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${AB3D2_STREAMLINE_RUNTIME_DIR}/${runtime_file}"
+                "$<TARGET_FILE_DIR:${target}>/${runtime_file}")
+    endforeach()
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_STREAMLINE_ROOT}/license.txt"
+              "$<TARGET_FILE_DIR:${target}>/streamline-license.txt"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_STREAMLINE_ROOT}/3rd-party-licenses.md"
+              "$<TARGET_FILE_DIR:${target}>/streamline-3rd-party-licenses.md"
+      COMMENT "Stage signed Streamline DLSS-RR 2.12 runtime and notices")
+  endfunction()
 endif()
 
 if(AB3D2_ENABLE_DXR)
@@ -70,6 +122,26 @@ if(AB3D2_ENABLE_DXR)
   message(STATUS "DXR shader compiler: ${AB3D2_DXC_EXECUTABLE}")
   message(STATUS "DXR shader compiler version: ${AB3D2_DXC_VERSION_ONE_LINE}")
   message(STATUS "DXR shader compiler SHA-256: ${AB3D2_DXC_SHA256}")
+
+  set(AB3D2_DXR_BLUE_NOISE_PACKAGE
+      "${CMAKE_CURRENT_SOURCE_DIR}/data/renderer_dxr/blue_noise_spp256.bin")
+  set(AB3D2_DXR_BLUE_NOISE_LICENSE
+      "${CMAKE_CURRENT_SOURCE_DIR}/docs/third_party/blue-noise-sampler-MIT.txt")
+  if(NOT EXISTS "${AB3D2_DXR_BLUE_NOISE_PACKAGE}")
+    message(FATAL_ERROR
+            "The pinned DXR blue-noise sampler package is missing: ${AB3D2_DXR_BLUE_NOISE_PACKAGE}")
+  endif()
+  file(SHA256 "${AB3D2_DXR_BLUE_NOISE_PACKAGE}"
+       AB3D2_DXR_BLUE_NOISE_SHA256)
+  string(TOUPPER "${AB3D2_DXR_BLUE_NOISE_SHA256}"
+         AB3D2_DXR_BLUE_NOISE_SHA256)
+  if(NOT AB3D2_DXR_BLUE_NOISE_SHA256 STREQUAL
+     "3381BA037DB1940BD3A9A82C4C09A1EE145060268C8E08D8A3D02AD5895D69AB")
+    message(FATAL_ERROR
+            "The DXR blue-noise sampler package does not match the pinned 256-spp data")
+  endif()
+  message(STATUS
+          "DXR blue-noise sampler SHA-256: ${AB3D2_DXR_BLUE_NOISE_SHA256}")
 endif()
 
 # This PC target intentionally follows the desktop setup of the Alien Breed
@@ -210,6 +282,10 @@ if(AB3D2_ENABLE_DXR)
     src/renderer_dxr/dxr_scene.cpp
     src/renderer_dxr/dxr_scene_update.cpp
   )
+  if(AB3D2_ENABLE_STREAMLINE)
+    list(APPEND AB3D2_RENDERER_RTX_SOURCES
+         src/renderer_dxr/dxr_streamline.cpp)
+  endif()
 endif()
 
 add_executable(ab3d2
@@ -244,7 +320,11 @@ if(AB3D2_ENABLE_DXR)
     $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_ENABLE_DEBUG_LAYER=1>
     $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_GPU_VALIDATION=1>
   )
-  target_link_libraries(ab3d2 PRIVATE d3d12 dxgi dxguid)
+  if(AB3D2_ENABLE_STREAMLINE)
+    ab3d2_enable_streamline_for_target(ab3d2)
+  else()
+    target_link_libraries(ab3d2 PRIVATE d3d12 dxgi dxguid)
+  endif()
 
   set(AB3D2_DXR_SHADER_SOURCE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/renderer_dxr/shaders/diagnostic.hlsl")
@@ -390,10 +470,16 @@ if(AB3D2_ENABLE_DXR)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${AB3D2_DXR_PATH_TRACE_SHADER}"
             "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/path_trace.dxil"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${AB3D2_DXR_BLUE_NOISE_PACKAGE}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/blue_noise_spp256.bin"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${AB3D2_DXR_BLUE_NOISE_LICENSE}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/blue-noise-sampler-license.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
             "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/materials"
-    COMMENT "Stage project-built DXR shaders and materials"
+    COMMENT "Stage project-built DXR shaders, blue-noise sampler, and materials"
   )
 endif()
 
@@ -524,6 +610,14 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_include_directories(ab3d2_dxr_reconstruction_test PRIVATE src)
     add_test(NAME ab3d2_dxr_reconstruction_test
              COMMAND $<TARGET_FILE:ab3d2_dxr_reconstruction_test>)
+    add_executable(ab3d2_dxr_blue_noise_test
+      tests/dxr_blue_noise_test.cpp)
+    set_target_properties(ab3d2_dxr_blue_noise_test
+      PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_include_directories(ab3d2_dxr_blue_noise_test PRIVATE src)
+    add_test(NAME ab3d2_dxr_blue_noise_test
+             COMMAND $<TARGET_FILE:ab3d2_dxr_blue_noise_test>
+                     "${AB3D2_DXR_BLUE_NOISE_PACKAGE}")
     add_executable(ab3d2_dxr_material_package_test
       tests/dxr_material_package_test.cpp
       src/renderer_dxr/dxr_materials.cpp
@@ -563,7 +657,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_GPU_VALIDATION=1>
     )
     target_link_libraries(ab3d2_renderer_rtx_foundation_test
-                          PRIVATE ab3d2_core SDL2-static d3d12 dxgi dxguid user32)
+                          PRIVATE ab3d2_core SDL2-static user32)
+    if(AB3D2_ENABLE_STREAMLINE)
+      ab3d2_enable_streamline_for_target(ab3d2_renderer_rtx_foundation_test)
+    else()
+      target_link_libraries(ab3d2_renderer_rtx_foundation_test
+                            PRIVATE d3d12 dxgi dxguid)
+    endif()
     add_dependencies(ab3d2_renderer_rtx_foundation_test
                      ab3d2_dxr_shaders ab3d2_dxr_materials)
     add_custom_command(TARGET ab3d2_renderer_rtx_foundation_test POST_BUILD
@@ -584,6 +684,12 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "${AB3D2_DXR_PATH_TRACE_SHADER}"
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/path_trace.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_BLUE_NOISE_PACKAGE}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/blue_noise_spp256.bin"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_BLUE_NOISE_LICENSE}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/blue-noise-sampler-license.txt"
       COMMAND ${CMAKE_COMMAND} -E copy_directory
               "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/materials"
@@ -591,6 +697,16 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     )
     add_test(NAME ab3d2_renderer_rtx_foundation_test
              COMMAND ab3d2_renderer_rtx_foundation_test)
+    if(AB3D2_ENABLE_STREAMLINE)
+      foreach(package_target IN ITEMS ab3d2 ab3d2_renderer_rtx_foundation_test)
+        add_test(NAME ${package_target}_streamline_package_test
+          COMMAND ${CMAKE_COMMAND}
+                  "-DAB3D2_PACKAGE_DIR=$<TARGET_FILE_DIR:${package_target}>"
+                  "-DAB3D2_EXECUTABLE=$<TARGET_FILE:${package_target}>"
+                  "-DAB3D2_DUMPBIN=${AB3D2_DUMPBIN_EXECUTABLE}"
+                  -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/dxr_streamline_package_test.cmake)
+      endforeach()
+    endif()
     add_test(NAME ab3d2_renderer_rtx_game_smoke
              COMMAND $<TARGET_FILE:ab3d2> --gpu-smoke all --renderer rtx)
     set_tests_properties(ab3d2_renderer_rtx_game_smoke PROPERTIES TIMEOUT 120)

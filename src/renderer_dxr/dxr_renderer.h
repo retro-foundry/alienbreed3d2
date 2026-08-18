@@ -14,6 +14,7 @@ namespace ab3d2::dxr {
 
 class DxrDevice;
 class DxrPipeline;
+class DxrStreamline;
 
 class DxrRenderer final {
 public:
@@ -39,6 +40,9 @@ private:
     SDL_Window *window_ = nullptr;
     std::unique_ptr<DxrDevice> device_;
     std::unique_ptr<DxrPipeline> pipeline_;
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    std::unique_ptr<DxrStreamline> streamline_;
+#endif
 };
 
 }  // namespace ab3d2::dxr
