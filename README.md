@@ -480,11 +480,17 @@ render almost nothing at their smoke camera and would pass any bound trivially.
 
 `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` set the emitter
 candidates resampled per primary hit and the number of candidates a pixel's
-reservoir history may stand for. Both default to the configuration measured to
-produce the most stable reconstructed image, which is one candidate and no
-temporal reuse; raising either lowers the path-traced input's variance but raises
-the reconstructed image's residual difference. See section 11 of
-`DXR_RAY_RECONSTRUCTION_PLAN.md` for the measurements.
+reservoir history may stand for. They default to 4 and 128, which enables
+reservoir resampling of direct lighting. Setting
+`AB3D2_DXR_CANDIDATES=1 AB3D2_DXR_RESERVOIR_LIMIT=0` recovers the single-sample
+estimator exactly.
+
+Resampling more than halves the raw path's frame-to-frame difference and makes it
+converge, but it *raises* the reconstructed image's residual difference by about
+18%, because it trades high-frequency screen-space blue noise for error
+correlated across neighbouring pixels and across frames. Section 11 of
+`DXR_RAY_RECONSTRUCTION_PLAN.md` records the measurements; the two settings above
+are the A/B to run when judging the reconstructed image by eye.
 
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
 `normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`, or

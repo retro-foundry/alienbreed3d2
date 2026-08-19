@@ -89,22 +89,27 @@ constexpr std::array<const wchar_t *,
  * Emitter candidates resampled per primary hit, and the number of candidates a
  * pixel's reservoir history is allowed to stand for.
  *
- * Both default to the configuration measured to produce the most stable
- * reconstructed image: one candidate and no temporal reuse, which is exactly the
- * single-sample estimator that resampling reduces to. Phase 11c in
- * DXR_RAY_RECONSTRUCTION_PLAN.md records the measurements. Every increase in
- * either count lowered the path-traced input's variance and *raised* the
+ * Reservoir resampling is enabled by default on explicit user direction. These
+ * are the values measured best among the enabled configurations, not the values
+ * measured best overall: Phase 11c in DXR_RAY_RECONSTRUCTION_PLAN.md records that
+ * resampling lowers the path-traced input's variance while *raising* the
  * reconstructed image's residual frame-to-frame difference, because it trades
- * high-frequency screen-space blue noise for lower-magnitude error that is
- * correlated across neighbouring pixels and across frames, and a denoiser cannot
- * remove correlated error.
+ * high-frequency screen-space blue noise for error correlated across neighbouring
+ * pixels and across frames. Disabling it entirely still measures most stable by
+ * that metric, which is a temporal metric and cannot see the spatial character of
+ * the error it trades away.
  *
- * `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` re-enable resampling.
- * It more than halves the variance of the raw diagnostic path, which is the mode
- * that has no denoiser to be confused by the change in error character.
+ * Within the enabled configurations the candidate count dominates and the history
+ * cap is nearly irrelevant: four candidates measure 1.4046 against 1.4674 for
+ * thirty-two, while sweeping the cap from 64 to 640 moves the result by under
+ * half a percent. Four candidates also keep the resampling cost close to the
+ * one-sample estimator's.
+ *
+ * `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` override both, and a
+ * limit of zero disables temporal reuse to recover the single-sample estimator.
  */
-constexpr uint32_t reservoir_candidate_count = 1u;
-constexpr uint32_t reservoir_sample_limit = 0u;
+constexpr uint32_t reservoir_candidate_count = 4u;
+constexpr uint32_t reservoir_sample_limit = 128u;
 
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
 constexpr UINT shader_table_size = shader_record_size * 4u;

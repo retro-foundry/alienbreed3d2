@@ -184,6 +184,13 @@ static const float SpecularHitDistanceBlend = 0.2;
  * shading-normal agreement of at least this cosine. */
 static const float ReservoirPositionTolerance = 0.02;
 static const float ReservoirNormalTolerance = 0.9;
+/*
+ * Sample-index offset used to draw the temporal acceptance test from an
+ * optimized blue-noise dimension without reusing the value that selected this
+ * frame's first candidate. Half the 256-sample block keeps the two values far
+ * apart in the sequence while both stay blue in screen space.
+ */
+static const uint ReservoirAcceptanceOffset = 128u;
 
 /*
  * The `pcg4d` integer hash from Jarzynski and Olano, "Hash Functions for GPU
@@ -1020,7 +1027,18 @@ float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
             previousEvaluation.targetPdf * previous.unbiasedWeight *
                 float(previousCount) : 0.0;
         float totalWeight = weightSum + previousWeight;
-        float acceptance = sampleStream(pixel, SampleIndex, CandidateCount).x;
+        /*
+         * The temporal acceptance test decides whether a pixel keeps its history
+         * or takes a fresh candidate, so it is what determines where stale
+         * samples sit on screen. Drawing it from the hash lets neighbouring
+         * pixels hold their history in clumps, which is the correlated
+         * low-frequency error a denoiser cannot remove. Drawing it from an
+         * optimized blue-noise dimension spreads the switch events across the
+         * screen instead, which is precisely what the sampler exists to do.
+         */
+        float acceptance = sampleBlueNoise(
+            pixel, SampleIndex + ReservoirAcceptanceOffset,
+            PathDimensionsPerBounce * 0u + 2u);
         if (previousWeight > 0.0 && acceptance * totalWeight < previousWeight) {
             selected = previousSample;
             selectedTarget = previousEvaluation.targetPdf;

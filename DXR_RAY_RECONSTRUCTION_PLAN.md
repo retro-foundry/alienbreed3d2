@@ -97,10 +97,12 @@ and, measured against that metric, **disproves the phase's own premise**: every
 increase in candidate count or temporal history lowered the path-traced input's
 variance and raised the reconstructed image's residual difference, because it trades
 high-frequency screen-space blue noise for correlated error a denoiser cannot
-remove. Resampling therefore ships present but disabled by default, behind
-`AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT`, and spatial reuse is
-contraindicated rather than merely deferred. No level yet demonstrates a settled
-image; read section 11 before spending further effort on the estimator.
+remove. Resampling is nevertheless enabled by default on explicit user direction,
+at the values measured best among the enabled configurations, and
+`AB3D2_DXR_CANDIDATES=1 AB3D2_DXR_RESERVOIR_LIMIT=0` recovers the single-sample
+estimator for comparison. Spatial reuse is contraindicated rather than merely
+deferred. No level yet demonstrates a settled image; read section 11 before
+spending further effort on the estimator.
 
 ### Current dependency gate
 
@@ -760,10 +762,33 @@ correlated error, and Ray Reconstruction's history makes correlated error persis
 and drift, which is what reads as boiling. Reducing estimator variance was
 therefore the wrong lever for this renderer's output stability.
 
-Both counts consequently default to the measured-best configuration, one
-candidate and no temporal reuse, with `AB3D2_DXR_CANDIDATES` and
-`AB3D2_DXR_RESERVOIR_LIMIT` re-enabling resampling for measurement and for the
-raw diagnostic path it genuinely improves.
+Resampling is nevertheless enabled by default on explicit user direction, at
+four candidates and a history cap of 128. Those are the values measured best
+among the *enabled* configurations rather than best overall. Within them the
+candidate count dominates and the cap is nearly irrelevant:
+
+| Candidates | Cap 64 | Cap 128 | Cap 320 | Cap 640 |
+| --- | --- | --- | --- | --- |
+| 4 | 1.4120 | **1.4046** | 1.4088 | 1.4121 |
+| 8 | 1.4097 | 1.4171 | 1.4214 | 1.4254 |
+| 16 | 1.4455 | 1.4508 | 1.4467 | 1.4465 |
+| 32 | 1.4771 | 1.4750 | 1.4693 | 1.4674 |
+
+At the shipped default the reconstructed image measures 1.4006 against 1.1896 for
+the single-sample estimator, so the metric still prefers resampling off by 18%.
+The raw path measures 13.83 with a ratio of 0.6517 against 29.44 and 0.9904, so
+it is 53% better and converging for the first time.
+`AB3D2_DXR_CANDIDATES=1 AB3D2_DXR_RESERVOIR_LIMIT=0` recovers the single-sample
+estimator exactly, for comparison.
+
+The temporal acceptance test draws from an optimized blue-noise dimension rather
+than the hash stream. That test decides whether a pixel keeps its history, so it
+determines where stale samples sit on screen, and drawing it from the hash lets
+neighbouring pixels hold their history in clumps. The change measures 1.4046 to
+1.4006, which is inside the run-to-run spread of roughly 0.005, so it is retained
+on principle and not on evidence: the stability metric is temporal and cannot
+observe the spatial clumping this addresses. That property needs an eye on the
+image.
 
 **Spatial reservoir reuse is contraindicated by this result** and must not be
 implemented on the assumption that it will help: it increases exactly the
