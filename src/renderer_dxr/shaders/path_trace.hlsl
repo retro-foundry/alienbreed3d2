@@ -10,12 +10,21 @@ static const float InvalidMotion = 65504.0;
  */
 static const float SceneFarPlane = 8192.0;
 
+/* Layout mirrored by `DxrSceneVertex` in dxr_scene.h. */
 struct SceneVertex
 {
     float3 position;
     float2 textureCoordinate;
     uint materialIndex;
     uint emitterIndex;
+    /*
+     * The source Gouraud shade response at this vertex, one being the brightest
+     * source row. It scales authored emission only; incident lighting is traced.
+     * newanims.s:brightanim moves it for zones whose CurrentPointBrights words
+     * carry an Anim_BrightTable index, which is how an authored emissive panel
+     * pulses.
+     */
+    float emissiveScale;
 };
 
 struct SceneMaterial
@@ -426,8 +435,11 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
         saturate(MetalnessAtlas.Load(int3(texel, 0)).r);
     surface.roughness = clamp(
         RoughnessAtlas.Load(int3(texel, 0)).r, 0.045, 1.0);
+    float emissiveScale = first.emissiveScale * firstWeight +
+        second.emissiveScale * payload.barycentrics.x +
+        third.emissiveScale * payload.barycentrics.y;
     surface.emission = EmissiveAtlas.Load(int3(texel, 0)).rgb *
-        material.emissiveFactor;
+        material.emissiveFactor * emissiveScale;
     return surface;
 }
 
@@ -815,9 +827,12 @@ EmitterEvaluation evaluateEmitterSample(SurfaceData surface,
     }
     SceneMaterial lightMaterial = Materials[first.materialIndex];
     uint2 lightTexel = materialTexel(lightMaterial, lightUv);
+    float lightEmissiveScale = first.emissiveScale * barycentrics.x +
+        second.emissiveScale * barycentrics.y +
+        third.emissiveScale * barycentrics.z;
     float3 emittedRadiance =
         EmissiveAtlas.Load(int3(lightTexel, 0)).rgb *
-        lightMaterial.emissiveFactor;
+        lightMaterial.emissiveFactor * lightEmissiveScale;
     BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
     float misWeight = powerHeuristic(lightPdf, bsdf.pdf);
     evaluation.contribution =

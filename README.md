@@ -429,7 +429,14 @@ the renderer-neutral `SceneFrame`, uploads positions, UVs, material indices,
 and renderer-native base-color, tangent-normal, metalness, roughness, and
 emissive atlases, then builds one BLAS and TLAS. `technolights` and the source
 `floor_0101` panel use colored emissive masks at factor 200; other materials
-remain non-emissive. Each pixel traces a fresh three-hit path
+remain non-emissive. Every vertex also carries the source Gouraud shade
+response for its surface, and that scales authored emission, so an emissive
+panel in a zone whose `CurrentPointBrights_vl` words hold an
+`Anim_BrightTable_vw` index pulses with `newanims.s:brightanim` - which is what
+animates the `floor_0101` light panel the player starts beside in Level A. A
+brightness-only frame rewrites the vertex and emitter buffers without refitting
+any acceleration structure, so it never resets the temporal history.
+Each pixel traces a fresh three-hit path
 with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,
 authored emissive-triangle and environment next-event sampling, visibility
 rays, and multiple-importance sampling. A full-screen pass tone maps the HDR

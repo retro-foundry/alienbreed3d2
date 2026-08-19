@@ -15,11 +15,20 @@
 
 namespace ab3d2::dxr {
 
+/* Layout mirrored by `SceneVertex` in shaders/path_trace.hlsl. */
 struct DxrSceneVertex {
     float position[3];
     float texture_coordinate[2];
     uint32_t material_index;
     uint32_t emitter_index;
+    /*
+     * The source Gouraud shade response for this vertex, scaling the material's
+     * authored emission. `hires.s:goursides` selects a flat's shade row from its
+     * CurrentPointBrights word, so a zone whose points carry an
+     * Anim_BrightTable index pulses its authored emissive panels through
+     * newanims.s:brightanim. One is the brightest source row.
+     */
+    float emissive_scale;
 };
 
 struct DxrSceneMaterial {
@@ -74,6 +83,12 @@ public:
     uint32_t emitter_count() const {
         return static_cast<uint32_t>(emissive_triangles_.size());
     }
+    /*
+     * Fold of every vertex's authored emission scale. The hidden GPU smoke uses
+     * it to assert that newanims.s:brightanim reaches the vertex buffer, which
+     * an image comparison cannot show while the sampler is still boiling.
+     */
+    uint64_t emissive_scale_fold() const;
     bool history_reset_pending() const { return history_reset_pending_; }
     void mark_history_promoted() { history_reset_pending_ = false; }
 
@@ -92,8 +107,8 @@ private:
 
     bool compile(const SceneFrame &frame,
                  const DxrSceneGeometryHashes &hashes, std::string &error);
-    bool compile_geometry_update(const SceneFrame &frame, bool &static_changed,
-                                 std::string &error);
+    bool compile_geometry_update(const SceneFrame &frame, bool light_changed,
+                                 bool &static_changed, std::string &error);
     void release_gpu();
 
     DxrSceneGeometryHashes scene_hashes_ = {};

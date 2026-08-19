@@ -53,6 +53,23 @@ runtime samples those textures as sRGB data and never derives emission from
 base color. `brownspeakers` and `technotritile`, which the earlier scaffold had
 guessed were emitters, are explicitly black in the emissive channel.
 
+The per-vertex scaling of that authored emission by the source Gouraud shade
+response is project-authored and takes its evidence from the maintained Amiga
+sources, not from the sibling renderer, which has no equivalent. The row
+coordinate is `hires.s:goursides`/`dofloorGOUR` and
+`hiresgourwall.s:drawwallPACK*G`'s `source_light_level - 300`, and the animated
+Gouraud that drives it is `newanims.s:brightanim` through
+`Anim_BrightTable_vw`. The response is linear in that row coordinate, and the
+darkest row keeps a `1/rows` residual rather than reaching zero. Two things
+support the residual. The shipped art keeps one: the mean display luminance of
+the shared floortile at offset `0x0101`, the emissive floor panel Level A opens
+beside, is 167 through shade row 0 and 10 through row 30. And these panels are
+the room's only light in this renderer, so extinguishing them would leave the
+path tracer nothing to reconstruct. The remaining curvature between those
+endpoints is not reproduced: the OpenGL forward path fits per-texel exponent
+and floor maps from the same shade table, and the PBR material package carries
+no equivalent.
+
 `src/scene_geometry_compile.c` is a project-authored extraction of the native
 port's current coordinate interpretation and polygon triangulation. Its
 coordinate evidence remains `modules/transform.s:RotateLevelPts`,

@@ -67,4 +67,12 @@ double renderer_last_frame_delta(const Renderer *renderer);
  * 250, a proxy for radiance outliers that survive tone mapping. */
 uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer);
 
+/* Hidden GPU-smoke fold of the per-vertex source Gouraud shade response the
+ * ray-traced backend uploaded for the last presented scene, which is what
+ * scales authored emission there. It is the only way to observe
+ * newanims.s:brightanim reaching that backend while its fresh-sample noise
+ * still dominates any image comparison. Zero on backends that trace no
+ * authored emission. */
+uint64_t renderer_last_scene_emissive_scale_fold(const Renderer *renderer);
+
 #endif

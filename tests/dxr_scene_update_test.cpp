@@ -63,10 +63,24 @@ int main()
         return 1;
     }
 
+    /*
+     * newanims.s:brightanim moves CurrentPointBrights without moving geometry.
+     * The vertex buffer carries authored emission, so this must reach the
+     * geometry path rather than being classified as an unchanged frame.
+     */
+    vertices[1].source_light_level += 7;
+    const DxrSceneGeometryHashes relit = dxr_scene_geometry_hashes(frame);
+    if (!expect(dxr_scene_classify_update(true, moved, relit),
+                DxrSceneUpdateKind::geometry, "animated Gouraud brightness") ||
+        !expect(dxr_scene_classify_update(true, relit, relit),
+                DxrSceneUpdateKind::unchanged, "identical relit frame")) {
+        return 1;
+    }
+
     surface.material.source_asset_id = 6u;
     const DxrSceneGeometryHashes material_changed =
         dxr_scene_geometry_hashes(frame);
-    if (!expect(dxr_scene_classify_update(true, moved, material_changed),
+    if (!expect(dxr_scene_classify_update(true, relit, material_changed),
                 DxrSceneUpdateKind::rebuild, "material replacement")) {
         return 1;
     }
@@ -75,6 +89,6 @@ int main()
     surface.geometry.vertex_count = 0u;
     const DxrSceneGeometryHashes topology_changed =
         dxr_scene_geometry_hashes(frame);
-    return expect(dxr_scene_classify_update(true, moved, topology_changed),
+    return expect(dxr_scene_classify_update(true, relit, topology_changed),
                   DxrSceneUpdateKind::rebuild, "topology replacement") ? 0 : 1;
 }

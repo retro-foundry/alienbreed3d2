@@ -145,6 +145,46 @@ D3D12_RESOURCE_BARRIER uav_barrier(ID3D12Resource *resource)
     return barrier;
 }
 
+/*
+ * `hires.s:goursides`/`dofloorGOUR` and `hiresgourwall.s:drawwallPACK*G` select
+ * a shade row from `source_light_level - 300`, row zero being brightest, and
+ * every source palette entry an emissive material draws from varies across
+ * those rows. The DXR path traces its own incident lighting, so that response
+ * is applied here only to authored emission: an emissive panel in a zone whose
+ * CurrentPointBrights words carry an Anim_BrightTable index then pulses with
+ * newanims.s:brightanim as the source rasterizer shaded it.
+ *
+ * The response is `(rows - row) / rows`, so the darkest source row keeps a
+ * small residual rather than going black. That matches the shipped art: the
+ * mean display luminance of the shared floortile at offset 0x0101, the
+ * emissive floor panel in Level A, is 167 through shade row 0 and 10 through
+ * row 30 - six per cent, not zero. It also matters more here than it did in
+ * the source: these panels are the only light in the room, so extinguishing
+ * them entirely would leave the path tracer nothing to reconstruct. The
+ * OpenGL forward path reproduces the remaining curvature with the per-texel
+ * exponent and floor maps it fits from the same shade table; the PBR material
+ * package carries no equivalent, so this stays linear in the row coordinate.
+ *
+ * The source's per-column depth term is deliberately omitted. It is a
+ * screen-space distance shade, and emitted radiance cannot depend on where the
+ * camera stands without breaking both next-event estimation and the denoiser's
+ * temporal reuse.
+ */
+float source_gouraud_emissive_scale(SceneGeometryPrimitive primitive,
+                                    int16_t source_light_level)
+{
+    /* Wall strips have 32 shade rows; Draw_Flats has 31. */
+    const float row_count =
+        primitive == SCENE_GEOMETRY_PRIMITIVE_WALL ? 32.0f : 31.0f;
+    float shade = static_cast<float>(source_light_level) - 300.0f;
+    if (shade < 0.0f) {
+        shade = 0.0f;
+    } else if (shade > row_count - 1.0f) {
+        shade = row_count - 1.0f;
+    }
+    return (row_count - shade) / row_count;
+}
+
 bool append_geometry_vertices(const SceneGeometry &geometry,
                               uint32_t material_index,
                               std::vector<DxrSceneVertex> &vertices,
@@ -185,6 +225,8 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
         vertex.texture_coordinate[1] = source.texture_v * v_scale;
         vertex.material_index = material_index;
         vertex.emitter_index = UINT32_MAX;
+        vertex.emissive_scale = source_gouraud_emissive_scale(
+            geometry.primitive, source.source_light_level);
         vertices.push_back(vertex);
     }
     scene_geometry_triangle_indices_release(indices);
@@ -282,6 +324,19 @@ D3D12_GPU_VIRTUAL_ADDRESS DxrScene::material_address() const
     return material_buffer_ ? material_buffer_->GetGPUVirtualAddress() : 0;
 }
 
+uint64_t DxrScene::emissive_scale_fold() const
+{
+    uint64_t fold = UINT64_C(1469598103934665603);
+
+    for (const DxrSceneVertex &vertex : vertices_) {
+        uint32_t bits = 0u;
+        std::memcpy(&bits, &vertex.emissive_scale, sizeof(bits));
+        fold ^= static_cast<uint64_t>(bits);
+        fold *= UINT64_C(1099511628211);
+    }
+    return fold;
+}
+
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::emitter_address() const
 {
     return emitter_buffer_ ? emitter_buffer_->GetGPUVirtualAddress() : 0;
@@ -326,8 +381,15 @@ bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
         return compile(frame, hashes, error);
     }
 
+    /*
+     * A Gouraud-only change never moves a triangle, so every instance keeps its
+     * BLAS. The vertices still have to be rebuilt, including those of instances
+     * whose positions are unchanged, because they carry the authored emission
+     * scale that brightanim just moved.
+     */
+    const bool light_changed = scene_hashes_.vertex_light != hashes.vertex_light;
     bool static_changed = false;
-    if (!compile_geometry_update(frame, static_changed, error)) {
+    if (!compile_geometry_update(frame, light_changed, static_changed, error)) {
         return false;
     }
     if (static_changed) {
@@ -604,6 +666,7 @@ bool DxrScene::compile(const SceneFrame &frame,
 }
 
 bool DxrScene::compile_geometry_update(const SceneFrame &frame,
+                                       bool light_changed,
                                        bool &static_changed,
                                        std::string &error)
 {
@@ -656,7 +719,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
             static_changed = true;
             return true;
         }
-        if (instance_changed) {
+        if (instance_changed || light_changed) {
             std::vector<DxrSceneVertex> updated_vertices;
             updated_vertices.reserve(previous.vertex_count);
             for (uint32_t surface_index = 0;
@@ -773,6 +836,12 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         command_list->ResourceBarrier(static_cast<UINT>(to_read.size()),
                                       to_read.data());
 
+        /*
+         * A Gouraud-only update rewrites the vertex buffer's authored emission
+         * scale without moving a triangle, so it legitimately refits nothing.
+         * Every acceleration structure is then left alone: refitting against
+         * identical positions costs time and degrades traversal quality.
+         */
         uint32_t updated_blas_count = 0;
         for (size_t index = 0; index < instances_.size(); ++index) {
             if (!blas_update_pending_[index]) {
@@ -823,33 +892,32 @@ bool DxrScene::record_build(ID3D12Device5 *device,
                                           barriers.data());
             ++updated_blas_count;
         }
-        if (updated_blas_count == 0u) {
-            error = "DXR geometry update did not identify a dynamic BLAS";
-            return false;
+        if (updated_blas_count != 0u) {
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlas_inputs = {};
+            tlas_inputs.Type =
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+            tlas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+            tlas_inputs.Flags =
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE |
+                D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
+            tlas_inputs.NumDescs = static_cast<UINT>(blases_.size());
+            tlas_inputs.InstanceDescs =
+                instance_upload_->GetGPUVirtualAddress();
+            D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC tlas_build = {};
+            tlas_build.Inputs = tlas_inputs;
+            tlas_build.SourceAccelerationStructureData =
+                tlas_->GetGPUVirtualAddress();
+            tlas_build.ScratchAccelerationStructureData =
+                tlas_scratch_->GetGPUVirtualAddress();
+            tlas_build.DestAccelerationStructureData =
+                tlas_->GetGPUVirtualAddress();
+            command_list->BuildRaytracingAccelerationStructure(
+                &tlas_build, 0, nullptr);
+            const D3D12_RESOURCE_BARRIER tlas_barrier =
+                uav_barrier(tlas_.Get());
+            command_list->ResourceBarrier(1, &tlas_barrier);
         }
-
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlas_inputs = {};
-        tlas_inputs.Type =
-            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
-        tlas_inputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        tlas_inputs.Flags =
-            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE |
-            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_ALLOW_UPDATE |
-            D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PERFORM_UPDATE;
-        tlas_inputs.NumDescs = static_cast<UINT>(blases_.size());
-        tlas_inputs.InstanceDescs = instance_upload_->GetGPUVirtualAddress();
-        D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC tlas_build = {};
-        tlas_build.Inputs = tlas_inputs;
-        tlas_build.SourceAccelerationStructureData =
-            tlas_->GetGPUVirtualAddress();
-        tlas_build.ScratchAccelerationStructureData =
-            tlas_scratch_->GetGPUVirtualAddress();
-        tlas_build.DestAccelerationStructureData =
-            tlas_->GetGPUVirtualAddress();
-        command_list->BuildRaytracingAccelerationStructure(
-            &tlas_build, 0, nullptr);
-        const D3D12_RESOURCE_BARRIER tlas_barrier = uav_barrier(tlas_.Get());
-        command_list->ResourceBarrier(1, &tlas_barrier);
 
         gpu_geometry_update_pending_ = false;
         std::fill(blas_update_pending_.begin(), blas_update_pending_.end(),

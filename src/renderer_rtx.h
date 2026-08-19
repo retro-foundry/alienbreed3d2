@@ -41,6 +41,7 @@ size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *renderer);
 double renderer_rtx_last_frame_delta(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_saturated_pixels(const RendererRtx *renderer);
+uint64_t renderer_rtx_last_scene_emissive_scale_fold(const RendererRtx *renderer);
 
 #if defined(__cplusplus)
 }

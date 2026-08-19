@@ -151,3 +151,11 @@ extern "C" uint64_t renderer_rtx_last_frame_saturated_pixels(
     return renderer && renderer->implementation ?
         renderer->implementation->last_scene_saturated_pixels() : UINT64_C(0);
 }
+
+extern "C" uint64_t renderer_rtx_last_scene_emissive_scale_fold(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_emissive_scale_fold() :
+        UINT64_C(0);
+}

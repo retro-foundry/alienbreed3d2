@@ -64,6 +64,9 @@ public:
     ID3D12RootSignature *root_signature() const { return root_signature_.Get(); }
     ID3D12PipelineState *pipeline_state() const { return pipeline_state_.Get(); }
     bool has_scene() const { return scene_.ready(); }
+    uint64_t scene_emissive_scale_fold() const {
+        return scene_.emissive_scale_fold();
+    }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
 

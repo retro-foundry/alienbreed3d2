@@ -14,6 +14,7 @@
 #include "game_quicksave.h"
 #include "game_vblank_clock.h"
 #include "level_transition.h"
+#include "lighting_runtime.h"
 #include "render_view.h"
 #include "renderer.h"
 
@@ -1295,6 +1296,29 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
     return 0;
 }
 
+/*
+ * Fold of the live CurrentPointBrights_vl table. Only some levels author an
+ * Anim_BrightTable index, so the DXR emission sweep below uses this to tell
+ * "this level animates no Gouraud brightness" apart from "the sweep had no
+ * effect on the image".
+ */
+static uint64_t game_app_point_brightness_fold(const GameBootstrap *game)
+{
+    uint64_t fold = UINT64_C(1469598103934665603);
+
+    for (uint16_t zone_index = 0u;
+         zone_index < LIGHTING_RUNTIME_POINT_ZONE_CAPACITY; ++zone_index) {
+        for (uint16_t point_index = 0u;
+             point_index < LEVEL_RUNTIME_POINT_BRIGHTNESS_COUNT; ++point_index) {
+            fold ^= (uint64_t)(uint16_t)
+                game->lighting_runtime.current_point_brightness[zone_index]
+                                                               [point_index];
+            fold *= UINT64_C(1099511628211);
+        }
+    }
+    return fold;
+}
+
 static int game_app_run_gpu_smoke(GameApp *app)
 {
     enum {
@@ -1448,6 +1472,105 @@ static int game_app_run_gpu_smoke(GameApp *app)
                         early_delta > 0.0 ? late_delta / early_delta : 0.0,
                         (unsigned long long)renderer_last_frame_saturated_pixels(
                             app->renderer));
+            }
+            /*
+             * newanims.s:brightanim is the authored Gouraud animation, and in
+             * the DXR path it scales authored emission. Level A opens beside
+             * the only two zones whose CurrentPointBrights words carry an
+             * Anim_BrightTable index, and both of those zones use the emissive
+             * floor_0101 light panel as their floor, so that sequence is what
+             * makes the panel pulse.
+             *
+             * Publish the dimmest and then the brightest value of every
+             * sequence and require the uploaded emission scales to differ. The
+             * assertion is on the scene the backend uploaded rather than on the
+             * presented image: a fresh-sample path tracer's frame-to-frame
+             * delta is far larger than one pulsing panel until the
+             * reconstruction settles, so an image comparison would prove
+             * nothing here. Levels that animate no Gouraud brightness leave
+             * every word alone and say so instead.
+             */
+            {
+                uint64_t dim_point_fold;
+                uint64_t bright_point_fold;
+                uint64_t dim_emissive_fold;
+                uint64_t bright_emissive_fold;
+
+                for (uint16_t animation_index = 0u;
+                     animation_index < LIGHTING_RUNTIME_ANIMATION_VALUE_COUNT;
+                     ++animation_index) {
+                    app->game.lighting_runtime.animation_values[animation_index] = 1;
+                }
+                if (!lighting_runtime_refresh_all_zones(
+                        &app->game.lighting_runtime,
+                        &app->game.dynamic_level.runtime, error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] DXR brightanim sweep could not publish the dim "
+                            "source brightness for Level %c: %s\n",
+                            (char)('A' + level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                dim_point_fold = game_app_point_brightness_fold(&app->game);
+                scene_frame_begin(&app->frame);
+                if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+                    !renderer_present(app->renderer, &app->frame, &app->view, error,
+                                      sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] DXR dim brightanim frame failed for Level %c: "
+                            "%s\n", (char)('A' + level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                dim_emissive_fold =
+                    renderer_last_scene_emissive_scale_fold(app->renderer);
+                for (uint16_t animation_index = 0u;
+                     animation_index < LIGHTING_RUNTIME_ANIMATION_VALUE_COUNT;
+                     ++animation_index) {
+                    app->game.lighting_runtime.animation_values[animation_index] = 20;
+                }
+                if (!lighting_runtime_refresh_all_zones(
+                        &app->game.lighting_runtime,
+                        &app->game.dynamic_level.runtime, error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] DXR brightanim sweep could not publish the "
+                            "bright source brightness for Level %c: %s\n",
+                            (char)('A' + level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                bright_point_fold = game_app_point_brightness_fold(&app->game);
+                scene_frame_begin(&app->frame);
+                if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+                    !renderer_present(app->renderer, &app->frame, &app->view, error,
+                                      sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] DXR bright brightanim frame failed for Level "
+                            "%c: %s\n", (char)('A' + level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                bright_emissive_fold =
+                    renderer_last_scene_emissive_scale_fold(app->renderer);
+                if (dim_point_fold == bright_point_fold) {
+                    fprintf(stdout,
+                            "[RENDER] DXR Level %c animates no Gouraud brightness\n",
+                            (char)('A' + level_index));
+                } else if (dim_emissive_fold == bright_emissive_fold) {
+                    fprintf(stderr,
+                            "[RENDER] DXR Level %c authored emission ignored the "
+                            "animated source Gouraud brightness\n",
+                            (char)('A' + level_index));
+                    app->exit_code = 1;
+                    return 0;
+                } else {
+                    fprintf(stdout,
+                            "[RENDER] DXR Level %c brightanim emission scales="
+                            "%016llx,%016llx\n",
+                            (char)('A' + level_index),
+                            (unsigned long long)dim_emissive_fold,
+                            (unsigned long long)bright_emissive_fold);
+                }
             }
             continue;
         }
