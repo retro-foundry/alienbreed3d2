@@ -118,6 +118,7 @@ private:
     float radiance_clamp_ = 200.0f;
     float exposure_ = 0.015f;
     float ndf_trim_ = 0.9f;
+    uint32_t spp_ = 1u;
     uint32_t debug_view_ = 0;
     bool debug_view_requested_ = false;
     float debug_scalar_range_ = 8192.0f;

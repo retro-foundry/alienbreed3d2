@@ -161,6 +161,7 @@ cbuffer FrameConstants : register(b0)
     uint ReservoirSampleLimit;
     float RadianceClamp;
     float NdfTrim;
+    uint SamplesPerPixel;
 };
 
 static const uint BlueNoiseSampleCount = 256u;
@@ -948,6 +949,7 @@ bool loadPreviousReservoir(uint2 pixel, uint2 dimensions, SurfaceData surface,
  * reciprocal of the source pdf.
  */
 float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
+                               uint sampleIndex,
                                SurfaceData surface, float3 viewDirection,
                                float3 previousPosition, float2 motion,
                                out PackedLightReservoir stored)
@@ -987,12 +989,12 @@ float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
         if (candidate == 0u) {
             uint dimension = PathDimensionsPerBounce * 0u;
             stream = float3(
-                sampleBlueNoise(pixel, SampleIndex, dimension + 2u),
-                sampleBlueNoise(pixel, SampleIndex, dimension + 3u),
-                sampleBlueNoise(pixel, SampleIndex, dimension + 4u));
+                sampleBlueNoise(pixel, sampleIndex, dimension + 2u),
+                sampleBlueNoise(pixel, sampleIndex, dimension + 3u),
+                sampleBlueNoise(pixel, sampleIndex, dimension + 4u));
             acceptance = 0.0;
         } else {
-            float4 hashed = sampleStream(pixel, SampleIndex, candidate);
+            float4 hashed = sampleStream(pixel, sampleIndex, candidate);
             stream = hashed.xyz;
             acceptance = hashed.w;
         }
@@ -1043,7 +1045,7 @@ float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
          * screen instead, which is precisely what the sampler exists to do.
          */
         float acceptance = sampleBlueNoise(
-            pixel, SampleIndex + ReservoirAcceptanceOffset,
+            pixel, sampleIndex + ReservoirAcceptanceOffset,
             PathDimensionsPerBounce * 0u + 2u);
         if (previousWeight > 0.0 && acceptance * totalWeight < previousWeight) {
             selected = previousSample;
@@ -1165,6 +1167,12 @@ void RayGeneration()
         CameraRight * (unjitteredNdc.x * Aspect * TanHalfFovY) +
         CameraUp * (unjitteredNdc.y * TanHalfFovY));
 
+    PackedLightReservoir reservoir = (PackedLightReservoir)0;
+    float3 accumulatedRadiance = 0.0;
+
+    for (uint sampleOrdinal = 0u; sampleOrdinal < SamplesPerPixel;
+         ++sampleOrdinal) {
+    uint effectiveSampleIndex = SampleIndex * SamplesPerPixel + sampleOrdinal;
     float3 radiance = 0.0;
     float3 throughput = 1.0;
     float previousBsdfPdf = 0.0;
@@ -1175,9 +1183,6 @@ void RayGeneration()
     primaryGuides.motion = InvalidMotion.xx;
     primaryGuides.historyHitDistance = 0.0;
     primaryGuides.historyHitDistanceValid = false;
-    /* Written for every pixel, including misses, so a primary ray that leaves the
-     * scene clears its reservoir rather than leaving last frame's behind. */
-    PackedLightReservoir reservoir = (PackedLightReservoir)0;
     RayDesc ray;
     ray.Origin = CameraPosition;
     ray.Direction = direction;
@@ -1191,7 +1196,7 @@ void RayGeneration()
         payload.primitiveIndex = InvalidIndex;
         payload.hit = 0u;
         TraceRay(Scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
-        if (depth == 1u && firstBounceSpecular) {
+        if (depth == 1u && firstBounceSpecular && sampleOrdinal == 0u) {
             /* A specular ray that escapes the scene reflects something
              * effectively infinitely far away, which is the far plane rather
              * than a zero distance at the shading point. */
@@ -1204,7 +1209,7 @@ void RayGeneration()
                 sampledHitDistance;
         }
         if (payload.hit == 0u) {
-            if (depth == 0u) {
+            if (depth == 0u && sampleOrdinal == 0u) {
                 writeMissGuides(pixel, unjitteredDirection,
                                 float2(dimensions));
             }
@@ -1220,7 +1225,7 @@ void RayGeneration()
 
         SurfaceData surface = loadSurface(payload, ray.Direction);
         float3 viewDirection = -ray.Direction;
-        if (depth == 0u) {
+        if (depth == 0u && sampleOrdinal == 0u) {
             primaryGuides = writeSurfaceGuides(pixel, payload, surface,
                                               viewDirection, dimensions);
         }
@@ -1232,13 +1237,13 @@ void RayGeneration()
         }
         uint sampleDimension = depth * PathDimensionsPerBounce;
         float2 environmentSample = float2(
-            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 0u),
-            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 1u));
+            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 0u),
+            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 1u));
         float emitterSelection =
-            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 2u);
+            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 2u);
         float2 emitterSample = float2(
-            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 3u),
-            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 4u));
+            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 3u),
+            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 4u));
         if (depth == 0u) {
             radiance += throughput * sampleEnvironmentLighting(
                 surface, viewDirection, environmentSample);
@@ -1248,7 +1253,7 @@ void RayGeneration()
              * dimensions this bounce already reserves, so every bounce keeps its
              * fixed dimension layout and no branch shifts the sequence. */
             radiance += throughput * resampleEmitterLighting(
-                pixel, dimensions, surface, viewDirection,
+                pixel, dimensions, effectiveSampleIndex, surface, viewDirection,
                 previousSurfacePosition(payload), primaryGuides.motion,
                 reservoir);
         } else {
@@ -1263,10 +1268,10 @@ void RayGeneration()
         BsdfEvaluation bsdf;
         bool sampledSpecular;
         float chooseBsdf =
-            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 5u);
+            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 5u);
         float2 bsdfSample = float2(
-            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 6u),
-            sampleBlueNoise(pixel, SampleIndex, sampleDimension + 7u));
+            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 6u),
+            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 7u));
         if (!sampleBsdf(surface, viewDirection, chooseBsdf, bsdfSample,
                         bounceDirection, bsdf, sampledSpecular)) {
             break;
@@ -1297,7 +1302,11 @@ void RayGeneration()
     if (radianceLuminance > RadianceClamp) {
         radiance *= RadianceClamp / radianceLuminance;
     }
-    NoisyRadiance[pixel] = float4(max(radiance, 0.0), 1.0);
+    accumulatedRadiance += radiance;
+    }  /* end sampleOrdinal loop */
+
+    NoisyRadiance[pixel] = float4(max(accumulatedRadiance /
+        float(SamplesPerPixel), 0.0), 1.0);
     CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = reservoir;
 }
 

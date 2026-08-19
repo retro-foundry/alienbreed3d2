@@ -147,6 +147,7 @@ struct FrameConstants {
     uint32_t reservoir_sample_limit;
     float radiance_clamp;
     float ndf_trim;
+    uint32_t samples_per_pixel;
 };
 
 /*
@@ -155,7 +156,7 @@ struct FrameConstants {
  * the 64 available DWORDs. Move this to a constant buffer view rather than
  * trimming it if more constants are needed.
  */
-static_assert(sizeof(FrameConstants) == 43u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 44u * sizeof(uint32_t));
 
 struct PresentConstants {
     uint32_t debug_view;
@@ -505,6 +506,21 @@ bool DxrPipeline::configure_resampling(std::string &error)
             if (errno == 0 && end != value && *end == '\0' &&
                 parsed >= 0.1 && parsed <= 1.0) {
                 ndf_trim_ = static_cast<float>(parsed);
+            }
+        }
+    }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_SPP", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const unsigned long parsed = std::strtoul(value, &end, 10);
+            if (errno == 0 && end != value && *end == '\0' &&
+                parsed >= 1u && parsed <= 8u) {
+                spp_ = static_cast<uint32_t>(parsed);
             }
         }
     }
@@ -1122,6 +1138,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.reservoir_sample_limit = reservoir_sample_limit_;
     constants.radiance_clamp = radiance_clamp_;
     constants.ndf_trim = ndf_trim_;
+    constants.samples_per_pixel = spp_;
 
     ID3D12DescriptorHeap *heaps[] = {descriptor_heap_.Get()};
     command_list->SetDescriptorHeaps(1, heaps);
