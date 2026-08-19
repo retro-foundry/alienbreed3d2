@@ -36,9 +36,16 @@ PixelInput vs_main(uint vertexId : SV_VertexID)
     return output;
 }
 
+float3 linearToSrgb(float3 color)
+{
+    float3 low = color * 12.92;
+    float3 high = 1.055 * pow(color, 1.0 / 2.4) - 0.055;
+    return color <= 0.0031308 ? low : high;
+}
+
 float3 displayLinear(float3 color)
 {
-    return pow(saturate(color), 1.0 / 2.2);
+    return linearToSrgb(saturate(color));
 }
 
 float3 hsvToRgb(float3 hsv)
@@ -98,6 +105,5 @@ float4 ps_main(PixelInput input) : SV_Target
     /* Krzysztof Narkowicz ACES filmic approximation. */
     float3 mapped = saturate((exposed * (2.51 * exposed + 0.03)) /
                              (exposed * (2.43 * exposed + 0.59) + 0.14));
-    mapped = pow(mapped, 1.0 / 2.2);
-    return float4(mapped, 1.0);
+    return float4(linearToSrgb(mapped), 1.0);
 }
