@@ -126,11 +126,12 @@ RWTexture2D<float> LinearRoughness : register(u4);
 RWTexture2D<float> LinearDepth : register(u5);
 RWTexture2D<float2> SceneMotion : register(u6);
 RWTexture2D<float> SpecularHitDistance : register(u7);
-RWTexture2D<float> SpecularHitDistanceHistory : register(u8);
-RWStructuredBuffer<PackedLightReservoir> CurrentReservoirs : register(u9);
+RWTexture2D<float> DiffuseHitDistance : register(u8);
+RWTexture2D<float> SpecularHitDistanceHistory : register(u9);
+RWStructuredBuffer<PackedLightReservoir> CurrentReservoirs : register(u10);
 /* Read-only this frame, but declared as a UAV so both reservoir buffers can stay
  * in the unordered-access state and the frame needs no state transitions. */
-RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u10);
+RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -1111,6 +1112,7 @@ void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
     LinearDepth[pixel] = SceneFarPlane;
     SceneMotion[pixel] = environmentMotion(unjitteredDirection, dimensions);
     SpecularHitDistance[pixel] = 0.0;
+    DiffuseHitDistance[pixel] = 0.0;
 }
 
 /* The primary hit's guide outputs the path integrator also needs: the motion
@@ -1145,6 +1147,7 @@ PrimaryGuides writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
         pixel, guides.motion, dimensions, guides.historyHitDistance);
     SpecularHitDistance[pixel] =
         guides.historyHitDistanceValid ? guides.historyHitDistance : 0.0;
+    DiffuseHitDistance[pixel] = 0.0;
     return guides;
 }
 
@@ -1207,6 +1210,11 @@ void RayGeneration()
                 lerp(primaryGuides.historyHitDistance, sampledHitDistance,
                      SpecularHitDistanceBlend) :
                 sampledHitDistance;
+        }
+        if (depth == 1u && !firstBounceSpecular && sampleOrdinal == 0u) {
+            float sampledHitDistance =
+                payload.hit != 0u ? payload.rayDistance : SceneFarPlane;
+            DiffuseHitDistance[pixel] = sampledHitDistance;
         }
         if (payload.hit == 0u) {
             if (depth == 0u && sampleOrdinal == 0u) {

@@ -32,15 +32,16 @@ enum DescriptorIndex : UINT {
     linear_depth_uav = 5,
     scene_motion_uav = 6,
     specular_hit_distance_uav = 7,
-    specular_hit_distance_history_uav = 8,
-    scene_tlas = 9,
-    base_color_atlas = 10,
-    normal_atlas = 11,
-    metalness_atlas = 12,
-    roughness_atlas = 13,
-    emissive_atlas = 14,
-    reconstruction_srv_start = 15,
-    descriptor_count = 24,
+    diffuse_hit_distance_uav = 8,
+    specular_hit_distance_history_uav = 9,
+    scene_tlas = 10,
+    base_color_atlas = 11,
+    normal_atlas = 12,
+    metalness_atlas = 13,
+    roughness_atlas = 14,
+    emissive_atlas = 15,
+    reconstruction_srv_start = 16,
+    descriptor_count = 25,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -54,6 +55,7 @@ constexpr std::array<DescriptorIndex,
         linear_depth_uav,
         scene_motion_uav,
         specular_hit_distance_uav,
+        diffuse_hit_distance_uav,
         specular_hit_distance_history_uav,
     };
 
@@ -69,6 +71,7 @@ constexpr std::array<DXGI_FORMAT,
         DXGI_FORMAT_R16G16_FLOAT,
         DXGI_FORMAT_R32_FLOAT,
         DXGI_FORMAT_R32_FLOAT,
+        DXGI_FORMAT_R32_FLOAT,
     };
 
 constexpr std::array<const wchar_t *,
@@ -82,6 +85,7 @@ constexpr std::array<const wchar_t *,
         L"AB3D2 RR Linear View Depth",
         L"AB3D2 RR Scene Motion Pixels",
         L"AB3D2 RR Specular Hit Distance",
+        L"AB3D2 RR Diffuse Hit Distance",
         L"AB3D2 RR Specular Hit Distance History",
     };
 
@@ -1159,9 +1163,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         8, sizeof(constants) / sizeof(uint32_t), &constants, 0);
     const size_t reservoir_slot = sample_index & 1u;
     command_list->SetComputeRootUnorderedAccessView(
-        9, light_reservoirs_[reservoir_slot]->GetGPUVirtualAddress());
+        10, light_reservoirs_[reservoir_slot]->GetGPUVirtualAddress());
     command_list->SetComputeRootUnorderedAccessView(
-        10, light_reservoirs_[1u - reservoir_slot]->GetGPUVirtualAddress());
+        11, light_reservoirs_[1u - reservoir_slot]->GetGPUVirtualAddress());
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};
@@ -1227,6 +1231,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             reconstruction_resource(DxrReconstructionBuffer::scene_motion),
             reconstruction_resource(
                 DxrReconstructionBuffer::specular_hit_distance),
+            reconstruction_resource(
+                DxrReconstructionBuffer::diffuse_hit_distance),
         };
         if (!streamline->evaluate(command_list, frame_number, current_camera,
                                   previous_camera, current_jitter,

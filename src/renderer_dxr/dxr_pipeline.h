@@ -43,6 +43,7 @@ enum class DxrReconstructionBuffer : size_t {
     linear_depth,
     scene_motion,
     specular_hit_distance,
+    diffuse_hit_distance,
     specular_hit_distance_history,
     count,
 };
