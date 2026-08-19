@@ -16,6 +16,7 @@ cbuffer PresentConstants : register(b0)
     uint SourceHeight;
     uint TargetWidth;
     uint TargetHeight;
+    float Exposure;
 };
 
 struct PixelInput
@@ -93,7 +94,10 @@ float4 ps_main(PixelInput input) : SV_Target
         return float4(saturate(distance / ScalarRange).xxx, 1.0);
     }
     float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
-    float3 mapped = hdr / (1.0 + hdr);
+    float3 exposed = hdr * Exposure;
+    /* Krzysztof Narkowicz ACES filmic approximation. */
+    float3 mapped = saturate((exposed * (2.51 * exposed + 0.03)) /
+                             (exposed * (2.43 * exposed + 0.59) + 0.14));
     mapped = pow(mapped, 1.0 / 2.2);
     return float4(mapped, 1.0);
 }

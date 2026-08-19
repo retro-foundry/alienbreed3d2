@@ -163,9 +163,10 @@ struct PresentConstants {
     uint32_t source_height;
     uint32_t target_width;
     uint32_t target_height;
+    float exposure;
 };
 
-static_assert(sizeof(PresentConstants) == 6u * sizeof(uint32_t));
+static_assert(sizeof(PresentConstants) == 7u * sizeof(uint32_t));
 
 std::string path_text(const std::filesystem::path &path)
 {
@@ -476,6 +477,21 @@ bool DxrPipeline::configure_resampling(std::string &error)
             }
         }
     }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_EXPOSURE", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno == 0 && end != value && *end == '\0' &&
+                parsed >= 0.001 && parsed <= 100.0) {
+                exposure_ = static_cast<float>(parsed);
+            }
+        }
+    }
     for (const Override &entry : overrides) {
         char value[64] = {};
         const DWORD length = GetEnvironmentVariableA(
@@ -502,7 +518,8 @@ bool DxrPipeline::configure_resampling(std::string &error)
     debug_output("DXR emitter resampling: candidates=" +
                  std::to_string(candidate_count_) + " reservoir limit=" +
                  std::to_string(reservoir_sample_limit_) + " radiance clamp=" +
-                 std::to_string(radiance_clamp_));
+                 std::to_string(radiance_clamp_) + " exposure=" +
+                 std::to_string(exposure_));
     return true;
 }
 
@@ -1218,7 +1235,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         debug_view_, debug_scalar_range_,
         present_streamline_output ? width : render_width,
         present_streamline_output ? height : render_height,
-        width, height};
+        width, height, exposure_};
     command_list->SetGraphicsRoot32BitConstants(
         1, sizeof(present_constants) / sizeof(uint32_t), &present_constants, 0);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
