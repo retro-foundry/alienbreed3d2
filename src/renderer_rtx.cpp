@@ -138,3 +138,16 @@ extern "C" uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *rend
     return renderer && renderer->implementation ?
         renderer->implementation->last_scene_rgb_checksum() : UINT64_C(0);
 }
+
+extern "C" double renderer_rtx_last_frame_delta(const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_frame_delta() : -1.0;
+}
+
+extern "C" uint64_t renderer_rtx_last_frame_saturated_pixels(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_saturated_pixels() : UINT64_C(0);
+}

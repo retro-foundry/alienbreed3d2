@@ -5,6 +5,7 @@
 #endif
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "audio_sdl.h"
@@ -1364,6 +1365,90 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     (char)('A' + level_index),
                     (unsigned long long)first_checksum,
                     (unsigned long long)renderer_last_frame_rgb_checksum(app->renderer));
+            /*
+             * Temporal-stability measurement. The camera, view and SceneFrame are
+             * frozen, so the only things still moving are the sampler and the Ray
+             * Reconstruction history. A converging renderer's frame-to-frame delta
+             * falls towards a floor; a boiling one holds it roughly constant.
+             * This reports the measurement rather than asserting a bound, because
+             * the threshold has to come from a recorded baseline.
+             */
+            {
+                enum {
+                    GAME_APP_DXR_STABILITY_FRAMES = 24,
+                    GAME_APP_DXR_STABILITY_WINDOW = 4
+                };
+                double early_delta = 0.0;
+                double late_delta = 0.0;
+                unsigned early_count = 0u;
+                unsigned late_count = 0u;
+                unsigned frame_index;
+                unsigned stability_frames = (unsigned)GAME_APP_DXR_STABILITY_FRAMES;
+                /* A longer sweep characterises where the delta plateaus, which is
+                 * what distinguishes "settling slowly" from "not settling". */
+                const char *stability_text = getenv("AB3D2_DXR_STABILITY_FRAMES");
+                if (stability_text != NULL && stability_text[0] != '\0') {
+                    char *stability_end = NULL;
+                    unsigned long parsed = strtoul(stability_text, &stability_end, 10);
+                    if (stability_end == NULL || *stability_end != '\0' ||
+                        parsed < 4ul || parsed > 4096ul) {
+                        fprintf(stderr,
+                                "[RENDER] AB3D2_DXR_STABILITY_FRAMES must be 4-4096\n");
+                        app->exit_code = 1;
+                        return 0;
+                    }
+                    stability_frames = (unsigned)parsed;
+                }
+                for (frame_index = 2u; frame_index < stability_frames;
+                     ++frame_index) {
+                    double delta;
+                    if (!renderer_present(app->renderer, &app->frame, &app->view,
+                                          error, sizeof(error))) {
+                        fprintf(stderr,
+                                "[RENDER] DXR stability sweep failed at frame %u "
+                                "for Level %c: %s\n",
+                                frame_index, (char)('A' + level_index), error);
+                        app->exit_code = 1;
+                        return 0;
+                    }
+                    delta = renderer_last_frame_delta(app->renderer);
+                    if (!(delta >= 0.0)) {
+                        fprintf(stderr,
+                                "[RENDER] DXR stability metric unavailable at frame %u "
+                                "for Level %c\n",
+                                frame_index, (char)('A' + level_index));
+                        app->exit_code = 1;
+                        return 0;
+                    }
+                    if (early_count < (unsigned)GAME_APP_DXR_STABILITY_WINDOW) {
+                        early_delta += delta;
+                        ++early_count;
+                    }
+                    if (frame_index + (unsigned)GAME_APP_DXR_STABILITY_WINDOW >=
+                        stability_frames) {
+                        late_delta += delta;
+                        ++late_count;
+                    }
+                }
+                if (early_count == 0u || late_count == 0u) {
+                    fprintf(stderr,
+                            "[RENDER] DXR stability sweep collected no samples "
+                            "for Level %c\n",
+                            (char)('A' + level_index));
+                    app->exit_code = 1;
+                    return 0;
+                }
+                early_delta /= (double)early_count;
+                late_delta /= (double)late_count;
+                fprintf(stdout,
+                        "[RENDER] DXR Level %c stability frames=%u early=%.4f "
+                        "late=%.4f ratio=%.4f saturated=%llu\n",
+                        (char)('A' + level_index), stability_frames,
+                        early_delta, late_delta,
+                        early_delta > 0.0 ? late_delta / early_delta : 0.0,
+                        (unsigned long long)renderer_last_frame_saturated_pixels(
+                            app->renderer));
+            }
             continue;
         }
         if (renderer_last_ui_coverage(app->renderer) == 0u) {

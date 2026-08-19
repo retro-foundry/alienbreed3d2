@@ -215,3 +215,25 @@ uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer)
         return UINT64_C(0);
     }
 }
+
+double renderer_last_frame_delta(const Renderer *renderer)
+{
+    if (!renderer) return -1.0;
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_RTX:
+        return renderer_rtx_last_frame_delta(renderer->rtx);
+    default:
+        return -1.0;
+    }
+}
+
+uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer)
+{
+    if (!renderer) return UINT64_C(0);
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_RTX:
+        return renderer_rtx_last_frame_saturated_pixels(renderer->rtx);
+    default:
+        return UINT64_C(0);
+    }
+}

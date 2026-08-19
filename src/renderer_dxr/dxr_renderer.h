@@ -30,6 +30,8 @@ public:
                  std::string &error);
     bool presentation_size(int &width, int &height) const;
     uint64_t last_scene_rgb_checksum() const;
+    double last_scene_frame_delta() const;
+    uint64_t last_scene_saturated_pixels() const;
 
 private:
     bool create_window(int window_width, int window_height, const char *window_title,

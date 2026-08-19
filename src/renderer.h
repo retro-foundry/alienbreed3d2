@@ -58,4 +58,13 @@ size_t renderer_last_projectile_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
 uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer);
 
+/* Hidden GPU-smoke temporal-stability metric: mean absolute per-component
+ * difference between the last two presented frames on the 0-255 display scale,
+ * or a negative value when the backend has not read back two frames. */
+double renderer_last_frame_delta(const Renderer *renderer);
+
+/* Hidden GPU-smoke count of presented pixels with any component at or above
+ * 250, a proxy for radiance outliers that survive tone mapping. */
+uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer);
+
 #endif

@@ -8,6 +8,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "render_view.h"
 #include "scene_frame.h"
@@ -34,6 +35,19 @@ public:
     void shutdown();
     bool presentation_size(int &width, int &height) const;
     uint64_t last_scene_rgb_checksum() const { return last_scene_rgb_checksum_; }
+    /*
+     * Mean absolute per-component difference between the last two presented
+     * frames, on the 0-255 display scale, or a negative value when fewer than
+     * two frames have been read back. This is the temporal-stability signal:
+     * with a frozen camera and scene it must fall as the reconstruction settles.
+     */
+    double last_scene_frame_delta() const { return last_scene_frame_delta_; }
+    /* Presented pixels with any component at or above 250, a proxy for radiance
+     * outliers that survive tone mapping. */
+    uint64_t last_scene_saturated_pixels() const
+    {
+        return last_scene_saturated_pixels_;
+    }
 
     ID3D12Device5 *device() const { return device_.Get(); }
 
@@ -72,6 +86,9 @@ private:
     UINT64 next_fence_value_ = 1;
     uint32_t rendered_frame_count_ = 0;
     uint64_t last_scene_rgb_checksum_ = 0;
+    double last_scene_frame_delta_ = -1.0;
+    uint64_t last_scene_saturated_pixels_ = 0;
+    std::vector<uint8_t> previous_readback_rgb_;
     UINT readback_width_ = 0;
     UINT readback_height_ = 0;
     UINT readback_row_count_ = 0;

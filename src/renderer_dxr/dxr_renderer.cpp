@@ -219,4 +219,14 @@ uint64_t DxrRenderer::last_scene_rgb_checksum() const
     return device_ ? device_->last_scene_rgb_checksum() : UINT64_C(0);
 }
 
+double DxrRenderer::last_scene_frame_delta() const
+{
+    return device_ ? device_->last_scene_frame_delta() : -1.0;
+}
+
+uint64_t DxrRenderer::last_scene_saturated_pixels() const
+{
+    return device_ ? device_->last_scene_saturated_pixels() : UINT64_C(0);
+}
+
 }  // namespace ab3d2::dxr

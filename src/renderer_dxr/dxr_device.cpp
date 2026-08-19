@@ -440,8 +440,16 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
     }
     uint64_t checksum = UINT64_C(1469598103934665603);
     uint64_t nonzero_pixels = 0u;
+    uint64_t saturated_pixels = 0u;
     double luminance_sum = 0.0;
     uint8_t maximum_component = 0u;
+    const size_t pixel_count =
+        static_cast<size_t>(readback_width_) * readback_height_;
+    /* Retaining the previous frame's RGB lets the smoke gate measure temporal
+     * stability directly instead of inferring it from a checksum. */
+    const bool comparable = previous_readback_rgb_.size() == pixel_count * 3u;
+    std::vector<uint8_t> current_rgb(pixel_count * 3u);
+    uint64_t delta_sum = 0u;
     const auto *pixels = static_cast<const uint8_t *>(mapped) +
         readback_footprint_.Offset;
     for (UINT y = 0; y < readback_height_; ++y) {
@@ -449,13 +457,26 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
             static_cast<size_t>(y) * readback_footprint_.Footprint.RowPitch;
         for (UINT x = 0; x < readback_width_; ++x) {
             const uint8_t *pixel = row + static_cast<size_t>(x) * 4u;
+            const size_t rgb_index =
+                (static_cast<size_t>(y) * readback_width_ + x) * 3u;
             nonzero_pixels += pixel[0] != 0u || pixel[1] != 0u || pixel[2] != 0u;
+            saturated_pixels += pixel[0] >= 250u || pixel[1] >= 250u ||
+                pixel[2] >= 250u;
             luminance_sum += pixel[0] * 0.2126 + pixel[1] * 0.7152 +
                 pixel[2] * 0.0722;
             for (UINT component = 0; component < 3u; ++component) {
                 maximum_component = std::max(maximum_component, pixel[component]);
                 checksum ^= pixel[component];
                 checksum *= UINT64_C(1099511628211);
+                current_rgb[rgb_index + component] = pixel[component];
+                if (comparable) {
+                    const int difference =
+                        static_cast<int>(pixel[component]) -
+                        static_cast<int>(
+                            previous_readback_rgb_[rgb_index + component]);
+                    delta_sum += static_cast<uint64_t>(
+                        difference < 0 ? -difference : difference);
+                }
             }
         }
     }
@@ -482,13 +503,20 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
     D3D12_RANGE no_write = {0, 0};
     scene_readback_->Unmap(0, &no_write);
     last_scene_rgb_checksum_ = nonzero_pixels == 0u ? 0u : checksum;
+    last_scene_saturated_pixels_ = saturated_pixels;
+    last_scene_frame_delta_ = comparable && pixel_count != 0u ?
+        static_cast<double>(delta_sum) /
+            static_cast<double>(pixel_count * 3u) : -1.0;
+    previous_readback_rgb_ = std::move(current_rgb);
     std::ostringstream statistics;
     statistics << "readback: nonzero=" << nonzero_pixels << '/'
                << static_cast<uint64_t>(readback_width_) * readback_height_
                << " mean="
                << luminance_sum /
                     (static_cast<double>(readback_width_) * readback_height_)
-               << " max=" << static_cast<unsigned>(maximum_component);
+               << " max=" << static_cast<unsigned>(maximum_component)
+               << " saturated=" << saturated_pixels
+               << " delta=" << last_scene_frame_delta_;
     debug_output(statistics.str());
     return true;
 }
@@ -684,6 +712,9 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         command_list_->ResourceBarrier(1, &to_present);
     } else {
         last_scene_rgb_checksum_ = 0;
+        last_scene_frame_delta_ = -1.0;
+        last_scene_saturated_pixels_ = 0;
+        previous_readback_rgb_.clear();
         const D3D12_RESOURCE_BARRIER to_present = transition_barrier(
             frame.render_target.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
             D3D12_RESOURCE_STATE_PRESENT);
@@ -867,6 +898,10 @@ void DxrDevice::shutdown()
     height_ = 0;
     rendered_frame_count_ = 0;
     last_scene_rgb_checksum_ = 0;
+    last_scene_frame_delta_ = -1.0;
+    last_scene_saturated_pixels_ = 0;
+    previous_readback_rgb_.clear();
+    previous_readback_rgb_.shrink_to_fit();
     readback_width_ = 0;
     readback_height_ = 0;
     readback_row_count_ = 0;
