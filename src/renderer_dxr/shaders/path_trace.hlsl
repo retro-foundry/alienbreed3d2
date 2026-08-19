@@ -159,6 +159,7 @@ cbuffer FrameConstants : register(b0)
     float PreviousJitterY;
     uint CandidateCount;
     uint ReservoirSampleLimit;
+    float RadianceClamp;
 };
 
 static const uint BlueNoiseSampleCount = 256u;
@@ -1207,7 +1208,7 @@ void RayGeneration()
                                 float2(dimensions));
             }
             float weight = 1.0;
-            if (depth > 0u) {
+            if (depth == 1u) {
                 float lightPdf =
                     saturate(dot(previousNormal, ray.Direction)) / Pi;
                 weight = powerHeuristic(previousBsdfPdf, lightPdf);
@@ -1237,8 +1238,10 @@ void RayGeneration()
         float2 emitterSample = float2(
             sampleBlueNoise(pixel, SampleIndex, sampleDimension + 3u),
             sampleBlueNoise(pixel, SampleIndex, sampleDimension + 4u));
-        radiance += throughput * sampleEnvironmentLighting(
-            surface, viewDirection, environmentSample);
+        if (depth == 0u) {
+            radiance += throughput * sampleEnvironmentLighting(
+                surface, viewDirection, environmentSample);
+        }
         if (depth == 0u) {
             /* The reservoir's first candidate consumes the same emitter
              * dimensions this bounce already reserves, so every bounce keeps its
@@ -1288,6 +1291,10 @@ void RayGeneration()
 
     if (any(isnan(radiance)) || any(isinf(radiance))) {
         radiance = 0.0;
+    }
+    float radianceLuminance = luminance(radiance);
+    if (radianceLuminance > RadianceClamp) {
+        radiance *= RadianceClamp / radianceLuminance;
     }
     NoisyRadiance[pixel] = float4(max(radiance, 0.0), 1.0);
     CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = reservoir;

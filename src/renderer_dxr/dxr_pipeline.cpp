@@ -145,6 +145,7 @@ struct FrameConstants {
     float previous_jitter_y;
     uint32_t candidate_count;
     uint32_t reservoir_sample_limit;
+    float radiance_clamp;
 };
 
 /*
@@ -153,7 +154,7 @@ struct FrameConstants {
  * the 64 available DWORDs. Move this to a constant buffer view rather than
  * trimming it if more constants are needed.
  */
-static_assert(sizeof(FrameConstants) == 41u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 42u * sizeof(uint32_t));
 
 struct PresentConstants {
     uint32_t debug_view;
@@ -460,6 +461,21 @@ bool DxrPipeline::configure_resampling(std::string &error)
         Override{"AB3D2_DXR_RESERVOIR_LIMIT", 0u, 65536u,
                  &reservoir_sample_limit_},
     };
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_RADIANCE_CLAMP", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno == 0 && end != value && *end == '\0' &&
+                parsed >= 1.0 && parsed <= 100000.0) {
+                radiance_clamp_ = static_cast<float>(parsed);
+            }
+        }
+    }
     for (const Override &entry : overrides) {
         char value[64] = {};
         const DWORD length = GetEnvironmentVariableA(
@@ -485,7 +501,8 @@ bool DxrPipeline::configure_resampling(std::string &error)
     }
     debug_output("DXR emitter resampling: candidates=" +
                  std::to_string(candidate_count_) + " reservoir limit=" +
-                 std::to_string(reservoir_sample_limit_));
+                 std::to_string(reservoir_sample_limit_) + " radiance clamp=" +
+                 std::to_string(radiance_clamp_));
     return true;
 }
 
@@ -1070,6 +1087,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.previous_jitter_y = previous_jitter.y;
     constants.candidate_count = candidate_count_;
     constants.reservoir_sample_limit = reservoir_sample_limit_;
+    constants.radiance_clamp = radiance_clamp_;
 
     ID3D12DescriptorHeap *heaps[] = {descriptor_heap_.Get()};
     command_list->SetDescriptorHeaps(1, heaps);
