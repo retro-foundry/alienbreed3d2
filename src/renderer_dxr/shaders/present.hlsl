@@ -40,7 +40,7 @@ float3 linearToSrgb(float3 color)
 {
     float3 low = color * 12.92;
     float3 high = 1.055 * pow(color, 1.0 / 2.4) - 0.055;
-    return color <= 0.0031308 ? low : high;
+    return select(color <= 0.0031308, low, high);
 }
 
 float3 displayLinear(float3 color)
