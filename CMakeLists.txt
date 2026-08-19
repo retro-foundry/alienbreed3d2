@@ -610,6 +610,20 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_include_directories(ab3d2_dxr_reconstruction_test PRIVATE src)
     add_test(NAME ab3d2_dxr_reconstruction_test
              COMMAND $<TARGET_FILE:ab3d2_dxr_reconstruction_test>)
+    add_executable(ab3d2_dxr_alias_table_test
+      tests/dxr_alias_table_test.cpp)
+    set_target_properties(ab3d2_dxr_alias_table_test
+      PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_include_directories(ab3d2_dxr_alias_table_test PRIVATE src)
+    add_test(NAME ab3d2_dxr_alias_table_test
+             COMMAND $<TARGET_FILE:ab3d2_dxr_alias_table_test>)
+    add_executable(ab3d2_dxr_sample_stream_test
+      tests/dxr_sample_stream_test.cpp)
+    set_target_properties(ab3d2_dxr_sample_stream_test
+      PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_include_directories(ab3d2_dxr_sample_stream_test PRIVATE src)
+    add_test(NAME ab3d2_dxr_sample_stream_test
+             COMMAND $<TARGET_FILE:ab3d2_dxr_sample_stream_test>)
     add_executable(ab3d2_dxr_blue_noise_test
       tests/dxr_blue_noise_test.cpp)
     set_target_properties(ab3d2_dxr_blue_noise_test

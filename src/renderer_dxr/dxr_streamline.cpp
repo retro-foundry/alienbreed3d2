@@ -20,8 +20,8 @@ namespace ab3d2::dxr {
 
 namespace {
 
-constexpr float camera_near_plane = 0.05f;
-constexpr float camera_far_plane = 8192.0f;
+constexpr float camera_near_plane = reconstruction::scene_near_plane;
+constexpr float camera_far_plane = reconstruction::scene_far_plane;
 constexpr float invalid_motion_value = 65504.0f;
 const sl::ViewportHandle rr_viewport{1u};
 

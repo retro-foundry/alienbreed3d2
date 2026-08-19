@@ -18,6 +18,22 @@ namespace ab3d2::dxr {
 
 class DxrStreamline;
 
+/*
+ * Layout mirrored by `PackedLightReservoir` in shaders/path_trace.hlsl. One
+ * direct-lighting reservoir per render-resolution pixel, double buffered so the
+ * ray shader never reads and writes the same allocation.
+ */
+struct DxrLightReservoir {
+    uint32_t emitter_index;
+    uint32_t position_sample;
+    float unbiased_weight;
+    uint32_t sample_count;
+    float surface_position[3];
+    uint32_t surface_normal;
+};
+
+static_assert(sizeof(DxrLightReservoir) == 32u);
+
 enum class DxrReconstructionBuffer : size_t {
     noisy_radiance,
     diffuse_albedo,
@@ -27,6 +43,7 @@ enum class DxrReconstructionBuffer : size_t {
     linear_depth,
     scene_motion,
     specular_hit_distance,
+    specular_hit_distance_history,
     count,
 };
 
@@ -64,6 +81,7 @@ private:
     bool create_blue_noise_sampler(ID3D12Device5 *device, std::string &error);
     bool create_descriptor_heap(ID3D12Device5 *device, std::string &error);
     bool configure_debug_view(std::string &error);
+    bool configure_resampling(std::string &error);
     bool ensure_reconstruction_targets(ID3D12Device5 *device, UINT width,
                                        UINT height, UINT present_width,
                                        UINT present_height,
@@ -86,11 +104,14 @@ private:
                static_cast<size_t>(DxrReconstructionBuffer::count)>
         reconstruction_targets_;
     Microsoft::WRL::ComPtr<ID3D12Resource> streamline_output_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> light_reservoirs_;
     UINT descriptor_size_ = 0;
     UINT render_width_ = 0;
     UINT render_height_ = 0;
     UINT present_width_ = 0;
     UINT present_height_ = 0;
+    uint32_t candidate_count_ = 0;
+    uint32_t reservoir_sample_limit_ = 0;
     uint32_t debug_view_ = 0;
     bool debug_view_requested_ = false;
     float debug_scalar_range_ = 8192.0f;

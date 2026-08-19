@@ -84,6 +84,24 @@ guide view remain available for diagnosis. Dynamic sprite/vector-object
 geometry, raw per-guide readback statistics and ID overlays, transparencies,
 and overlays remain outstanding.
 
+Phase 11 then attacked the reconstructed image's temporal stability, which had
+never settled the way TAA does. Its first result is a measurement: the hidden
+smoke freezes the camera, view, and `SceneFrame`, presents
+`AB3D2_DXR_STABILITY_FRAMES` frames, and reports the mean absolute per-component
+difference between consecutive presented frames. Fixed-phase jitter, non-degenerate
+sky guides, and a reprojected specular hit-distance guide moved the Level A plateau
+from 1.3596 to 1.1829 and, more importantly, made the image keep settling instead of
+flatlining immediately. An alias table replaced the linear emitter
+cumulative-distribution walk. Reservoir resampling of direct lighting is implemented
+and, measured against that metric, **disproves the phase's own premise**: every
+increase in candidate count or temporal history lowered the path-traced input's
+variance and raised the reconstructed image's residual difference, because it trades
+high-frequency screen-space blue noise for correlated error a denoiser cannot
+remove. Resampling therefore ships present but disabled by default, behind
+`AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT`, and spatial reuse is
+contraindicated rather than merely deferred. No level yet demonstrates a settled
+image; read section 11 before spending further effort on the estimator.
+
 ### Current dependency gate
 
 The ID-independent DirectX 12/DXR renderer may continue without Streamline. The
@@ -190,6 +208,27 @@ the renderer-native contiguous byte package has SHA-256
 Retain `docs/third_party/blue-noise-sampler-MIT.txt` in source and packaged
 distributions. Use the authors' documented two-XOR addressing; do not replace
 it with a visually similar hash or a hidden accumulation/filter pass.
+
+### Reservoir resampling for direct lighting
+
+Following explicit user direction on 2026-08-19, the direct-lighting estimator is
+rebuilt from Benedikt Bitterli, Chris Wyman, Matt Pharr, Peter Shirley, Aaron
+Lefohn, and Wojciech Jarosz, *Spatiotemporal reservoir resampling for real-time
+ray tracing with dynamic direct lighting* (ACM Transactions on Graphics 39(4),
+SIGGRAPH 2020). The paper supplies the reservoir update rule, the unbiased
+contribution weight, and the temporal combination weights.
+
+The candidate loop needs far more dimensions than the eight the Heitz tables
+optimize, so its stream comes from Mark Jarzynski and Marc Olano, *Hash Functions
+for GPU Rendering* (Journal of Computer Graphics Techniques 9(3), 2020).
+
+**Papers only.** No NVIDIA RTXDI header, shader, sample, or other third-party
+resampling implementation may be read, adapted, linked, or staged. Both
+implementations are written from the published mathematics and carry the citation
+in the shader and in the CPU test that pins them, exactly as the Heitz sampler
+does. Resampling is a sampling technique, not a denoiser: the path-traced input
+remains a single-sample stochastic estimate and disabling Ray Reconstruction must
+still reveal visible noise.
 
 ### NVIDIA Streamline and Ray Reconstruction
 
@@ -596,6 +635,187 @@ classes remain incomplete.
 - Add scripted camera/dynamic-scene captures, all-level native smoke tests, resize/device-loss tests, packaging, documentation, and licence audit.
 - Run the complete OpenGL, converter/material, Web, and source-runtime suites.
 
+### 11. `Converge the DXR estimator with staged ReSTIR direct lighting`
+
+The reconstructed image never settled the way TAA does. Blue noise shapes error
+spatially per frame and makes no temporal claim, and Ray Reconstruction is a
+short-history learned filter rather than an accumulator, so nothing in the
+pipeline was integrating. Two estimator defects dominated the residual variance:
+emitter sampling drew one sample per bounce from a global area-times-luminance
+distribution through a linear CDF walk, and environment sampling was a
+one-sample ambient-occlusion estimate against a bright analytic sky evaluated at
+every bounce.
+
+`--gpu-smoke` now measures this directly. With the camera, view, and `SceneFrame`
+frozen it presents `AB3D2_DXR_STABILITY_FRAMES` frames (default 24) and reports
+the mean absolute per-component difference between consecutive presented frames
+on the 0-255 display scale, plus a count of pixels saturating tone mapping. The
+metric is reported rather than bounded until each stage has a recorded baseline.
+
+#### 11a. Guide and jitter prerequisites — complete
+
+- `reconstruction::frame_jitter` wraps its index by `jitter_phase_count` (32).
+  An unbounded Halton index never repeats, so the upscaler had no fixed point to
+  settle onto.
+- Background pixels report `SceneFarPlane` linear depth, a camera-facing unit
+  normal, and roughness 1. A zero linear depth with `depthInverted = eFalse` is
+  the nearest representable distance and inverted every sky silhouette.
+  `reconstruction::scene_near_plane` and `scene_far_plane` are now the single
+  source of truth, mirrored in the shader as `SceneFarPlane`.
+- The specular hit-distance guide is a reprojected running estimate blended
+  towards each stochastic measurement by `SpecularHitDistanceBlend`, published
+  into `specular_hit_distance_history` by a copy after `DispatchRays`. Writing
+  zero on the frames whose primary lobe choice went diffuse made Ray
+  Reconstruction resize its specular filter footprint per pixel per frame. A
+  specular ray that escapes now reports the far plane rather than zero. This
+  filters a guide, not radiance.
+- No radiance clamp was added. A firefly clamp is biased and would be a visual
+  workaround for the estimator defects 11b and 11c remove; the saturated-pixel
+  count exists to measure whether outliers actually survive.
+
+Measured on a frozen Level A camera with DLSS-RR active, mean absolute
+per-component frame-to-frame difference over the final four frames:
+
+| Sweep length | Before 11a | After 11a |
+| --- | --- | --- |
+| 24 frames | 1.3699 | 1.3705 |
+| 192 frames | 1.3596 | 1.1829 |
+
+Before 11a the delta was flat from 24 to 192 frames (a 0.8% drop), which is the
+absence of a fixed point. After 11a it keeps settling (a 13.7% drop) and reaches
+a floor of 1.18. That floor is estimator variance and is what 11b and 11c
+address. The raw path without Ray Reconstruction measures 29.65 with a ratio of
+0.9955, confirming that no accumulation happens anywhere in the path tracer.
+
+#### 11b. O(1) light selection — complete
+
+- Header-only Walker alias table in `src/renderer_dxr/dxr_alias_table.h`, built
+  with Vose's stable partition pass beside the existing emitter weights in
+  `dxr_scene.cpp` and carried through the established emitter upload path.
+  `selection_probability` stays as the source pdf; the linear `selection_cdf`
+  walk is retired, along with the quantisation of light selection to the 256
+  distinct values the blue-noise tables return.
+- `tests/dxr_alias_table_test.cpp` checks the realised distribution analytically
+  rather than by sampling, over a sweep of emitter counts, plus the degenerate
+  and rejected cases.
+- Measured neutral for stability, which is the correct expectation: it changes
+  the cost and the resolution of selection, not the variance.
+
+#### 11c. Single-pass temporal ReSTIR direct lighting — complete, and the premise
+is disproven
+
+Implemented as designed, except that the environment was left out of the
+reservoir. Mixing the emitter and cosine-hemisphere strategies in one reservoir
+requires the mixture source pdf to stay unbiased, and the cosine strategy's pdf
+for an emitter-sampled direction is not computable without an extra ray. Emitters
+alone are the dominant, clearly diagnosed noise source, so they were measured
+first.
+
+- One 32-byte reservoir per render-resolution pixel, double buffered on the
+  sample index's parity, holding the surviving emitter index, the two canonical
+  randoms that place the point on it as 16-bit fixed point, the unbiased
+  contribution weight, the sample count, and the owning surface's world position
+  and octahedral shading normal. The target pdf is deliberately not stored:
+  recomputing it at the reusing pixel's own surface is what makes reuse exact.
+- Carrying the owning surface inside the reservoir avoids a second G-buffer
+  history. Validation compares against the current surface's *previous* world
+  position, which the motion vector already needs, so geometry that translates
+  between frames keeps its history instead of being treated as a disocclusion.
+- The power heuristic is folded into the target function, so the reservoir
+  estimates the light strategy's MIS-weighted share and the BSDF strategy
+  independently estimates its own.
+- Both buffers bind as unordered-access root descriptors, so neither needs a
+  resource-state transition, and a UAV barrier after `DispatchRays` orders this
+  frame's writes before the next frame's reads.
+
+**The measurements do not support the premise.** With a frozen Level A camera and
+DLSS-RR active, mean absolute per-component frame-to-frame difference over the
+final four frames of a 192-frame sweep:
+
+| Candidates | No temporal reuse | Reuse, limit 640 |
+| --- | --- | --- |
+| 1 | 1.1896 | 1.4366 |
+| 4 | 1.2219 | 1.4080 |
+| 8 | 1.2601 | 1.4205 |
+| 32 | 1.4085 | 1.4675 |
+
+One candidate with no reuse measures 1.1896 against the 11a baseline of 1.1829,
+which is the quantisation of the stored position sample and confirms the
+implementation reduces to the estimator it replaces exactly as intended. From
+there, **every increase in either count makes the reconstructed image less stable,
+monotonically**, while the raw path-traced input improves from 29.72 to 13.77 and
+begins to converge for the first time (ratio 0.9955 to 0.8352).
+
+The history cap is irrelevant to this: sweeping it from 32 to 640 moved the
+plateau by under one percent, so sample switching is not the mechanism. Giving the
+first candidate back the blue-noise dimensions recovered only 0.03 of the 0.25
+regression, so the noise source alone is not the mechanism either.
+
+The mechanism is the error's spectral character. Resampling trades
+high-frequency, spatially decorrelated error for lower-magnitude error that is
+correlated across neighbouring pixels and across frames, because neighbours
+increasingly agree on which emitter they picked and a reservoir holds its choice
+for many frames. A denoiser removes high-frequency error and cannot remove
+correlated error, and Ray Reconstruction's history makes correlated error persist
+and drift, which is what reads as boiling. Reducing estimator variance was
+therefore the wrong lever for this renderer's output stability.
+
+Both counts consequently default to the measured-best configuration, one
+candidate and no temporal reuse, with `AB3D2_DXR_CANDIDATES` and
+`AB3D2_DXR_RESERVOIR_LIMIT` re-enabling resampling for measurement and for the
+raw diagnostic path it genuinely improves.
+
+**Spatial reservoir reuse is contraindicated by this result** and must not be
+implemented on the assumption that it will help: it increases exactly the
+neighbour correlation the measurements identify as harmful. If it is tried, it has
+to be justified by its own measurement first.
+
+#### 11e. Where the instability actually lives
+
+The all-level sweep at the measured defaults passes for every level. Its stability
+numbers must be read alongside how much each level actually renders, because the
+DXR path still covers opaque world geometry only and several levels are nearly
+black at their smoke camera:
+
+| Level | Late delta | Mean presented value | Pixels at 250 or above |
+| --- | --- | --- | --- |
+| A | 1.3457 | 89.9 | 5.8% |
+| F | 1.2014 | 88.9 | 5.5% |
+| O | 0.7251 | 71.5 | 0.0% |
+| G | 0.6720 | not captured | 2.0% |
+| B | 0.0018 | 0.10 | 0.0% |
+| C | 0.0003 | 0.01 | 0.0% |
+
+The low deltas are not evidence of convergence: Levels B and C have means of 0.10
+and 0.01, so almost nothing is being rendered and there is nothing to be unstable.
+Every level that renders substantial lit content still plateaus above 0.7. No
+level demonstrates a settled image.
+
+Saturation correlates with the worst cases but does not explain them. The two most
+saturated levels are the two worst, yet Level O plateaus at 0.7251 with no
+saturated pixels at all, so blown-out highlights are an aggravating factor rather
+than the mechanism.
+
+The untested lever is sample count against error character: more *independent*
+blue-noise samples per pixel per frame lower the error's magnitude without
+correlating neighbours, which is the one combination none of these measurements
+cover. Outlier magnitude and exposure are the other untouched candidate, which is
+where 11a deliberately declined to intervene on the grounds that resampling would
+remove the root cause; it did not. The environment term also remains a one-sample
+binary-visibility estimate against a bright analytic sky at every bounce.
+
+The all-level smoke's stability numbers should not be turned into a regression
+threshold until the near-black levels are understood, because a level that renders
+nothing passes any stability bound trivially.
+
+#### 11f. Deferred
+
+- ReSTIR GI for the indirect channel. Deferred indefinitely: it is the same trade
+  the 11c measurements reject, applied to a second channel.
+- `kBufferTypeDiffuseHitDistance`, and confirming whether tagging
+  `kBufferTypeLinearDepth` with no `kBufferTypeDepth` is supported.
+- Dropping the forced `ePresetD` on every quality level.
+
 ## Test matrix
 
 ### CPU/unit tests
@@ -607,6 +827,13 @@ classes remain incomplete.
 - Current/previous transform lookup, level-generation isolation, camera resets, object births/deaths, and analytical motion vectors.
 - CMake configuration coverage for DXR-disabled, ID-independent DXR discovered through `PATH`, and Streamline-enabled builds discovered through environment variables, including missing-root, invalid-project-GUID, and altered-payload failures.
 - Streamline option/tag construction without invoking the proprietary runtime.
+- Jitter phase period, distinctness, and containment within the pixel footprint.
+- Alias-table construction checked analytically against the requested
+  distribution over a sweep of emitter counts, plus zero-weight, single-emitter,
+  and rejected inputs.
+- Hash-stream determinism against a pinned transcription, uniformity by
+  chi-square over the candidate axis, and decorrelation between adjacent pixels
+  and consecutive frames.
 
 ### Native GPU tests
 
@@ -679,5 +906,14 @@ The renderer is ready for normal use only when all of these are true:
 - Transmission/refraction, nested dielectrics, volumetrics, depth of field, motion blur, and frame generation: out of the initial renderer scope.
 - Responsivity, disocclusion, transparency, or other optional Streamline masks/guides: add only when the baseline required inputs are proven and a reproducible capture demonstrates the need.
 - Static BLAS compaction, bindless layout, sampler choice, and bounce-count/performance presets: measure after correctness; none may become a visual workaround.
+- Spatial reservoir reuse: not deferred but contraindicated. It increases the
+  neighbour correlation section 11c measures as harmful, so it may only be
+  revisited behind its own measurement, never on the assumption that more
+  resampling helps.
+- ReSTIR GI: deferred indefinitely for the same reason.
+- Independent samples per pixel per frame, and radiance outlier magnitude: the
+  two levers section 11e identifies as untested. Both lower error magnitude
+  without correlating neighbours, which is the combination no Phase 11
+  measurement covers.
 
 This plan intentionally leaves no compatibility path to the removed renderer. If a required behavior is missing, extend the clean renderer and its API-neutral `SceneFrame` evidence rather than reviving old code or data.

@@ -463,9 +463,25 @@ set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
 smoke to save the latest presented frame. Sprite, vector-object, weapon,
 projectile, HUD, and text coverage remain zero at this milestone.
 
+The RTX smoke then freezes the camera, view, and scene frame and presents
+`AB3D2_DXR_STABILITY_FRAMES` frames (default 24, range 4--4096), reporting the
+mean absolute per-component difference between consecutive presented frames on
+the 0--255 display scale together with a count of pixels saturating tone mapping.
+A converging renderer's difference falls towards a floor; a boiling one holds it
+roughly constant. The value is reported, not bounded, because several levels
+render almost nothing at their smoke camera and would pass any bound trivially.
+
+`AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` set the emitter
+candidates resampled per primary hit and the number of candidates a pixel's
+reservoir history may stand for. Both default to the configuration measured to
+produce the most stable reconstructed image, which is one candidate and no
+temporal reuse; raising either lowers the path-traced input's variance but raises
+the reconstructed image's residual difference. See section 11 of
+`DXR_RAY_RECONSTRUCTION_PLAN.md` for the measurements.
+
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
-`normal`, `roughness`, `depth`, `motion`, or `specular-hit-distance` to present
-one reconstruction input directly. `AB3D2_DXR_DEBUG_RANGE` sets the positive
+`normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`, or
+`specular-hit-distance-history` to present one reconstruction input directly. `AB3D2_DXR_DEBUG_RANGE` sets the positive
 linear visualization range for depth, motion magnitude, and hit distance.
 Invalid motion/history pixels are magenta; surface/background guide alpha and
 the raw values retain the documented shader sentinels rather than this display

@@ -31,14 +31,38 @@ int main()
 {
     const PixelJitter first_jitter = frame_jitter(0u);
     const PixelJitter second_jitter = frame_jitter(1u);
-    const PixelJitter later_jitter = frame_jitter(1024u);
+    const PixelJitter last_phase_jitter = frame_jitter(jitter_phase_count - 1u);
     if (!near(first_jitter.x, 0.0f) ||
         !near(first_jitter.y, -1.0f / 6.0f) ||
         !near(second_jitter.x, -0.25f) ||
         !near(second_jitter.y, 1.0f / 6.0f) ||
-        !near(later_jitter.x, 0.00048828125f) ||
-        !near(later_jitter.y, 0.47713763f)) {
+        !near(last_phase_jitter.x, -0.484375f) ||
+        !near(last_phase_jitter.y, 0.29012346f)) {
         return fail("frame jitter sequence is not deterministic");
+    }
+
+    /* Ray Reconstruction only reaches a fixed point if the sub-pixel offsets
+     * repeat, so the sequence must have exactly `jitter_phase_count` phases and
+     * every offset must stay inside the pixel. */
+    for (uint32_t phase = 0u; phase < jitter_phase_count; ++phase) {
+        const PixelJitter phase_jitter = frame_jitter(phase);
+        const PixelJitter wrapped_jitter =
+            frame_jitter(phase + jitter_phase_count * 7u);
+        if (!near(phase_jitter.x, wrapped_jitter.x) ||
+            !near(phase_jitter.y, wrapped_jitter.y)) {
+            return fail("frame jitter did not repeat with the phase period");
+        }
+        if (phase_jitter.x < -0.5f || phase_jitter.x > 0.5f ||
+            phase_jitter.y < -0.5f || phase_jitter.y > 0.5f) {
+            return fail("frame jitter left the pixel footprint");
+        }
+        for (uint32_t earlier = 0u; earlier < phase; ++earlier) {
+            const PixelJitter other = frame_jitter(earlier);
+            if (near(phase_jitter.x, other.x) &&
+                near(phase_jitter.y, other.y)) {
+                return fail("frame jitter phases are not distinct");
+            }
+        }
     }
 
     const Vec3 dielectric = specular_albedo({0.04f, 0.04f, 0.04f}, 0.5f,

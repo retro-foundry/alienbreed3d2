@@ -1,5 +1,6 @@
 #include "dxr_scene.h"
 
+#include "dxr_alias_table.h"
 #include "dxr_debug.h"
 #include "scene_geometry_compile.h"
 #include "source_world_material.h"
@@ -197,7 +198,6 @@ bool compile_emissive_triangles(
 {
     emitters.clear();
     std::vector<float> emitter_weights;
-    double emitter_weight_sum = 0.0;
     for (DxrSceneVertex &vertex : vertices) {
         vertex.emitter_index = UINT32_MAX;
     }
@@ -242,16 +242,24 @@ bool compile_emissive_triangles(
         }
         emitters.push_back(emitter);
         emitter_weights.push_back(weight);
-        emitter_weight_sum += weight;
     }
-    double emitter_cdf = 0.0;
+    if (emitters.empty()) {
+        return true;
+    }
+    /*
+     * Reservoir resampling draws tens of candidates per pixel per frame, so the
+     * emitter distribution has to be sampled in constant time.
+     */
+    std::vector<alias_table::Entry> alias_entries;
+    if (!alias_table::build(emitter_weights, alias_entries) ||
+        alias_entries.size() != emitters.size()) {
+        error = "DXR emissive triangles produced an unusable light distribution";
+        return false;
+    }
     for (size_t index = 0; index < emitters.size(); ++index) {
-        const float probability = static_cast<float>(
-            static_cast<double>(emitter_weights[index]) / emitter_weight_sum);
-        emitter_cdf += probability;
-        emitters[index].selection_probability = probability;
-        emitters[index].selection_cdf = index + 1u == emitters.size() ?
-            1.0f : static_cast<float>(emitter_cdf);
+        emitters[index].selection_probability = alias_entries[index].probability;
+        emitters[index].alias_threshold = alias_entries[index].threshold;
+        emitters[index].alias_index = alias_entries[index].alias;
     }
     return true;
 }

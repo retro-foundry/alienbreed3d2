@@ -181,6 +181,30 @@ No substantial renderer implementation was copied. The sampler's third-party
 data and required MIT notice are the explicit, bounded exception documented
 above.
 
+## Published papers implemented from the mathematics
+
+Phase 11 rebuilds the direct-lighting estimator from two published papers. Both
+are references in the same sense as the Heitz sampler description: only the
+published mathematics was used, and no implementation of either was consulted.
+
+- Benedikt Bitterli, Chris Wyman, Matt Pharr, Peter Shirley, Aaron Lefohn, and
+  Wojciech Jarosz, *Spatiotemporal reservoir resampling for real-time ray tracing
+  with dynamic direct lighting*, ACM Transactions on Graphics 39(4), SIGGRAPH
+  2020. Supplies the reservoir update rule, the unbiased contribution weight, and
+  the temporal combination weights.
+- Mark Jarzynski and Marc Olano, *Hash Functions for GPU Rendering*, Journal of
+  Computer Graphics Techniques 9(3), 2020. Supplies the `pcg` integer hash used
+  for the resampling candidate stream, which needs far more dimensions than the
+  eight the pinned blue-noise tables optimize.
+
+NVIDIA's RTXDI SDK was explicitly excluded on user direction: no RTXDI header,
+shader, sample, or generated table was read, adapted, linked, or staged. The
+reservoir mathematics and the hash are implemented in project-authored HLSL and
+project-authored CPU headers, each carrying the citation and pinned by a CPU
+test. Reservoir resampling is a sampling technique rather than a denoiser; the
+noisy radiance input remains a single-sample stochastic estimate, so disabling
+Ray Reconstruction still reveals visible noise.
+
 ## Toolchain evidence
 
 The validated Windows build used the Windows SDK DXC `1.8.2502.11`; the

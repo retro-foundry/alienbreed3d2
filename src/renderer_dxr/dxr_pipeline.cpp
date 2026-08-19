@@ -32,14 +32,15 @@ enum DescriptorIndex : UINT {
     linear_depth_uav = 5,
     scene_motion_uav = 6,
     specular_hit_distance_uav = 7,
-    scene_tlas = 8,
-    base_color_atlas = 9,
-    normal_atlas = 10,
-    metalness_atlas = 11,
-    roughness_atlas = 12,
-    emissive_atlas = 13,
-    reconstruction_srv_start = 14,
-    descriptor_count = 22,
+    specular_hit_distance_history_uav = 8,
+    scene_tlas = 9,
+    base_color_atlas = 10,
+    normal_atlas = 11,
+    metalness_atlas = 12,
+    roughness_atlas = 13,
+    emissive_atlas = 14,
+    reconstruction_srv_start = 15,
+    descriptor_count = 24,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -53,6 +54,7 @@ constexpr std::array<DescriptorIndex,
         linear_depth_uav,
         scene_motion_uav,
         specular_hit_distance_uav,
+        specular_hit_distance_history_uav,
     };
 
 constexpr std::array<DXGI_FORMAT,
@@ -65,6 +67,7 @@ constexpr std::array<DXGI_FORMAT,
         DXGI_FORMAT_R16_FLOAT,
         DXGI_FORMAT_R32_FLOAT,
         DXGI_FORMAT_R16G16_FLOAT,
+        DXGI_FORMAT_R32_FLOAT,
         DXGI_FORMAT_R32_FLOAT,
     };
 
@@ -79,7 +82,29 @@ constexpr std::array<const wchar_t *,
         L"AB3D2 RR Linear View Depth",
         L"AB3D2 RR Scene Motion Pixels",
         L"AB3D2 RR Specular Hit Distance",
+        L"AB3D2 RR Specular Hit Distance History",
     };
+
+/*
+ * Emitter candidates resampled per primary hit, and the number of candidates a
+ * pixel's reservoir history is allowed to stand for.
+ *
+ * Both default to the configuration measured to produce the most stable
+ * reconstructed image: one candidate and no temporal reuse, which is exactly the
+ * single-sample estimator that resampling reduces to. Phase 11c in
+ * DXR_RAY_RECONSTRUCTION_PLAN.md records the measurements. Every increase in
+ * either count lowered the path-traced input's variance and *raised* the
+ * reconstructed image's residual frame-to-frame difference, because it trades
+ * high-frequency screen-space blue noise for lower-magnitude error that is
+ * correlated across neighbouring pixels and across frames, and a denoiser cannot
+ * remove correlated error.
+ *
+ * `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` re-enable resampling.
+ * It more than halves the variance of the raw diagnostic path, which is the mode
+ * that has no denoiser to be confused by the change in error character.
+ */
+constexpr uint32_t reservoir_candidate_count = 1u;
+constexpr uint32_t reservoir_sample_limit = 0u;
 
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
 constexpr UINT shader_table_size = shader_record_size * 4u;
@@ -111,10 +136,17 @@ struct FrameConstants {
     float jitter_y;
     float previous_jitter_x;
     float previous_jitter_y;
-    uint32_t padding;
+    uint32_t candidate_count;
+    uint32_t reservoir_sample_limit;
 };
 
-static_assert(sizeof(FrameConstants) == 40u * sizeof(uint32_t));
+/*
+ * The ray root signature spends two DWORDs per root descriptor and one per
+ * descriptor table, so this block plus the current bindings sits at roughly 58 of
+ * the 64 available DWORDs. Move this to a constant buffer view rather than
+ * trimming it if more constants are needed.
+ */
+static_assert(sizeof(FrameConstants) == 41u * sizeof(uint32_t));
 
 struct PresentConstants {
     uint32_t debug_view;
@@ -341,6 +373,7 @@ bool DxrPipeline::configure_debug_view(std::string &error)
             "depth",
             "motion",
             "specular-hit-distance",
+            "specular-hit-distance-history",
         };
     char value[64] = {};
     const DWORD length = GetEnvironmentVariableA(
@@ -357,8 +390,9 @@ bool DxrPipeline::configure_debug_view(std::string &error)
             [&value](const char *name) { return std::strcmp(value, name) == 0; });
         if (found == names.end()) {
             error = "AB3D2_DXR_DEBUG_VIEW must be noisy, diffuse-albedo, "
-                    "specular-albedo, normal, roughness, depth, motion, or "
-                    "specular-hit-distance";
+                    "specular-albedo, normal, roughness, depth, motion, "
+                    "specular-hit-distance, or "
+                    "specular-hit-distance-history";
             return false;
         }
         debug_view_ = static_cast<uint32_t>(found - names.begin());
@@ -373,7 +407,8 @@ bool DxrPipeline::configure_debug_view(std::string &error)
         return false;
     }
     debug_scalar_range_ = debug_view_ == static_cast<uint32_t>(
-        DxrReconstructionBuffer::scene_motion) ? 32.0f : 8192.0f;
+        DxrReconstructionBuffer::scene_motion) ? 32.0f :
+        reconstruction::scene_far_plane;
     if (range_length != 0u) {
         char *end = nullptr;
         errno = 0;
@@ -389,6 +424,61 @@ bool DxrPipeline::configure_debug_view(std::string &error)
         debug_output(std::string("DXR reconstruction debug view: ") +
                      names[debug_view_]);
     }
+    return true;
+}
+
+/*
+ * Reads the two resampling counts from the environment so the candidate count and
+ * the history cap can be swept against the `--gpu-smoke` stability metric without
+ * a rebuild. The trade-off they control is real: a larger cap removes more
+ * variance from the path-traced input, but it also makes a pixel hold the same
+ * light sample for longer, which turns the residual error low frequency and
+ * temporally correlated.
+ */
+bool DxrPipeline::configure_resampling(std::string &error)
+{
+    candidate_count_ = reservoir_candidate_count;
+    reservoir_sample_limit_ = reservoir_sample_limit;
+    struct Override {
+        const char *name;
+        uint32_t minimum;
+        uint32_t limit;
+        uint32_t *target;
+    };
+    /* A reservoir limit of zero is a meaningful diagnostic setting rather than an
+     * error: it gives every historical sample no weight, which isolates the
+     * resampling from the temporal reuse. */
+    const std::array<Override, 2> overrides = {
+        Override{"AB3D2_DXR_CANDIDATES", 1u, 1024u, &candidate_count_},
+        Override{"AB3D2_DXR_RESERVOIR_LIMIT", 0u, 65536u,
+                 &reservoir_sample_limit_},
+    };
+    for (const Override &entry : overrides) {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            entry.name, value, static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = std::string(entry.name) + " exceeds 63 bytes";
+            return false;
+        }
+        if (length == 0u) {
+            continue;
+        }
+        char *end = nullptr;
+        errno = 0;
+        const unsigned long parsed = std::strtoul(value, &end, 10);
+        if (errno != 0 || end == value || *end != '\0' ||
+            parsed < entry.minimum || parsed > entry.limit) {
+            error = std::string(entry.name) + " must be " +
+                std::to_string(entry.minimum) + "-" +
+                std::to_string(entry.limit);
+            return false;
+        }
+        *entry.target = static_cast<uint32_t>(parsed);
+    }
+    debug_output("DXR emitter resampling: candidates=" +
+                 std::to_string(candidate_count_) + " reservoir limit=" +
+                 std::to_string(reservoir_sample_limit_));
     return true;
 }
 
@@ -479,7 +569,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
-    std::array<D3D12_ROOT_PARAMETER, 9> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 11> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -499,6 +589,12 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
     parameters[8].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
     parameters[8].Constants.ShaderRegister = 0;
+    /* Both reservoir buffers bind as unordered-access root descriptors, which
+     * keeps them in one resource state for the whole frame. */
+    parameters[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[9].Descriptor.ShaderRegister = 9;
+    parameters[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[10].Descriptor.ShaderRegister = 10;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -724,6 +820,9 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     for (auto &target : reconstruction_targets_) {
         target.Reset();
     }
+    for (auto &reservoir : light_reservoirs_) {
+        reservoir.Reset();
+    }
     streamline_output_.Reset();
     render_width_ = 0;
     render_height_ = 0;
@@ -790,6 +889,34 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
                 cpu_descriptor(reconstruction_srv_start));
         }
     }
+    /*
+     * One reservoir per render-resolution pixel, double buffered. Their contents
+     * are undefined until a frame writes them, which is safe because `recreated`
+     * invalidates the renderer history and the ray shader only reads a previous
+     * reservoir when that history is valid.
+     */
+    const D3D12_RESOURCE_DESC reservoir_description = [width, height] {
+        D3D12_RESOURCE_DESC reservoir =
+            buffer_description(static_cast<UINT64>(width) * height *
+                               sizeof(DxrLightReservoir));
+        reservoir.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        return reservoir;
+    }();
+    for (size_t index = 0; index < light_reservoirs_.size(); ++index) {
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &reservoir_description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&light_reservoirs_[index]));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(light reservoir)",
+                result);
+            return false;
+        }
+        light_reservoirs_[index]->SetName(index == 0u ?
+            L"AB3D2 DXR Light Reservoirs A" :
+            L"AB3D2 DXR Light Reservoirs B");
+    }
     render_width_ = width;
     render_height_ = height;
     present_width_ = present_width;
@@ -817,6 +944,7 @@ bool DxrPipeline::initialize(ID3D12Device5 *device, std::string &error)
         return false;
     }
     return configure_debug_view(error) &&
+        configure_resampling(error) &&
         load_shader(L"diagnostic_vs.dxil", vertex_shader, error) &&
         load_shader(L"diagnostic_ps.dxil", pixel_shader, error) &&
         load_shader(L"present_vs.dxil", present_vertex_shader, error) &&
@@ -933,6 +1061,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.jitter_y = current_jitter.y;
     constants.previous_jitter_x = previous_jitter.x;
     constants.previous_jitter_y = previous_jitter.y;
+    constants.candidate_count = candidate_count_;
+    constants.reservoir_sample_limit = reservoir_sample_limit_;
 
     ID3D12DescriptorHeap *heaps[] = {descriptor_heap_.Get()};
     command_list->SetDescriptorHeaps(1, heaps);
@@ -951,6 +1081,11 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         7, blue_noise_sampler_->GetGPUVirtualAddress());
     command_list->SetComputeRoot32BitConstants(
         8, sizeof(constants) / sizeof(uint32_t), &constants, 0);
+    const size_t reservoir_slot = sample_index & 1u;
+    command_list->SetComputeRootUnorderedAccessView(
+        9, light_reservoirs_[reservoir_slot]->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
+        10, light_reservoirs_[1u - reservoir_slot]->GetGPUVirtualAddress());
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};
@@ -973,6 +1108,36 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     }
     command_list->ResourceBarrier(static_cast<UINT>(guide_barriers.size()),
                                   guide_barriers.data());
+    const D3D12_RESOURCE_BARRIER reservoir_barriers[] = {
+        uav_barrier(light_reservoirs_[0].Get()),
+        uav_barrier(light_reservoirs_[1].Get()),
+    };
+    command_list->ResourceBarrier(2, reservoir_barriers);
+
+    /*
+     * Publish this frame's specular hit-distance guide as next frame's history.
+     * The guide is a reprojected running estimate, so the ray shader has to read
+     * a different resource from the one it writes.
+     */
+    ID3D12Resource *hit_distance =
+        reconstruction_resource(DxrReconstructionBuffer::specular_hit_distance);
+    ID3D12Resource *hit_distance_history = reconstruction_resource(
+        DxrReconstructionBuffer::specular_hit_distance_history);
+    const D3D12_RESOURCE_BARRIER to_history_copy[] = {
+        transition(hit_distance, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                   D3D12_RESOURCE_STATE_COPY_SOURCE),
+        transition(hit_distance_history, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                   D3D12_RESOURCE_STATE_COPY_DEST),
+    };
+    command_list->ResourceBarrier(2, to_history_copy);
+    command_list->CopyResource(hit_distance_history, hit_distance);
+    const D3D12_RESOURCE_BARRIER from_history_copy[] = {
+        transition(hit_distance, D3D12_RESOURCE_STATE_COPY_SOURCE,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+        transition(hit_distance_history, D3D12_RESOURCE_STATE_COPY_DEST,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+    };
+    command_list->ResourceBarrier(2, from_history_copy);
 #if defined(AB3D2_ENABLE_STREAMLINE)
     if (streamline_active) {
         const DxrStreamlineResources resources = {

@@ -48,6 +48,15 @@ inline Vec3 specular_albedo(Vec3 specular_color, float linear_roughness,
              std::max(bias, 0.0f)};
 }
 
+/*
+ * Depth range shared by the linear-depth guide, the Streamline camera constants,
+ * and the ray extent in shaders/path_trace.hlsl, which mirrors the far plane as
+ * `SceneFarPlane`. The values follow the Amiga-sized world scale rather than a
+ * conventional metre-based range.
+ */
+constexpr float scene_near_plane = 0.05f;
+constexpr float scene_far_plane = 8192.0f;
+
 struct CameraProjection {
     Vec3 position;
     Vec3 forward;
@@ -83,9 +92,18 @@ inline float radical_inverse(uint32_t index, uint32_t base)
     return result;
 }
 
+/*
+ * Number of distinct sub-pixel offsets before the jitter sequence repeats.
+ * An unbounded Halton index keeps producing new sub-pixel positions forever, so
+ * the upscaler's accumulation never closes a cycle and the reconstructed image
+ * has no fixed point to settle onto. A fixed phase count gives the sequence a
+ * period, which is what lets a static camera converge.
+ */
+constexpr uint32_t jitter_phase_count = 32u;
+
 inline PixelJitter frame_jitter(uint32_t sample_index)
 {
-    const uint32_t sample = sample_index + 1u;
+    const uint32_t sample = (sample_index % jitter_phase_count) + 1u;
     return {radical_inverse(sample, 2u) - 0.5f,
             radical_inverse(sample, 3u) - 0.5f};
 }

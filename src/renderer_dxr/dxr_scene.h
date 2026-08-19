@@ -31,11 +31,17 @@ struct DxrSceneMaterial {
     float emissive[3];
 };
 
+/*
+ * Layout mirrored by `EmissiveTriangle` in shaders/path_trace.hlsl. The alias
+ * pair replaces the former cumulative-distribution value so selection costs one
+ * lookup instead of a linear walk; see dxr_alias_table.h.
+ */
 struct DxrEmissiveTriangle {
     uint32_t first_vertex;
-    float selection_cdf;
     float selection_probability;
     float inverse_area;
+    float alias_threshold;
+    uint32_t alias_index;
 };
 
 class DxrScene final {

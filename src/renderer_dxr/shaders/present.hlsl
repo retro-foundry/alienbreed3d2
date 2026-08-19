@@ -6,6 +6,7 @@ Texture2D<float4> LinearRoughness : register(t4);
 Texture2D<float4> LinearDepth : register(t5);
 Texture2D<float4> SceneMotion : register(t6);
 Texture2D<float4> SpecularHitDistance : register(t7);
+Texture2D<float4> SpecularHitDistanceHistory : register(t8);
 
 cbuffer PresentConstants : register(b0)
 {
@@ -85,6 +86,10 @@ float4 ps_main(PixelInput input) : SV_Target
     }
     if (DebugView == 7u) {
         float distance = SpecularHitDistance.Load(int3(pixel, 0)).r;
+        return float4(saturate(distance / ScalarRange).xxx, 1.0);
+    }
+    if (DebugView == 8u) {
+        float distance = SpecularHitDistanceHistory.Load(int3(pixel, 0)).r;
         return float4(saturate(distance / ScalarRange).xxx, 1.0);
     }
     float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
