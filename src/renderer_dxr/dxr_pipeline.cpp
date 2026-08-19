@@ -102,14 +102,16 @@ constexpr std::array<const wchar_t *,
  * Within the enabled configurations the candidate count dominates and the history
  * cap is nearly irrelevant: four candidates measure 1.4046 against 1.4674 for
  * thirty-two, while sweeping the cap from 64 to 640 moves the result by under
- * half a percent. Four candidates also keep the resampling cost close to the
- * one-sample estimator's.
+ * half a percent. The single-sample blue-noise estimator (1 candidate, limit 0)
+ * measures 1.1896 against 1.40+ for every resampling configuration, because its
+ * error is high-frequency and spatially decorrelated — exactly what Ray
+ * Reconstruction is designed to filter.
  *
  * `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` override both, and a
  * limit of zero disables temporal reuse to recover the single-sample estimator.
  */
-constexpr uint32_t reservoir_candidate_count = 4u;
-constexpr uint32_t reservoir_sample_limit = 128u;
+constexpr uint32_t reservoir_candidate_count = 1u;
+constexpr uint32_t reservoir_sample_limit = 0u;
 
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
 constexpr UINT shader_table_size = shader_record_size * 4u;

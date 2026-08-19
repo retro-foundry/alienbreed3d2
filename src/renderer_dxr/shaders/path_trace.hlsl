@@ -181,9 +181,10 @@ static const float SpecularHitDistanceBlend = 0.2;
 /* Temporal reuse is rejected unless the reprojected surface matches this closely:
  * a world-space distance within this fraction of the view depth, so the tolerance
  * scales with the Amiga-sized world instead of assuming a unit system, and a
- * shading-normal agreement of at least this cosine. */
-static const float ReservoirPositionTolerance = 0.02;
-static const float ReservoirNormalTolerance = 0.9;
+ * shading-normal agreement of at least this cosine. Tight values prevent
+ * reservoirs from leaking across adjacent differently-oriented surfaces. */
+static const float ReservoirPositionTolerance = 0.005;
+static const float ReservoirNormalTolerance = 0.966;
 /*
  * Sample-index offset used to draw the temporal acceptance test from an
  * optimized blue-noise dimension without reusing the value that selected this
@@ -191,6 +192,9 @@ static const float ReservoirNormalTolerance = 0.9;
  * apart in the sequence while both stay blue in screen space.
  */
 static const uint ReservoirAcceptanceOffset = 128u;
+/* Clamp the reservoir's unbiased contribution weight to prevent extreme outliers
+ * from persisting across frames and drifting as correlated temporal noise. */
+static const float ReservoirMaxWeight = 20.0;
 
 /*
  * The `pcg4d` integer hash from Jarzynski and Olano, "Hash Functions for GPU
@@ -1048,7 +1052,8 @@ float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
     }
 
     float unbiasedWeight = sampleCount > 0u && selectedTarget > 0.0 ?
-        weightSum / (float(sampleCount) * selectedTarget) : 0.0;
+        min(weightSum / (float(sampleCount) * selectedTarget),
+            ReservoirMaxWeight) : 0.0;
     stored.emitterIndex = selected.emitterIndex;
     stored.positionSample = packPositionSample(selected.positionSample);
     stored.unbiasedWeight = unbiasedWeight;
