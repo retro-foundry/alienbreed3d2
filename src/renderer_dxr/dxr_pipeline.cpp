@@ -669,9 +669,9 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     /* Both reservoir buffers bind as unordered-access root descriptors, which
      * keeps them in one resource state for the whole frame. */
     parameters[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[9].Descriptor.ShaderRegister = 9;
+    parameters[9].Descriptor.ShaderRegister = 10;
     parameters[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[10].Descriptor.ShaderRegister = 10;
+    parameters[10].Descriptor.ShaderRegister = 11;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -1163,9 +1163,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         8, sizeof(constants) / sizeof(uint32_t), &constants, 0);
     const size_t reservoir_slot = sample_index & 1u;
     command_list->SetComputeRootUnorderedAccessView(
-        10, light_reservoirs_[reservoir_slot]->GetGPUVirtualAddress());
+        9, light_reservoirs_[reservoir_slot]->GetGPUVirtualAddress());
     command_list->SetComputeRootUnorderedAccessView(
-        11, light_reservoirs_[1u - reservoir_slot]->GetGPUVirtualAddress());
+        10, light_reservoirs_[1u - reservoir_slot]->GetGPUVirtualAddress());
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};

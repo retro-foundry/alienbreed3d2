@@ -221,12 +221,6 @@ sl::DLSSDOptions make_options(DxrStreamline::Mode mode, UINT output_width,
     options.colorBuffersHDR = sl::Boolean::eTrue;
     options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::eUnpacked;
     options.alphaUpscalingEnabled = sl::Boolean::eFalse;
-    options.dlaaPreset = sl::DLSSDPreset::ePresetD;
-    options.qualityPreset = sl::DLSSDPreset::ePresetD;
-    options.balancedPreset = sl::DLSSDPreset::ePresetD;
-    options.performancePreset = sl::DLSSDPreset::ePresetD;
-    options.ultraPerformancePreset = sl::DLSSDPreset::ePresetD;
-    options.ultraQualityPreset = sl::DLSSDPreset::ePresetD;
     if (camera) {
         options.cameraViewToWorld = camera_to_world(*camera);
         sl::matrixOrthoNormalInvert(options.worldToCameraView,
