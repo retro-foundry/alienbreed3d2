@@ -160,6 +160,7 @@ cbuffer FrameConstants : register(b0)
     uint CandidateCount;
     uint ReservoirSampleLimit;
     float RadianceClamp;
+    float NdfTrim;
 };
 
 static const uint BlueNoiseSampleCount = 256u;
@@ -647,7 +648,7 @@ BsdfEvaluation evaluateBsdf(SurfaceData surface, float3 viewDirection,
     float chooseSpecular = specularProbability(diffuseReflectance, f0);
     float diffusePdf = normalLight / Pi;
     float specularPdf = distribution * viewMasking /
-        max(4.0 * normalView, 1.0e-7);
+        max(4.0 * normalView * NdfTrim, 1.0e-7);
     result.value = diffuse + specular;
     result.pdf = lerp(diffusePdf, specularPdf, chooseSpecular);
     return result;
@@ -664,7 +665,7 @@ float3 sampleGgxVisibleNormal(float3 viewDirection, float alpha,
         float3(-stretchedView.y, stretchedView.x, 0.0) / sqrt(lensSquared) :
         float3(1.0, 0.0, 0.0);
     float3 secondTangent = cross(stretchedView, firstTangent);
-    float radius = sqrt(sampleValue.x);
+    float radius = sqrt(sampleValue.x * NdfTrim);
     float angle = 2.0 * Pi * sampleValue.y;
     float first = radius * cos(angle);
     float second = radius * sin(angle);
