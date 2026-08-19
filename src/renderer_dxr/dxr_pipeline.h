@@ -115,7 +115,7 @@ private:
     UINT present_height_ = 0;
     uint32_t candidate_count_ = 0;
     uint32_t reservoir_sample_limit_ = 0;
-    float radiance_clamp_ = 20.0f;
+    float radiance_clamp_ = 200.0f;
     uint32_t debug_view_ = 0;
     bool debug_view_requested_ = false;
     float debug_scalar_range_ = 8192.0f;
