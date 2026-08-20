@@ -41,10 +41,11 @@ roughness, and emissive maps are explicit neutral placeholders, identified in
 in the manifest as non-color texture-coordinate animation data.
 
 `tools/compile_pbr_asset_pack.py` validates the category paths and dimensions,
-copies the PNGs byte-for-byte, records file and decoded-pixel hashes, and emits
-the metadata-only `AB3PBR4` catalog. Runtime pixels are decoded from the staged
-PNGs themselves. The process does not invoke or consume the old Q2 package
-builder, its output, packed channels, or material files.
+records file and decoded-pixel hashes, and embeds each exact compressed PNG in
+the indexed `AB3PBR5` runtime package. Startup reads only its catalog; runtime
+pixels are decoded from a material's embedded PNG payloads on first use. The
+process does not invoke or consume the old Q2 package builder, its output,
+packed channels, or material files.
 
 The authoritative `shared_wall` IDs come from the wall texture load order in
 `amiga/ab3d2_source/modules/res.s:Res_LoadWallTextures`, as published by

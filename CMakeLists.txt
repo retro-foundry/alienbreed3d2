@@ -431,7 +431,7 @@ if(AB3D2_ENABLE_DXR)
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_pbr_asset_pack.py"
             "${AB3D2_DXR_MATERIAL_SOURCE_SPEC}"
             ${AB3D2_DXR_MATERIAL_PNGS}
-    COMMENT "Validate and stage the category-sorted DXR PBR PNG asset package"
+    COMMENT "Validate and compile the category-sorted DXR PBR PNG asset package"
     VERBATIM
   )
   add_custom_target(ab3d2_dxr_materials DEPENDS ${AB3D2_DXR_MATERIAL_OUTPUTS})
@@ -701,6 +701,8 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "${AB3D2_DXR_BLUE_NOISE_LICENSE}"
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/blue-noise-sampler-license.txt"
+      COMMAND ${CMAKE_COMMAND} -E remove_directory
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/materials"
       COMMAND ${CMAKE_COMMAND} -E copy_directory
               "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/materials"

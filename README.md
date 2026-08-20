@@ -453,9 +453,11 @@ The complete editable texture handoff is
 and `ui` directories. They contain 973 material identities and five PNG maps
 per material (4,865 PNGs total), alongside root-level `materials.json` and the
 artist README. Each category is flat. Unauthored PBR channels are committed
-neutral maps for artists to replace. DXR validates and loads these PNGs
-directly and fails on a missing/corrupt map or missing world/weapon binding; it
-does not regenerate fallback textures at runtime.
+neutral maps for artists to replace. The build validates every PNG and embeds
+its exact compressed bytes in one runtime package. DXR reads only the package
+catalog at startup and decodes a material's five PNGs when the live scene first
+requires that binding. A missing/corrupt map or missing world/weapon binding is
+fatal; the runtime does not regenerate fallback textures.
 
 Each pixel traces a fresh three-hit path
 with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,

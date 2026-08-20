@@ -683,7 +683,8 @@ This directory is category-sorted and zip-ready. Every material has five PNGs:
 
 Keep each edited channel at the dimensions recorded in `materials.json`. Channels
 listed in `generated_channels` are neutral placeholders awaiting artwork. The
-runtime validates and loads these PNG files directly; `materials.json` records the
+build validates and embeds the exact PNG bytes in the runtime package; the game
+decodes only materials required by the live scene. `materials.json` records the
 source asset and renderer binding for every material.
 
 The category directories are `walls`, `floors`, `weapons`, `vector_models`,

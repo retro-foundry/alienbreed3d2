@@ -10,13 +10,14 @@
 #include <fstream>
 #include <limits>
 #include <set>
+#include <sstream>
 
 namespace ab3d2::dxr {
 
 namespace {
 
-constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '4', 0};
-constexpr uint32_t runtime_version = 4u;
+constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '5', 0};
+constexpr uint32_t runtime_version = 5u;
 constexpr uint32_t runtime_source_none = 0u;
 constexpr uint32_t runtime_source_shared_wall = 1u;
 constexpr uint32_t runtime_source_shared_floor = 2u;
@@ -44,21 +45,24 @@ constexpr uint32_t runtime_known_flags =
     runtime_alpha_mask | runtime_flag_emissive_texture |
     runtime_flag_two_sided | runtime_flag_vector_glare | runtime_class_mask;
 constexpr size_t runtime_header_size = 24u;
-constexpr size_t runtime_record_size = 140u;
+constexpr size_t runtime_record_metadata_size = 140u;
+constexpr size_t runtime_channel_payload_size = 12u;
+constexpr size_t runtime_record_size = runtime_record_metadata_size +
+    static_cast<size_t>(DxrMaterialChannel::count) * runtime_channel_payload_size;
 constexpr size_t runtime_name_size = 96u;
 constexpr uint32_t runtime_material_limit = 8192u;
 constexpr uint32_t runtime_image_extent_limit = 8192u;
-constexpr uint64_t runtime_file_size_limit = UINT64_C(16) * 1024u * 1024u;
+constexpr uint64_t runtime_file_size_limit = UINT64_C(1024) * 1024u * 1024u;
 
-constexpr const char *channel_suffixes[] = {
-    "_base_color.png",
-    "_normal.png",
-    "_metalness.png",
-    "_roughness.png",
-    "_emissive.png",
+constexpr const char *channel_names[] = {
+    "base_color",
+    "normal",
+    "metalness",
+    "roughness",
+    "emissive",
 };
 
-static_assert(std::size(channel_suffixes) ==
+static_assert(std::size(channel_names) ==
               static_cast<size_t>(DxrMaterialChannel::count));
 
 uint32_t read_u32(const uint8_t *bytes)
@@ -67,6 +71,12 @@ uint32_t read_u32(const uint8_t *bytes)
         (static_cast<uint32_t>(bytes[1]) << 8u) |
         (static_cast<uint32_t>(bytes[2]) << 16u) |
         (static_cast<uint32_t>(bytes[3]) << 24u);
+}
+
+uint64_t read_u64(const uint8_t *bytes)
+{
+    return static_cast<uint64_t>(read_u32(bytes)) |
+        (static_cast<uint64_t>(read_u32(bytes + 4u)) << 32u);
 }
 
 float read_float(const uint8_t *bytes)
@@ -94,44 +104,42 @@ bool valid_material_name(const std::string &name)
     });
 }
 
-const char *material_directory(uint32_t material_class)
+bool valid_material_class(uint32_t material_class)
 {
     switch (material_class) {
     case runtime_class_wall:
-        return "walls";
     case runtime_class_floor:
-        return "floors";
     case runtime_class_weapon:
-        return "weapons";
     case runtime_class_vector_model:
-        return "vector_models";
     case runtime_class_enemy:
-        return "enemies";
     case runtime_class_billboard:
-        return "billboards";
     case runtime_class_effect:
-        return "effects";
     case runtime_class_environment:
-        return "environment";
     case runtime_class_ui:
-        return "ui";
+        return true;
     default:
-        return nullptr;
+        return false;
     }
 }
 
-bool load_channel_png(const std::filesystem::path &path,
+bool load_channel_png(const uint8_t *encoded, uint32_t encoded_size,
+                      const std::string &description,
                       uint32_t expected_width, uint32_t expected_height,
                       std::vector<uint8_t> &pixels, std::string &error)
 {
+    if (!encoded || encoded_size == 0u ||
+        encoded_size > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+        error = "DXR PBR package contains an invalid PNG payload: " + description;
+        return false;
+    }
     int width = 0;
     int height = 0;
     int source_channels = 0;
-    const std::string narrow_path = path.string();
-    stbi_uc *decoded = stbi_load(
-        narrow_path.c_str(), &width, &height, &source_channels, 4);
+    stbi_uc *decoded = stbi_load_from_memory(
+        encoded, static_cast<int>(encoded_size),
+        &width, &height, &source_channels, 4);
     if (!decoded) {
-        error = "DXR PBR PNG could not be decoded: " + path_text(path) +
+        error = "DXR PBR PNG could not be decoded: " + description +
             "; " + (stbi_failure_reason() ? stbi_failure_reason() :
                        "unknown PNG error");
         return false;
@@ -144,7 +152,7 @@ bool load_channel_png(const std::filesystem::path &path,
         byte_count64 > std::numeric_limits<size_t>::max()) {
         stbi_image_free(decoded);
         error = "DXR PBR PNG extent disagrees with its catalog record: " +
-            path_text(path);
+            description;
         return false;
     }
     const size_t byte_count = static_cast<size_t>(byte_count64);
@@ -162,6 +170,9 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
     bindings_.clear();
     vector_bindings_.clear();
     bitmap_bindings_.clear();
+    payloads_.clear();
+    package_path_.clear();
+    resident_size_ = 0u;
     loaded_ = false;
 
     std::ifstream stream(path, std::ios::binary | std::ios::ate);
@@ -175,35 +186,45 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         error = "DXR PBR material catalog has an invalid size: " + path_text(path);
         return false;
     }
-    std::vector<uint8_t> bytes(static_cast<size_t>(end));
+    std::array<uint8_t, runtime_header_size> header = {};
     stream.seekg(0, std::ios::beg);
-    if (!stream.read(reinterpret_cast<char *>(bytes.data()), end)) {
-        error = "DXR PBR material catalog could not be read completely: " +
+    if (!stream.read(reinterpret_cast<char *>(header.data()), header.size())) {
+        error = "DXR PBR material package header could not be read: " +
             path_text(path);
         return false;
     }
-    if (std::memcmp(bytes.data(), runtime_magic, sizeof(runtime_magic)) != 0 ||
-        read_u32(bytes.data() + 8u) != runtime_version) {
+    if (std::memcmp(header.data(), runtime_magic, sizeof(runtime_magic)) != 0 ||
+        read_u32(header.data() + 8u) != runtime_version) {
         error = "DXR PBR material catalog has an unsupported format";
         return false;
     }
-    const uint32_t material_count = read_u32(bytes.data() + 12u);
-    const uint32_t channel_count = read_u32(bytes.data() + 16u);
-    const uint32_t record_size = read_u32(bytes.data() + 20u);
+    const uint32_t material_count = read_u32(header.data() + 12u);
+    const uint32_t channel_count = read_u32(header.data() + 16u);
+    const uint32_t record_size = read_u32(header.data() + 20u);
+    const uint64_t table_size = runtime_header_size +
+        static_cast<uint64_t>(material_count) * runtime_record_size;
     if (material_count == 0u || material_count > runtime_material_limit ||
         channel_count != static_cast<uint32_t>(DxrMaterialChannel::count) ||
         record_size != runtime_record_size ||
-        static_cast<size_t>(material_count) >
-            (bytes.size() - runtime_header_size) / runtime_record_size ||
-        runtime_header_size + static_cast<size_t>(material_count) *
-                runtime_record_size != bytes.size()) {
+        table_size > static_cast<uint64_t>(end) ||
+        table_size > std::numeric_limits<size_t>::max()) {
         error = "DXR PBR material catalog header/record extent is invalid";
+        return false;
+    }
+    std::vector<uint8_t> bytes(static_cast<size_t>(table_size));
+    std::memcpy(bytes.data(), header.data(), header.size());
+    if (!stream.read(
+            reinterpret_cast<char *>(bytes.data() + runtime_header_size),
+            static_cast<std::streamsize>(table_size - runtime_header_size))) {
+        error = "DXR PBR material catalog records could not be read: " +
+            path_text(path);
         return false;
     }
 
     definitions_.reserve(material_count);
+    payloads_.reserve(material_count);
     std::set<std::string> names;
-    const std::filesystem::path directory = path.parent_path();
+    uint64_t expected_payload_offset = table_size;
     for (uint32_t index = 0; index < material_count; ++index) {
         const uint8_t *record = bytes.data() + runtime_header_size +
             static_cast<size_t>(index) * runtime_record_size;
@@ -231,7 +252,6 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         const uint32_t alpha_mode = flags & runtime_alpha_mask;
         const uint32_t material_class =
             (flags & runtime_class_mask) >> runtime_class_shift;
-        const char *class_directory = material_directory(material_class);
         if (width == 0u || height == 0u ||
             width > runtime_image_extent_limit ||
             height > runtime_image_extent_limit ||
@@ -240,7 +260,7 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
             (alpha_mode != runtime_alpha_opaque &&
              alpha_mode != runtime_alpha_tested &&
              alpha_mode != runtime_alpha_additive) ||
-            !class_directory || !valid_material_name(name) ||
+            !valid_material_class(material_class) || !valid_material_name(name) ||
             !names.emplace(name).second) {
             error = "DXR PBR material catalog contains an invalid material record";
             return false;
@@ -266,15 +286,24 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         definition.normal_strength = normal_strength;
         std::memcpy(definition.emissive_factor, emissive_factor,
                     sizeof(definition.emissive_factor));
+        std::array<ChannelPayload,
+                   static_cast<size_t>(DxrMaterialChannel::count)> payloads = {};
         for (size_t channel = 0;
              channel < static_cast<size_t>(DxrMaterialChannel::count); ++channel) {
-            const std::filesystem::path png =
-                directory / class_directory /
-                (name + channel_suffixes[channel]);
-            if (!load_channel_png(png, width, height,
-                                  definition.pixels[channel], error)) {
+            const uint8_t *payload_record = record +
+                runtime_record_metadata_size +
+                channel * runtime_channel_payload_size;
+            const uint64_t offset = read_u64(payload_record);
+            const uint32_t size = read_u32(payload_record + 8u);
+            if (size < 8u || offset != expected_payload_offset ||
+                offset > static_cast<uint64_t>(end) ||
+                size > static_cast<uint64_t>(end) - offset) {
+                error = "DXR PBR material catalog contains an invalid PNG payload range";
                 return false;
             }
+            payloads[channel].offset = offset;
+            payloads[channel].size = size;
+            expected_payload_offset += size;
         }
 
         const size_t definition_index = definitions_.size();
@@ -340,7 +369,13 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
             return false;
         }
         definitions_.push_back(std::move(definition));
+        payloads_.push_back(payloads);
     }
+    if (expected_payload_offset != static_cast<uint64_t>(end)) {
+        error = "DXR PBR material package has trailing or missing PNG payload bytes";
+        return false;
+    }
+    package_path_ = path;
     loaded_ = true;
     return true;
 }
@@ -361,34 +396,138 @@ bool DxrMaterialLibrary::load_from_executable(std::string &error)
     return load(package, error);
 }
 
-const DxrMaterialDefinition *DxrMaterialLibrary::find(
-    SceneMaterialSource source, uint32_t source_asset_id) const
+bool DxrMaterialLibrary::resolve_index(
+    size_t index, const DxrMaterialDefinition *&definition, std::string &error)
 {
-    const auto found = bindings_.find(std::make_pair(source, source_asset_id));
-    return found == bindings_.end() ? nullptr : &definitions_[found->second];
+    definition = nullptr;
+    if (!loaded_ || index >= definitions_.size() || index >= payloads_.size()) {
+        error = "DXR PBR material resolution used an invalid catalog index";
+        return false;
+    }
+    DxrMaterialDefinition &material = definitions_[index];
+    if (!material.pixels[0].empty()) {
+        definition = &material;
+        return true;
+    }
+
+    const auto &payloads = payloads_[index];
+    const uint64_t first_offset = payloads.front().offset;
+    const ChannelPayload &last_payload = payloads.back();
+    const uint64_t end_offset = last_payload.offset + last_payload.size;
+    const uint64_t encoded_size64 = end_offset - first_offset;
+    if (encoded_size64 > std::numeric_limits<size_t>::max() ||
+        encoded_size64 > static_cast<uint64_t>(
+            std::numeric_limits<std::streamsize>::max())) {
+        error = "DXR PBR material PNG payload is too large: " + material.name;
+        return false;
+    }
+    const size_t encoded_size = static_cast<size_t>(encoded_size64);
+    std::vector<uint8_t> encoded(encoded_size);
+    std::ifstream stream(package_path_, std::ios::binary);
+    if (!stream) {
+        error = "DXR PBR material package is unavailable while resolving " +
+            material.name + ": " + path_text(package_path_);
+        return false;
+    }
+    stream.seekg(static_cast<std::streamoff>(first_offset), std::ios::beg);
+    if (!stream || !stream.read(reinterpret_cast<char *>(encoded.data()),
+                                static_cast<std::streamsize>(encoded.size()))) {
+        error = "DXR PBR material PNG payload could not be read for " +
+            material.name + " from " + path_text(package_path_);
+        return false;
+    }
+
+    std::array<std::vector<uint8_t>,
+               static_cast<size_t>(DxrMaterialChannel::count)> decoded;
+    constexpr uint8_t png_signature[8] = {
+        0x89u, 'P', 'N', 'G', 0x0du, 0x0au, 0x1au, 0x0au,
+    };
+    for (size_t channel = 0;
+         channel < static_cast<size_t>(DxrMaterialChannel::count); ++channel) {
+        const ChannelPayload &payload = payloads[channel];
+        const size_t relative_offset = static_cast<size_t>(
+            payload.offset - first_offset);
+        const uint8_t *png = encoded.data() + relative_offset;
+        if (payload.size < sizeof(png_signature) ||
+            std::memcmp(png, png_signature, sizeof(png_signature)) != 0) {
+            error = "DXR PBR package payload is not a PNG: " + material.name +
+                "/" + channel_names[channel];
+            return false;
+        }
+        const std::string description = material.name + "/" +
+            channel_names[channel] + " in " + path_text(package_path_);
+        if (!load_channel_png(png, payload.size, description,
+                              material.width, material.height,
+                              decoded[channel], error)) {
+            return false;
+        }
+    }
+    material.pixels = std::move(decoded);
+    ++resident_size_;
+    definition = &material;
+    return true;
 }
 
-const DxrMaterialDefinition *DxrMaterialLibrary::find_vector(
+bool DxrMaterialLibrary::resolve(
+    SceneMaterialSource source, uint32_t source_asset_id,
+    const DxrMaterialDefinition *&definition, std::string &error)
+{
+    const auto found = bindings_.find(std::make_pair(source, source_asset_id));
+    if (found == bindings_.end()) {
+        std::ostringstream message;
+        message << "DXR PBR binding is missing for world material: source="
+                << static_cast<unsigned>(source)
+                << " asset=" << source_asset_id;
+        error = message.str();
+        definition = nullptr;
+        return false;
+    }
+    return resolve_index(found->second, definition, error);
+}
+
+bool DxrMaterialLibrary::resolve_vector(
     uint32_t source_asset_id, uint32_t source_map_offset,
     uint8_t minimum_u, uint8_t maximum_u,
-    uint8_t minimum_v, uint8_t maximum_v, uint8_t glare) const
+    uint8_t minimum_v, uint8_t maximum_v, uint8_t glare,
+    const DxrMaterialDefinition *&definition, std::string &error)
 {
     const auto key = std::make_tuple(
         source_asset_id, source_map_offset, minimum_u, maximum_u,
         minimum_v, maximum_v, glare);
     const auto found = vector_bindings_.find(key);
-    return found == vector_bindings_.end() ?
-        nullptr : &definitions_[found->second];
+    if (found == vector_bindings_.end()) {
+        std::ostringstream message;
+        message << "DXR PBR binding is missing for vector material: asset="
+                << source_asset_id << " map=" << source_map_offset
+                << " u=" << static_cast<unsigned>(minimum_u)
+                << ".." << static_cast<unsigned>(maximum_u)
+                << " v=" << static_cast<unsigned>(minimum_v)
+                << ".." << static_cast<unsigned>(maximum_v)
+                << " glare=" << static_cast<unsigned>(glare);
+        error = message.str();
+        definition = nullptr;
+        return false;
+    }
+    return resolve_index(found->second, definition, error);
 }
 
-const DxrMaterialDefinition *DxrMaterialLibrary::find_bitmap(
+bool DxrMaterialLibrary::resolve_bitmap(
     uint32_t source_asset_id, uint32_t frame_index,
-    uint32_t source_mode) const
+    uint32_t source_mode, const DxrMaterialDefinition *&definition,
+    std::string &error)
 {
     const auto found = bitmap_bindings_.find(
         std::make_tuple(source_asset_id, frame_index, source_mode));
-    return found == bitmap_bindings_.end() ?
-        nullptr : &definitions_[found->second];
+    if (found == bitmap_bindings_.end()) {
+        std::ostringstream message;
+        message << "DXR PBR binding is missing for bitmap material: asset="
+                << source_asset_id << " frame=" << frame_index
+                << " mode=" << source_mode;
+        error = message.str();
+        definition = nullptr;
+        return false;
+    }
+    return resolve_index(found->second, definition, error);
 }
 
 }  // namespace ab3d2::dxr

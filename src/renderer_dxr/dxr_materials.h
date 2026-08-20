@@ -41,21 +41,39 @@ public:
     bool load(const std::filesystem::path &path, std::string &error);
     bool load_from_executable(std::string &error);
 
-    const DxrMaterialDefinition *find(SceneMaterialSource source,
-                                      uint32_t source_asset_id) const;
-    const DxrMaterialDefinition *find_vector(
+    bool resolve(SceneMaterialSource source, uint32_t source_asset_id,
+                 const DxrMaterialDefinition *&definition,
+                 std::string &error);
+    bool resolve_vector(
         uint32_t source_asset_id, uint32_t source_map_offset,
         uint8_t minimum_u, uint8_t maximum_u,
-        uint8_t minimum_v, uint8_t maximum_v, uint8_t glare) const;
-    const DxrMaterialDefinition *find_bitmap(
+        uint8_t minimum_v, uint8_t maximum_v, uint8_t glare,
+        const DxrMaterialDefinition *&definition, std::string &error);
+    bool resolve_bitmap(
         uint32_t source_asset_id, uint32_t frame_index,
-        uint32_t source_mode) const;
+        uint32_t source_mode, const DxrMaterialDefinition *&definition,
+        std::string &error);
     size_t size() const { return definitions_.size(); }
+    size_t resident_size() const { return resident_size_; }
     bool loaded() const { return loaded_; }
 
 private:
+    struct ChannelPayload {
+        uint64_t offset = 0;
+        uint32_t size = 0;
+    };
+
+    bool resolve_index(size_t index,
+                       const DxrMaterialDefinition *&definition,
+                       std::string &error);
+
     bool loaded_ = false;
+    size_t resident_size_ = 0;
+    std::filesystem::path package_path_;
     std::vector<DxrMaterialDefinition> definitions_;
+    std::vector<std::array<ChannelPayload,
+                           static_cast<size_t>(DxrMaterialChannel::count)>>
+        payloads_;
     std::map<std::pair<SceneMaterialSource, uint32_t>, size_t> bindings_;
     std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
                         uint8_t, uint8_t, uint8_t>, size_t> vector_bindings_;

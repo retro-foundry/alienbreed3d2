@@ -40,12 +40,14 @@ material has separate base-color, tangent-normal, metalness, roughness, and
 emissive PNGs: the original 13 project-authored PBR sheets and source-authored
 emission are retained, while unauthored channels are explicit neutral PNGs.
 The package therefore contains 4,865 editable PNGs plus `materials.json` and
-an artist README. The build validates and copies those PNGs unchanged, writes
-a metadata-only `AB3PBR4` catalog, and records deterministic file/pixel hashes.
-The runtime decodes the PNGs themselves; a missing binding, missing map,
-corrupt PNG, or dimension disagreement is fatal instead of invoking a hidden
-source-texture fallback. `waterfile` is recorded separately as non-color UV
-animation data; water geometry uses its selected floor PBR material.
+an artist README. The build validates every PNG, records deterministic file and
+decoded-pixel hashes, and embeds the exact compressed PNG bytes in one
+`AB3PBR5` runtime package. Startup parses only the package catalog; each
+material's five PNG payloads are decoded on first use by the live scene. A
+missing binding, malformed package range, corrupt PNG, or dimension disagreement
+is fatal instead of invoking a hidden source-texture fallback. `waterfile` is
+recorded separately as non-color UV animation data; water geometry uses its
+selected floor PBR material.
 
 The implemented Phase 5/6 slice shares the tested native world-coordinate
 conversion and concave X/Z ear clipping with OpenGL, compiles opaque
@@ -375,7 +377,7 @@ src/
       post.hlsl
 tools/
   export_pbr_asset_pack.py           source assets -> sorted artist PNG package
-  compile_pbr_asset_pack.py          validate/hash/stage PNGs + runtime catalog
+  compile_pbr_asset_pack.py          validate/hash/embed PNGs + runtime catalog
 assets/renderer_dxr/materials/
   README.md                          artist handoff and archive instructions
   materials.json                     source identity/channel manifest
@@ -478,13 +480,13 @@ dimensions, source provenance, exact world/vector/bitmap binding, alpha mode,
 color spaces, generated-channel list, and non-color source assets.
 
 `tools/compile_pbr_asset_pack.py` rejects missing, extra, malformed, renamed,
-or wrong-sized PNGs and private/absolute provenance paths, copies the artist
-PNGs byte-for-byte into the build package, hashes files and decoded pixels, and
-writes a metadata-only runtime catalog. It must not invoke the old Q2RTX
-package builder or inherit its channel packing and naming. The C++ library
-loads all five PNGs for all 973 identities and indexes world, vector-face, and
-bitmap bindings. World and companion compilation require a matching binding;
-there is no runtime texture synthesis or decoded-source fallback.
+or wrong-sized PNGs and private/absolute provenance paths, hashes files and
+decoded pixels, and embeds the exact compressed PNG bytes in one indexed runtime
+package. It must not invoke the old Q2RTX package builder or inherit its channel
+packing and naming. The C++ library parses metadata for all 973 identities, then
+decodes only the five PNGs for a material when the live world or companion first
+resolves that binding. World and companion compilation require a matching
+binding; there is no runtime texture synthesis or decoded-source fallback.
 
 Decode base-color textures from sRGB to linear before BRDF use. Treat normal,
 roughness, metalness, and emissive scalar data according to their declared

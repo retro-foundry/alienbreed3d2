@@ -626,14 +626,11 @@ bool DxrScene::compile(const SceneFrame &frame,
              ++surface_index) {
             const SceneMeshSurface &surface = mesh.surfaces[surface_index];
             const SceneGeometry &geometry = surface.geometry;
-            const DxrMaterialDefinition *surface_pbr = material_library_.find(
-                surface.material.source, surface.material.source_asset_id);
-            if (!surface_pbr) {
-                std::ostringstream message;
-                message << "DXR PBR PNG binding is missing for world material: source="
-                        << static_cast<unsigned>(surface.material.source)
-                        << " asset=" << surface.material.source_asset_id;
-                error = message.str();
+            const DxrMaterialDefinition *surface_pbr = nullptr;
+            if (!material_library_.resolve(
+                    surface.material.source,
+                    surface.material.source_asset_id,
+                    surface_pbr, error)) {
                 return false;
             }
             MaterialKey key = {
@@ -709,22 +706,13 @@ bool DxrScene::compile(const SceneFrame &frame,
              ++material_index) {
             const SourceVectorSceneMaterial &source =
                 view_weapon.source.materials[material_index];
-            const DxrMaterialDefinition *pbr = material_library_.find_vector(
-                view_weapon.sprite->source_asset_id,
-                source.source_map_offset,
-                source.minimum_u, source.maximum_u,
-                source.minimum_v, source.maximum_v, source.glare);
-            if (!pbr) {
-                std::ostringstream message;
-                message << "DXR PBR PNG binding is missing for view-weapon face: asset="
-                        << view_weapon.sprite->source_asset_id
-                        << " map=" << source.source_map_offset
-                        << " u=" << static_cast<unsigned>(source.minimum_u)
-                        << ".." << static_cast<unsigned>(source.maximum_u)
-                        << " v=" << static_cast<unsigned>(source.minimum_v)
-                        << ".." << static_cast<unsigned>(source.maximum_v)
-                        << " glare=" << static_cast<unsigned>(source.glare);
-                error = message.str();
+            const DxrMaterialDefinition *pbr = nullptr;
+            if (!material_library_.resolve_vector(
+                    view_weapon.sprite->source_asset_id,
+                    source.source_map_offset,
+                    source.minimum_u, source.maximum_u,
+                    source.minimum_v, source.maximum_v, source.glare,
+                    pbr, error)) {
                 return false;
             }
             if (pbr->width != source.width || pbr->height != source.height) {

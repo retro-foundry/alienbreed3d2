@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and stage the category-sorted artist PBR PNG pack for DXR."""
+"""Validate the artist PBR PNGs and compile their exact bytes for DXR."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import hashlib
 import json
 import math
 import re
-import shutil
 import struct
 import sys
 from pathlib import Path, PurePosixPath
@@ -22,8 +21,8 @@ except ImportError as error:  # pragma: no cover - build-host diagnostic
 
 
 CHANNELS = ("base_color", "normal", "metalness", "roughness", "emissive")
-RUNTIME_MAGIC = b"AB3PBR4\0"
-RUNTIME_VERSION = 4
+RUNTIME_MAGIC = b"AB3PBR5\0"
+RUNTIME_VERSION = 5
 RUNTIME_SOURCE_NONE = 0
 RUNTIME_SOURCE_SHARED_WALL = 1
 RUNTIME_SOURCE_SHARED_FLOOR = 2
@@ -35,7 +34,7 @@ RUNTIME_FLAG_TWO_SIDED = 1 << 9
 RUNTIME_FLAG_VECTOR_GLARE = 1 << 10
 RUNTIME_CLASS_SHIFT = 12
 RUNTIME_HEADER = struct.Struct("<8sIIII")
-RUNTIME_RECORD = struct.Struct("<IIIIIIffffI96s")
+RUNTIME_RECORD = struct.Struct("<IIIIIIffffI96s" + "QI" * len(CHANNELS))
 BITMAP_MODES = {
     "bitmap": 0,
     "lighted_2": 2,
@@ -163,7 +162,9 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     names: set[str] = set()
     bindings: set[tuple[int, int, int, int]] = set()
     expected_pngs: set[str] = set()
-    runtime_records: list[bytes] = []
+    runtime_materials: list[
+        tuple[tuple[object, ...], list[bytes], dict[str, dict[str, object]]]
+    ] = []
     output_materials: list[dict[str, object]] = []
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -233,6 +234,7 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
         if not isinstance(channel_spec, dict) or set(channel_spec) != set(CHANNELS):
             raise ValueError(f"PBR material {name} does not list all five channels")
         output_channels: dict[str, dict[str, object]] = {}
+        channel_payloads: list[bytes] = []
         for channel in CHANNELS:
             filename = require_relative_file(
                 channel_spec[channel], f"PBR material {name} {channel} channel"
@@ -259,10 +261,10 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
                     "pixel_sha256": sha256(rgba.tobytes()),
                     "source_mode": opened.mode,
                 }
+            if not data or len(data) > 0xFFFFFFFF:
+                raise ValueError(f"PBR channel {filename} has an invalid runtime size")
+            channel_payloads.append(data)
             expected_pngs.add(filename)
-            output_path = output_dir.joinpath(*PurePosixPath(filename).parts)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source_path, output_path)
 
         flags = RUNTIME_ALPHA[alpha_mode]
         if any(value > 0.0 for value in emissive_factor):
@@ -273,20 +275,24 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
             flags |= RUNTIME_FLAG_VECTOR_GLARE
         flags |= RUNTIME_CLASSES[material_class] << RUNTIME_CLASS_SHIFT
         encoded_name = name.encode("ascii")
-        runtime_records.append(
-            RUNTIME_RECORD.pack(
-                binding[0],
-                binding[1],
-                binding[2],
-                binding[3],
-                width,
-                height,
-                float(normal_strength),
-                float(emissive_factor[0]),
-                float(emissive_factor[1]),
-                float(emissive_factor[2]),
-                flags,
-                encoded_name + bytes(96 - len(encoded_name)),
+        runtime_materials.append(
+            (
+                (
+                    binding[0],
+                    binding[1],
+                    binding[2],
+                    binding[3],
+                    width,
+                    height,
+                    float(normal_strength),
+                    float(emissive_factor[0]),
+                    float(emissive_factor[1]),
+                    float(emissive_factor[2]),
+                    flags,
+                    encoded_name + bytes(96 - len(encoded_name)),
+                ),
+                channel_payloads,
+                output_channels,
             )
         )
         output_material = dict(material)
@@ -303,6 +309,21 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
             f"unlisted={sorted(discovered_pngs - expected_pngs)}, "
             f"missing={sorted(expected_pngs - discovered_pngs)}"
         )
+    payload_offset = (
+        RUNTIME_HEADER.size + len(runtime_materials) * RUNTIME_RECORD.size
+    )
+    runtime_records: list[bytes] = []
+    runtime_payloads: list[bytes] = []
+    for record_fields, channel_payloads, output_channels in runtime_materials:
+        channel_ranges: list[int] = []
+        for channel, payload in zip(CHANNELS, channel_payloads, strict=True):
+            channel_ranges.extend((payload_offset, len(payload)))
+            output_channels[channel]["runtime_offset"] = payload_offset
+            output_channels[channel]["runtime_size"] = len(payload)
+            payload_offset += len(payload)
+            runtime_payloads.append(payload)
+        runtime_records.append(RUNTIME_RECORD.pack(*record_fields, *channel_ranges))
+
     runtime = bytearray(
         RUNTIME_HEADER.pack(
             RUNTIME_MAGIC,
@@ -314,9 +335,11 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     )
     for record in runtime_records:
         runtime.extend(record)
+    for payload in runtime_payloads:
+        runtime.extend(payload)
     runtime_path = output_dir / "material_runtime.bin"
     runtime_path.write_bytes(runtime)
-    expected_outputs = expected_pngs | {"material_runtime.bin", "material_manifest.json"}
+    expected_outputs = {"material_runtime.bin", "material_manifest.json"}
     unexpected = sorted(
         path.relative_to(output_dir).as_posix()
         for path in output_dir.rglob("*")
@@ -325,15 +348,16 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     if unexpected:
         raise ValueError(f"PBR runtime output contains stale/unexpected files: {unexpected}")
     manifest = {
-        "schema_version": 4,
+        "schema_version": 5,
         "generator": "tools/compile_pbr_asset_pack.py",
         "source_manifest_sha256": sha256(spec_path.read_bytes()),
         "materials": output_materials,
         "runtime_package": {
             "file": runtime_path.name,
-            "format": "AB3PBR4",
+            "format": "AB3PBR5",
             "sha256": sha256(runtime),
-            "contains_pixels": False,
+            "contains_pixels": True,
+            "pixel_encoding": "png",
         },
         "non_color_source_assets": spec.get("non_color_source_assets", []),
     }

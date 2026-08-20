@@ -1,5 +1,4 @@
 import json
-import struct
 import tempfile
 import unittest
 from collections import Counter
@@ -111,7 +110,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             with Image.open(ASSET_DIR / sample["channels"][channel]) as opened:
                 self.assertEqual({pixel[:3] for pixel in opened.convert("RGBA").getdata()}, {rgb})
 
-    def test_runtime_catalog_references_pngs_instead_of_embedding_pixels(self) -> None:
+    def test_runtime_package_embeds_exact_pngs_for_demand_loading(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "materials"
             manifest_path = compile_pack(ASSET_DIR, SPEC, output)
@@ -123,20 +122,36 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             self.assertEqual(count, 973)
             self.assertEqual(channels, len(CHANNELS))
             self.assertEqual(record_size, RUNTIME_RECORD.size)
-            self.assertEqual(len(runtime), RUNTIME_HEADER.size + count * record_size)
-            self.assertNotIn(b"\x89PNG\r\n\x1a\n", runtime)
-            self.assertFalse(manifest["runtime_package"]["contains_pixels"])
-            self.assertEqual(len(list(output.rglob("*.png"))), 4_865)
+            table_size = RUNTIME_HEADER.size + count * record_size
+            self.assertGreater(len(runtime), table_size)
+            self.assertTrue(manifest["runtime_package"]["contains_pixels"])
+            self.assertEqual(manifest["runtime_package"]["pixel_encoding"], "png")
+            self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR5")
+            self.assertEqual(manifest["schema_version"], 5)
+            self.assertEqual(len(list(output.rglob("*.png"))), 0)
             self.assertEqual(
-                {path.name for path in output.iterdir() if path.is_dir()},
-                set(MATERIAL_DIRECTORIES.values()),
+                {path.name for path in output.iterdir()},
+                {"material_manifest.json", "material_runtime.bin"},
             )
 
             records = [
                 RUNTIME_RECORD.unpack_from(runtime, RUNTIME_HEADER.size + index * record_size)
                 for index in range(count)
             ]
-            names = [record[-1].split(b"\0", 1)[0].decode("ascii") for record in records]
+            names = [record[11].split(b"\0", 1)[0].decode("ascii") for record in records]
+            expected_offset = table_size
+            png_signature = b"\x89PNG\r\n\x1a\n"
+            for record in records:
+                ranges = record[12:]
+                for channel_index in range(len(CHANNELS)):
+                    offset = ranges[channel_index * 2]
+                    size = ranges[channel_index * 2 + 1]
+                    self.assertEqual(offset, expected_offset)
+                    self.assertGreater(size, len(png_signature))
+                    self.assertEqual(runtime[offset : offset + len(png_signature)], png_signature)
+                    expected_offset += size
+            self.assertEqual(expected_offset, len(runtime))
+
             weapon_index = names.index("weapon_03_blaster_material_000")
             weapon = records[weapon_index]
             self.assertEqual(weapon[0], 3)  # vector binding
@@ -146,6 +161,19 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
                 (weapon[10] >> RUNTIME_CLASS_SHIFT) & 0xF,
                 RUNTIME_CLASSES["weapon"],
             )
+            source_weapon = next(
+                material
+                for material in self.spec["materials"]
+                if material["name"] == "weapon_03_blaster_material_000"
+            )
+            for channel_index, channel in enumerate(CHANNELS):
+                offset = weapon[12 + channel_index * 2]
+                size = weapon[13 + channel_index * 2]
+                expected_png = (ASSET_DIR / source_weapon["channels"][channel]).read_bytes()
+                self.assertEqual(runtime[offset : offset + size], expected_png)
+                runtime_channel = manifest["materials"][weapon_index]["channels"][channel]
+                self.assertEqual(runtime_channel["runtime_offset"], offset)
+                self.assertEqual(runtime_channel["runtime_size"], size)
 
 
 if __name__ == "__main__":
