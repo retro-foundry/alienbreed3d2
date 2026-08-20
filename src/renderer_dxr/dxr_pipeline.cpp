@@ -992,7 +992,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     const D3D12_RANGE no_write = {0, 0};
     diagnostics_readback_->Unmap(0, &no_write);
     debug_output(
-        "DXR view weapon diagnostics: primary pixels=" +
+        "DXR view weapon diagnostics: foreground primary pixels=" +
         std::to_string(last_view_weapon_coverage_) + " radiance=" +
         std::to_string(last_view_weapon_rgb_checksum_));
     return true;

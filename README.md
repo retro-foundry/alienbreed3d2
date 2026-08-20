@@ -43,8 +43,10 @@ session. Supported keys are:
   emissive channels with a multi-bounce Lambertian/GGX path tracer, authored
   area emitters, environment lighting, shadow rays, MIS, and a pinned
   dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player 1's
-  companion weapon is primary camera-relative PBR geometry in the same TLAS;
-  it does not yet draw sprites, world vector objects, HUD, or text.
+  companion weapon is a camera-relative PBR foreground layer in the same TLAS:
+  it ignores world primary depth, reflects the world and environment, and
+  supplies HDR radiance plus every guide before Ray Reconstruction. It does not
+  yet draw sprites, world vector objects, HUD, or text.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
@@ -430,9 +432,12 @@ uploads positions, UVs, material/primitive indices, and renderer-native
 base-color, tangent-normal, metalness, roughness, and emissive atlases, then
 builds static/dynamic BLAS objects and one TLAS. The companion compiler's exact
 NDC and eye depth are inverted through the DXR camera into an alpha-tested,
-camera-relative dynamic BLAS; it therefore contributes primary radiance,
-depth, normals, motion, and every Ray Reconstruction guide rather than being a
-post-tone-map overlay. `technolights` and the source
+camera-relative dynamic BLAS. Separate TLAS instance masks let a weapon-only
+primary probe win over any world hit, giving it cleared-depth foreground
+semantics without moving it after Ray Reconstruction. Its later path rays see
+both masks, so the PBR weapon can reflect and be shadowed by the world while
+still contributing HDR radiance, depth, normals, motion, and every
+reconstruction guide. World paths never see the companion. `technolights` and the source
 `floor_0101` panel use colored emissive masks at factor 200; other materials
 remain non-emissive. Every vertex also carries the source Gouraud shade
 response for its surface, and that scales authored emission, so an emissive

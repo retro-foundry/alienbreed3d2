@@ -49,7 +49,11 @@ deliberately excludes sprites, world vector objects, water-specific behavior,
 HUD, and text. The player companion weapon is now the first vector exception:
 its exact source-projected points are inverted through the DXR camera into
 camera-relative world positions, stored in their own alpha-tested dynamic
-BLAS, and included in the TLAS, path-traced radiance, guides, and motion.
+BLAS, and included in the TLAS behind a dedicated instance mask. A weapon-only
+primary probe gives it cleared-depth foreground precedence over the world;
+secondary weapon paths use both masks so its PBR surfaces retain world and
+environment reflections. The combined noisy radiance, guides, and motion are
+written before Ray Reconstruction.
 
 Phase 7 now writes one fresh un-denoised `R16G16B16A16_FLOAT` sample per pixel
 and presents it with a full-screen tone-map pass. The path integrator evaluates
@@ -233,8 +237,12 @@ Local path: `C:\Users\paula\Documents\Projects\alienbreed3d2-rtx-renderer`
 The current D3D12 implementation is original to this tree. It reuses the
 project-owned source compiler, reverses the current DXR primary-ray projection
 to retain the compiler's exact NDC and positive eye depth, appends one dynamic
-BLAS/TLAS instance, and emits a two-word GPU diagnostic. No sibling C or GLSL
-file, Q2RTX material convention, or generated package was copied or linked.
+BLAS/TLAS instance with a foreground-only mask, and emits a two-word GPU
+diagnostic. World primary and secondary rays use only the world mask. A
+successful foreground probe selects the companion independent of world hit
+distance, after which its secondary and visibility rays use both masks. No
+sibling C or GLSL file, Q2RTX material convention, or generated package was
+copied or linked.
 
 ### Heitz et al. screen-space blue-noise sampler
 
@@ -548,15 +556,19 @@ Establish the opaque RR path before adding ambiguous presentation layers:
 - Opaque and alpha-tested world geometry participates in primary rays, depth, normals, materials, motion, and TLAS visibility.
 - Additive/glare sprites and other transparent effects are initially rendered after RR in output resolution. This prevents their missing geometry depth/motion from corrupting reconstruction.
 - If post-RR transparent quality is insufficient, add NVIDIA's premultiplied transparency overlay and color-before-transparency guides exactly as the pinned RR guide describes. Do not invent partial guide semantics.
-- The camera-space companion weapon is implemented as primary ray-traced
-  geometry rather than an overlay. Its exact `ENT_NEXT_2` NDC/eye-depth output
-  is unprojected through the same DXR camera used by primary rays, assigned
+- The camera-space companion weapon is implemented as a pre-RR ray-traced
+  foreground layer rather than a post-RR overlay. Its exact `ENT_NEXT_2`
+  NDC/eye-depth output is unprojected through the same DXR camera, assigned
   decoded source albedo with the renderer's existing flat-normal,
   roughness-one, metalness-zero fallback, alpha tested in any-hit, and stored in
-  a dynamic BLAS. Current/previous camera-relative vertices produce valid depth,
-  normals, materials, motion, and all mandatory RR guides. Authored
-  `predoglare` faces map their decoded colour to unit emissive radiance; they do
-  not use a post-tone-map additive blend.
+  a dynamic BLAS with its own instance mask. A weapon-only primary probe wins
+  regardless of world depth; secondary weapon and visibility rays use both
+  masks for self-occlusion, world shadows, and PBR reflections. Current/previous
+  camera-relative vertices produce valid depth, normals, materials, motion, and
+  all mandatory RR guides before reconstruction. Authored `predoglare` faces
+  map their decoded colour to unit surface emission but are excluded from the
+  world's emitter sampling distribution; they do not use a post-tone-map
+  additive blend.
 - HUD/text remain presentation overlays after RR and tone mapping.
 - Water first needs an explicitly authored PBR material and valid moving geometry history. Begin with a rough dielectric reflection model. Defer transmission/refraction until its ray type, absorption, nested-medium behavior, guides, and motion tests are specified.
 - Text screens and non-game presentation set `renderingGameFrames=false` and reset history when returning to the world.
@@ -694,11 +706,12 @@ geometry and later presentation classes remain incomplete.
 
 ### 10. `Complete DXR presentation and regression coverage`
 
-- Current status: exposure/tone mapping and the primary in-world companion
-  weapon are implemented. Hidden DXR smoke reads primary-hit coverage and a
+- Current status: exposure/tone mapping and the pre-RR PBR companion foreground
+  layer are implemented. Hidden DXR smoke reads foreground-hit coverage and a
   fresh-radiance checksum from a GPU UAV; the 2026-08-20 Level A run passed and
-  a diffuse-albedo capture confirmed the lower-view traced silhouette and world
-  occlusion. The production ACES exposure is now `1`: the former `0.015`
+  Level A/Level D diffuse-albedo captures confirmed the lower-view traced
+  silhouette has cleared-depth precedence over the world while retaining its
+  reconstruction guides. The production ACES exposure is now `1`: the former `0.015`
   default crushed ordinary traced lighting below the display range. Level A
   exposure sweeps at one and eight samples per pixel confirmed that exposure
   one restores the scene response while retaining the existing filmic

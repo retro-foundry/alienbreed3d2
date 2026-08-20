@@ -1,7 +1,10 @@
 static const float Pi = 3.14159265358979323846;
 static const float RayEpsilon = 0.05;
 static const uint InvalidIndex = 0xffffffffu;
-static const uint PrimitiveViewWeapon = 1u;
+static const uint WorldInstanceMask = 0x01u;
+static const uint ViewWeaponInstanceMask = 0x02u;
+static const uint ForegroundPathInstanceMask =
+    WorldInstanceMask | ViewWeaponInstanceMask;
 static const float InvalidMotion = 65504.0;
 /*
  * Mirrors `reconstruction::scene_far_plane` in dxr_reconstruction_math.h, which
@@ -719,7 +722,8 @@ bool sampleBsdf(SurfaceData surface, float3 viewDirection,
         dot(surface.geometricNormal, lightDirection) > 0.0;
 }
 
-bool traceVisibility(float3 origin, float3 direction, float maximumDistance)
+bool traceVisibility(float3 origin, float3 direction, float maximumDistance,
+                     uint instanceMask)
 {
     if (maximumDistance <= RayEpsilon) {
         return false;
@@ -734,12 +738,12 @@ bool traceVisibility(float3 origin, float3 direction, float maximumDistance)
     TraceRay(Scene,
              RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
                  RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
-             0xff, 0, 0, 1, ray, payload);
+             instanceMask, 0, 0, 1, ray, payload);
     return payload.visible != 0u;
 }
 
 float3 sampleEnvironmentLighting(SurfaceData surface, float3 viewDirection,
-                                 float2 sampleValue)
+                                 float2 sampleValue, uint instanceMask)
 {
     float3 lightDirection = cosineHemisphere(surface.shadingNormal,
                                               sampleValue);
@@ -749,7 +753,7 @@ float3 sampleEnvironmentLighting(SurfaceData surface, float3 viewDirection,
         dot(surface.geometricNormal, lightDirection) <= 0.0 ||
         !traceVisibility(surface.position +
                              surface.geometricNormal * RayEpsilon,
-                         lightDirection, SceneFarPlane)) {
+                         lightDirection, SceneFarPlane, instanceMask)) {
         return 0.0;
     }
     BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
@@ -867,12 +871,14 @@ EmitterEvaluation evaluateEmitterSample(SurfaceData surface,
     return evaluation;
 }
 
-bool traceEmitterVisibility(SurfaceData surface, EmitterEvaluation evaluation)
+bool traceEmitterVisibility(SurfaceData surface, EmitterEvaluation evaluation,
+                            uint instanceMask)
 {
     return traceVisibility(surface.position +
                                surface.geometricNormal * RayEpsilon,
                            evaluation.lightDirection,
-                           evaluation.lightDistance - RayEpsilon);
+                           evaluation.lightDistance - RayEpsilon,
+                           instanceMask);
 }
 
 /*
@@ -882,7 +888,8 @@ bool traceEmitterVisibility(SurfaceData surface, EmitterEvaluation evaluation)
  * the estimator this replaced.
  */
 float3 sampleEmitterLighting(SurfaceData surface, float3 viewDirection,
-                             float selection, float2 positionSample)
+                             float selection, float2 positionSample,
+                             uint instanceMask)
 {
     if (EmitterCount == 0u) {
         return 0.0;
@@ -894,7 +901,7 @@ float3 sampleEmitterLighting(SurfaceData surface, float3 viewDirection,
     EmitterEvaluation evaluation =
         evaluateEmitterSample(surface, viewDirection, lightSample);
     if (!evaluation.valid || !(evaluation.targetPdf > 0.0) ||
-        !traceEmitterVisibility(surface, evaluation)) {
+        !traceEmitterVisibility(surface, evaluation, instanceMask)) {
         return 0.0;
     }
     return evaluation.contribution / evaluation.sourcePdf;
@@ -960,6 +967,7 @@ float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
                                uint sampleIndex,
                                SurfaceData surface, float3 viewDirection,
                                float3 previousPosition, float2 motion,
+                               uint instanceMask,
                                out PackedLightReservoir stored)
 {
     stored = (PackedLightReservoir)0;
@@ -1076,7 +1084,7 @@ float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
     EmitterEvaluation finalEvaluation =
         evaluateEmitterSample(surface, viewDirection, selected);
     if (!finalEvaluation.valid || !(finalEvaluation.targetPdf > 0.0) ||
-        !traceEmitterVisibility(surface, finalEvaluation)) {
+        !traceEmitterVisibility(surface, finalEvaluation, instanceMask)) {
         return 0.0;
     }
     return finalEvaluation.contribution * unbiasedWeight;
@@ -1177,9 +1185,31 @@ void RayGeneration()
         CameraRight * (unjitteredNdc.x * Aspect * TanHalfFovY) +
         CameraUp * (unjitteredNdc.y * TanHalfFovY));
 
+    /*
+     * Probe the camera-space companion independently from the world. Choosing
+     * this hit whenever it exists gives the weapon its own cleared-depth
+     * foreground layer, while the radiance and every guide are still written
+     * before Ray Reconstruction. Secondary foreground rays use both masks so
+     * PBR reflections can see the world and the weapon can self-occlude.
+     */
+    RayDesc primaryRay;
+    primaryRay.Origin = CameraPosition;
+    primaryRay.Direction = direction;
+    primaryRay.TMin = RayEpsilon;
+    primaryRay.TMax = SceneFarPlane;
+    SurfacePayload foregroundPayload;
+    foregroundPayload.rayDistance = 0.0;
+    foregroundPayload.barycentrics = 0.0;
+    foregroundPayload.primitiveIndex = InvalidIndex;
+    foregroundPayload.hit = 0u;
+    TraceRay(Scene, RAY_FLAG_NONE, ViewWeaponInstanceMask,
+             0, 0, 0, primaryRay, foregroundPayload);
+    bool primaryViewWeaponHit = foregroundPayload.hit != 0u;
+    uint pathInstanceMask = primaryViewWeaponHit ?
+        ForegroundPathInstanceMask : WorldInstanceMask;
+
     PackedLightReservoir reservoir = (PackedLightReservoir)0;
     float3 accumulatedRadiance = 0.0;
-    bool primaryViewWeaponHit = false;
 
     for (uint sampleOrdinal = 0u; sampleOrdinal < SamplesPerPixel;
          ++sampleOrdinal) {
@@ -1194,11 +1224,7 @@ void RayGeneration()
     primaryGuides.motion = InvalidMotion.xx;
     primaryGuides.historyHitDistance = 0.0;
     primaryGuides.historyHitDistanceValid = false;
-    RayDesc ray;
-    ray.Origin = CameraPosition;
-    ray.Direction = direction;
-    ray.TMin = RayEpsilon;
-    ray.TMax = SceneFarPlane;
+    RayDesc ray = primaryRay;
 
     for (uint depth = 0u; depth < MaximumDepth; ++depth) {
         SurfacePayload payload;
@@ -1206,7 +1232,13 @@ void RayGeneration()
         payload.barycentrics = 0.0;
         payload.primitiveIndex = InvalidIndex;
         payload.hit = 0u;
-        TraceRay(Scene, RAY_FLAG_NONE, 0xff, 0, 0, 0, ray, payload);
+        if (depth == 0u && primaryViewWeaponHit) {
+            payload = foregroundPayload;
+        } else {
+            TraceRay(Scene, RAY_FLAG_NONE,
+                     depth == 0u ? WorldInstanceMask : pathInstanceMask,
+                     0, 0, 0, ray, payload);
+        }
         if (depth == 1u && firstBounceSpecular && sampleOrdinal == 0u) {
             /* A specular ray that escapes the scene reflects something
              * effectively infinitely far away, which is the far plane rather
@@ -1244,8 +1276,6 @@ void RayGeneration()
         if (depth == 0u && sampleOrdinal == 0u) {
             primaryGuides = writeSurfaceGuides(pixel, payload, surface,
                                               viewDirection, dimensions);
-            primaryViewWeaponHit =
-                surface.primitive == PrimitiveViewWeapon;
         }
         if (any(surface.emission > 0.0)) {
             float weight = depth == 0u ? 1.0 : powerHeuristic(
@@ -1264,7 +1294,7 @@ void RayGeneration()
             sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 4u));
         if (depth == 0u) {
             radiance += throughput * sampleEnvironmentLighting(
-                surface, viewDirection, environmentSample);
+                surface, viewDirection, environmentSample, pathInstanceMask);
         }
         if (depth == 0u) {
             /* The reservoir's first candidate consumes the same emitter
@@ -1273,10 +1303,11 @@ void RayGeneration()
             radiance += throughput * resampleEmitterLighting(
                 pixel, dimensions, effectiveSampleIndex, surface, viewDirection,
                 previousSurfacePosition(payload), primaryGuides.motion,
-                reservoir);
+                pathInstanceMask, reservoir);
         } else {
             radiance += throughput * sampleEmitterLighting(
-                surface, viewDirection, emitterSelection, emitterSample);
+                surface, viewDirection, emitterSelection, emitterSample,
+                pathInstanceMask);
         }
 
         if (depth + 1u >= MaximumDepth) {

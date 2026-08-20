@@ -36,6 +36,8 @@ struct DxrViewWeaponCompilation {
 namespace {
 
 constexpr uint32_t atlas_maximum_extent = 8192u;
+constexpr uint8_t world_instance_mask = 0x01u;
+constexpr uint8_t view_weapon_instance_mask = 0x02u;
 constexpr uint64_t fnv_prime = UINT64_C(1099511628211);
 
 uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
@@ -413,6 +415,10 @@ bool compile_emissive_triangles(
     for (size_t first_vertex = 0; first_vertex < vertices.size();
          first_vertex += 3u) {
         const uint32_t material_index = vertices[first_vertex].material_index;
+        if (vertices[first_vertex].primitive == static_cast<uint32_t>(
+                DxrScenePrimitive::view_weapon)) {
+            continue;
+        }
         if (material_index >= material_luminance.size()) {
             error = "DXR geometry references an out-of-range material";
             return false;
@@ -833,8 +839,9 @@ bool DxrScene::compile(const SceneFrame &frame,
         compiled_instance.opaque = false;
         compiled_instances.push_back(compiled_instance);
         debug_output(
-            "DXR view weapon: source companion is primary camera-relative "
-            "PBR geometry; source additive faces use authored colour as emission");
+            "DXR view weapon: source companion is masked camera-relative PBR "
+            "foreground geometry; source additive faces use authored colour "
+            "as surface emission");
     }
 
     std::vector<DxrEmissiveTriangle> compiled_emitters;
@@ -1588,7 +1595,15 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         description.Transform[1][1] = 1.0f;
         description.Transform[2][2] = 1.0f;
         description.InstanceID = instances_[index].first_vertex / 3u;
-        description.InstanceMask = 0xffu;
+        /*
+         * The companion is a foreground primary layer. The ray-generation
+         * shader probes its mask independently from the world, which is the
+         * ray-tracing equivalent of clearing depth before drawing the weapon.
+         * Secondary weapon rays use both masks so its PBR surfaces can reflect
+         * the world and self-occlude; world paths never see the companion.
+         */
+        description.InstanceMask = instances_[index].view_weapon ?
+            view_weapon_instance_mask : world_instance_mask;
         description.Flags =
             D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
         description.AccelerationStructure =
