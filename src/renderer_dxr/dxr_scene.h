@@ -43,6 +43,12 @@ struct DxrSceneVertex {
      * CurrentPointBrights word, so a zone whose points carry an
      * Anim_BrightTable index pulses its authored emissive panels through
      * newanims.s:brightanim. One is the brightest source row.
+     *
+     * On `DxrScenePrimitive::world` the shader also reads it as the level's
+     * authored ambience, which secondary rays gather and primary rays ignore.
+     * Every other primitive writes one so its own emissive materials survive,
+     * and `authoredAmbientRadiance` in shaders/path_trace.hlsl skips them for
+     * exactly that reason.
      */
     float emissive_scale;
 };

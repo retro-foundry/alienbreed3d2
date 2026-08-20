@@ -584,10 +584,13 @@ D3D12_RESOURCE_BARRIER uav_barrier(ID3D12Resource *resource)
  * `hires.s:goursides`/`dofloorGOUR` and `hiresgourwall.s:drawwallPACK*G` select
  * a shade row from `source_light_level - 300`, row zero being brightest, and
  * every source palette entry an emissive material draws from varies across
- * those rows. The DXR path traces its own incident lighting, so that response
- * is applied here only to authored emission: an emissive panel in a zone whose
- * CurrentPointBrights words carry an Anim_BrightTable index then pulses with
- * newanims.s:brightanim as the source rasterizer shaded it.
+ * those rows. The DXR path traces its own direct incident lighting, so this
+ * response never modulates a primary hit. It scales authored emission - an
+ * emissive panel in a zone whose CurrentPointBrights words carry an
+ * Anim_BrightTable index then pulses with newanims.s:brightanim as the source
+ * rasterizer shaded it - and on world geometry `authoredAmbientRadiance` in
+ * shaders/path_trace.hlsl reads it a second time as ambience that only
+ * secondary rays gather.
  *
  * The response is `(rows - row) / rows`, so the darkest source row keeps a
  * small residual rather than going black. That matches the shipped art: the

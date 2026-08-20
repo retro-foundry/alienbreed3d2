@@ -2,6 +2,7 @@ static const float Pi = 3.14159265358979323846;
 static const float RayEpsilon = 0.05;
 static const uint InvalidIndex = 0xffffffffu;
 static const uint SceneInstanceMask = 0x01u;
+static const uint WorldSurfacePrimitive = 0u;
 static const uint ViewWeaponPrimitive = 1u;
 static const uint WorldBillboardPrimitive = 2u;
 static const uint WorldEffectPrimitive = 3u;
@@ -25,7 +26,9 @@ struct SceneVertex
     uint primitive;
     /*
      * The source Gouraud shade response at this vertex, one being the brightest
-     * source row. It scales authored emission only; incident lighting is traced.
+     * source row. It scales authored emission, and on world geometry it is also
+     * the ambience secondary rays gather through `authoredAmbientRadiance`.
+     * Direct incident lighting is traced either way.
      * newanims.s:brightanim moves it for zones whose CurrentPointBrights words
      * carry an Anim_BrightTable index, which is how an authored emissive panel
      * pulses.
@@ -104,6 +107,9 @@ struct SurfaceData
     float metalness;
     float specularFactor;
     float3 emission;
+    /* The interpolated source Gouraud shade response, before `emissiveFactor`
+     * turns it into emission. Only world flats and strips carry a real one. */
+    float authoredShade;
     uint materialIndex;
     uint emitterIndex;
     uint primitive;
@@ -194,6 +200,31 @@ static const uint PathDimensionsPerBounce = 8u;
  * radiance: the path-traced estimate in NoisyRadiance is untouched.
  */
 static const float SpecularHitDistanceBlend = 0.2;
+/*
+ * Radiance the source's authored zone lighting contributes as ambience, in
+ * multiples of the outgoing radiance a surface has when the source rasterizer
+ * draws it at its brightest shade row.
+ *
+ * `hires.s:goursides` and its wall equivalents shade a texel by walking the
+ * palette shade rows, and row zero draws the texel at its own display value.
+ * Whatever else the source's authored lighting is, that fixes what "fully lit"
+ * means in it: the surface leaves exactly its albedo. A Lambertian surface
+ * leaves `albedo * E / Pi`, so row zero corresponds to `E = Pi`, and
+ * `baseColor * emissiveScale` is the authored lighting restated as outgoing
+ * radiance in this renderer's units. A scale of one therefore reproduces the
+ * source's own brightness rather than picking a level, which is why nothing
+ * here is fitted.
+ *
+ * Primary rays ignore it, so a directly visible surface only ever receives this
+ * through a bounce, at roughly the product of the two albedos - about a tenth of
+ * the authored level for typical AB3D2 art. A room lit by the emissive floor
+ * panel at offset 0x0101 sits an order of magnitude above that - its 200
+ * radiance reaches the surrounding geometry at around one - so this reads as a
+ * fill: it lifts what the path tracer leaves black without competing with the
+ * traced lighting. In a zone with no emissive panel at all it becomes the only
+ * thing in the room, which is the point.
+ */
+static const float AuthoredAmbientScale = 1.0;
 /* Temporal reuse is rejected unless the reprojected surface matches this closely:
  * a world-space distance within this fraction of the view depth, so the tolerance
  * scales with the Amiga-sized world instead of assuming a unit system, and a
@@ -360,6 +391,31 @@ float3 environmentRadiance(float3 direction)
                 horizon * horizon);
 }
 
+/*
+ * The source's authored zone lighting, restated as radiance this surface leaves
+ * in every direction. See `AuthoredAmbientScale` for where the unit comes from.
+ *
+ * Only `DxrScenePrimitive::world` carries an authored shade: the flats and wall
+ * strips whose `CurrentPointBrights` word the source rasterizer shades from.
+ * Billboards, vector models and the view weapon all write one into the vertex
+ * buffer so their own emissive materials survive, because `doapoly`'s Gouraud
+ * modulation was deliberately dropped from PBR entities. Reading it here would
+ * make every entity a full-brightness ambient emitter, so entities are left to
+ * gather this from the world around them like any other incident light.
+ *
+ * Metalness is not factored out. Base colour is the specular tint for a metal
+ * rather than a diffuse albedo, but a rough metal under ambient light does
+ * return roughly its base colour, so the same product answers for both and a
+ * `1 - metalness` factor would only turn metal-panelled rooms black.
+ */
+float3 authoredAmbientRadiance(SurfaceData surface)
+{
+    if (surface.primitive != WorldSurfacePrimitive) {
+        return 0.0;
+    }
+    return surface.baseColor * (surface.authoredShade * AuthoredAmbientScale);
+}
+
 void coordinateSystem(float3 normal, out float3 tangent, out float3 bitangent)
 {
     float3 helper = abs(normal.y) < 0.999 ? float3(0.0, 1.0, 0.0) :
@@ -464,11 +520,11 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
         RoughnessAtlas.Load(int3(texel, 0)).r, 0.045, 1.0);
-    float emissiveScale = first.emissiveScale * firstWeight +
+    surface.authoredShade = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
     surface.emission = EmissiveAtlas.Load(int3(texel, 0)).rgb *
-        material.emissiveFactor * emissiveScale;
+        material.emissiveFactor * surface.authoredShade;
     return surface;
 }
 
@@ -1286,6 +1342,16 @@ void RayGeneration()
                 previousBsdfPdf,
                 emitterPdfForHit(surface, previousPosition));
             radiance += throughput * surface.emission * weight;
+        }
+        /*
+         * The authored zone lighting enters only here, on a bounce, so a
+         * directly visible surface shows the traced lighting alone and picks the
+         * authored level up as fill from whatever surrounds it. No MIS weight
+         * applies: this radiance is not in any emitter's sampling distribution,
+         * so a BSDF-sampled path is the only estimator that ever sees it.
+         */
+        if (depth > 0u) {
+            radiance += throughput * authoredAmbientRadiance(surface);
         }
         uint sampleDimension = depth * PathDimensionsPerBounce;
         float2 environmentSample = float2(

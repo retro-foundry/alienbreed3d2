@@ -103,6 +103,31 @@ endpoints is not reproduced: the OpenGL forward path fits per-texel exponent
 and floor maps from the same shade table, and the PBR material package carries
 no equivalent.
 
+That same response is read a second time, as the level's authored ambience.
+`authoredAmbientRadiance` in `src/renderer_dxr/shaders/path_trace.hlsl` gives a
+world flat or wall strip an outgoing radiance of `baseColor * emissiveScale`,
+and only a secondary ray gathers it: a primary hit shades from traced lighting
+alone, so a directly visible surface receives the authored level as fill from
+whatever surrounds it rather than as a term of its own. This too is
+project-authored, and the sibling renderer has no equivalent. Its unit is not
+fitted. `hires.s:goursides` and `hiresgourwall.s:drawwallPACK*G` draw a texel at
+its own display value through shade row zero, which fixes what "fully lit" means
+in the source's authored lighting: the surface leaves exactly its albedo. A
+Lambertian surface leaves `albedo * E / Pi`, so row zero is `E = Pi`, and the
+scale of one in `AuthoredAmbientScale` reproduces the source's own brightness
+instead of selecting a level. Because primary rays ignore it, what reaches the
+image is the product of two albedos, roughly a tenth of the authored level for
+this art, which is an order of magnitude below what the `0x0101` panel's 200
+radiance delivers to the geometry around it. Metalness is not factored out: base
+colour is a metal's specular tint rather than a diffuse albedo, but a rough metal
+under ambient light does return
+close to its base colour, and a `1 - metalness` factor would only black out
+metal-panelled rooms. Only `DxrScenePrimitive::world` is read. Billboards,
+vector models and the view weapon each write a shade of one so their own
+emissive materials survive `doapoly`'s Gouraud modulation having been dropped
+from PBR entities, so they are left to gather this from the world around them
+like any other incident light.
+
 `src/scene_geometry_compile.c` is a project-authored extraction of the native
 port's current coordinate interpretation and polygon triangulation. Its
 coordinate evidence remains `modules/transform.s:RotateLevelPts`,
