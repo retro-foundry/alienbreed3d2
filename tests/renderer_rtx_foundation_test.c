@@ -67,7 +67,7 @@ int main(void)
         return 1;
     }
     RendererRtx *invalid = renderer_rtx_create(
-        0, 720, window_title, 0, 1, 1u, error, sizeof(error));
+        0, 720, window_title, 0, 1, 1u, NULL, error, sizeof(error));
     if (invalid || strstr(error, "configuration is invalid") == NULL) {
         fprintf(stderr, "DXR invalid-configuration failure was not explicit: %s\n", error);
         renderer_rtx_destroy(invalid);
@@ -75,10 +75,46 @@ int main(void)
         return 1;
     }
 
+    /*
+     * ab3d2.ini's ray-tracing settings, as the desktop entry point hands them
+     * over. The hidden GPU smoke deliberately never reads ab3d2.ini, so this is
+     * where the path from a settings struct to the values the path tracer runs
+     * with is actually exercised.
+     */
+    RendererRayTracingOptions requested = {0};
+    RendererRayTracingOptions applied = {0};
+    requested.samples_per_pixel = 3u;
+    requested.maximum_bounces = 2u;
+    requested.light_candidates = 8u;
+    requested.reservoir_sample_limit = 24u;
+    requested.radiance_clamp = 150.0f;
+    requested.exposure = 1.5f;
+    requested.ndf_trim = 0.8f;
+    requested.reconstruction = RENDERER_RAY_RECONSTRUCTION_BALANCED;
+
     RendererRtx *renderer = renderer_rtx_create(
-        640, 360, window_title, 0, 1, 1u, error, sizeof(error));
+        640, 360, window_title, 0, 1, 1u, &requested, error, sizeof(error));
     if (!renderer) {
         fprintf(stderr, "DXR foundation creation failed: %s\n", error);
+        SDL_Quit();
+        return 1;
+    }
+    if (!renderer_rtx_active_ray_tracing_options(renderer, &applied) ||
+        applied.samples_per_pixel != requested.samples_per_pixel ||
+        applied.maximum_bounces != requested.maximum_bounces ||
+        applied.light_candidates != requested.light_candidates ||
+        applied.reservoir_sample_limit != requested.reservoir_sample_limit ||
+        applied.radiance_clamp != requested.radiance_clamp ||
+        applied.exposure != requested.exposure ||
+        applied.ndf_trim != requested.ndf_trim) {
+        fprintf(stderr,
+                "DXR ray-tracing settings did not reach the renderer "
+                "(spp %u bounces %u candidates %u limit %u)\n",
+                (unsigned)applied.samples_per_pixel,
+                (unsigned)applied.maximum_bounces,
+                (unsigned)applied.light_candidates,
+                (unsigned)applied.reservoir_sample_limit);
+        renderer_rtx_destroy(renderer);
         SDL_Quit();
         return 1;
     }

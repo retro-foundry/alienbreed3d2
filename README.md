@@ -67,6 +67,39 @@ session. Supported keys are:
   first time, once per kind per level. HUD and text remain outside the DXR path.
   The Web build always uses OpenGL/WebGL.
 
+The ray-traced backend takes its own presentation-only quality settings from the
+same file. Every one is optional, and an absent key keeps the renderer's tuned
+default, so the shipped template lists them commented out with their defaults:
+
+- `rtx_samples_per_pixel=1` through `8` sets the fresh path-traced samples each
+  pixel takes per frame. This is the direct quality-for-cost dial: a sample
+  repeats the whole path, so two cost about twice one, and the noise Ray
+  Reconstruction has to remove falls as their number. The default is `1`;
+- `rtx_max_bounces=1` through `8` sets the path length counting the primary hit.
+  `1` is direct lighting only, and each further bounce adds its own shadow and
+  continuation rays. The default is `3`; measured at 2560x1440, `1` saved about
+  7 ms a frame;
+- `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
+  selects the DLSS Ray Reconstruction mode, which also sets the resolution the
+  path tracer renders at before reconstruction upscales it. That makes it the
+  largest single performance lever: at 2560x1440 the three fastest measured
+  12.7, 10.4 and 8.5 ms a frame. The default is `quality`;
+- `rtx_light_candidates=1` through `1024` and `rtx_reservoir_limit=0` through
+  `65536` control the direct-lighting reservoir. The defaults are `1` and `0`,
+  the single-sample estimator, which measured the best temporal stability
+  against the hidden smoke because its error is high frequency and that is what
+  Ray Reconstruction filters best; and
+- `rtx_radiance_clamp=200`, `rtx_exposure=1`, and `rtx_ndf_trim=0.9` are the
+  per-sample luminance ceiling, the linear multiplier applied before tone
+  mapping, and the GGX visible-normal sampling trim.
+
+`AB3D2_DXR_SPP`, `AB3D2_DXR_CANDIDATES`, `AB3D2_DXR_RESERVOIR_LIMIT`,
+`AB3D2_DXR_RADIANCE_CLAMP`, `AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, and
+`AB3D2_DXR_RR_MODE` still override the file for one run, which is how a setting
+gets swept without editing it. The hidden `--gpu-smoke` path deliberately reads
+no `ab3d2.ini` at all, so its measurements stay independent of the host's
+configuration.
+
 `run_default` is accepted as an alias for `always_run`, matching the first
 port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
 An explicit `--level A` through `--level P` command-line option overrides

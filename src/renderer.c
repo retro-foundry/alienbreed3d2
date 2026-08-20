@@ -50,7 +50,8 @@ Renderer *renderer_create(const RendererConfig *config, char *error, size_t erro
         renderer->rtx = renderer_rtx_create(
             config->window_width, config->window_height, config->window_title,
             config->desktop_window, config->hidden_window,
-            config->world_light_tessellation, error, error_size);
+            config->world_light_tessellation, &config->ray_tracing,
+            error, error_size);
         backend_created = renderer->rtx != NULL;
         break;
     default:

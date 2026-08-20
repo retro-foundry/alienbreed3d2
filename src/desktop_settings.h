@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "renderer_backend.h"
+#include "renderer_ray_tracing_options.h"
 
 /*
  * Optional PC presentation/session settings.  These do not replace any
@@ -29,6 +30,9 @@ typedef struct {
     uint8_t world_light_tessellation;
     /* Desktop graphics backend; OpenGL remains the documented default. */
     RendererBackend renderer_backend;
+    /* Ray-traced backend quality settings. Any field left zero keeps the
+     * renderer's own default, so an absent INI key changes nothing. */
+    RendererRayTracingOptions ray_tracing;
 } DesktopSettings;
 
 typedef enum {

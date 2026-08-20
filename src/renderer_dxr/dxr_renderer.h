@@ -8,6 +8,7 @@
 #include <string>
 
 #include "render_view.h"
+#include "renderer_ray_tracing_options.h"
 #include "scene_frame.h"
 
 namespace ab3d2::dxr {
@@ -25,7 +26,9 @@ public:
 
     bool initialize(int window_width, int window_height, const char *window_title,
                     bool desktop_window, bool hidden_window,
-                    uint8_t world_light_tessellation, std::string &error);
+                    uint8_t world_light_tessellation,
+                    const RendererRayTracingOptions &options,
+                    std::string &error);
     bool present(const SceneFrame &frame, const RenderView &view,
                  std::string &error);
     bool presentation_size(int &width, int &height) const;
@@ -39,6 +42,7 @@ public:
     size_t last_world_bitmap_coverage() const;
     size_t last_world_vector_coverage() const;
     size_t last_world_additive_coverage() const;
+    bool active_ray_tracing_options(RendererRayTracingOptions &options) const;
 
 private:
     bool create_window(int window_width, int window_height, const char *window_title,

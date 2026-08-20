@@ -19,6 +19,7 @@ static void renderer_rtx_not_implemented(char *error, size_t error_size)
 RendererRtx *renderer_rtx_create(
     int window_width, int window_height, const char *window_title,
     int desktop_window, int hidden_window, uint8_t world_light_tessellation,
+    const RendererRayTracingOptions *options,
     char *error, size_t error_size)
 {
     (void)window_width;
@@ -27,6 +28,7 @@ RendererRtx *renderer_rtx_create(
     (void)desktop_window;
     (void)hidden_window;
     (void)world_light_tessellation;
+    (void)options;
     renderer_rtx_not_implemented(error, error_size);
     return NULL;
 }
@@ -131,6 +133,14 @@ size_t renderer_rtx_last_world_additive_coverage(const RendererRtx *renderer)
 {
     (void)renderer;
     return 0u;
+}
+
+int renderer_rtx_active_ray_tracing_options(
+    const RendererRtx *renderer, RendererRayTracingOptions *out_options)
+{
+    (void)renderer;
+    (void)out_options;
+    return 0;
 }
 
 uint64_t renderer_rtx_scene_rebuild_count(const RendererRtx *renderer)

@@ -132,5 +132,91 @@ int main(void)
             return 1;
         }
     }
+
+    /*
+     * Ray-traced backend settings. Every field defaults to zero, which is what
+     * the renderer reads as "keep your own default", so an INI that mentions
+     * none of them must leave the whole block zeroed.
+     */
+    desktop_settings_default(&settings);
+    if (settings.ray_tracing.samples_per_pixel != 0u ||
+        settings.ray_tracing.maximum_bounces != 0u ||
+        settings.ray_tracing.light_candidates != 0u ||
+        settings.ray_tracing.reservoir_sample_limit != 0u ||
+        settings.ray_tracing.radiance_clamp != 0.0f ||
+        settings.ray_tracing.exposure != 0.0f ||
+        settings.ray_tracing.ndf_trim != 0.0f ||
+        settings.ray_tracing.reconstruction !=
+            RENDERER_RAY_RECONSTRUCTION_DEFAULT) {
+        fprintf(stderr, "ray-tracing settings did not default to the renderer's own\n");
+        return 1;
+    }
+    {
+        static const char text[] =
+            "rtx_samples_per_pixel=4\n"
+            "rtx_max_bounces=2\n"
+            "rtx_light_candidates=16\n"
+            "rtx_reservoir_limit=32\n"
+            "rtx_radiance_clamp=50.5\n"
+            "rtx_exposure=1.25\n"
+            "rtx_ndf_trim=0.75\n"
+            "rtx_ray_reconstruction=performance\n";
+
+        desktop_settings_default(&settings);
+        if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u,
+                                    error, sizeof(error)) ||
+            settings.ray_tracing.samples_per_pixel != 4u ||
+            settings.ray_tracing.maximum_bounces != 2u ||
+            settings.ray_tracing.light_candidates != 16u ||
+            settings.ray_tracing.reservoir_sample_limit != 32u ||
+            settings.ray_tracing.radiance_clamp < 50.4f ||
+            settings.ray_tracing.radiance_clamp > 50.6f ||
+            settings.ray_tracing.exposure < 1.24f ||
+            settings.ray_tracing.exposure > 1.26f ||
+            settings.ray_tracing.ndf_trim < 0.74f ||
+            settings.ray_tracing.ndf_trim > 0.76f ||
+            settings.ray_tracing.reconstruction !=
+                RENDERER_RAY_RECONSTRUCTION_PERFORMANCE) {
+            fprintf(stderr, "ray-tracing settings were not applied: %s\n", error);
+            return 1;
+        }
+    }
+    /*
+     * Zero means "renderer default" on every field, so a key that names it has
+     * to be rejected rather than silently meaning nothing. The reservoir limit
+     * is the exception: zero is a real setting there and is also its default.
+     */
+    {
+        static const char *const rejected[] = {
+            "rtx_samples_per_pixel=0\n",
+            "rtx_samples_per_pixel=9\n",
+            "rtx_max_bounces=0\n",
+            "rtx_light_candidates=0\n",
+            "rtx_radiance_clamp=0\n",
+            "rtx_exposure=0\n",
+            "rtx_ndf_trim=0\n",
+            "rtx_ndf_trim=1.5\n",
+            "rtx_ray_reconstruction=fastest\n",
+        };
+        size_t index;
+
+        for (index = 0u; index < sizeof(rejected) / sizeof(rejected[0]); ++index) {
+            desktop_settings_default(&settings);
+            if (desktop_settings_parse(&settings, rejected[index],
+                                       strlen(rejected[index]),
+                                       error, sizeof(error))) {
+                fprintf(stderr, "ray-tracing setting \"%s\" was accepted\n",
+                        rejected[index]);
+                return 1;
+            }
+        }
+    }
+    desktop_settings_default(&settings);
+    if (!desktop_settings_parse(&settings, "rtx_reservoir_limit=0\n", 22u,
+                                error, sizeof(error)) ||
+        settings.ray_tracing.reservoir_sample_limit != 0u) {
+        fprintf(stderr, "a zero reservoir limit was not accepted: %s\n", error);
+        return 1;
+    }
     return 0;
 }

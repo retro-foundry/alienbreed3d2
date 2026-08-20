@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "render_view.h"
+#include "renderer_ray_tracing_options.h"
 #include "scene_frame.h"
 #include "dxr_reconstruction_math.h"
 #include "dxr_scene.h"
@@ -50,7 +51,9 @@ enum class DxrReconstructionBuffer : size_t {
 
 class DxrPipeline final {
 public:
-    bool initialize(ID3D12Device5 *device, std::string &error);
+    bool initialize(ID3D12Device5 *device,
+                    const RendererRayTracingOptions &options,
+                    std::string &error);
     bool update_scene(const SceneFrame &frame, const RenderView &view,
                       UINT width, UINT height, bool &requires_flush,
                       std::string &error);
@@ -89,6 +92,17 @@ public:
     size_t last_world_additive_coverage() const {
         return last_world_additive_coverage_;
     }
+    /* The settings actually in force, after ab3d2.ini and any environment
+     * override have been applied over the tuned defaults. */
+    void active_ray_tracing_options(RendererRayTracingOptions &options) const {
+        options.samples_per_pixel = static_cast<uint8_t>(spp_);
+        options.maximum_bounces = static_cast<uint8_t>(maximum_depth_);
+        options.light_candidates = static_cast<uint16_t>(candidate_count_);
+        options.reservoir_sample_limit = reservoir_sample_limit_;
+        options.radiance_clamp = radiance_clamp_;
+        options.exposure = exposure_;
+        options.ndf_trim = ndf_trim_;
+    }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
 
@@ -107,7 +121,8 @@ private:
     bool create_diagnostics(ID3D12Device5 *device, std::string &error);
     bool create_descriptor_heap(ID3D12Device5 *device, std::string &error);
     bool configure_debug_view(std::string &error);
-    bool configure_resampling(std::string &error);
+    bool configure_resampling(const RendererRayTracingOptions &options,
+                              std::string &error);
     bool ensure_reconstruction_targets(ID3D12Device5 *device, UINT width,
                                        UINT height, UINT present_width,
                                        UINT present_height,
@@ -150,6 +165,8 @@ private:
     float exposure_ = 1.0f;
     float ndf_trim_ = 0.9f;
     uint32_t spp_ = 1u;
+    /* Path length counting the primary hit; ab3d2.ini may change it. */
+    uint32_t maximum_depth_ = 3u;
     uint32_t debug_view_ = 0;
     bool debug_view_requested_ = false;
     float debug_scalar_range_ = 8192.0f;

@@ -309,8 +309,25 @@ DxrStreamline::~DxrStreamline()
     }
 }
 
-bool DxrStreamline::configure_mode(std::string &error)
+bool DxrStreamline::configure_mode(RendererRayReconstructionMode requested,
+                                   std::string &error)
 {
+    /*
+     * ab3d2.ini chooses the mode; the environment override stays because it is
+     * how a single run gets measured without editing the file.
+     */
+    switch (requested) {
+    case RENDERER_RAY_RECONSTRUCTION_QUALITY: mode_ = Mode::quality; break;
+    case RENDERER_RAY_RECONSTRUCTION_BALANCED: mode_ = Mode::balanced; break;
+    case RENDERER_RAY_RECONSTRUCTION_PERFORMANCE:
+        mode_ = Mode::performance;
+        break;
+    case RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE:
+        mode_ = Mode::ultra_performance;
+        break;
+    case RENDERER_RAY_RECONSTRUCTION_OFF: mode_ = Mode::off; break;
+    case RENDERER_RAY_RECONSTRUCTION_DEFAULT: mode_ = Mode::quality; break;
+    }
     char value[64] = {};
     const DWORD length = GetEnvironmentVariableA(
         "AB3D2_DXR_RR_MODE", value, static_cast<DWORD>(sizeof(value)));
@@ -318,7 +335,10 @@ bool DxrStreamline::configure_mode(std::string &error)
         error = "AB3D2_DXR_RR_MODE exceeds 63 bytes";
         return false;
     }
-    if (length == 0 || std::strcmp(value, "quality") == 0) {
+    if (length == 0) {
+        return true;
+    }
+    if (std::strcmp(value, "quality") == 0) {
         mode_ = Mode::quality;
     } else if (std::strcmp(value, "balanced") == 0) {
         mode_ = Mode::balanced;
@@ -334,6 +354,19 @@ bool DxrStreamline::configure_mode(std::string &error)
         return false;
     }
     return true;
+}
+
+RendererRayReconstructionMode DxrStreamline::active_mode() const
+{
+    switch (mode_) {
+    case Mode::quality: return RENDERER_RAY_RECONSTRUCTION_QUALITY;
+    case Mode::balanced: return RENDERER_RAY_RECONSTRUCTION_BALANCED;
+    case Mode::performance: return RENDERER_RAY_RECONSTRUCTION_PERFORMANCE;
+    case Mode::ultra_performance:
+        return RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE;
+    case Mode::off: return RENDERER_RAY_RECONSTRUCTION_OFF;
+    }
+    return RENDERER_RAY_RECONSTRUCTION_DEFAULT;
 }
 
 bool DxrStreamline::verify_runtime(std::string &error)
@@ -375,7 +408,8 @@ bool DxrStreamline::verify_runtime(std::string &error)
     return true;
 }
 
-bool DxrStreamline::initialize(std::string &error)
+bool DxrStreamline::initialize(RendererRayReconstructionMode mode,
+                               std::string &error)
 {
     if (initialized_) {
         error = "Streamline was initialized more than once";
@@ -392,7 +426,7 @@ bool DxrStreamline::initialize(std::string &error)
             return false;
         }
     }
-    if (!configure_mode(error) || !verify_runtime(error)) {
+    if (!configure_mode(mode, error) || !verify_runtime(error)) {
         return false;
     }
 

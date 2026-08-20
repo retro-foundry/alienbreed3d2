@@ -444,17 +444,40 @@ bool DxrPipeline::configure_debug_view(std::string &error)
 }
 
 /*
- * Reads the two resampling counts from the environment so the candidate count and
- * the history cap can be swept against the `--gpu-smoke` stability metric without
- * a rebuild. The trade-off they control is real: a larger cap removes more
- * variance from the path-traced input, but it also makes a pixel hold the same
- * light sample for longer, which turns the residual error low frequency and
- * temporally correlated.
+ * Applies ab3d2.ini's ray-tracing settings over the tuned defaults, then lets
+ * the environment override either, so the candidate count and the history cap
+ * can still be swept against the `--gpu-smoke` stability metric without editing
+ * a file. The trade-off they control is real: a larger cap removes more variance
+ * from the path-traced input, but it also makes a pixel hold the same light
+ * sample for longer, which turns the residual error low frequency and temporally
+ * correlated.
+ *
+ * A zero in the options means "keep the default", which is what an absent INI
+ * key leaves behind. `reservoir_sample_limit` is the one field whose default is
+ * itself zero, so nothing is ambiguous there.
  */
-bool DxrPipeline::configure_resampling(std::string &error)
+bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
+                                       std::string &error)
 {
-    candidate_count_ = reservoir_candidate_count;
-    reservoir_sample_limit_ = reservoir_sample_limit;
+    candidate_count_ = options.light_candidates != 0u ?
+        options.light_candidates : reservoir_candidate_count;
+    reservoir_sample_limit_ = options.reservoir_sample_limit != 0u ?
+        options.reservoir_sample_limit : reservoir_sample_limit;
+    if (options.samples_per_pixel != 0u) {
+        spp_ = options.samples_per_pixel;
+    }
+    if (options.maximum_bounces != 0u) {
+        maximum_depth_ = options.maximum_bounces;
+    }
+    if (options.radiance_clamp > 0.0f) {
+        radiance_clamp_ = options.radiance_clamp;
+    }
+    if (options.exposure > 0.0f) {
+        exposure_ = options.exposure;
+    }
+    if (options.ndf_trim > 0.0f) {
+        ndf_trim_ = options.ndf_trim;
+    }
     struct Override {
         const char *name;
         uint32_t minimum;
@@ -552,11 +575,14 @@ bool DxrPipeline::configure_resampling(std::string &error)
         }
         *entry.target = static_cast<uint32_t>(parsed);
     }
-    debug_output("DXR emitter resampling: candidates=" +
+    debug_output("DXR ray tracing: samples per pixel=" +
+                 std::to_string(spp_) + " bounces=" +
+                 std::to_string(maximum_depth_) + " candidates=" +
                  std::to_string(candidate_count_) + " reservoir limit=" +
                  std::to_string(reservoir_sample_limit_) + " radiance clamp=" +
                  std::to_string(radiance_clamp_) + " exposure=" +
-                 std::to_string(exposure_));
+                 std::to_string(exposure_) + " NDF trim=" +
+                 std::to_string(ndf_trim_));
     return true;
 }
 
@@ -1159,7 +1185,9 @@ ID3D12Resource *DxrPipeline::reconstruction_resource(
         reconstruction_targets_[index].Get() : nullptr;
 }
 
-bool DxrPipeline::initialize(ID3D12Device5 *device, std::string &error)
+bool DxrPipeline::initialize(ID3D12Device5 *device,
+                            const RendererRayTracingOptions &options,
+                            std::string &error)
 {
     std::vector<unsigned char> vertex_shader;
     std::vector<unsigned char> pixel_shader;
@@ -1170,7 +1198,7 @@ bool DxrPipeline::initialize(ID3D12Device5 *device, std::string &error)
         return false;
     }
     return configure_debug_view(error) &&
-        configure_resampling(error) &&
+        configure_resampling(options, error) &&
         load_shader(L"diagnostic_vs.dxil", vertex_shader, error) &&
         load_shader(L"diagnostic_ps.dxil", pixel_shader, error) &&
         load_shader(L"present_vs.dxil", present_vertex_shader, error) &&
@@ -1284,7 +1312,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     copy_vector(constants.camera_right, current_camera.right);
     constants.sample_index = sample_index;
     copy_vector(constants.camera_up, current_camera.up);
-    constants.maximum_depth = 3u;
+    constants.maximum_depth = maximum_depth_;
     constants.atlas_width = scene_.atlas_width();
     constants.atlas_height = scene_.atlas_height();
     constants.triangle_count = scene_.triangle_count();

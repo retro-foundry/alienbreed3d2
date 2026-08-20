@@ -84,6 +84,29 @@ static int desktop_settings_parse_unsigned(const char *text, unsigned long maxim
     return 1;
 }
 
+/*
+ * A positive, finite decimal. The ray-tracing knobs that scale radiance have no
+ * meaningful zero, so zero is rejected here and reserved for "renderer default".
+ */
+static int desktop_settings_parse_positive_float(const char *text, double maximum,
+                                                 float *out_value)
+{
+    char *end;
+    double value;
+
+    if (!text || !*text || !out_value) {
+        return 0;
+    }
+    errno = 0;
+    value = strtod(text, &end);
+    if (errno != 0 || end == text || *desktop_settings_trim(end) != '\0' ||
+        !(value > 0.0) || value > maximum) {
+        return 0;
+    }
+    *out_value = (float)value;
+    return 1;
+}
+
 static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
                                        size_t line_number, char *error, size_t error_size)
 {
@@ -197,6 +220,103 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
             (void)snprintf(error, error_size,
                            "ab3d2.ini line %zu: renderer must be opengl or rtx",
                            line_number);
+            return 0;
+        }
+        return 1;
+    }
+    /*
+     * Ray-traced backend settings. Each is presentation-only and trades image
+     * quality against frame cost; an absent key leaves the renderer's own
+     * documented default in place.
+     */
+    if (desktop_settings_equals_ci(key, "rtx_samples_per_pixel")) {
+        if (!desktop_settings_parse_unsigned(value, 8u, &number) || number == 0u) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_samples_per_pixel must be 1 through 8",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.samples_per_pixel = (uint8_t)number;
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_max_bounces")) {
+        if (!desktop_settings_parse_unsigned(value, 8u, &number) || number == 0u) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_max_bounces must be 1 through 8",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.maximum_bounces = (uint8_t)number;
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_light_candidates")) {
+        if (!desktop_settings_parse_unsigned(value, 1024u, &number) || number == 0u) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_light_candidates must be 1 through 1024",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.light_candidates = (uint16_t)number;
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_reservoir_limit")) {
+        if (!desktop_settings_parse_unsigned(value, 65536u, &number)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_reservoir_limit must be 0 through 65536",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.reservoir_sample_limit = (uint32_t)number;
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_radiance_clamp")) {
+        if (!desktop_settings_parse_positive_float(value, 100000.0,
+                                                  &settings->ray_tracing.radiance_clamp)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_radiance_clamp must be above 0 and at "
+                           "most 100000", line_number);
+            return 0;
+        }
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_exposure")) {
+        if (!desktop_settings_parse_positive_float(value, 100.0,
+                                                  &settings->ray_tracing.exposure)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_exposure must be above 0 and at most 100",
+                           line_number);
+            return 0;
+        }
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_ndf_trim")) {
+        if (!desktop_settings_parse_positive_float(value, 1.0,
+                                                  &settings->ray_tracing.ndf_trim) ||
+            settings->ray_tracing.ndf_trim < 0.1f) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_ndf_trim must be 0.1 through 1",
+                           line_number);
+            return 0;
+        }
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_ray_reconstruction")) {
+        if (desktop_settings_equals_ci(value, "quality")) {
+            settings->ray_tracing.reconstruction = RENDERER_RAY_RECONSTRUCTION_QUALITY;
+        } else if (desktop_settings_equals_ci(value, "balanced")) {
+            settings->ray_tracing.reconstruction = RENDERER_RAY_RECONSTRUCTION_BALANCED;
+        } else if (desktop_settings_equals_ci(value, "performance")) {
+            settings->ray_tracing.reconstruction = RENDERER_RAY_RECONSTRUCTION_PERFORMANCE;
+        } else if (desktop_settings_equals_ci(value, "ultra-performance") ||
+                   desktop_settings_equals_ci(value, "ultra_performance")) {
+            settings->ray_tracing.reconstruction =
+                RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE;
+        } else if (desktop_settings_equals_ci(value, "off")) {
+            settings->ray_tracing.reconstruction = RENDERER_RAY_RECONSTRUCTION_OFF;
+        } else {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_ray_reconstruction must be quality, "
+                           "balanced, performance, ultra-performance, or off", line_number);
             return 0;
         }
         return 1;

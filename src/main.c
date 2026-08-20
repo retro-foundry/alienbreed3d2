@@ -604,6 +604,9 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         app->has_world_light_tessellation_from_command_line != 0u ?
         app->world_light_tessellation_from_command_line :
         app->desktop_settings.world_light_tessellation;
+    /* Ray-traced quality settings are presentation-only and OpenGL ignores
+     * them, so they are copied across whichever backend was selected. */
+    renderer_config.ray_tracing = app->desktop_settings.ray_tracing;
     fprintf(stdout, "[RENDER] backend=%s world_light_tessellation=%u\n",
             renderer_backend_name(renderer_config.backend),
             (unsigned)renderer_config.world_light_tessellation);

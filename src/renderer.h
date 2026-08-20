@@ -6,6 +6,7 @@
 
 #include "render_view.h"
 #include "renderer_backend.h"
+#include "renderer_ray_tracing_options.h"
 #include "renderer_resources.h"
 #include "scene_frame.h"
 
@@ -31,6 +32,8 @@ typedef struct {
     int hidden_window;
     /* Presentation-only source-mesh subdivision: 1, 2, 4, or 8. */
     uint8_t world_light_tessellation;
+    /* Ray-traced backend quality settings; ignored by OpenGL. */
+    RendererRayTracingOptions ray_tracing;
 } RendererConfig;
 
 typedef struct Renderer Renderer;

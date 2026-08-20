@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "render_view.h"
+#include "renderer_ray_tracing_options.h"
 #include "renderer_resources.h"
 #include "scene_frame.h"
 
@@ -22,9 +23,11 @@ typedef struct RendererRtx RendererRtx;
 extern "C" {
 #endif
 
+/* `options` may be NULL, which keeps every renderer default. */
 RendererRtx *renderer_rtx_create(
     int window_width, int window_height, const char *window_title,
     int desktop_window, int hidden_window, uint8_t world_light_tessellation,
+    const RendererRayTracingOptions *options,
     char *error, size_t error_size);
 void renderer_rtx_destroy(RendererRtx *renderer);
 int renderer_rtx_prepare_resources(
@@ -41,6 +44,9 @@ uint64_t renderer_rtx_last_view_weapon_rgb_checksum(const RendererRtx *renderer)
 size_t renderer_rtx_last_world_bitmap_coverage(const RendererRtx *renderer);
 size_t renderer_rtx_last_world_vector_coverage(const RendererRtx *renderer);
 size_t renderer_rtx_last_world_additive_coverage(const RendererRtx *renderer);
+/* Reports the ray-tracing settings in force. Zero on failure. */
+int renderer_rtx_active_ray_tracing_options(
+    const RendererRtx *renderer, RendererRayTracingOptions *out_options);
 size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *renderer);
 double renderer_rtx_last_frame_delta(const RendererRtx *renderer);

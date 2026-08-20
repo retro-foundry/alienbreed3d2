@@ -7,7 +7,7 @@ int main(void)
 {
     char error[160] = {0};
     RendererRtx *renderer = renderer_rtx_create(
-        1280, 720, "RTX scaffold test", 0, 1, 1u,
+        1280, 720, "RTX scaffold test", 0, 1, 1u, NULL,
         error, sizeof(error));
 
     if (renderer != NULL) {

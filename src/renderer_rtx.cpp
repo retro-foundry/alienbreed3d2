@@ -33,6 +33,7 @@ void exception_error(char *destination, size_t destination_size,
 extern "C" RendererRtx *renderer_rtx_create(
     int window_width, int window_height, const char *window_title,
     int desktop_window, int hidden_window, uint8_t world_light_tessellation,
+    const RendererRayTracingOptions *options,
     char *error, size_t error_size)
 {
     try {
@@ -43,10 +44,12 @@ extern "C" RendererRtx *renderer_rtx_create(
         }
         renderer->implementation = std::make_unique<ab3d2::dxr::DxrRenderer>();
         std::string implementation_error;
+        const RendererRayTracingOptions defaults = {};
         if (!renderer->implementation->initialize(
                 window_width, window_height, window_title,
                 desktop_window != 0, hidden_window != 0,
-                world_light_tessellation, implementation_error)) {
+                world_light_tessellation, options ? *options : defaults,
+                implementation_error)) {
             copy_error(error, error_size, implementation_error);
             return nullptr;
         }
@@ -147,6 +150,16 @@ extern "C" size_t renderer_rtx_last_world_additive_coverage(
 {
     return renderer && renderer->implementation ?
         renderer->implementation->last_world_additive_coverage() : 0u;
+}
+
+extern "C" int renderer_rtx_active_ray_tracing_options(
+    const RendererRtx *renderer, RendererRayTracingOptions *out_options)
+{
+    if (!renderer || !renderer->implementation || !out_options) {
+        return 0;
+    }
+    return renderer->implementation->active_ray_tracing_options(*out_options) ?
+        1 : 0;
 }
 
 extern "C" size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer)

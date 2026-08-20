@@ -146,6 +146,7 @@ bool DxrRenderer::create_window(int window_width, int window_height,
 bool DxrRenderer::initialize(int window_width, int window_height,
                              const char *window_title, bool desktop_window,
                              bool hidden_window, uint8_t world_light_tessellation,
+                             const RendererRayTracingOptions &options,
                              std::string &error)
 {
     if (!window_title || window_width < 96 || window_height < 80 ||
@@ -155,7 +156,7 @@ bool DxrRenderer::initialize(int window_width, int window_height,
     }
 #if defined(AB3D2_ENABLE_STREAMLINE)
     streamline_ = std::make_unique<DxrStreamline>();
-    if (!streamline_->initialize(error)) {
+    if (!streamline_->initialize(options.reconstruction, error)) {
         return false;
     }
 #endif
@@ -186,7 +187,7 @@ bool DxrRenderer::initialize(int window_width, int window_height,
             nullptr,
 #endif
             error) ||
-        !pipeline_->initialize(device_->device(), error)) {
+        !pipeline_->initialize(device_->device(), options, error)) {
         return false;
     }
     debug_output(
@@ -266,6 +267,21 @@ size_t DxrRenderer::last_world_vector_coverage() const
 size_t DxrRenderer::last_world_additive_coverage() const
 {
     return pipeline_ ? pipeline_->last_world_additive_coverage() : 0u;
+}
+
+bool DxrRenderer::active_ray_tracing_options(
+    RendererRayTracingOptions &options) const
+{
+    if (!pipeline_) {
+        return false;
+    }
+    options = RendererRayTracingOptions{};
+    pipeline_->active_ray_tracing_options(options);
+#if defined(AB3D2_ENABLE_STREAMLINE)
+    options.reconstruction = streamline_ ? streamline_->active_mode() :
+        RENDERER_RAY_RECONSTRUCTION_DEFAULT;
+#endif
+    return true;
 }
 
 }  // namespace ab3d2::dxr
