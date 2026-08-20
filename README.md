@@ -477,10 +477,10 @@ set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
 smoke to save the latest presented frame. Sprite, world-vector-object,
 projectile, HUD, and text coverage remain zero at this milestone; weapon
 coverage and its fresh-radiance checksum come from a GPU UAV.
-The CTest all-level invocation sets `AB3D2_DXR_EXPOSURE=1`: the in-world weapon
-covers Level D's few default-exposure nonblack floor samples, and this explicit
-diagnostic exposure keeps its stochastic output above 8-bit readback
-quantization without relaxing either checksum or weapon-coverage assertions.
+The ACES presentation pass uses exposure `1` by default, keeping ordinary
+traced lighting above 8-bit display quantization. Set `AB3D2_DXR_EXPOSURE` to a
+finite value from `0.001` through `100` for diagnostic exposure sweeps. The
+CTest all-level invocation uses the production default without an override.
 
 The RTX smoke then freezes the camera, view, and scene frame and presents
 `AB3D2_DXR_STABILITY_FRAMES` frames (default 24, range 4--4096), reporting the

@@ -133,7 +133,7 @@ private:
     uint32_t candidate_count_ = 0;
     uint32_t reservoir_sample_limit_ = 0;
     float radiance_clamp_ = 200.0f;
-    float exposure_ = 0.015f;
+    float exposure_ = 1.0f;
     float ndf_trim_ = 0.9f;
     uint32_t spp_ = 1u;
     uint32_t debug_view_ = 0;

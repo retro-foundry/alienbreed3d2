@@ -698,14 +698,15 @@ geometry and later presentation classes remain incomplete.
   weapon are implemented. Hidden DXR smoke reads primary-hit coverage and a
   fresh-radiance checksum from a GPU UAV; the 2026-08-20 Level A run passed and
   a diffuse-albedo capture confirmed the lower-view traced silhouette and world
-  occlusion. The Level A--P run also passed with
-  `AB3D2_DXR_EXPOSURE=1`, exercising both companion assertions in every level.
-  At normal diagnostic exposure the new lower-view geometry covers Level D's
-  handful of nonblack floor samples, so the 8-bit presented-frame checksum
-  quantizes to black before reaching its companion assertion. The CTest smoke
-  therefore sets the same explicit exposure-one diagnostic used by the passing
-  A--P run; no coverage assertion or checksum threshold was removed. Post-RR
-  transparencies, HUD, text, and optional NVIDIA transparency guides remain.
+  occlusion. The production ACES exposure is now `1`: the former `0.015`
+  default crushed ordinary traced lighting below the display range. Level A
+  exposure sweeps at one and eight samples per pixel confirmed that exposure
+  one restores the scene response while retaining the existing filmic
+  highlight roll-off. CTest no longer supplies an exposure override, so its
+  Level A--P smoke exercises the production presentation and both companion
+  assertions directly. No coverage assertion or checksum threshold was
+  removed. Post-RR transparencies, HUD, text, and optional NVIDIA transparency
+  guides remain.
 - Add post-RR transparencies, HUD, text, and optional NVIDIA transparency guides if captures prove they are needed.
 - Add scripted camera/dynamic-scene captures, all-level native smoke tests, resize/device-loss tests, packaging, documentation, and licence audit.
 - Run the complete OpenGL, converter/material, Web, and source-runtime suites.
