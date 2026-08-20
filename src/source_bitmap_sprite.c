@@ -1,6 +1,7 @@
 #include "source_bitmap_sprite.h"
 
 #include "bitmap_source_decode.h"
+#include "scene_geometry_compile.h"
 #include "source_bitmap_lighting.h"
 
 #include <math.h>
@@ -9,6 +10,7 @@
 #include <string.h>
 
 static const float source_bitmap_sprite_pi = 3.14159265358979323846f;
+static const float source_bitmap_projectile_contact_epsilon = 16.0f;
 
 static void source_bitmap_sprite_set_error(char *error, size_t error_size,
                                            const char *message)
@@ -246,6 +248,140 @@ void source_bitmap_sprite_image_destroy(SourceBitmapSpriteImage *image)
     if (!image) return;
     free(image->rgba);
     memset(image, 0, sizeof(*image));
+}
+
+static uint32_t source_bitmap_scene_material_mode(const SceneSprite *sprite)
+{
+    if (sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP) {
+        return 7u;
+    }
+    if ((sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u) {
+        return 6u;
+    }
+    if ((sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u) {
+        return (uint32_t)(sprite->source_effect & 0x7fu);
+    }
+    return 0u;
+}
+
+int source_bitmap_scene_compile_world(const SceneSprite *sprite,
+                                      const SceneCamera *camera,
+                                      SourceBitmapSceneMesh *out_mesh,
+                                      char *error, size_t error_size)
+{
+    SourceBitmapSceneMesh mesh = {0};
+    SceneRenderPoint center;
+    float yaw;
+    float right_x;
+    float right_z;
+    float half_width;
+    float half_height;
+    float full_top_y;
+    float full_bottom_y;
+    float top_y;
+    float bottom_y;
+    float top_v;
+    float bottom_v;
+    float clip_top_y;
+    float clip_bottom_y;
+    float left_u;
+    float right_u;
+
+    if (!sprite || !camera || !out_mesh ||
+        sprite->presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
+        (sprite->source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP &&
+         sprite->source != SCENE_SPRITE_SOURCE_GLARE_BITMAP)) {
+        source_bitmap_sprite_set_error(
+            error, error_size, "source world bitmap descriptor is invalid");
+        return 0;
+    }
+    mesh.material_mode = source_bitmap_scene_material_mode(sprite);
+    mesh.additive = (uint8_t)(mesh.material_mode == 6u ||
+                              mesh.material_mode == 7u);
+    if ((sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u &&
+        (mesh.material_mode < 2u || mesh.material_mode > 5u)) {
+        source_bitmap_sprite_set_error(
+            error, error_size,
+            "source world bitmap light-palette selector is invalid");
+        return 0;
+    }
+
+    center = scene_render_world_point(sprite->position);
+    yaw = (float)camera->yaw *
+        (2.0f * source_bitmap_sprite_pi / 8192.0f);
+    right_x = cosf(yaw);
+    right_z = -sinf(yaw);
+    center.x += right_x * (float)sprite->source_aux_offset_x;
+    center.z += right_z * (float)sprite->source_aux_offset_x;
+    center.y -= (float)sprite->source_aux_offset_y;
+    if ((sprite->flags & SCENE_SPRITE_FLAG_PROJECTILE_CONTACT) != 0u) {
+        center.x -= sinf(yaw) * source_bitmap_projectile_contact_epsilon;
+        center.z -= cosf(yaw) * source_bitmap_projectile_contact_epsilon;
+    }
+
+    half_width = (float)sprite->source_width;
+    half_height = (float)sprite->source_height;
+    if (sprite->surface_attachment == SCENE_SPRITE_SURFACE_FLOOR) {
+        full_bottom_y = -(float)sprite->source_clip_bottom_y *
+            SCENE_RENDER_SOURCE_Y_UNIT;
+        full_top_y = full_bottom_y + half_height * 2.0f;
+    } else if (sprite->surface_attachment == SCENE_SPRITE_SURFACE_CEILING) {
+        full_top_y = -(float)sprite->source_clip_top_y *
+            SCENE_RENDER_SOURCE_Y_UNIT;
+        full_bottom_y = full_top_y - half_height * 2.0f;
+    } else {
+        full_top_y = center.y + half_height;
+        full_bottom_y = center.y - half_height;
+    }
+    top_y = full_top_y;
+    bottom_y = full_bottom_y;
+    clip_top_y = -(float)sprite->source_clip_top_y *
+        SCENE_RENDER_SOURCE_Y_UNIT;
+    clip_bottom_y = -(float)sprite->source_clip_bottom_y *
+        SCENE_RENDER_SOURCE_Y_UNIT;
+    if (top_y > clip_top_y) {
+        top_y = clip_top_y;
+    }
+    if (bottom_y < clip_bottom_y) {
+        bottom_y = clip_bottom_y;
+    }
+    left_u = (sprite->flags & SCENE_SPRITE_FLAG_FLIP_HORIZONTAL) != 0u ?
+        1.0f : 0.0f;
+    right_u = 1.0f - left_u;
+
+    if (sprite->source_width == 0u || sprite->source_height == 0u ||
+        top_y <= bottom_y || full_top_y <= full_bottom_y) {
+        for (size_t index = 0u; index < 6u; ++index) {
+            mesh.vertices[index].x = center.x;
+            mesh.vertices[index].y = center.y;
+            mesh.vertices[index].z = center.z;
+            mesh.vertices[index].u = left_u;
+            mesh.vertices[index].v = 0.0f;
+        }
+        *out_mesh = mesh;
+        return 1;
+    }
+
+    top_v = (full_top_y - top_y) / (full_top_y - full_bottom_y);
+    bottom_v = (full_top_y - bottom_y) / (full_top_y - full_bottom_y);
+#define SOURCE_BITMAP_VERTEX(index, horizontal, vertical, texture_u, texture_v) \
+    do {                                                                       \
+        mesh.vertices[(index)].x = center.x + right_x * (horizontal);           \
+        mesh.vertices[(index)].y = (vertical);                                 \
+        mesh.vertices[(index)].z = center.z + right_z * (horizontal);           \
+        mesh.vertices[(index)].u = (texture_u);                                \
+        mesh.vertices[(index)].v = (texture_v);                                \
+    } while (0)
+    SOURCE_BITMAP_VERTEX(0u, -half_width, top_y, left_u, top_v);
+    SOURCE_BITMAP_VERTEX(1u, half_width, top_y, right_u, top_v);
+    SOURCE_BITMAP_VERTEX(2u, half_width, bottom_y, right_u, bottom_v);
+    mesh.vertices[3u] = mesh.vertices[0u];
+    mesh.vertices[4u] = mesh.vertices[2u];
+    SOURCE_BITMAP_VERTEX(5u, -half_width, bottom_y, left_u, bottom_v);
+#undef SOURCE_BITMAP_VERTEX
+    mesh.visible = 1u;
+    *out_mesh = mesh;
+    return 1;
 }
 
 int source_bitmap_sprite_decode(const SceneSprite *sprite,

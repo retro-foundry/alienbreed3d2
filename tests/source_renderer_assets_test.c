@@ -66,6 +66,76 @@ static int check_bitmap_decode(void)
     return 1;
 }
 
+static int check_bitmap_world_compile(void)
+{
+    SceneCamera camera = {0};
+    SceneSprite sprite = {0};
+    SourceBitmapSceneMesh mesh = {0};
+    char error[256] = {0};
+
+    sprite.source = SCENE_SPRITE_SOURCE_OBJECT_BITMAP;
+    sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+    sprite.position.x = 100;
+    sprite.position.y = 128;
+    sprite.position.z = 200;
+    sprite.source_width = 12u;
+    sprite.source_height = 20u;
+    sprite.source_clip_top_y = -64 * 128;
+    sprite.source_clip_bottom_y = 64 * 128;
+    sprite.source_aux_offset_x = 3;
+    sprite.source_aux_offset_y = 4;
+    if (!source_bitmap_scene_compile_world(
+            &sprite, &camera, &mesh, error, sizeof(error))) {
+        fprintf(stderr, "bitmap world compiler rejected a free sprite: %s\n", error);
+        return 0;
+    }
+    if (!mesh.visible || mesh.material_mode != 0u || mesh.additive != 0u ||
+        fabsf(mesh.vertices[0].x - 91.0f) > 0.00001f ||
+        fabsf(mesh.vertices[1].x - 115.0f) > 0.00001f ||
+        fabsf(mesh.vertices[0].y - 15.0f) > 0.00001f ||
+        fabsf(mesh.vertices[2].y - -25.0f) > 0.00001f ||
+        fabsf(mesh.vertices[0].z - 200.0f) > 0.00001f ||
+        mesh.vertices[0].u != 0.0f || mesh.vertices[1].u != 1.0f) {
+        fprintf(stderr, "bitmap world compiler lost source scale or auxiliary placement\n");
+        return 0;
+    }
+
+    camera.yaw = 2048u;
+    sprite.surface_attachment = SCENE_SPRITE_SURFACE_FLOOR;
+    sprite.source_clip_top_y = -10 * 128;
+    sprite.source_clip_bottom_y = 6 * 128;
+    sprite.flags = SCENE_SPRITE_FLAG_FLIP_HORIZONTAL |
+                   SCENE_SPRITE_FLAG_LIGHT_PALETTE;
+    sprite.source_effect = 3u;
+    if (!source_bitmap_scene_compile_world(
+            &sprite, &camera, &mesh, error, sizeof(error))) {
+        fprintf(stderr, "bitmap world compiler rejected a floor sprite: %s\n", error);
+        return 0;
+    }
+    if (!mesh.visible || mesh.material_mode != 3u ||
+        fabsf(mesh.vertices[0].x - 100.0f) > 0.0001f ||
+        fabsf(mesh.vertices[0].z - 209.0f) > 0.0001f ||
+        fabsf(mesh.vertices[0].y - 10.0f) > 0.0001f ||
+        fabsf(mesh.vertices[2].y - -6.0f) > 0.0001f ||
+        mesh.vertices[0].u != 1.0f || mesh.vertices[1].u != 0.0f ||
+        fabsf(mesh.vertices[0].v - 0.6f) > 0.0001f ||
+        fabsf(mesh.vertices[2].v - 1.0f) > 0.0001f) {
+        fprintf(stderr, "bitmap world compiler lost floor anchoring, clipping, or flip\n");
+        return 0;
+    }
+
+    sprite.source_clip_top_y = 10 * 128;
+    sprite.source_clip_bottom_y = 8 * 128;
+    if (!source_bitmap_scene_compile_world(
+            &sprite, &camera, &mesh, error, sizeof(error)) || mesh.visible ||
+        mesh.vertices[0].x != mesh.vertices[1].x ||
+        mesh.vertices[0].y != mesh.vertices[2].y) {
+        fprintf(stderr, "bitmap world compiler did not retain a clipped inert slot\n");
+        return 0;
+    }
+    return 1;
+}
+
 static int check_vector_view_weapon_compile(void)
 {
     uint8_t model[140] = {0};
@@ -215,5 +285,6 @@ static int check_vector_view_weapon_compile(void)
 
 int main(void)
 {
-    return check_bitmap_decode() && check_vector_view_weapon_compile() ? 0 : 1;
+    return check_bitmap_decode() && check_bitmap_world_compile() &&
+           check_vector_view_weapon_compile() ? 0 : 1;
 }
