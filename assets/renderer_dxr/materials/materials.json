@@ -63,6 +63,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -122,6 +123,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -182,6 +184,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -242,6 +245,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -302,6 +306,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -362,6 +367,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -422,6 +428,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -482,6 +489,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -542,6 +550,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -602,6 +611,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -662,6 +672,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -722,6 +733,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -782,6 +794,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -842,6 +855,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -902,6 +916,7 @@
           "432ab23276917d86d9d257c6ee79da1f5307954270f283655442e1ed8b09ea2f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -962,6 +977,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -1020,6 +1036,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -1078,6 +1095,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -1136,6 +1154,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -1194,6 +1213,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -1252,6 +1272,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -1310,6 +1331,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1368,6 +1390,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1426,6 +1449,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1484,6 +1508,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1542,6 +1567,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1600,6 +1626,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1658,6 +1685,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1716,6 +1744,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1774,6 +1803,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1832,6 +1862,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1890,6 +1921,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -1948,6 +1980,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -2006,6 +2039,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -2064,6 +2098,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -2122,6 +2157,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -2180,6 +2216,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -2238,6 +2275,7 @@
           "63feeff3293567718448fd800a9e20c35ae0efc022dd78d3db3a214f48f1dfe2"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 8
@@ -2295,6 +2333,7 @@
           "71a3965ec1ba589f221950e5a0c4b3728a8568a7af99961f1f51bc4aacca5217"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -2352,6 +2391,7 @@
           "71a3965ec1ba589f221950e5a0c4b3728a8568a7af99961f1f51bc4aacca5217"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -2409,6 +2449,7 @@
           "71a3965ec1ba589f221950e5a0c4b3728a8568a7af99961f1f51bc4aacca5217"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -2466,6 +2507,7 @@
           "71a3965ec1ba589f221950e5a0c4b3728a8568a7af99961f1f51bc4aacca5217"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -2523,6 +2565,7 @@
           "71a3965ec1ba589f221950e5a0c4b3728a8568a7af99961f1f51bc4aacca5217"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -2581,6 +2624,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -2641,6 +2685,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -2701,6 +2746,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -2761,6 +2807,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -2821,6 +2868,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -2881,6 +2929,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -2941,6 +2990,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3001,6 +3051,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3061,6 +3112,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3121,6 +3173,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3181,6 +3234,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3241,6 +3295,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3301,6 +3356,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3361,6 +3417,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3421,6 +3478,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3481,6 +3539,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3541,6 +3600,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3601,6 +3661,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3661,6 +3722,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3721,6 +3783,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3781,6 +3844,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3841,6 +3905,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3901,6 +3966,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -3961,6 +4027,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4021,6 +4088,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4081,6 +4149,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4141,6 +4210,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4201,6 +4271,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4261,6 +4332,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4321,6 +4393,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4381,6 +4454,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4441,6 +4515,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4501,6 +4576,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4561,6 +4637,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4621,6 +4698,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4681,6 +4759,7 @@
           "93035a2f46f04311325bfb5b3642878663fef3a57e8a2283eea7950d330976f3"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -4740,6 +4819,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -4797,6 +4877,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -4854,6 +4935,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -4911,6 +4993,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -4968,6 +5051,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -5025,6 +5109,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -5082,6 +5167,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -5139,6 +5225,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -5196,6 +5283,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -5253,6 +5341,7 @@
           "1d8c527bdef8fbf033cac7325904927d255077b8d87b6b20f174d60f9d908dfa"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -5311,6 +5400,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5371,6 +5461,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5431,6 +5522,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5491,6 +5583,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5551,6 +5644,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5611,6 +5705,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5671,6 +5766,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5731,6 +5827,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5791,6 +5888,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5851,6 +5949,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5911,6 +6010,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -5971,6 +6071,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6031,6 +6132,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6091,6 +6193,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6151,6 +6254,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6211,6 +6315,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6271,6 +6376,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6331,6 +6437,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6391,6 +6498,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6451,6 +6559,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6511,6 +6620,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6571,6 +6681,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6631,6 +6742,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6691,6 +6803,7 @@
           "144747110118b27cdb12afdbe79ae6b55679d06d67222a5fc2a28b687fbdac39"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -6751,6 +6864,7 @@
           "c470130bd970f112a0c0ebc8bd2319705b74c1a8fc7e0a33944c89a325d15101"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -6808,6 +6922,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -6865,6 +6980,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -6922,6 +7038,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -6979,6 +7096,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7036,6 +7154,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7093,6 +7212,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7150,6 +7270,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7207,6 +7328,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7264,6 +7386,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7321,6 +7444,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7378,6 +7502,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7435,6 +7560,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7492,6 +7618,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7549,6 +7676,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7606,6 +7734,7 @@
           "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 64
@@ -7664,6 +7793,7 @@
           "b83a28bb92911c0aea1a826cda7e18b7e02c5bc8bb96fc86cc2465d74f2c4f05"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7722,6 +7852,7 @@
           "b83a28bb92911c0aea1a826cda7e18b7e02c5bc8bb96fc86cc2465d74f2c4f05"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7780,6 +7911,7 @@
           "b83a28bb92911c0aea1a826cda7e18b7e02c5bc8bb96fc86cc2465d74f2c4f05"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7838,6 +7970,7 @@
           "b83a28bb92911c0aea1a826cda7e18b7e02c5bc8bb96fc86cc2465d74f2c4f05"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7896,6 +8029,7 @@
           "b83a28bb92911c0aea1a826cda7e18b7e02c5bc8bb96fc86cc2465d74f2c4f05"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -7954,6 +8088,7 @@
           "b83a28bb92911c0aea1a826cda7e18b7e02c5bc8bb96fc86cc2465d74f2c4f05"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -8012,6 +8147,7 @@
           "b83a28bb92911c0aea1a826cda7e18b7e02c5bc8bb96fc86cc2465d74f2c4f05"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -8070,6 +8206,7 @@
           "b83a28bb92911c0aea1a826cda7e18b7e02c5bc8bb96fc86cc2465d74f2c4f05"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 32
@@ -8128,6 +8265,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8186,6 +8324,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8244,6 +8383,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8302,6 +8442,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8360,6 +8501,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8418,6 +8560,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8476,6 +8619,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8534,6 +8678,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8592,6 +8737,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8650,6 +8796,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8708,6 +8855,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8766,6 +8914,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8824,6 +8973,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8882,6 +9032,7 @@
           "ab35321cbe1d9f9d3149a08be91d710c36867fb07bc59380820416c0eeb0e87e"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [],
       "two_sided": true,
       "width": 16
@@ -8940,6 +9091,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9000,6 +9152,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9060,6 +9213,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9120,6 +9274,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9180,6 +9335,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9240,6 +9396,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9300,6 +9457,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9360,6 +9518,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9420,6 +9579,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9480,6 +9640,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9540,6 +9701,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9600,6 +9762,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9660,6 +9823,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9720,6 +9884,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9780,6 +9945,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9840,6 +10006,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9900,6 +10067,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -9960,6 +10128,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10020,6 +10189,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10080,6 +10250,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10140,6 +10311,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10200,6 +10372,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10260,6 +10433,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10320,6 +10494,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10380,6 +10555,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10440,6 +10616,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10500,6 +10677,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10560,6 +10738,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10620,6 +10799,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10680,6 +10860,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10740,6 +10921,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10800,6 +10982,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10860,6 +11043,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10920,6 +11104,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -10980,6 +11165,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11040,6 +11226,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11100,6 +11287,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11160,6 +11348,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11220,6 +11409,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11280,6 +11470,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11340,6 +11531,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11400,6 +11592,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11460,6 +11653,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11520,6 +11714,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11580,6 +11775,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11640,6 +11836,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11700,6 +11897,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11760,6 +11958,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11820,6 +12019,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11880,6 +12080,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -11940,6 +12141,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12000,6 +12202,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12060,6 +12263,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12120,6 +12324,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12180,6 +12385,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12240,6 +12446,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12300,6 +12507,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12360,6 +12568,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12420,6 +12629,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12480,6 +12690,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12540,6 +12751,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12600,6 +12812,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12660,6 +12873,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12720,6 +12934,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12780,6 +12995,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12840,6 +13056,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12900,6 +13117,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -12960,6 +13178,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13020,6 +13239,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13080,6 +13300,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13140,6 +13361,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13200,6 +13422,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13260,6 +13483,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13320,6 +13544,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13380,6 +13605,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13440,6 +13666,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13500,6 +13727,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13560,6 +13788,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13620,6 +13849,7 @@
           "add4b47b266fc37c0eb8151e8d63d7052463756e2c77ee38e296a53fdc6e11fd"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13680,6 +13910,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13740,6 +13971,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13800,6 +14032,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13860,6 +14093,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13920,6 +14154,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -13980,6 +14215,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14040,6 +14276,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14100,6 +14337,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14160,6 +14398,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14220,6 +14459,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14280,6 +14520,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14340,6 +14581,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14400,6 +14642,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14460,6 +14703,7 @@
           "6fe3327627d1fe5296f51ba5ba32974622bd8808d4f9685168c0faff8197099b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14520,6 +14764,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14580,6 +14825,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14640,6 +14886,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14700,6 +14947,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14760,6 +15008,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14820,6 +15069,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14880,6 +15130,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -14940,6 +15191,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15000,6 +15252,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15060,6 +15313,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15120,6 +15374,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15180,6 +15435,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15240,6 +15496,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15300,6 +15557,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15360,6 +15618,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15420,6 +15679,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15480,6 +15740,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15540,6 +15801,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15600,6 +15862,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15660,6 +15923,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15720,6 +15984,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15780,6 +16045,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15840,6 +16106,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15900,6 +16167,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -15960,6 +16228,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16020,6 +16289,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16080,6 +16350,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16140,6 +16411,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16200,6 +16472,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16260,6 +16533,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16320,6 +16594,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16380,6 +16655,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16440,6 +16716,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16500,6 +16777,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16560,6 +16838,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16620,6 +16899,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16680,6 +16960,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16740,6 +17021,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16800,6 +17082,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16860,6 +17143,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16920,6 +17204,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -16980,6 +17265,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17040,6 +17326,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17100,6 +17387,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17160,6 +17448,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17220,6 +17509,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17280,6 +17570,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17340,6 +17631,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17400,6 +17692,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17460,6 +17753,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17520,6 +17814,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17580,6 +17875,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17640,6 +17936,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17700,6 +17997,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17760,6 +18058,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17820,6 +18119,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17880,6 +18180,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -17940,6 +18241,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18000,6 +18302,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18060,6 +18363,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18120,6 +18424,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18180,6 +18485,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18240,6 +18546,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18300,6 +18607,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18360,6 +18668,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18420,6 +18729,7 @@
           "ac1fc27b772fcab3316c50a764d0c3fd62d1f06ad150495b401044022b2b8a17"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "enemy"
       ],
@@ -18465,6 +18775,7 @@
           "e41e2e871e86384ebfdc3b068517bf593bd3617b349415b5e92ed68e626ee06f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "sky"
       ],
@@ -18517,6 +18828,7 @@
         ],
         "tile_offset": 0
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18570,6 +18882,7 @@
         ],
         "tile_offset": 1
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18623,6 +18936,7 @@
         ],
         "tile_offset": 2
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18676,6 +18990,7 @@
         ],
         "tile_offset": 3
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18729,6 +19044,7 @@
         ],
         "tile_offset": 256
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18781,6 +19097,7 @@
         ],
         "tile_offset": 257
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18834,6 +19151,7 @@
         ],
         "tile_offset": 258
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18887,6 +19205,7 @@
         ],
         "tile_offset": 259
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18940,6 +19259,7 @@
         ],
         "tile_offset": 512
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -18988,6 +19308,7 @@
         ],
         "tile_offset": 513
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19041,6 +19362,7 @@
         ],
         "tile_offset": 514
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19094,6 +19416,7 @@
         ],
         "tile_offset": 515
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19147,6 +19470,7 @@
         ],
         "tile_offset": 768
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19200,6 +19524,7 @@
         ],
         "tile_offset": 769
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19253,6 +19578,7 @@
         ],
         "tile_offset": 770
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19306,6 +19632,7 @@
         ],
         "tile_offset": 771
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19359,6 +19686,7 @@
         ],
         "tile_offset": 1024
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19412,6 +19740,7 @@
         ],
         "tile_offset": 1025
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19465,6 +19794,7 @@
         ],
         "tile_offset": 1026
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19518,6 +19848,7 @@
         ],
         "tile_offset": 1027
       },
+      "specular_factor": 1.0,
       "tags": [
         "floor_ceiling_water",
         "world"
@@ -19564,6 +19895,7 @@
           "f537d83726b5893d2a6cb3b91761f63cfcb59c660be26af6d50ed5c2362e642a"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "hud_or_text"
       ],
@@ -19609,6 +19941,7 @@
           "1890ba9442865ab6634464ed943f2694b5390f2be6be0b6e92770b961c9f9d9d"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "hud_or_text"
       ],
@@ -19654,6 +19987,7 @@
           "de551f3fb261291373e83e11886045726164a63521e72af3d22d4b5fa6553acb"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "hud_or_text"
       ],
@@ -19712,6 +20046,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -19770,6 +20105,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -19828,6 +20164,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -19886,6 +20223,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -19944,6 +20282,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20002,6 +20341,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20060,6 +20400,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20118,6 +20459,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20175,6 +20517,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20232,6 +20575,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20289,6 +20633,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20346,6 +20691,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20404,6 +20750,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20462,6 +20809,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20520,6 +20868,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20578,6 +20927,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20636,6 +20986,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20694,6 +21045,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20752,6 +21104,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20810,6 +21163,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20868,6 +21222,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20926,6 +21281,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -20984,6 +21340,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21042,6 +21399,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21100,6 +21458,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21158,6 +21517,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21216,6 +21576,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21274,6 +21635,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21332,6 +21694,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21390,6 +21753,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21448,6 +21812,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21506,6 +21871,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21564,6 +21930,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21622,6 +21989,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21680,6 +22048,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21738,6 +22107,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21796,6 +22166,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21854,6 +22225,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21912,6 +22284,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -21970,6 +22343,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22028,6 +22402,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22086,6 +22461,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22144,6 +22520,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22202,6 +22579,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22260,6 +22638,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22318,6 +22697,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22376,6 +22756,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22434,6 +22815,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22492,6 +22874,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22550,6 +22933,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22608,6 +22992,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22666,6 +23051,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22724,6 +23110,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22782,6 +23169,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22840,6 +23228,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22898,6 +23287,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -22956,6 +23346,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23014,6 +23405,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23072,6 +23464,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23130,6 +23523,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23188,6 +23582,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23246,6 +23641,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23304,6 +23700,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23362,6 +23759,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23420,6 +23818,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23478,6 +23877,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23536,6 +23936,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23594,6 +23995,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23652,6 +24054,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23710,6 +24113,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23768,6 +24172,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23826,6 +24231,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23884,6 +24290,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -23942,6 +24349,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24000,6 +24408,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24058,6 +24467,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24116,6 +24526,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24174,6 +24585,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24232,6 +24644,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24290,6 +24703,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24347,6 +24761,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24404,6 +24819,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24462,6 +24878,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24520,6 +24937,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24578,6 +24996,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24636,6 +25055,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24694,6 +25114,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24752,6 +25173,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24810,6 +25232,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24868,6 +25291,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24926,6 +25350,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -24984,6 +25409,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25041,6 +25467,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25099,6 +25526,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25157,6 +25585,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25215,6 +25644,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25273,6 +25703,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25331,6 +25762,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25388,6 +25820,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25445,6 +25878,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25502,6 +25936,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25560,6 +25995,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25618,6 +26054,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25676,6 +26113,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25734,6 +26172,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25792,6 +26231,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25850,6 +26290,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25908,6 +26349,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -25966,6 +26408,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26024,6 +26467,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26082,6 +26526,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26140,6 +26585,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26198,6 +26644,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26256,6 +26703,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26314,6 +26762,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26372,6 +26821,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26430,6 +26880,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26488,6 +26939,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26546,6 +26998,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26604,6 +27057,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26662,6 +27116,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26720,6 +27175,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26778,6 +27234,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26836,6 +27293,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26894,6 +27352,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -26952,6 +27411,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27010,6 +27470,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27068,6 +27529,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27126,6 +27588,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27184,6 +27647,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27242,6 +27706,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27300,6 +27765,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27358,6 +27824,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27416,6 +27883,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27474,6 +27942,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27532,6 +28001,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27590,6 +28060,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27648,6 +28119,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27706,6 +28178,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27764,6 +28237,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27822,6 +28296,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27880,6 +28355,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27938,6 +28414,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -27996,6 +28473,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28054,6 +28532,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28112,6 +28591,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28169,6 +28649,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28226,6 +28707,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28284,6 +28766,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28342,6 +28825,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28400,6 +28884,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28458,6 +28943,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28516,6 +29002,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28574,6 +29061,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28632,6 +29120,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28690,6 +29179,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28748,6 +29238,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28806,6 +29297,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28864,6 +29356,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28922,6 +29415,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -28980,6 +29474,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29038,6 +29533,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29096,6 +29592,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29154,6 +29651,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29212,6 +29710,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29270,6 +29769,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29328,6 +29828,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29386,6 +29887,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29444,6 +29946,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29502,6 +30005,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29560,6 +30064,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29618,6 +30123,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29676,6 +30182,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29734,6 +30241,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29792,6 +30300,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29850,6 +30359,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29908,6 +30418,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -29966,6 +30477,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30024,6 +30536,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30082,6 +30595,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30140,6 +30654,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30198,6 +30713,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30256,6 +30772,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30314,6 +30831,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30372,6 +30890,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30430,6 +30949,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30488,6 +31008,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30546,6 +31067,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30604,6 +31126,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30662,6 +31185,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30720,6 +31244,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30778,6 +31303,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30836,6 +31362,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30894,6 +31421,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -30952,6 +31480,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31010,6 +31539,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31068,6 +31598,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31126,6 +31657,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31184,6 +31716,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31242,6 +31775,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31300,6 +31834,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31358,6 +31893,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31416,6 +31952,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31474,6 +32011,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31532,6 +32070,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31590,6 +32129,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31648,6 +32188,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31706,6 +32247,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31764,6 +32306,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31822,6 +32365,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31880,6 +32424,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31938,6 +32483,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -31996,6 +32542,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32054,6 +32601,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32112,6 +32660,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32170,6 +32719,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32228,6 +32778,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32286,6 +32837,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32344,6 +32896,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32402,6 +32955,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32460,6 +33014,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32518,6 +33073,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32576,6 +33132,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32634,6 +33191,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32692,6 +33250,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32750,6 +33309,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32808,6 +33368,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32866,6 +33427,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32924,6 +33486,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -32982,6 +33545,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33040,6 +33604,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33098,6 +33663,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33156,6 +33722,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33214,6 +33781,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33272,6 +33840,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33330,6 +33899,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33388,6 +33958,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33446,6 +34017,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33504,6 +34076,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33562,6 +34135,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33620,6 +34194,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33678,6 +34253,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33736,6 +34312,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33794,6 +34371,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33852,6 +34430,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33910,6 +34489,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -33968,6 +34548,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34026,6 +34607,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34084,6 +34666,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34142,6 +34725,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34200,6 +34784,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34258,6 +34843,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34316,6 +34902,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34374,6 +34961,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34432,6 +35020,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34490,6 +35079,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34548,6 +35138,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34606,6 +35197,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34664,6 +35256,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34722,6 +35315,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34780,6 +35374,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34838,6 +35433,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34896,6 +35492,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -34954,6 +35551,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35012,6 +35610,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35070,6 +35669,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35128,6 +35728,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35186,6 +35787,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35244,6 +35846,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35302,6 +35905,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35360,6 +35964,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35418,6 +36023,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35476,6 +36082,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35534,6 +36141,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35592,6 +36200,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35650,6 +36259,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35708,6 +36318,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35766,6 +36377,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35824,6 +36436,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35882,6 +36495,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35940,6 +36554,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -35998,6 +36613,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -36056,6 +36672,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -36114,6 +36731,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "world_object_or_enemy"
       ],
@@ -36163,6 +36781,7 @@
           "11ea0a108d2f395b0b59d2a6a9e133e2d2878089c982d7ad8a86751aa49fb598"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36207,6 +36826,7 @@
           "e2656f9825ea7918376c90cecb1281ade11172306afea379264a99bc8f703b3f"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36251,6 +36871,7 @@
           "866c8d91fa20912aae78428f477663d2436d838a6716e54c087a01b84edea0e1"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36295,6 +36916,7 @@
           "d879c1b26c11fbf1c3905c60713d8f2cf89084ddf1cd925f976e4c5829ceb8d8"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36339,6 +36961,7 @@
           "591fe90a3cfba348974a010f2a2368797776d72e8ba21f728a7c2981119b1c87"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36383,6 +37006,7 @@
           "19ec4571a990b31d9282a601b40635f318fe7e87c53f62c64932737950c1440b"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36427,6 +37051,7 @@
           "6a112e22265cd3ef8a89523b470016de7452048869519bc37e39efc1fb5a14c5"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36471,6 +37096,7 @@
           "f83d22fe1d1090565122b9825b06d11fd55d5a9b5ffd2068c557cd2b2e54c13a"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36515,6 +37141,7 @@
           "5df8ceba34f59fc22abc6cbf999f4c4a3abe9ff57e5b534b58f2ed3f94e46918"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36559,6 +37186,7 @@
           "0e3e752103f86e7b5b3635289afb7dfae5ceab2b1d342cc3389b40c6ef1b582c"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36603,6 +37231,7 @@
           "2b864c50ce0d943603177dc689660c674bc8351864dcfab338fbe3d36421905c"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36647,6 +37276,7 @@
           "3a859e666789c574eed3f6de41b24b6e87ab7d6c3f49f95590729337ab715de6"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36696,6 +37326,7 @@
           "a3e0004ddd3701201891468357ee994cb6f5afc9950c21c2c10aa2c8ad373d7a"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36737,6 +37368,7 @@
           "452e306aa8c96ee77f4c352bc2047427f04be11b8b6790ba1122560712aa8758"
         ]
       },
+      "specular_factor": 1.0,
       "tags": [
         "world"
       ],
@@ -36795,6 +37427,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -36853,6 +37486,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -36911,6 +37545,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -36969,6 +37604,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37027,6 +37663,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37085,6 +37722,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37143,6 +37781,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37201,6 +37840,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37259,6 +37899,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37317,6 +37958,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37375,6 +38017,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37433,6 +38076,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37491,6 +38135,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37549,6 +38194,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37607,6 +38253,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37665,6 +38312,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37723,6 +38371,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37781,6 +38430,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37839,6 +38489,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37897,6 +38548,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -37955,6 +38607,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38013,6 +38666,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38071,6 +38725,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38129,6 +38784,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38187,6 +38843,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38245,6 +38902,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38303,6 +38961,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38361,6 +39020,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38419,6 +39079,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38477,6 +39138,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38535,6 +39197,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38593,6 +39256,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38651,6 +39315,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38709,6 +39374,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38767,6 +39433,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38825,6 +39492,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38883,6 +39551,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38941,6 +39610,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -38999,6 +39669,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39057,6 +39728,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39115,6 +39787,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39173,6 +39846,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39231,6 +39905,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39289,6 +39964,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39347,6 +40023,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39405,6 +40082,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39463,6 +40141,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39521,6 +40200,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39579,6 +40259,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39637,6 +40318,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39695,6 +40377,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39753,6 +40436,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39811,6 +40495,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39869,6 +40554,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39927,6 +40613,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -39985,6 +40672,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40043,6 +40731,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40101,6 +40790,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40159,6 +40849,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40217,6 +40908,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40275,6 +40967,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40333,6 +41026,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40391,6 +41085,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40449,6 +41144,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40507,6 +41203,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40565,6 +41262,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40623,6 +41321,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40681,6 +41380,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40739,6 +41439,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40797,6 +41498,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40855,6 +41557,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40913,6 +41616,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -40971,6 +41675,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41029,6 +41734,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41087,6 +41793,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41145,6 +41852,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41203,6 +41911,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41261,6 +41970,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41319,6 +42029,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41377,6 +42088,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41435,6 +42147,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41493,6 +42206,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41551,6 +42265,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41609,6 +42324,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41667,6 +42383,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41725,6 +42442,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41783,6 +42501,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41841,6 +42560,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41899,6 +42619,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -41957,6 +42678,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42015,6 +42737,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42073,6 +42796,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42131,6 +42855,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42189,6 +42914,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42247,6 +42973,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42305,6 +43032,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42363,6 +43091,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42421,6 +43150,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42479,6 +43209,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42537,6 +43268,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42595,6 +43327,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42653,6 +43386,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42711,6 +43445,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42769,6 +43504,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42827,6 +43563,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42885,6 +43622,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -42943,6 +43681,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43001,6 +43740,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43059,6 +43799,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43117,6 +43858,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43175,6 +43917,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43233,6 +43976,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43291,6 +44035,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43349,6 +44094,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43407,6 +44153,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43465,6 +44212,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43523,6 +44271,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43581,6 +44330,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43639,6 +44389,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43697,6 +44448,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43755,6 +44507,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43813,6 +44566,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43871,6 +44625,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43929,6 +44684,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -43987,6 +44743,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44045,6 +44802,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44103,6 +44861,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44161,6 +44920,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44219,6 +44979,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44277,6 +45038,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44335,6 +45097,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44393,6 +45156,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44451,6 +45215,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44509,6 +45274,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44567,6 +45333,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44625,6 +45392,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44683,6 +45451,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44741,6 +45510,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44799,6 +45569,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44857,6 +45628,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44915,6 +45687,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -44973,6 +45746,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45031,6 +45805,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45089,6 +45864,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45147,6 +45923,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45205,6 +45982,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45263,6 +46041,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45321,6 +46100,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45379,6 +46159,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45437,6 +46218,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45495,6 +46277,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45553,6 +46336,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45611,6 +46395,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45669,6 +46454,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45727,6 +46513,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45784,6 +46571,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45842,6 +46630,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45900,6 +46689,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -45958,6 +46748,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46016,6 +46807,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46074,6 +46866,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46132,6 +46925,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46190,6 +46984,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46248,6 +47043,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46306,6 +47102,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46364,6 +47161,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46422,6 +47220,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46480,6 +47279,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46538,6 +47338,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46596,6 +47397,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46654,6 +47456,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46712,6 +47515,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46770,6 +47574,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46828,6 +47633,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46886,6 +47692,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -46944,6 +47751,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47002,6 +47810,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47060,6 +47869,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47118,6 +47928,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47176,6 +47987,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47234,6 +48046,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47292,6 +48105,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47350,6 +48164,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47408,6 +48223,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47466,6 +48282,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47524,6 +48341,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47582,6 +48400,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47640,6 +48459,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47698,6 +48518,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47756,6 +48577,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47814,6 +48636,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47872,6 +48695,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47930,6 +48754,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -47988,6 +48813,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48046,6 +48872,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48104,6 +48931,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48162,6 +48990,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48220,6 +49049,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48278,6 +49108,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48336,6 +49167,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48394,6 +49226,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48452,6 +49285,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48510,6 +49344,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48568,6 +49403,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48626,6 +49462,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48684,6 +49521,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48742,6 +49580,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48800,6 +49639,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48858,6 +49698,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48916,6 +49757,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -48974,6 +49816,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49032,6 +49875,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49090,6 +49934,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49148,6 +49993,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49206,6 +50052,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49264,6 +50111,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49322,6 +50170,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49380,6 +50229,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49438,6 +50288,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49496,6 +50347,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49554,6 +50406,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49612,6 +50465,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49670,6 +50524,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49728,6 +50583,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49786,6 +50642,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49844,6 +50701,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49902,6 +50760,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -49960,6 +50819,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50018,6 +50878,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50076,6 +50937,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50134,6 +50996,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50192,6 +51055,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50250,6 +51114,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50308,6 +51173,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50366,6 +51232,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50424,6 +51291,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50482,6 +51350,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50540,6 +51409,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50598,6 +51468,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50656,6 +51527,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50714,6 +51586,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50772,6 +51645,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50830,6 +51704,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50888,6 +51763,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -50946,6 +51822,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51004,6 +51881,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51061,6 +51939,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51118,6 +51997,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51175,6 +52055,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51233,6 +52114,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51291,6 +52173,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51349,6 +52232,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51407,6 +52291,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51465,6 +52350,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51523,6 +52409,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51581,6 +52468,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51639,6 +52527,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51697,6 +52586,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51755,6 +52645,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51813,6 +52704,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51871,6 +52763,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51929,6 +52822,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -51987,6 +52881,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52045,6 +52940,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52103,6 +52999,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52161,6 +53058,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52219,6 +53117,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52277,6 +53176,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52335,6 +53235,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52393,6 +53294,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52451,6 +53353,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52509,6 +53412,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52567,6 +53471,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52625,6 +53530,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52683,6 +53589,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52741,6 +53648,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52799,6 +53707,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52857,6 +53766,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52915,6 +53825,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -52973,6 +53884,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53031,6 +53943,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53089,6 +54002,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53147,6 +54061,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53205,6 +54120,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53263,6 +54179,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53321,6 +54238,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53379,6 +54297,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53437,6 +54356,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53495,6 +54415,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53553,6 +54474,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53611,6 +54533,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53669,6 +54592,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53727,6 +54651,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53785,6 +54710,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53843,6 +54769,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53901,6 +54828,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -53959,6 +54887,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54017,6 +54946,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54075,6 +55005,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54133,6 +55064,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54191,6 +55123,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54249,6 +55182,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54307,6 +55241,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54365,6 +55300,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54423,6 +55359,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54481,6 +55418,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54539,6 +55477,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54597,6 +55536,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54655,6 +55595,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54713,6 +55654,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54771,6 +55713,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54829,6 +55772,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54887,6 +55831,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -54945,6 +55890,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55003,6 +55949,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55061,6 +56008,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55119,6 +56067,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55177,6 +56126,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55235,6 +56185,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55293,6 +56244,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55351,6 +56303,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55409,6 +56362,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55467,6 +56421,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55525,6 +56480,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55583,6 +56539,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55641,6 +56598,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55699,6 +56657,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55757,6 +56716,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55815,6 +56775,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55873,6 +56834,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55931,6 +56893,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -55989,6 +56952,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56047,6 +57011,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56105,6 +57070,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56163,6 +57129,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56221,6 +57188,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56279,6 +57247,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56337,6 +57306,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56395,6 +57365,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56453,6 +57424,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56511,6 +57483,7 @@
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ]
       },
+      "specular_factor": 0.35,
       "tags": [
         "weapon"
       ],
@@ -56525,7 +57498,25 @@
       "sha256": "9d29f7f7e28d68a3fafb125741cf2b1e88a9ab6a4f085d058d51b39d4fb56c8d"
     }
   ],
-  "schema_version": 4,
+  "schema_version": 5,
+  "source_vector_material_defaults": {
+    "metalness": [
+      0,
+      0,
+      0
+    ],
+    "normal": [
+      128,
+      128,
+      255
+    ],
+    "roughness": [
+      184,
+      184,
+      184
+    ],
+    "specular_factor": 0.35
+  },
   "un_authored_channel_defaults": {
     "emissive": [
       0,

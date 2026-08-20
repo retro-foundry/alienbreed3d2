@@ -31,6 +31,7 @@ struct DxrMaterialDefinition {
     uint32_t width = 0;
     uint32_t height = 0;
     float normal_strength = 1.0f;
+    float specular_factor = 1.0f;
     float emissive_factor[3] = {};
     std::array<std::vector<uint8_t>,
                static_cast<size_t>(DxrMaterialChannel::count)> pixels;

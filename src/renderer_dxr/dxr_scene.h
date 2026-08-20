@@ -48,8 +48,11 @@ struct DxrSceneMaterial {
     uint32_t width;
     uint32_t height;
     float normal_strength;
+    float specular_factor;
     float emissive[3];
 };
+
+static_assert(sizeof(DxrSceneMaterial) == 36u);
 
 /*
  * Layout mirrored by `EmissiveTriangle` in shaders/path_trace.hlsl. The alias

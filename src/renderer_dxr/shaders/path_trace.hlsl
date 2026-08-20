@@ -39,6 +39,7 @@ struct SceneMaterial
     uint width;
     uint height;
     float normalStrength;
+    float specularFactor;
     float3 emissiveFactor;
 };
 
@@ -100,6 +101,7 @@ struct SurfaceData
     float3 baseColor;
     float roughness;
     float metalness;
+    float specularFactor;
     float3 emission;
     uint materialIndex;
     uint emitterIndex;
@@ -458,6 +460,7 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     }
     surface.metalness =
         saturate(MetalnessAtlas.Load(int3(texel, 0)).r);
+    surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
         RoughnessAtlas.Load(int3(texel, 0)).r, 0.045, 1.0);
     float emissiveScale = first.emissiveScale * firstWeight +
@@ -608,6 +611,12 @@ float3 fresnelSchlick(float cosine, float3 reflectance)
     return reflectance + (1.0 - reflectance) * factor;
 }
 
+float3 surfaceF0(SurfaceData surface)
+{
+    float dielectricF0 = 0.04 * surface.specularFactor;
+    return lerp(dielectricF0.xxx, surface.baseColor, surface.metalness);
+}
+
 float ggxDistribution(float normalHalf, float alpha)
 {
     float alphaSquared = alpha * alpha;
@@ -648,7 +657,7 @@ BsdfEvaluation evaluateBsdf(SurfaceData surface, float3 viewDirection,
     float normalHalf = saturate(dot(surface.shadingNormal, halfVector));
     float viewHalf = saturate(dot(viewDirection, halfVector));
     float alpha = surface.roughness * surface.roughness;
-    float3 f0 = lerp(0.04.xxx, surface.baseColor, surface.metalness);
+    float3 f0 = surfaceF0(surface);
     float3 fresnel = fresnelSchlick(viewHalf, f0);
     float distribution = ggxDistribution(normalHalf, alpha);
     float viewMasking = smithG1(normalView, alpha);
@@ -697,7 +706,7 @@ bool sampleBsdf(SurfaceData surface, float3 viewDirection,
                 out bool sampledSpecular)
 {
     float3 diffuseReflectance = surface.baseColor * (1.0 - surface.metalness);
-    float3 f0 = lerp(0.04.xxx, surface.baseColor, surface.metalness);
+    float3 f0 = surfaceF0(surface);
     float chooseSpecular = specularProbability(diffuseReflectance, f0);
     sampledSpecular = chooseSample < chooseSpecular;
     if (sampledSpecular) {
@@ -1146,8 +1155,7 @@ PrimaryGuides writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
 {
     PrimaryGuides guides;
     float3 diffuseReflectance = surface.baseColor * (1.0 - surface.metalness);
-    float3 specularColor = lerp(0.04.xxx, surface.baseColor,
-                                surface.metalness);
+    float3 specularColor = surfaceF0(surface);
     float normalView = saturate(dot(surface.shadingNormal, viewDirection));
     DiffuseAlbedo[pixel] = float4(diffuseReflectance, 1.0);
     SpecularAlbedo[pixel] = float4(reconstructionSpecularAlbedo(

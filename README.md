@@ -429,7 +429,8 @@ selects a high-performance hardware adapter with feature level 12_0,
 `ID3D12Device5`, and a nonzero DXR tier. It compiles opaque world surfaces and
 Player 1's exact `ENT_NEXT_2` companion from the renderer-neutral `SceneFrame`,
 uploads positions, UVs, material/primitive indices, and renderer-native
-base-color, tangent-normal, metalness, roughness, and emissive atlases, then
+base-color, tangent-normal, metalness, roughness, emissive, and dielectric
+specular material data, then
 builds static/dynamic BLAS objects and one TLAS. The companion compiler's exact
 NDC and eye depth are inverted through the DXR camera into an alpha-tested,
 camera-relative dynamic BLAS. Separate TLAS instance masks let a weapon-only
@@ -453,7 +454,11 @@ The complete editable texture handoff is
 and `ui` directories. They contain 973 material identities and five PNG maps
 per material (4,865 PNGs total), alongside root-level `materials.json` and the
 artist README. Each category is flat. Unauthored PBR channels are committed
-neutral maps for artists to replace. The build validates every PNG and embeds
+generated maps for artists to replace. Weapon and vector-model regions retain
+their source albedo and use roughness 184/255 (the nearest PNG value to 0.72),
+metalness 0, and editable `specular_factor` 0.35, matching the proven material
+settings from the user-directed renderer comparison. Other unauthored maps use
+the neutral defaults recorded in the manifest. The build validates every PNG and embeds
 its exact compressed bytes in one runtime package. DXR reads only the package
 catalog at startup and decodes a material's five PNGs when the live scene first
 requires that binding. A missing/corrupt map or missing world/weapon binding is

@@ -7,8 +7,9 @@ On 2026-08-17 the user explicitly authorized a narrow comparison with the
 sibling `alienbreed3d2-rtx-renderer` to recover its emissive material behavior;
 that exception is recorded below.
 On 2026-08-20 the user separately authorized the plan-listed companion-weapon
-files in that sibling as behavioral evidence. No sibling texture or generated
-material package was imported.
+files in that sibling as behavioral evidence, then directed a comparison of its
+weapon PBR materials. No sibling texture or generated material package was
+imported.
 
 ## Project-authored implementation
 
@@ -36,13 +37,16 @@ editable PNGs for each beneath the category-sorted
 `assets/renderer_dxr/materials/` root.
 That is 4,865 PNGs covering walls, floors, weapon/vector faces, enemies,
 billboards/effects, environment, and UI. Unauthored normal, metalness,
-roughness, and emissive maps are explicit neutral placeholders, identified in
-`materials.json`, rather than runtime-generated data. `waterfile` is retained
+roughness, and emissive maps are explicit generated assets, identified in
+`materials.json`, rather than runtime-generated data. Non-vector unauthored
+maps use neutral defaults. Source-vector faces use the exact source albedo,
+normal `(128,128,255)`, metalness `0`, roughness byte `184` (nearest to `0.72`),
+and manifest `specular_factor` `0.35`. `waterfile` is retained
 in the manifest as non-color texture-coordinate animation data.
 
 `tools/compile_pbr_asset_pack.py` validates the category paths and dimensions,
 records file and decoded-pixel hashes, and embeds each exact compressed PNG in
-the indexed `AB3PBR5` runtime package. Startup reads only its catalog; runtime
+the indexed `AB3PBR6` runtime package. Startup reads only its catalog; runtime
 pixels are decoded from a material's embedded PNG payloads on first use. The
 process does not invoke or consume the old Q2 package builder, its output,
 packed channels, or material files.
@@ -69,6 +73,18 @@ that conversion at build time into explicit hashed emissive textures. The
 runtime samples those textures as sRGB data and never derives emission from
 base color. `brownspeakers` and `technotritile`, which the earlier scaffold had
 guessed were emitters, are explicitly black in the emissive channel.
+
+The later user-directed weapon-material evidence was committed
+`src/shaders/primary.rchit` at sibling commit
+`0a350f8ebbf206db53fb191314cbee078ef2b281`. Its source-vector branch assigns
+roughness `0.72`, metalness `0`, geometric normals, and specular factor `0.35`
+while sampling exact source-vector albedo. `src/shaders/q2rtx_common.glsl` was
+read only to establish what that scalar represented. No sibling GLSL, BRDF,
+asset, material package, or channel convention was copied. This renderer keeps
+its project-authored metallic-roughness implementation: the manifest factor
+scales dielectric F0, is used consistently by path sampling and evaluation,
+and feeds the NVIDIA-guided RR specular-albedo calculation. The generated
+roughness PNG uses `184/255`, the nearest representable 8-bit value.
 
 The per-vertex scaling of that authored emission by the source Gouraud shade
 response is project-authored and takes its evidence from the maintained Amiga

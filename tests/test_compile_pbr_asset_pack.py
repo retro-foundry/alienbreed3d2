@@ -31,7 +31,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
 
     def test_artist_directory_is_complete_sorted_and_zip_ready(self) -> None:
         materials = self.spec["materials"]
-        self.assertEqual(self.spec["schema_version"], 4)
+        self.assertEqual(self.spec["schema_version"], 5)
         self.assertEqual(len(materials), 973)
         self.assertEqual(
             Counter(material["class"] for material in materials),
@@ -103,12 +103,13 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
         expected_rgb = {
             "normal": (128, 128, 255),
             "metalness": (0, 0, 0),
-            "roughness": (255, 255, 255),
+            "roughness": (184, 184, 184),
             "emissive": (0, 0, 0),
         }
         for channel, rgb in expected_rgb.items():
             with Image.open(ASSET_DIR / sample["channels"][channel]) as opened:
                 self.assertEqual({pixel[:3] for pixel in opened.convert("RGBA").getdata()}, {rgb})
+        self.assertEqual(sample["specular_factor"], 0.35)
 
     def test_runtime_package_embeds_exact_pngs_for_demand_loading(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -126,8 +127,8 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             self.assertGreater(len(runtime), table_size)
             self.assertTrue(manifest["runtime_package"]["contains_pixels"])
             self.assertEqual(manifest["runtime_package"]["pixel_encoding"], "png")
-            self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR5")
-            self.assertEqual(manifest["schema_version"], 5)
+            self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR6")
+            self.assertEqual(manifest["schema_version"], 6)
             self.assertEqual(len(list(output.rglob("*.png"))), 0)
             self.assertEqual(
                 {path.name for path in output.iterdir()},
@@ -138,11 +139,11 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
                 RUNTIME_RECORD.unpack_from(runtime, RUNTIME_HEADER.size + index * record_size)
                 for index in range(count)
             ]
-            names = [record[11].split(b"\0", 1)[0].decode("ascii") for record in records]
+            names = [record[12].split(b"\0", 1)[0].decode("ascii") for record in records]
             expected_offset = table_size
             png_signature = b"\x89PNG\r\n\x1a\n"
             for record in records:
-                ranges = record[12:]
+                ranges = record[13:]
                 for channel_index in range(len(CHANNELS)):
                     offset = ranges[channel_index * 2]
                     size = ranges[channel_index * 2 + 1]
@@ -158,17 +159,18 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             self.assertEqual(weapon[1:4], (3, 0, 0x3F000200))
             self.assertEqual((weapon[4], weapon[5]), (3, 64))
             self.assertEqual(
-                (weapon[10] >> RUNTIME_CLASS_SHIFT) & 0xF,
+                (weapon[11] >> RUNTIME_CLASS_SHIFT) & 0xF,
                 RUNTIME_CLASSES["weapon"],
             )
+            self.assertAlmostEqual(weapon[10], 0.35)
             source_weapon = next(
                 material
                 for material in self.spec["materials"]
                 if material["name"] == "weapon_03_blaster_material_000"
             )
             for channel_index, channel in enumerate(CHANNELS):
-                offset = weapon[12 + channel_index * 2]
-                size = weapon[13 + channel_index * 2]
+                offset = weapon[13 + channel_index * 2]
+                size = weapon[14 + channel_index * 2]
                 expected_png = (ASSET_DIR / source_weapon["channels"][channel]).read_bytes()
                 self.assertEqual(runtime[offset : offset + size], expected_png)
                 runtime_channel = manifest["materials"][weapon_index]["channels"][channel]

@@ -21,8 +21,8 @@ except ImportError as error:  # pragma: no cover - build-host diagnostic
 
 
 CHANNELS = ("base_color", "normal", "metalness", "roughness", "emissive")
-RUNTIME_MAGIC = b"AB3PBR5\0"
-RUNTIME_VERSION = 5
+RUNTIME_MAGIC = b"AB3PBR6\0"
+RUNTIME_VERSION = 6
 RUNTIME_SOURCE_NONE = 0
 RUNTIME_SOURCE_SHARED_WALL = 1
 RUNTIME_SOURCE_SHARED_FLOOR = 2
@@ -34,7 +34,7 @@ RUNTIME_FLAG_TWO_SIDED = 1 << 9
 RUNTIME_FLAG_VECTOR_GLARE = 1 << 10
 RUNTIME_CLASS_SHIFT = 12
 RUNTIME_HEADER = struct.Struct("<8sIIII")
-RUNTIME_RECORD = struct.Struct("<IIIIIIffffI96s" + "QI" * len(CHANNELS))
+RUNTIME_RECORD = struct.Struct("<IIIIIIfffffI96s" + "QI" * len(CHANNELS))
 BITMAP_MODES = {
     "bitmap": 0,
     "lighted_2": 2,
@@ -151,8 +151,8 @@ def validate_source_metadata(material: dict, name: str) -> None:
 
 def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    if not isinstance(spec, dict) or spec.get("schema_version") != 4:
-        raise ValueError("PBR artist manifest must use schema_version 4")
+    if not isinstance(spec, dict) or spec.get("schema_version") != 5:
+        raise ValueError("PBR artist manifest must use schema_version 5")
     materials = spec.get("materials")
     if not isinstance(materials, list) or not materials:
         raise ValueError("PBR artist manifest contains no materials")
@@ -186,6 +186,7 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
         width = material.get("width")
         height = material.get("height")
         normal_strength = material.get("normal_strength")
+        specular_factor = material.get("specular_factor")
         if (
             not isinstance(width, int)
             or not isinstance(height, int)
@@ -194,8 +195,13 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
             or not isinstance(normal_strength, (int, float))
             or not math.isfinite(normal_strength)
             or normal_strength <= 0.0
+            or not isinstance(specular_factor, (int, float))
+            or not math.isfinite(specular_factor)
+            or not 0.0 <= specular_factor <= 1.0
         ):
-            raise ValueError(f"PBR material {name} has invalid dimensions/normal strength")
+            raise ValueError(
+                f"PBR material {name} has invalid dimensions/material factors"
+            )
         alpha_mode = material.get("alpha_mode")
         if alpha_mode not in RUNTIME_ALPHA:
             raise ValueError(f"PBR material {name} has an invalid alpha mode")
@@ -288,6 +294,7 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
                     float(emissive_factor[0]),
                     float(emissive_factor[1]),
                     float(emissive_factor[2]),
+                    float(specular_factor),
                     flags,
                     encoded_name + bytes(96 - len(encoded_name)),
                 ),
@@ -348,13 +355,13 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     if unexpected:
         raise ValueError(f"PBR runtime output contains stale/unexpected files: {unexpected}")
     manifest = {
-        "schema_version": 5,
+        "schema_version": 6,
         "generator": "tools/compile_pbr_asset_pack.py",
         "source_manifest_sha256": sha256(spec_path.read_bytes()),
         "materials": output_materials,
         "runtime_package": {
             "file": runtime_path.name,
-            "format": "AB3PBR5",
+            "format": "AB3PBR6",
             "sha256": sha256(runtime),
             "contains_pixels": True,
             "pixel_encoding": "png",

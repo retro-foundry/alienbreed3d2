@@ -16,8 +16,8 @@ namespace ab3d2::dxr {
 
 namespace {
 
-constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '5', 0};
-constexpr uint32_t runtime_version = 5u;
+constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '6', 0};
+constexpr uint32_t runtime_version = 6u;
 constexpr uint32_t runtime_source_none = 0u;
 constexpr uint32_t runtime_source_shared_wall = 1u;
 constexpr uint32_t runtime_source_shared_floor = 2u;
@@ -45,7 +45,7 @@ constexpr uint32_t runtime_known_flags =
     runtime_alpha_mask | runtime_flag_emissive_texture |
     runtime_flag_two_sided | runtime_flag_vector_glare | runtime_class_mask;
 constexpr size_t runtime_header_size = 24u;
-constexpr size_t runtime_record_metadata_size = 140u;
+constexpr size_t runtime_record_metadata_size = 144u;
 constexpr size_t runtime_channel_payload_size = 12u;
 constexpr size_t runtime_record_size = runtime_record_metadata_size +
     static_cast<size_t>(DxrMaterialChannel::count) * runtime_channel_payload_size;
@@ -240,8 +240,9 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
             read_float(record + 32u),
             read_float(record + 36u),
         };
-        const uint32_t flags = read_u32(record + 40u);
-        const char *name_bytes = reinterpret_cast<const char *>(record + 44u);
+        const float specular_factor = read_float(record + 40u);
+        const uint32_t flags = read_u32(record + 44u);
+        const char *name_bytes = reinterpret_cast<const char *>(record + 48u);
         const void *terminator = std::memchr(name_bytes, 0, runtime_name_size);
         if (!terminator) {
             error = "DXR PBR material catalog contains an unterminated name";
@@ -256,6 +257,8 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
             width > runtime_image_extent_limit ||
             height > runtime_image_extent_limit ||
             !std::isfinite(normal_strength) || normal_strength <= 0.0f ||
+            !std::isfinite(specular_factor) || specular_factor < 0.0f ||
+            specular_factor > 1.0f ||
             (flags & ~runtime_known_flags) != 0u ||
             (alpha_mode != runtime_alpha_opaque &&
              alpha_mode != runtime_alpha_tested &&
@@ -284,6 +287,7 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         definition.width = width;
         definition.height = height;
         definition.normal_strength = normal_strength;
+        definition.specular_factor = specular_factor;
         std::memcpy(definition.emissive_factor, emissive_factor,
                     sizeof(definition.emissive_factor));
         std::array<ChannelPayload,

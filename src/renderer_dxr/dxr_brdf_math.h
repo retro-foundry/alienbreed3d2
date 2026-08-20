@@ -19,6 +19,7 @@ struct Material {
     Vec3 base_color;
     float roughness;
     float metalness;
+    float specular_factor;
 };
 
 struct Evaluation {
@@ -94,7 +95,8 @@ inline Vec3 diffuse_reflectance(const Material &material)
 
 inline Vec3 f0(const Material &material)
 {
-    return lerp({0.04f, 0.04f, 0.04f}, material.base_color,
+    const float dielectric = 0.04f * material.specular_factor;
+    return lerp({dielectric, dielectric, dielectric}, material.base_color,
                 material.metalness);
 }
 

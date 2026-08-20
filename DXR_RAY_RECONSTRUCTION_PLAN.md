@@ -21,8 +21,10 @@ material catalog and mask behavior. Generated Q2RTX package output remains
 excluded; the result is rebuilt into the renderer-native material format.
 Following separate explicit user direction on 2026-08-20, the narrowly scoped
 weapon files recorded under Approved references were inspected to replace the
-planned post-tone-map companion overlay with primary DXR geometry. No sibling
-renderer source or shader was copied into this tree.
+planned post-tone-map companion overlay with primary DXR geometry. The user
+then directed a comparison of the old weapon PBR appearance; its committed
+source-vector material constants were recorded as evidence. No sibling renderer
+source or shader was copied into this tree.
 
 The implementation has reached the Streamline DLSS Ray Reconstruction
 milestone. The foundation was validated on a GeForce RTX 4080 in Debug and
@@ -38,11 +40,13 @@ regions), 310 bitmap/
 lighted/additive/glare variants, the backdrop, and three UI atlases. Every
 material has separate base-color, tangent-normal, metalness, roughness, and
 emissive PNGs: the original 13 project-authored PBR sheets and source-authored
-emission are retained, while unauthored channels are explicit neutral PNGs.
+emission are retained, while unauthored channels are explicit generated PNGs.
+Weapon/vector defaults preserve the demonstrated roughness 0.72, metalness 0,
+and specular factor 0.35; other generated channels remain neutral.
 The package therefore contains 4,865 editable PNGs plus `materials.json` and
 an artist README. The build validates every PNG, records deterministic file and
 decoded-pixel hashes, and embeds the exact compressed PNG bytes in one
-`AB3PBR5` runtime package. Startup parses only the package catalog; each
+`AB3PBR6` runtime package. Startup parses only the package catalog; each
 material's five PNG payloads are decoded on first use by the live scene. A
 missing binding, malformed package range, corrupt PNG, or dimension disagreement
 is fatal instead of invoking a hidden source-texture fallback. `waterfile` is
@@ -236,6 +240,13 @@ Local path: `C:\Users\paula\Documents\Projects\alienbreed3d2-rtx-renderer`
   companion compiler and source material/alpha data, and
   `src/renderer_vulkan_rtx_world_vectors.{c,h}` for the pattern of adding
   source vector triangles to a dynamic acceleration-structure input.
+- At the user's subsequent request to reproduce the old weapon's PBR material,
+  committed `src/shaders/primary.rchit` was inspected for the vector-material
+  assignments only. It demonstrates exact source-vector albedo, geometric
+  normals, roughness `0.72`, metalness `0`, and specular factor `0.35` for both
+  weapon and world vector faces. `src/shaders/q2rtx_common.glsl` was read only
+  to distinguish that scalar from a metalness value; none of its BRDF or GLSL
+  implementation was copied.
 - Uncommitted evidence inspected: the two modified files above only for the
   stated intent to retire the late companion count and identify primary weapon
   pixels. The diff contained no definition of `PRIMITIVE_VIEW_WEAPON` and no
@@ -473,8 +484,11 @@ animation/model tables, decodes all renderer color-texture identities, and
 merges the committed `textures_pbr/*.png` sheets where authored maps exist. It
 writes five conventional, separately editable PNGs per identity into nine
 class directories. Each category remains flat. Unauthored maps are generated
-explicitly as tangent normal `(128,128,255)`, metalness `0`, roughness `1`, and
-emission `0`, preserving the base alpha. Additive/glare source art has an
+explicitly as tangent normal `(128,128,255)`, metalness `0`, and emission `0`,
+preserving the base alpha. Non-vector roughness defaults to `1`. Weapon and
+world-vector roughness uses byte `184` (the nearest 8-bit value to `0.72`) and
+their manifest `specular_factor` is `0.35`, retaining the proven old-renderer
+material settings until artists replace the maps or scalar. Additive/glare source art has an
 explicit emissive map and unit factor. `materials.json` records class,
 dimensions, source provenance, exact world/vector/bitmap binding, alpha mode,
 color spaces, generated-channel list, and non-color source assets.
@@ -496,7 +510,9 @@ runtime.
 For a metallic-roughness model:
 
 - `diffuseReflectance = baseColor * (1 - metalness)`.
-- `F0 = lerp(0.04, baseColor, metalness)` unless the manifest provides a justified dielectric IOR/specular value.
+- `dielectricF0 = 0.04 * specularFactor`, with manifest default `1`.
+- `F0 = lerp(dielectricF0, baseColor, metalness)`; the factor therefore changes
+  dielectric response without attenuating authored metallic reflectance.
 - Feed linear roughness to Ray Reconstruction, while the microfacet BRDF may use its squared alpha convention internally.
 - Compute the RR specular-albedo guide from material specular color, roughness, and view angle using the pinned NVIDIA RR guidance; do not simply write raw metalness or `F0` without validation.
 
@@ -679,7 +695,11 @@ presentation assets. The old-renderer-compatible colored `technolights` mask
 and source-authored `floor_0101` panel are explicit emissive textures with
 factor 200; `brownspeakers` and `technotritile` are non-emissive. Source
 `floor_0201` is also bound to its authored PBR sheet. Missing/corrupt maps and
-bindings fail loudly, and material debug spheres/planes remain later work.
+bindings fail loudly. Weapon and vector-face assets use their exact source
+albedo plus generated roughness `184/255`, metalness `0`, and manifest
+`specular_factor` `0.35`; the scalar is carried through `AB3PBR6`, the scene
+material buffer, the clean-room BRDF, and the RR specular-albedo guide. Material
+debug spheres/planes remain later work.
 
 - Maintain deterministic full-source export, manifest schema, hashes, and
   inventory/golden tests.

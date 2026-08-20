@@ -9,7 +9,11 @@ This directory is category-sorted and zip-ready. Every material has five PNGs:
 - `_emissive.png` — sRGB emission colour and source alpha
 
 Keep each edited channel at the dimensions recorded in `materials.json`. Channels
-listed in `generated_channels` are neutral placeholders awaiting artwork. The
+listed in `generated_channels` are generated defaults awaiting artwork. Weapon
+and vector-model materials use roughness 184/255 (the nearest PNG encoding of
+0.72), metalness 0, and `specular_factor` 0.35 to preserve the proven source-
+vector material response; other unauthored channels use the neutral defaults
+listed in the manifest. The
 build validates and embeds the exact PNG bytes in the runtime package; the game
 decodes only materials required by the live scene. `materials.json` records the
 source asset and renderer binding for every material.

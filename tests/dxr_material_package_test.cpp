@@ -90,7 +90,8 @@ int main(int argc, char **argv)
     if (!library.resolve_vector(3u, 0u, 0u, 2u, 0u, 63u, 0u,
                                 weapon, error) ||
         !weapon || weapon->name != "weapon_03_blaster_material_000" ||
-        weapon->width != 3u || weapon->height != 64u) {
+        weapon->width != 3u || weapon->height != 64u ||
+        std::fabs(weapon->specular_factor - 0.35f) > 0.0001f) {
         std::fprintf(stderr, "view-weapon vector PBR binding is incomplete\n");
         return 1;
     }

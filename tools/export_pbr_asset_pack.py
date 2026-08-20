@@ -69,6 +69,8 @@ BULLET_COUNT = 20
 VECTOR_COUNT = 30
 WALL_COUNT = 16
 GUN_COUNT = 10
+VECTOR_ROUGHNESS_UNORM = 184
+VECTOR_SPECULAR_FACTOR = 0.35
 
 
 def be16(data: bytes, offset: int) -> int:
@@ -283,7 +285,13 @@ def floor_image(
     return image
 
 
-def default_channels(base_color: Image.Image, emissive: bool = False) -> dict[str, Image.Image]:
+def default_channels(
+    base_color: Image.Image,
+    emissive: bool = False,
+    roughness_unorm: int = 255,
+) -> dict[str, Image.Image]:
+    if not 0 <= roughness_unorm <= 255:
+        raise ValueError("default roughness is outside the 8-bit channel range")
     base = base_color.convert("RGBA")
     alpha = base.getchannel("A")
 
@@ -297,7 +305,7 @@ def default_channels(base_color: Image.Image, emissive: bool = False) -> dict[st
         "base_color": base,
         "normal": solid((128, 128, 255)),
         "metalness": solid((0, 0, 0)),
-        "roughness": solid((255, 255, 255)),
+        "roughness": solid((roughness_unorm,) * 3),
         "emissive": emission,
     }
 
@@ -611,6 +619,7 @@ class PackWriter:
         *,
         alpha_mode: str,
         emissive_factor: list[float] | None = None,
+        specular_factor: float = 1.0,
         binding: dict[str, object] | None = None,
         source: dict[str, object],
         generated_channels: list[str] | None = None,
@@ -639,6 +648,7 @@ class PackWriter:
                 "roughness_space": "linear",
                 "emissive_space": "srgb",
                 "normal_strength": 1.0,
+                "specular_factor": specular_factor,
                 "alpha_mode": alpha_mode,
                 "alpha_cutoff": 0.5,
                 "two_sided": material_class in ("billboard", "enemy_billboard", "effect_billboard"),
@@ -652,7 +662,7 @@ class PackWriter:
 
     def finish(self, non_color_assets: list[dict[str, object]]) -> None:
         manifest = {
-            "schema_version": 4,
+            "schema_version": 5,
             "generator": "tools/export_pbr_asset_pack.py",
             "description": "Category-sorted, zip-ready AB3D2 artist PBR texture package",
             "channels": list(CHANNELS),
@@ -661,6 +671,12 @@ class PackWriter:
                 "metalness": [0, 0, 0],
                 "roughness": [255, 255, 255],
                 "emissive": [0, 0, 0],
+            },
+            "source_vector_material_defaults": {
+                "normal": [128, 128, 255],
+                "metalness": [0, 0, 0],
+                "roughness": [VECTOR_ROUGHNESS_UNORM] * 3,
+                "specular_factor": VECTOR_SPECULAR_FACTOR,
             },
             "materials": sorted(self.materials, key=lambda item: str(item["name"])),
             "non_color_source_assets": non_color_assets,
@@ -682,7 +698,11 @@ This directory is category-sorted and zip-ready. Every material has five PNGs:
 - `_emissive.png` — sRGB emission colour and source alpha
 
 Keep each edited channel at the dimensions recorded in `materials.json`. Channels
-listed in `generated_channels` are neutral placeholders awaiting artwork. The
+listed in `generated_channels` are generated defaults awaiting artwork. Weapon
+and vector-model materials use roughness 184/255 (the nearest PNG encoding of
+0.72), metalness 0, and `specular_factor` 0.35 to preserve the proven source-
+vector material response; other unauthored channels use the neutral defaults
+listed in the manifest. The
 build validates and embeds the exact PNG bytes in the runtime package; the game
 decodes only materials required by the live scene. `materials.json` records the
 source asset and renderer binding for every material.
@@ -959,9 +979,10 @@ def build_pack(
             writer.add(
                 f"{material_class}_{asset_id:02d}_{resource_name}_material_{material_index:03d}",
                 material_class,
-                default_channels(base, emitted),
+                default_channels(base, emitted, VECTOR_ROUGHNESS_UNORM),
                 alpha_mode="additive" if emitted else "opaque",
                 emissive_factor=[1.0, 1.0, 1.0] if emitted else None,
+                specular_factor=VECTOR_SPECULAR_FACTOR,
                 binding={
                     "kind": "vector",
                     "source_asset_id": asset_id,

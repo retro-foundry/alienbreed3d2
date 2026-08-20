@@ -29,12 +29,15 @@ int fail(const char *message)
 
 int main()
 {
-    const Material dielectric = {{0.8f, 0.2f, 0.1f}, 0.5f, 0.0f};
-    const Material metal = {{0.8f, 0.2f, 0.1f}, 0.5f, 1.0f};
+    const Material dielectric = {{0.8f, 0.2f, 0.1f}, 0.5f, 0.0f, 1.0f};
+    const Material metal = {{0.8f, 0.2f, 0.1f}, 0.5f, 1.0f, 1.0f};
+    const Material source_vector = {
+        {0.8f, 0.2f, 0.1f}, 184.0f / 255.0f, 0.0f, 0.35f};
     if (!near(diffuse_reflectance(dielectric), dielectric.base_color) ||
         !near(f0(dielectric), {0.04f, 0.04f, 0.04f}) ||
         !near(diffuse_reflectance(metal), {0.0f, 0.0f, 0.0f}) ||
-        !near(f0(metal), metal.base_color)) {
+        !near(f0(metal), metal.base_color) ||
+        !near(f0(source_vector), {0.014f, 0.014f, 0.014f})) {
         return fail("metallic-roughness reflectance equations disagree");
     }
     if (!(specular_probability(dielectric) >= 0.05f &&

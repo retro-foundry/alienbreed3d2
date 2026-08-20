@@ -70,6 +70,14 @@ class PbrAssetExporterTest(unittest.TestCase):
         self.assertEqual(channels["roughness"].getpixel((0, 0))[:3], (255, 255, 255))
         self.assertEqual(channels["emissive"].getpixel((0, 0))[:3], (0, 0, 0))
 
+        vector_channels = exporter.default_channels(
+            floor, roughness_unorm=exporter.VECTOR_ROUGHNESS_UNORM
+        )
+        self.assertEqual(
+            vector_channels["roughness"].getpixel((0, 0))[:3],
+            (184, 184, 184),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

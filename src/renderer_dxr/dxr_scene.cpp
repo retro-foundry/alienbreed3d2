@@ -68,6 +68,7 @@ struct MaterialImage {
     uint32_t x = 0;
     uint32_t y = 0;
     float normal_strength = 1.0f;
+    float specular_factor = 1.0f;
     float emissive_factor[3] = {};
     float average_emissive_luminance = 0.0f;
 };
@@ -647,6 +648,7 @@ bool DxrScene::compile(const SceneFrame &frame,
                 image.height = pbr->height;
                 image.pixels = pbr->pixels;
                 image.normal_strength = pbr->normal_strength;
+                image.specular_factor = pbr->specular_factor;
                 std::memcpy(image.emissive_factor, pbr->emissive_factor,
                             sizeof(image.emissive_factor));
                 image.average_emissive_luminance =
@@ -724,6 +726,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             image.height = pbr->height;
             image.pixels = pbr->pixels;
             image.normal_strength = pbr->normal_strength;
+            image.specular_factor = pbr->specular_factor;
             std::memcpy(image.emissive_factor, pbr->emissive_factor,
                         sizeof(image.emissive_factor));
             image.average_emissive_luminance =
@@ -842,6 +845,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             material.width = image.width;
             material.height = image.height;
             material.normal_strength = image.normal_strength;
+            material.specular_factor = image.specular_factor;
             std::memcpy(material.emissive, image.emissive_factor,
                         sizeof(material.emissive));
         }
