@@ -32,16 +32,17 @@ vector models, referenced bitmap/lighted/additive/glare WAD/PTR/palette
 frames, the backdrop, and the display palette. The three existing UI font
 PNGs are included as presentation textures. `tools/export_pbr_asset_pack.py`
 decodes those sources into 973 material identities and writes five separate
-editable PNGs for each to the flat `assets/renderer_dxr/materials/` directory.
+editable PNGs for each beneath the category-sorted
+`assets/renderer_dxr/materials/` root.
 That is 4,865 PNGs covering walls, floors, weapon/vector faces, enemies,
 billboards/effects, environment, and UI. Unauthored normal, metalness,
 roughness, and emissive maps are explicit neutral placeholders, identified in
 `materials.json`, rather than runtime-generated data. `waterfile` is retained
 in the manifest as non-color texture-coordinate animation data.
 
-`tools/compile_pbr_asset_pack.py` validates the flat package and dimensions,
+`tools/compile_pbr_asset_pack.py` validates the category paths and dimensions,
 copies the PNGs byte-for-byte, records file and decoded-pixel hashes, and emits
-the metadata-only `AB3PBR3` catalog. Runtime pixels are decoded from the staged
+the metadata-only `AB3PBR4` catalog. Runtime pixels are decoded from the staged
 PNGs themselves. The process does not invoke or consume the old Q2 package
 builder, its output, packed channels, or material files.
 

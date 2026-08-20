@@ -1,6 +1,6 @@
 # AB3D2 PBR texture pack
 
-This directory is deliberately flat and zip-ready. Every material has five PNGs:
+This directory is category-sorted and zip-ready. Every material has five PNGs:
 
 - `_base_color.png` — sRGB colour and source alpha
 - `_normal.png` — tangent-space normal (linear)
@@ -12,6 +12,10 @@ Keep each edited channel at the dimensions recorded in `materials.json`. Channel
 listed in `generated_channels` are neutral placeholders awaiting artwork. The
 runtime validates and loads these PNG files directly; `materials.json` records the
 source asset and renderer binding for every material.
+
+The category directories are `walls`, `floors`, `weapons`, `vector_models`,
+`enemies`, `billboards`, `effects`, `environment`, and `ui`. Each category is
+flat, and every filename begins with its unique material name.
 
 From the repository root, create an artist archive with:
 

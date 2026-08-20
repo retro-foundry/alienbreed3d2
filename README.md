@@ -448,13 +448,14 @@ brightness-only frame rewrites the vertex and emitter buffers without refitting
 any acceleration structure, so it never resets the temporal history.
 
 The complete editable texture handoff is
-`assets/renderer_dxr/materials/`: one flat, zip-ready directory containing 973
-material identities and five PNG maps per material (4,865 PNGs total), plus
-`materials.json` and its README. It covers walls, floors, weapon/vector faces,
-enemies, billboards/effects, the backdrop, and UI textures. Unauthored PBR
-channels are committed neutral maps for artists to replace. DXR validates and
-loads these PNGs directly and fails on a missing/corrupt map or missing world/
-weapon binding; it does not regenerate fallback textures at runtime.
+`assets/renderer_dxr/materials/`: one zip-ready root with `walls`, `floors`,
+`weapons`, `vector_models`, `enemies`, `billboards`, `effects`, `environment`,
+and `ui` directories. They contain 973 material identities and five PNG maps
+per material (4,865 PNGs total), alongside root-level `materials.json` and the
+artist README. Each category is flat. Unauthored PBR channels are committed
+neutral maps for artists to replace. DXR validates and loads these PNGs
+directly and fails on a missing/corrupt map or missing world/weapon binding; it
+does not regenerate fallback textures at runtime.
 
 Each pixel traces a fresh three-hit path
 with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,

@@ -31,16 +31,17 @@ RTX 3090, with Windows SDK DXC 1.8.2502.11 (SHA-256
 `7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`). The
 Phase 2 D3D12/DXR lifecycle remains the foundation. Phase 4 now exports every
 game color-texture identity selected by the authoritative startup and content
-tables into the committed, flat, zip-ready `assets/renderer_dxr/materials/`
-directory. Its 973 materials cover 13 bound and one archived wall, 20 floor
-tiles, 625 vector-face regions (including 341 weapon regions), 310 bitmap/
+tables into the committed, category-sorted, zip-ready
+`assets/renderer_dxr/materials/` tree. Its 973 materials cover 13 bound and one
+archived wall, 20 floor tiles, 625 vector-face regions (including 341 weapon
+regions), 310 bitmap/
 lighted/additive/glare variants, the backdrop, and three UI atlases. Every
 material has separate base-color, tangent-normal, metalness, roughness, and
 emissive PNGs: the original 13 project-authored PBR sheets and source-authored
 emission are retained, while unauthored channels are explicit neutral PNGs.
 The package therefore contains 4,865 editable PNGs plus `materials.json` and
 an artist README. The build validates and copies those PNGs unchanged, writes
-a metadata-only `AB3PBR3` catalog, and records deterministic file/pixel hashes.
+a metadata-only `AB3PBR4` catalog, and records deterministic file/pixel hashes.
 The runtime decodes the PNGs themselves; a missing binding, missing map,
 corrupt PNG, or dimension disagreement is fatal instead of invoking a hidden
 source-texture fallback. `waterfile` is recorded separately as non-color UV
@@ -373,16 +374,25 @@ src/
       guides.hlsli
       post.hlsl
 tools/
-  export_pbr_asset_pack.py           source assets -> flat artist PNG package
+  export_pbr_asset_pack.py           source assets -> sorted artist PNG package
   compile_pbr_asset_pack.py          validate/hash/stage PNGs + runtime catalog
 assets/renderer_dxr/materials/
   README.md                          artist handoff and archive instructions
   materials.json                     source identity/channel manifest
-  *_base_color.png                   973 separate material sets
-  *_normal.png
-  *_metalness.png
-  *_roughness.png
-  *_emissive.png
+  walls/                             category directories; each remains flat
+  floors/
+  weapons/
+  vector_models/
+  enemies/
+  billboards/
+  effects/
+  environment/
+  ui/
+    *_base_color.png                 five maps per material in its category
+    *_normal.png
+    *_metalness.png
+    *_roughness.png
+    *_emissive.png
 ```
 
 The exact subdivision can change when implementation reveals a better boundary, but do not collapse device setup, scene compilation, path tracing, Streamline, and presentation into one source file.
@@ -459,13 +469,13 @@ Create a renderer-native manifest keyed by stable source material identity. It m
 `tools/export_pbr_asset_pack.py` follows the authoritative GLFT load order and
 animation/model tables, decodes all renderer color-texture identities, and
 merges the committed `textures_pbr/*.png` sheets where authored maps exist. It
-writes five conventional, separately editable PNGs per identity in one flat
-directory. Unauthored maps are generated explicitly as tangent normal
-`(128,128,255)`, metalness `0`, roughness `1`, and emission `0`, preserving the
-base alpha. Additive/glare source art has an explicit emissive map and unit
-factor. `materials.json` records class, dimensions, source provenance, exact
-world/vector/bitmap binding, alpha mode, color spaces, generated-channel list,
-and non-color source assets.
+writes five conventional, separately editable PNGs per identity into nine
+class directories. Each category remains flat. Unauthored maps are generated
+explicitly as tangent normal `(128,128,255)`, metalness `0`, roughness `1`, and
+emission `0`, preserving the base alpha. Additive/glare source art has an
+explicit emissive map and unit factor. `materials.json` records class,
+dimensions, source provenance, exact world/vector/bitmap binding, alpha mode,
+color spaces, generated-channel list, and non-color source assets.
 
 `tools/compile_pbr_asset_pack.py` rejects missing, extra, malformed, renamed,
 or wrong-sized PNGs and private/absolute provenance paths, copies the artist
@@ -659,15 +669,15 @@ Every commit should build and test independently. Do not batch the whole rendere
 
 ### 4. `Add renderer-native AB3D2 PBR materials`
 
-Current status: the complete flat artist package described above is committed:
-973 material identities and 4,865 directly loaded PNG maps. Exact bindings
-cover every wall/floor slot, vector/weapon face region, and referenced bitmap
-mode/frame; the backdrop and UI atlases are packaged as unbound presentation
-assets. The old-renderer-compatible colored `technolights` mask and
-source-authored `floor_0101` panel are explicit emissive textures with factor
-200; `brownspeakers` and `technotritile` are non-emissive. Source `floor_0201`
-is also bound to its authored PBR sheet. Missing/corrupt maps and bindings fail
-loudly, and material debug spheres/planes remain later work.
+Current status: the complete category-sorted artist package described above is
+committed: 973 material identities and 4,865 directly loaded PNG maps. Exact
+bindings cover every wall/floor slot, vector/weapon face region, and referenced
+bitmap mode/frame; the backdrop and UI atlases are packaged as unbound
+presentation assets. The old-renderer-compatible colored `technolights` mask
+and source-authored `floor_0101` panel are explicit emissive textures with
+factor 200; `brownspeakers` and `technotritile` are non-emissive. Source
+`floor_0201` is also bound to its authored PBR sheet. Missing/corrupt maps and
+bindings fail loudly, and material debug spheres/planes remain later work.
 
 - Maintain deterministic full-source export, manifest schema, hashes, and
   inventory/golden tests.

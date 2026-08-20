@@ -3,8 +3,8 @@
 
 The original media and GLFT tables remain the authority.  This tool is an
 offline authoring export: it resolves the same wall, floor, bitmap, vector,
-backdrop, and font sources as the native renderer and writes one flat
-directory that can be zipped and handed to artists.
+backdrop, and font sources as the native renderer and writes one category-
+sorted directory tree that can be zipped and handed to artists.
 """
 
 from __future__ import annotations
@@ -30,6 +30,17 @@ import build_dxr_materials as sheet_tools
 
 
 CHANNELS = ("base_color", "normal", "metalness", "roughness", "emissive")
+MATERIAL_DIRECTORIES = {
+    "wall": "walls",
+    "floor": "floors",
+    "weapon": "weapons",
+    "vector_model": "vector_models",
+    "enemy_billboard": "enemies",
+    "billboard": "billboards",
+    "effect_billboard": "effects",
+    "environment": "environment",
+    "ui": "ui",
+}
 FLOOR_OFFSETS = tuple(row * 256 + column for row in range(5) for column in range(4))
 WALL_DIMENSIONS = {
     "alienredwall": (258, 128),
@@ -564,6 +575,7 @@ def vector_image(
 
 def save_channels(
     output_dir: Path,
+    material_class: str,
     name: str,
     images: dict[str, Image.Image],
 ) -> dict[str, str]:
@@ -571,13 +583,16 @@ def save_channels(
         raise ValueError(f"material {name} does not supply all PBR channels")
     size = images["base_color"].size
     result = {}
+    directory_name = MATERIAL_DIRECTORIES[material_class]
+    directory = output_dir / directory_name
+    directory.mkdir(parents=True, exist_ok=True)
     for channel in CHANNELS:
         image = images[channel].convert("RGBA")
         if image.size != size:
             raise ValueError(f"material {name} channel dimensions disagree")
         filename = f"{name}_{channel}.png"
-        image.save(output_dir / filename, format="PNG", optimize=False, compress_level=9)
-        result[channel] = filename
+        image.save(directory / filename, format="PNG", optimize=False, compress_level=9)
+        result[channel] = f"{directory_name}/{filename}"
     return result
 
 
@@ -609,7 +624,7 @@ class PackWriter:
                 raise ValueError(f"duplicate PBR material binding: {binding}")
             self.bindings.add(binding_key)
         self.names.add(name)
-        channels = save_channels(self.output_dir, name, images)
+        channels = save_channels(self.output_dir, material_class, name, images)
         width, height = images["base_color"].size
         self.materials.append(
             {
@@ -637,9 +652,9 @@ class PackWriter:
 
     def finish(self, non_color_assets: list[dict[str, object]]) -> None:
         manifest = {
-            "schema_version": 3,
+            "schema_version": 4,
             "generator": "tools/export_pbr_asset_pack.py",
-            "description": "Flat, zip-ready AB3D2 artist PBR texture package",
+            "description": "Category-sorted, zip-ready AB3D2 artist PBR texture package",
             "channels": list(CHANNELS),
             "un_authored_channel_defaults": {
                 "normal": [128, 128, 255],
@@ -658,7 +673,7 @@ class PackWriter:
         (self.output_dir / "README.md").write_text(
             """# AB3D2 PBR texture pack
 
-This directory is deliberately flat and zip-ready. Every material has five PNGs:
+This directory is category-sorted and zip-ready. Every material has five PNGs:
 
 - `_base_color.png` — sRGB colour and source alpha
 - `_normal.png` — tangent-space normal (linear)
@@ -670,6 +685,10 @@ Keep each edited channel at the dimensions recorded in `materials.json`. Channel
 listed in `generated_channels` are neutral placeholders awaiting artwork. The
 runtime validates and loads these PNG files directly; `materials.json` records the
 source asset and renderer binding for every material.
+
+The category directories are `walls`, `floors`, `weapons`, `vector_models`,
+`enemies`, `billboards`, `effects`, `environment`, and `ui`. Each category is
+flat, and every filename begins with its unique material name.
 
 From the repository root, create an artist archive with:
 
@@ -735,10 +754,12 @@ def build_pack(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     for path in output_dir.iterdir():
-        if path.is_file():
+        if path.is_file() or path.is_symlink():
             path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
         else:
-            raise ValueError(f"PBR output directory must be flat: {path}")
+            raise ValueError(f"PBR output contains an unsupported entry: {path}")
     writer = PackWriter(output_dir)
 
     authored_spec = json.loads(authored_spec_path.read_text(encoding="utf-8"))

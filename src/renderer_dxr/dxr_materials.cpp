@@ -15,8 +15,8 @@ namespace ab3d2::dxr {
 
 namespace {
 
-constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '3', 0};
-constexpr uint32_t runtime_version = 3u;
+constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '4', 0};
+constexpr uint32_t runtime_version = 4u;
 constexpr uint32_t runtime_source_none = 0u;
 constexpr uint32_t runtime_source_shared_wall = 1u;
 constexpr uint32_t runtime_source_shared_floor = 2u;
@@ -29,9 +29,20 @@ constexpr uint32_t runtime_alpha_additive = 2u;
 constexpr uint32_t runtime_flag_emissive_texture = 1u << 8u;
 constexpr uint32_t runtime_flag_two_sided = 1u << 9u;
 constexpr uint32_t runtime_flag_vector_glare = 1u << 10u;
+constexpr uint32_t runtime_class_shift = 12u;
+constexpr uint32_t runtime_class_mask = 0x0fu << runtime_class_shift;
+constexpr uint32_t runtime_class_wall = 1u;
+constexpr uint32_t runtime_class_floor = 2u;
+constexpr uint32_t runtime_class_weapon = 3u;
+constexpr uint32_t runtime_class_vector_model = 4u;
+constexpr uint32_t runtime_class_enemy = 5u;
+constexpr uint32_t runtime_class_billboard = 6u;
+constexpr uint32_t runtime_class_effect = 7u;
+constexpr uint32_t runtime_class_environment = 8u;
+constexpr uint32_t runtime_class_ui = 9u;
 constexpr uint32_t runtime_known_flags =
     runtime_alpha_mask | runtime_flag_emissive_texture |
-    runtime_flag_two_sided | runtime_flag_vector_glare;
+    runtime_flag_two_sided | runtime_flag_vector_glare | runtime_class_mask;
 constexpr size_t runtime_header_size = 24u;
 constexpr size_t runtime_record_size = 140u;
 constexpr size_t runtime_name_size = 96u;
@@ -81,6 +92,32 @@ bool valid_material_name(const std::string &name)
         return (character >= 'a' && character <= 'z') ||
             (character >= '0' && character <= '9') || character == '_';
     });
+}
+
+const char *material_directory(uint32_t material_class)
+{
+    switch (material_class) {
+    case runtime_class_wall:
+        return "walls";
+    case runtime_class_floor:
+        return "floors";
+    case runtime_class_weapon:
+        return "weapons";
+    case runtime_class_vector_model:
+        return "vector_models";
+    case runtime_class_enemy:
+        return "enemies";
+    case runtime_class_billboard:
+        return "billboards";
+    case runtime_class_effect:
+        return "effects";
+    case runtime_class_environment:
+        return "environment";
+    case runtime_class_ui:
+        return "ui";
+    default:
+        return nullptr;
+    }
 }
 
 bool load_channel_png(const std::filesystem::path &path,
@@ -192,6 +229,9 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         const size_t name_size = static_cast<const char *>(terminator) - name_bytes;
         const std::string name(name_bytes, name_size);
         const uint32_t alpha_mode = flags & runtime_alpha_mask;
+        const uint32_t material_class =
+            (flags & runtime_class_mask) >> runtime_class_shift;
+        const char *class_directory = material_directory(material_class);
         if (width == 0u || height == 0u ||
             width > runtime_image_extent_limit ||
             height > runtime_image_extent_limit ||
@@ -200,7 +240,8 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
             (alpha_mode != runtime_alpha_opaque &&
              alpha_mode != runtime_alpha_tested &&
              alpha_mode != runtime_alpha_additive) ||
-            !valid_material_name(name) || !names.emplace(name).second) {
+            !class_directory || !valid_material_name(name) ||
+            !names.emplace(name).second) {
             error = "DXR PBR material catalog contains an invalid material record";
             return false;
         }
@@ -228,7 +269,8 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         for (size_t channel = 0;
              channel < static_cast<size_t>(DxrMaterialChannel::count); ++channel) {
             const std::filesystem::path png =
-                directory / (name + channel_suffixes[channel]);
+                directory / class_directory /
+                (name + channel_suffixes[channel]);
             if (!load_channel_png(png, width, height,
                                   definition.pixels[channel], error)) {
                 return false;
@@ -239,7 +281,11 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         if (source_kind == runtime_source_shared_wall ||
             source_kind == runtime_source_shared_floor) {
             if (detail0 != 0u || detail1 != 0u ||
-                (flags & runtime_flag_vector_glare) != 0u) {
+                (flags & runtime_flag_vector_glare) != 0u ||
+                (source_kind == runtime_source_shared_wall &&
+                 material_class != runtime_class_wall) ||
+                (source_kind == runtime_source_shared_floor &&
+                 material_class != runtime_class_floor)) {
                 error = "DXR PBR world material contains unexpected binding detail";
                 return false;
             }
@@ -260,7 +306,9 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
             const uint8_t maximum_v = static_cast<uint8_t>(detail1 >> 24u);
             const uint8_t glare =
                 (flags & runtime_flag_vector_glare) != 0u ? 1u : 0u;
-            if (minimum_u > maximum_u || minimum_v > maximum_v ||
+            if ((material_class != runtime_class_weapon &&
+                 material_class != runtime_class_vector_model) ||
+                minimum_u > maximum_u || minimum_v > maximum_v ||
                 !vector_bindings_.emplace(
                     std::make_tuple(source_asset_id, detail0,
                                     minimum_u, maximum_u,
@@ -270,7 +318,10 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
                 return false;
             }
         } else if (source_kind == runtime_source_bitmap) {
-            if (detail0 >= 32u || detail1 > 7u ||
+            if ((material_class != runtime_class_enemy &&
+                 material_class != runtime_class_billboard &&
+                 material_class != runtime_class_effect) ||
+                detail0 >= 32u || detail1 > 7u ||
                 (flags & runtime_flag_vector_glare) != 0u ||
                 !bitmap_bindings_.emplace(
                     std::make_tuple(source_asset_id, detail0, detail1),
@@ -281,7 +332,10 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         } else if (source_kind != runtime_source_none ||
                    source_asset_id != UINT32_MAX || detail0 != 0u ||
                    detail1 != 0u ||
-                   (flags & runtime_flag_vector_glare) != 0u) {
+                   (flags & runtime_flag_vector_glare) != 0u ||
+                   (material_class != runtime_class_wall &&
+                    material_class != runtime_class_environment &&
+                    material_class != runtime_class_ui)) {
             error = "DXR PBR material catalog contains an unsupported binding";
             return false;
         }

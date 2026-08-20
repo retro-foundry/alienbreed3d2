@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate and stage the flat artist PBR PNG pack for the DXR runtime."""
+"""Validate and stage the category-sorted artist PBR PNG pack for DXR."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import re
 import shutil
 import struct
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 try:
     from PIL import Image
@@ -22,8 +22,8 @@ except ImportError as error:  # pragma: no cover - build-host diagnostic
 
 
 CHANNELS = ("base_color", "normal", "metalness", "roughness", "emissive")
-RUNTIME_MAGIC = b"AB3PBR3\0"
-RUNTIME_VERSION = 3
+RUNTIME_MAGIC = b"AB3PBR4\0"
+RUNTIME_VERSION = 4
 RUNTIME_SOURCE_NONE = 0
 RUNTIME_SOURCE_SHARED_WALL = 1
 RUNTIME_SOURCE_SHARED_FLOOR = 2
@@ -33,6 +33,7 @@ RUNTIME_ALPHA = {"opaque": 0, "mask": 1, "additive": 2}
 RUNTIME_FLAG_EMISSIVE_TEXTURE = 1 << 8
 RUNTIME_FLAG_TWO_SIDED = 1 << 9
 RUNTIME_FLAG_VECTOR_GLARE = 1 << 10
+RUNTIME_CLASS_SHIFT = 12
 RUNTIME_HEADER = struct.Struct("<8sIIII")
 RUNTIME_RECORD = struct.Struct("<IIIIIIffffI96s")
 BITMAP_MODES = {
@@ -44,16 +45,27 @@ BITMAP_MODES = {
     "additive": 6,
     "glare": 7,
 }
-MATERIAL_CLASSES = {
-    "wall",
-    "floor",
-    "billboard",
-    "enemy_billboard",
-    "effect_billboard",
-    "vector_model",
-    "weapon",
-    "environment",
-    "ui",
+MATERIAL_DIRECTORIES = {
+    "wall": "walls",
+    "floor": "floors",
+    "weapon": "weapons",
+    "vector_model": "vector_models",
+    "enemy_billboard": "enemies",
+    "billboard": "billboards",
+    "effect_billboard": "effects",
+    "environment": "environment",
+    "ui": "ui",
+}
+RUNTIME_CLASSES = {
+    "wall": 1,
+    "floor": 2,
+    "weapon": 3,
+    "vector_model": 4,
+    "enemy_billboard": 5,
+    "billboard": 6,
+    "effect_billboard": 7,
+    "environment": 8,
+    "ui": 9,
 }
 
 
@@ -64,9 +76,14 @@ def sha256(data: bytes) -> str:
 def require_relative_file(value: object, description: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{description} is not a string")
-    path = Path(value)
-    if path.name != value or path.is_absolute() or ".." in path.parts:
-        raise ValueError(f"{description} is not a flat relative filename: {value}")
+    path = PurePosixPath(value)
+    if (
+        "\\" in value
+        or path.is_absolute()
+        or len(path.parts) != 2
+        or any(part in ("", ".", "..") for part in path.parts)
+    ):
+        raise ValueError(f"{description} is not a category-relative filename: {value}")
     return value
 
 
@@ -135,8 +152,8 @@ def validate_source_metadata(material: dict, name: str) -> None:
 
 def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    if not isinstance(spec, dict) or spec.get("schema_version") != 3:
-        raise ValueError("PBR artist manifest must use schema_version 3")
+    if not isinstance(spec, dict) or spec.get("schema_version") != 4:
+        raise ValueError("PBR artist manifest must use schema_version 4")
     materials = spec.get("materials")
     if not isinstance(materials, list) or not materials:
         raise ValueError("PBR artist manifest contains no materials")
@@ -163,7 +180,7 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
             raise ValueError(f"PBR artist manifest contains invalid/duplicate name: {name}")
         names.add(name)
         material_class = material.get("class")
-        if material_class not in MATERIAL_CLASSES:
+        if material_class not in MATERIAL_DIRECTORIES:
             raise ValueError(f"PBR material {name} has an invalid class")
         width = material.get("width")
         height = material.get("height")
@@ -194,6 +211,19 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
         ):
             raise ValueError(f"PBR material {name} has invalid emissive radiance")
         binding = validate_binding(material.get("binding"), name)
+        allowed_classes = {
+            RUNTIME_SOURCE_NONE: {"wall", "environment", "ui"},
+            RUNTIME_SOURCE_SHARED_WALL: {"wall"},
+            RUNTIME_SOURCE_SHARED_FLOOR: {"floor"},
+            RUNTIME_SOURCE_VECTOR: {"weapon", "vector_model"},
+            RUNTIME_SOURCE_BITMAP: {
+                "enemy_billboard", "billboard", "effect_billboard"
+            },
+        }[binding[0]]
+        if material_class not in allowed_classes:
+            raise ValueError(
+                f"PBR material {name} class disagrees with its source binding"
+            )
         if binding[0] != RUNTIME_SOURCE_NONE and binding in bindings:
             raise ValueError(f"PBR artist manifest contains duplicate binding: {binding}")
         bindings.add(binding)
@@ -207,9 +237,12 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
             filename = require_relative_file(
                 channel_spec[channel], f"PBR material {name} {channel} channel"
             )
-            if filename != f"{name}_{channel}.png" or filename in expected_pngs:
+            expected_filename = (
+                f"{MATERIAL_DIRECTORIES[material_class]}/{name}_{channel}.png"
+            )
+            if filename != expected_filename or filename in expected_pngs:
                 raise ValueError(f"PBR material {name} has an invalid/duplicate channel filename")
-            source_path = source_dir / filename
+            source_path = source_dir.joinpath(*PurePosixPath(filename).parts)
             if not source_path.is_file():
                 raise ValueError(f"PBR material channel is missing: {source_path}")
             data = source_path.read_bytes()
@@ -227,7 +260,9 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
                     "source_mode": opened.mode,
                 }
             expected_pngs.add(filename)
-            shutil.copyfile(source_path, output_dir / filename)
+            output_path = output_dir.joinpath(*PurePosixPath(filename).parts)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_path, output_path)
 
         flags = RUNTIME_ALPHA[alpha_mode]
         if any(value > 0.0 for value in emissive_factor):
@@ -236,6 +271,7 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
             flags |= RUNTIME_FLAG_TWO_SIDED
         if binding[0] == RUNTIME_SOURCE_VECTOR and material["binding"]["glare"]:
             flags |= RUNTIME_FLAG_VECTOR_GLARE
+        flags |= RUNTIME_CLASSES[material_class] << RUNTIME_CLASS_SHIFT
         encoded_name = name.encode("ascii")
         runtime_records.append(
             RUNTIME_RECORD.pack(
@@ -257,7 +293,10 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
         output_material["channels"] = output_channels
         output_materials.append(output_material)
 
-    discovered_pngs = {path.name for path in source_dir.glob("*.png")}
+    discovered_pngs = {
+        path.relative_to(source_dir).as_posix()
+        for path in source_dir.rglob("*.png")
+    }
     if discovered_pngs != expected_pngs:
         raise ValueError(
             "PBR artist directory/manifest mismatch; "
@@ -278,17 +317,21 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     runtime_path = output_dir / "material_runtime.bin"
     runtime_path.write_bytes(runtime)
     expected_outputs = expected_pngs | {"material_runtime.bin", "material_manifest.json"}
-    unexpected = sorted(path.name for path in output_dir.iterdir() if path.name not in expected_outputs)
+    unexpected = sorted(
+        path.relative_to(output_dir).as_posix()
+        for path in output_dir.rglob("*")
+        if path.is_file() and path.relative_to(output_dir).as_posix() not in expected_outputs
+    )
     if unexpected:
         raise ValueError(f"PBR runtime output contains stale/unexpected files: {unexpected}")
     manifest = {
-        "schema_version": 3,
+        "schema_version": 4,
         "generator": "tools/compile_pbr_asset_pack.py",
         "source_manifest_sha256": sha256(spec_path.read_bytes()),
         "materials": output_materials,
         "runtime_package": {
             "file": runtime_path.name,
-            "format": "AB3PBR3",
+            "format": "AB3PBR4",
             "sha256": sha256(runtime),
             "contains_pixels": False,
         },
