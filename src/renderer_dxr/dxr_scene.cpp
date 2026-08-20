@@ -4,7 +4,6 @@
 #include "dxr_debug.h"
 #include "scene_geometry_compile.h"
 #include "source_vector_model_scene.h"
-#include "source_world_material.h"
 
 #include <algorithm>
 #include <cmath>
@@ -53,14 +52,9 @@ uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
 struct MaterialKey {
     SceneMaterialSource source;
     uint32_t source_asset_id;
-    uint16_t u_offset;
-    uint16_t u_period;
-    uint16_t v_period;
-    SceneGeometryPrimitive primitive;
 
     auto tie() const {
-        return std::tie(source, source_asset_id, u_offset, u_period, v_period,
-                        primitive);
+        return std::tie(source, source_asset_id);
     }
     bool operator<(const MaterialKey &other) const { return tie() < other.tie(); }
 };
@@ -144,14 +138,23 @@ bool compile_view_weapon(
             error = "DXR source view weapon contains an invalid material";
             return false;
         }
-        const size_t byte_count = static_cast<size_t>(material.width) *
-            material.height * 4u;
         result.layout_hash = hash_bytes(result.layout_hash, &material.width,
                                         sizeof(material.width));
         result.layout_hash = hash_bytes(result.layout_hash, &material.height,
                                         sizeof(material.height));
-        result.layout_hash = hash_bytes(result.layout_hash, material.rgba,
-                                        byte_count);
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &material.source_map_offset,
+            sizeof(material.source_map_offset));
+        result.layout_hash = hash_bytes(result.layout_hash, &material.minimum_u,
+                                        sizeof(material.minimum_u));
+        result.layout_hash = hash_bytes(result.layout_hash, &material.maximum_u,
+                                        sizeof(material.maximum_u));
+        result.layout_hash = hash_bytes(result.layout_hash, &material.minimum_v,
+                                        sizeof(material.minimum_v));
+        result.layout_hash = hash_bytes(result.layout_hash, &material.maximum_v,
+                                        sizeof(material.maximum_v));
+        result.layout_hash = hash_bytes(result.layout_hash, &material.glare,
+                                        sizeof(material.glare));
     }
 
     result.vertices.reserve(result.source.triangle_count * 3u);
@@ -625,13 +628,17 @@ bool DxrScene::compile(const SceneFrame &frame,
             const SceneGeometry &geometry = surface.geometry;
             const DxrMaterialDefinition *surface_pbr = material_library_.find(
                 surface.material.source, surface.material.source_asset_id);
+            if (!surface_pbr) {
+                std::ostringstream message;
+                message << "DXR PBR PNG binding is missing for world material: source="
+                        << static_cast<unsigned>(surface.material.source)
+                        << " asset=" << surface.material.source_asset_id;
+                error = message.str();
+                return false;
+            }
             MaterialKey key = {
                 surface.material.source,
                 surface.material.source_asset_id,
-                surface_pbr ? 0u : geometry.texture_window.u_offset,
-                surface_pbr ? 0u : geometry.texture_window.u_period,
-                surface_pbr ? 0u : geometry.texture_window.v_period,
-                surface_pbr ? SCENE_GEOMETRY_PRIMITIVE_WALL : geometry.primitive,
             };
             uint32_t material_index;
             auto found = material_indices.find(key);
@@ -639,61 +646,12 @@ bool DxrScene::compile(const SceneFrame &frame,
                 MaterialImage image;
                 image.key = key;
                 const DxrMaterialDefinition *pbr = surface_pbr;
-                if (pbr) {
-                    image.width = pbr->width;
-                    image.height = pbr->height;
-                    image.pixels = pbr->pixels;
-                    image.normal_strength = pbr->normal_strength;
-                    std::memcpy(image.emissive_factor, pbr->emissive_factor,
-                                sizeof(image.emissive_factor));
-                } else {
-                    SourceWorldMaterialImage decoded = {};
-                    char decode_error[512] = {};
-                    if (!source_world_material_decode(&surface.material, &geometry,
-                                                      &decoded, decode_error,
-                                                      sizeof(decode_error))) {
-                        error = "DXR source-albedo fallback failed: ";
-                        error += decode_error;
-                        return false;
-                    }
-                    if (!decoded.rgba || decoded.width == 0u || decoded.height == 0u) {
-                        source_world_material_image_destroy(&decoded);
-                        error = "DXR source-albedo fallback decoded an empty image";
-                        return false;
-                    }
-                    image.width = decoded.width;
-                    image.height = decoded.height;
-                    const size_t byte_count = static_cast<size_t>(decoded.width) *
-                        decoded.height * 4u;
-                    image.pixels[static_cast<size_t>(DxrMaterialChannel::base_color)]
-                        .assign(decoded.rgba, decoded.rgba + byte_count);
-                    source_world_material_image_destroy(&decoded);
-                    image.pixels[static_cast<size_t>(DxrMaterialChannel::normal)]
-                        .resize(byte_count);
-                    image.pixels[static_cast<size_t>(DxrMaterialChannel::metalness)]
-                        .resize(byte_count);
-                    image.pixels[static_cast<size_t>(DxrMaterialChannel::roughness)]
-                        .resize(byte_count);
-                    image.pixels[static_cast<size_t>(DxrMaterialChannel::emissive)]
-                        .resize(byte_count);
-                    for (size_t texel = 0; texel < byte_count; texel += 4u) {
-                        auto &normal = image.pixels[
-                            static_cast<size_t>(DxrMaterialChannel::normal)];
-                        normal[texel + 0u] = 128u;
-                        normal[texel + 1u] = 128u;
-                        normal[texel + 2u] = 255u;
-                        normal[texel + 3u] = 255u;
-                        auto &metalness = image.pixels[
-                            static_cast<size_t>(DxrMaterialChannel::metalness)];
-                        metalness[texel + 3u] = 255u;
-                        auto &roughness = image.pixels[
-                            static_cast<size_t>(DxrMaterialChannel::roughness)];
-                        roughness[texel + 0u] = 255u;
-                        roughness[texel + 1u] = 255u;
-                        roughness[texel + 2u] = 255u;
-                        roughness[texel + 3u] = 255u;
-                    }
-                }
+                image.width = pbr->width;
+                image.height = pbr->height;
+                image.pixels = pbr->pixels;
+                image.normal_strength = pbr->normal_strength;
+                std::memcpy(image.emissive_factor, pbr->emissive_factor,
+                            sizeof(image.emissive_factor));
                 image.average_emissive_luminance =
                     average_emissive_luminance(image);
                 material_index = static_cast<uint32_t>(images.size());
@@ -701,14 +659,9 @@ bool DxrScene::compile(const SceneFrame &frame,
                 images.push_back(std::move(image));
 
                 std::ostringstream report;
-                report << (pbr ? "DXR PBR material: source=" :
-                                 "DXR material fallback: source=")
-                       << static_cast<unsigned>(key.source)
+                report << "DXR PBR PNG material: " << pbr->name
+                       << " source=" << static_cast<unsigned>(key.source)
                        << " asset=" << key.source_asset_id;
-                if (!pbr) {
-                    report << " uses decoded source albedo, roughness=1, "
-                              "metalness=0, emissive=0";
-                }
                 debug_output(report.str());
             } else {
                 material_index = found->second;
@@ -751,65 +704,40 @@ bool DxrScene::compile(const SceneFrame &frame,
             error = "DXR view weapon exceeds scene index limits";
             return false;
         }
-        std::vector<bool> additive_materials(
-            view_weapon.source.material_count, false);
-        for (size_t triangle_index = 0;
-             triangle_index < view_weapon.source.triangle_count;
-             ++triangle_index) {
-            const SourceVectorSceneTriangle &triangle =
-                view_weapon.source.triangles[triangle_index];
-            additive_materials[triangle.material_index] =
-                additive_materials[triangle.material_index] ||
-                triangle.additive != 0u;
-        }
         for (size_t material_index = 0;
              material_index < view_weapon.source.material_count;
              ++material_index) {
             const SourceVectorSceneMaterial &source =
                 view_weapon.source.materials[material_index];
+            const DxrMaterialDefinition *pbr = material_library_.find_vector(
+                view_weapon.sprite->source_asset_id,
+                source.source_map_offset,
+                source.minimum_u, source.maximum_u,
+                source.minimum_v, source.maximum_v, source.glare);
+            if (!pbr) {
+                std::ostringstream message;
+                message << "DXR PBR PNG binding is missing for view-weapon face: asset="
+                        << view_weapon.sprite->source_asset_id
+                        << " map=" << source.source_map_offset
+                        << " u=" << static_cast<unsigned>(source.minimum_u)
+                        << ".." << static_cast<unsigned>(source.maximum_u)
+                        << " v=" << static_cast<unsigned>(source.minimum_v)
+                        << ".." << static_cast<unsigned>(source.maximum_v)
+                        << " glare=" << static_cast<unsigned>(source.glare);
+                error = message.str();
+                return false;
+            }
+            if (pbr->width != source.width || pbr->height != source.height) {
+                error = "DXR view-weapon PBR PNG extent disagrees with the source face";
+                return false;
+            }
             MaterialImage image;
-            image.width = source.width;
-            image.height = source.height;
-            const size_t byte_count = static_cast<size_t>(source.width) *
-                source.height * 4u;
-            image.pixels[static_cast<size_t>(DxrMaterialChannel::base_color)]
-                .assign(source.rgba, source.rgba + byte_count);
-            for (DxrMaterialChannel channel : {
-                     DxrMaterialChannel::normal,
-                     DxrMaterialChannel::metalness,
-                     DxrMaterialChannel::roughness,
-                     DxrMaterialChannel::emissive}) {
-                image.pixels[static_cast<size_t>(channel)].assign(
-                    byte_count, 0u);
-            }
-            for (size_t texel = 0; texel < byte_count; texel += 4u) {
-                auto &normal = image.pixels[
-                    static_cast<size_t>(DxrMaterialChannel::normal)];
-                normal[texel + 0u] = 128u;
-                normal[texel + 1u] = 128u;
-                normal[texel + 2u] = 255u;
-                normal[texel + 3u] = source.rgba[texel + 3u];
-                auto &metalness = image.pixels[
-                    static_cast<size_t>(DxrMaterialChannel::metalness)];
-                metalness[texel + 3u] = source.rgba[texel + 3u];
-                auto &roughness = image.pixels[
-                    static_cast<size_t>(DxrMaterialChannel::roughness)];
-                roughness[texel + 0u] = 255u;
-                roughness[texel + 1u] = 255u;
-                roughness[texel + 2u] = 255u;
-                roughness[texel + 3u] = source.rgba[texel + 3u];
-                if (additive_materials[material_index]) {
-                    auto &emissive = image.pixels[
-                        static_cast<size_t>(DxrMaterialChannel::emissive)];
-                    std::memcpy(emissive.data() + texel,
-                                source.rgba + texel, 4u);
-                }
-            }
-            if (additive_materials[material_index]) {
-                image.emissive_factor[0] = 1.0f;
-                image.emissive_factor[1] = 1.0f;
-                image.emissive_factor[2] = 1.0f;
-            }
+            image.width = pbr->width;
+            image.height = pbr->height;
+            image.pixels = pbr->pixels;
+            image.normal_strength = pbr->normal_strength;
+            std::memcpy(image.emissive_factor, pbr->emissive_factor,
+                        sizeof(image.emissive_factor));
             image.average_emissive_luminance =
                 average_emissive_luminance(image);
             images.push_back(std::move(image));
@@ -839,9 +767,8 @@ bool DxrScene::compile(const SceneFrame &frame,
         compiled_instance.opaque = false;
         compiled_instances.push_back(compiled_instance);
         debug_output(
-            "DXR view weapon: source companion is masked camera-relative PBR "
-            "foreground geometry; source additive faces use authored colour "
-            "as surface emission");
+            "DXR view weapon: source companion is masked camera-relative "
+            "foreground geometry using exact-face PBR PNG materials");
     }
 
     std::vector<DxrEmissiveTriangle> compiled_emitters;

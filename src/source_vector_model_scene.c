@@ -435,6 +435,12 @@ static int source_vector_scene_decode_material(
 
     material.width = (uint16_t)maximum_u - minimum_u + 1u;
     material.height = (uint16_t)maximum_v - minimum_v + 1u;
+    material.source_map_offset = (uint32_t)source_map_offset;
+    material.minimum_u = minimum_u;
+    material.maximum_u = maximum_u;
+    material.minimum_v = minimum_v;
+    material.maximum_v = maximum_v;
+    material.glare = (uint8_t)(glare != 0);
     if (!sprite->source_palette_bytes || !sprite->source_light_palette_bytes ||
         !sprite->source_display_palette_bytes ||
         source_map_offset >= sprite->source_palette_byte_count ||

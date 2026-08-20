@@ -16,14 +16,20 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "material package load failed: %s\n", error.c_str());
         return 1;
     }
-    if (library.size() != 14u ||
-        library.find(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 0u) != nullptr) {
+    if (library.size() != 973u) {
         std::fprintf(stderr, "material package exposed unexpected bindings\n");
+        return 1;
+    }
+    const ab3d2::dxr::DxrMaterialDefinition *stone =
+        library.find(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 0u);
+    if (!stone || stone->name != "wall_00_stonewall") {
+        std::fprintf(stderr, "source wall zero PBR binding is incomplete\n");
         return 1;
     }
     const ab3d2::dxr::DxrMaterialDefinition *lights =
         library.find(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 6u);
     if (!lights || lights->width == 0u || lights->height == 0u ||
+        lights->name != "wall_06_technolights" ||
         std::fabs(lights->normal_strength - 1.0f) > 0.0001f ||
         std::fabs(lights->emissive_factor[0] - 200.0f) > 0.0001f ||
         std::fabs(lights->emissive_factor[1] - 200.0f) > 0.0001f ||
@@ -70,6 +76,31 @@ int main(int argc, char **argv)
             std::fprintf(stderr, "non-light wall material retained emission\n");
             return 1;
         }
+    }
+    const ab3d2::dxr::DxrMaterialDefinition *weapon = library.find_vector(
+        3u, 0u, 0u, 2u, 0u, 63u, 0u);
+    if (!weapon || weapon->name != "weapon_03_blaster_material_000" ||
+        weapon->width != 3u || weapon->height != 64u) {
+        std::fprintf(stderr, "view-weapon vector PBR binding is incomplete\n");
+        return 1;
+    }
+    const ab3d2::dxr::DxrMaterialDefinition *vector_glare =
+        library.find_vector(0u, 65536u, 0u, 22u, 0u, 0u, 1u);
+    if (!vector_glare ||
+        vector_glare->name != "vector_model_00_generator_material_008" ||
+        library.find_vector(0u, 65536u, 0u, 22u, 0u, 0u, 0u)) {
+        std::fprintf(stderr, "vector glare PBR identity is incomplete\n");
+        return 1;
+    }
+    const ab3d2::dxr::DxrMaterialDefinition *enemy =
+        library.find_bitmap(0u, 0u, 0u);
+    const ab3d2::dxr::DxrMaterialDefinition *glare =
+        library.find_bitmap(0u, 0u, 7u);
+    if (!enemy || !glare ||
+        enemy->name != "billboard_00_alien2_frame_00_bitmap" ||
+        glare->name != "billboard_00_alien2_frame_00_glare") {
+        std::fprintf(stderr, "enemy/effect bitmap PBR bindings are incomplete\n");
+        return 1;
     }
     return 0;
 }

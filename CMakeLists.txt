@@ -248,6 +248,7 @@ set(AB3D2_CORE_SOURCES
   src/source_vector_model_scene.c
   src/source_vector_projection.c
   src/source_world_material.c
+  src/stb_image_impl.c
   src/ui_text_layout.c
   src/world_light_tessellation.c
   # Reused =SB= decoder from the first PC port. It matches
@@ -256,7 +257,8 @@ set(AB3D2_CORE_SOURCES
 )
 
 add_library(ab3d2_core STATIC ${AB3D2_CORE_SOURCES})
-target_include_directories(ab3d2_core PUBLIC src)
+target_include_directories(ab3d2_core PUBLIC
+  src "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
 if(NOT MSVC)
   target_link_libraries(ab3d2_core PUBLIC m)
 endif()
@@ -405,49 +407,31 @@ if(AB3D2_ENABLE_DXR)
                             "${AB3D2_DXR_PATH_TRACE_SHADER}")
   add_dependencies(ab3d2 ab3d2_dxr_shaders)
 
+  set(AB3D2_DXR_MATERIAL_SOURCE_DIR
+      "${CMAKE_CURRENT_SOURCE_DIR}/assets/renderer_dxr/materials")
   set(AB3D2_DXR_MATERIAL_SOURCE_SPEC
-      "${CMAKE_CURRENT_SOURCE_DIR}/data/renderer_dxr/material_sources.json")
+      "${AB3D2_DXR_MATERIAL_SOURCE_DIR}/materials.json")
   set(AB3D2_DXR_MATERIAL_BUILD_DIR
       "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_dxr/materials")
-  set(AB3D2_DXR_FLOOR_SOURCE
-      "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/floortile")
-  set(AB3D2_DXR_FLOOR_REMAP
-      "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/newtexturemaps.pal")
-  set(AB3D2_DXR_DISPLAY_PALETTE
-      "${CMAKE_CURRENT_SOURCE_DIR}/amiga/media/includes/256pal")
   set(AB3D2_DXR_MATERIAL_OUTPUTS
       "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_manifest.json"
       "${AB3D2_DXR_MATERIAL_BUILD_DIR}/material_runtime.bin")
-  set(AB3D2_DXR_MATERIAL_NAMES
-      alienredwall brownpipes brownspeakers brownwithyellowstripes chevrondoor
-      floor_0101 floor_0201 gieger hullmetal redhullmetal rocky steampunk technolights
-      technotritile)
-  foreach(AB3D2_DXR_MATERIAL_NAME IN LISTS AB3D2_DXR_MATERIAL_NAMES)
-    foreach(AB3D2_DXR_MATERIAL_CHANNEL IN ITEMS base_color normal metalness roughness emissive)
-      list(APPEND AB3D2_DXR_MATERIAL_OUTPUTS
-           "${AB3D2_DXR_MATERIAL_BUILD_DIR}/${AB3D2_DXR_MATERIAL_NAME}_${AB3D2_DXR_MATERIAL_CHANNEL}.png")
-    endforeach()
-  endforeach()
-  file(GLOB AB3D2_DXR_MATERIAL_SHEETS CONFIGURE_DEPENDS
-       "${CMAKE_CURRENT_SOURCE_DIR}/textures_pbr/*.png")
+  file(GLOB AB3D2_DXR_MATERIAL_PNGS CONFIGURE_DEPENDS
+       "${AB3D2_DXR_MATERIAL_SOURCE_DIR}/*.png")
   add_custom_command(
     OUTPUT ${AB3D2_DXR_MATERIAL_OUTPUTS}
+    COMMAND ${CMAKE_COMMAND} -E remove_directory
+            "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
     COMMAND "${Python3_EXECUTABLE}"
-            "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dxr_materials.py"
-            --source-dir "${CMAKE_CURRENT_SOURCE_DIR}/textures_pbr"
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_pbr_asset_pack.py"
+            --source-dir "${AB3D2_DXR_MATERIAL_SOURCE_DIR}"
             --spec "${AB3D2_DXR_MATERIAL_SOURCE_SPEC}"
             --output-dir "${AB3D2_DXR_MATERIAL_BUILD_DIR}"
-            --floor-source "${AB3D2_DXR_FLOOR_SOURCE}"
-            --floor-remap "${AB3D2_DXR_FLOOR_REMAP}"
-            --display-palette "${AB3D2_DXR_DISPLAY_PALETTE}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dxr_materials.py"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_pbr_asset_pack.py"
             "${AB3D2_DXR_MATERIAL_SOURCE_SPEC}"
-            "${AB3D2_DXR_FLOOR_SOURCE}"
-            "${AB3D2_DXR_FLOOR_REMAP}"
-            "${AB3D2_DXR_DISPLAY_PALETTE}"
-            ${AB3D2_DXR_MATERIAL_SHEETS}
-    COMMENT "Build renderer-native DXR material textures"
+            ${AB3D2_DXR_MATERIAL_PNGS}
+    COMMENT "Validate and stage the flat DXR PBR PNG asset package"
     VERBATIM
   )
   add_custom_target(ab3d2_dxr_materials DEPENDS ${AB3D2_DXR_MATERIAL_OUTPUTS})
@@ -652,6 +636,7 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_include_directories(ab3d2_dxr_material_package_test PRIVATE src)
     target_compile_definitions(ab3d2_dxr_material_package_test
                                PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+    target_link_libraries(ab3d2_dxr_material_package_test PRIVATE ab3d2_core)
     add_dependencies(ab3d2_dxr_material_package_test ab3d2_dxr_materials)
     add_test(NAME ab3d2_dxr_material_package_test
              COMMAND $<TARGET_FILE:ab3d2_dxr_material_package_test>

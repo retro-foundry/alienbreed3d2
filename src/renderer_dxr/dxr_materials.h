@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -24,6 +25,7 @@ enum class DxrMaterialChannel : size_t {
 };
 
 struct DxrMaterialDefinition {
+    std::string name;
     SceneMaterialSource source = SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE;
     uint32_t source_asset_id = 0;
     uint32_t width = 0;
@@ -41,6 +43,13 @@ public:
 
     const DxrMaterialDefinition *find(SceneMaterialSource source,
                                       uint32_t source_asset_id) const;
+    const DxrMaterialDefinition *find_vector(
+        uint32_t source_asset_id, uint32_t source_map_offset,
+        uint8_t minimum_u, uint8_t maximum_u,
+        uint8_t minimum_v, uint8_t maximum_v, uint8_t glare) const;
+    const DxrMaterialDefinition *find_bitmap(
+        uint32_t source_asset_id, uint32_t frame_index,
+        uint32_t source_mode) const;
     size_t size() const { return definitions_.size(); }
     bool loaded() const { return loaded_; }
 
@@ -48,6 +57,10 @@ private:
     bool loaded_ = false;
     std::vector<DxrMaterialDefinition> definitions_;
     std::map<std::pair<SceneMaterialSource, uint32_t>, size_t> bindings_;
+    std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
+                        uint8_t, uint8_t, uint8_t>, size_t> vector_bindings_;
+    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, size_t>
+        bitmap_bindings_;
 };
 
 }  // namespace ab3d2::dxr

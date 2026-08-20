@@ -30,6 +30,15 @@ typedef struct {
     uint8_t *rgba;
     uint16_t width;
     uint16_t height;
+    /* objdrawhires.s:doapoly's exact texture-region identity.  Keeping this
+     * beside the decoded source image lets DXR bind the corresponding
+     * preconverted artist PBR PNGs without matching pixels heuristically. */
+    uint32_t source_map_offset;
+    uint8_t minimum_u;
+    uint8_t maximum_u;
+    uint8_t minimum_v;
+    uint8_t maximum_v;
+    uint8_t glare;
 } SourceVectorSceneMaterial;
 
 typedef struct {
