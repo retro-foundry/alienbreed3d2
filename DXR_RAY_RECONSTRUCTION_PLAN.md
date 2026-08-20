@@ -29,17 +29,26 @@ milestone. The foundation was validated on a GeForce RTX 4080 in Debug and
 Release, and the current opaque PBR path was validated in Debug on a GeForce
 RTX 3090, with Windows SDK DXC 1.8.2502.11 (SHA-256
 `7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`). The
-Phase 2 D3D12/DXR lifecycle remains the foundation. Phase 4 deterministically
-builds the 13 project-authored PBR sheets plus the source `floor_0101` panel
-into 70 renderer-native channel textures, a hashed manifest, and a strict
-runtime package. Base color, tangent normal, metalness, roughness, and explicit
-emissive textures are loaded, atlased, uploaded, and sampled through their
-declared color spaces. Missing bindings retain the documented decoded-source
-fallback.
+Phase 2 D3D12/DXR lifecycle remains the foundation. Phase 4 now exports every
+game color-texture identity selected by the authoritative startup and content
+tables into the committed, flat, zip-ready `assets/renderer_dxr/materials/`
+directory. Its 973 materials cover 13 bound and one archived wall, 20 floor
+tiles, 625 vector-face regions (including 341 weapon regions), 310 bitmap/
+lighted/additive/glare variants, the backdrop, and three UI atlases. Every
+material has separate base-color, tangent-normal, metalness, roughness, and
+emissive PNGs: the original 13 project-authored PBR sheets and source-authored
+emission are retained, while unauthored channels are explicit neutral PNGs.
+The package therefore contains 4,865 editable PNGs plus `materials.json` and
+an artist README. The build validates and copies those PNGs unchanged, writes
+a metadata-only `AB3PBR3` catalog, and records deterministic file/pixel hashes.
+The runtime decodes the PNGs themselves; a missing binding, missing map,
+corrupt PNG, or dimension disagreement is fatal instead of invoking a hidden
+source-texture fallback. `waterfile` is recorded separately as non-color UV
+animation data; water geometry uses its selected floor PBR material.
 
 The implemented Phase 5/6 slice shares the tested native world-coordinate
 conversion and concave X/Z ear clipping with OpenGL, compiles opaque
-`SceneFrame` world surfaces, decodes exact source albedo fallbacks, uploads
+`SceneFrame` world surfaces, resolves their required preconverted PNGs, uploads
 positions/UVs/material indices and an atlas, and builds default-heap BLAS/TLAS
 resources. Stable static world meshes and dynamic door/lift/water meshes use
 separate BLAS objects. Topology-stable dynamic frames reuse material atlases,
@@ -52,8 +61,9 @@ camera-relative world positions, stored in their own alpha-tested dynamic
 BLAS, and included in the TLAS behind a dedicated instance mask. A weapon-only
 primary probe gives it cleared-depth foreground precedence over the world;
 secondary weapon paths use both masks so its PBR surfaces retain world and
-environment reflections. The combined noisy radiance, guides, and motion are
-written before Ray Reconstruction.
+environment reflections. Each companion face resolves its exact source map/
+UV/glare identity to the corresponding editable five-PNG PBR set. The combined
+noisy radiance, guides, and motion are written before Ray Reconstruction.
 
 Phase 7 now writes one fresh un-denoised `R16G16B16A16_FLOAT` sample per pixel
 and presents it with a full-screen tone-map pass. The path integrator evaluates
@@ -363,10 +373,16 @@ src/
       guides.hlsli
       post.hlsl
 tools/
-  build_dxr_materials.py
-data/renderer_dxr/
-  material_manifest.json
-  generated material textures only
+  export_pbr_asset_pack.py           source assets -> flat artist PNG package
+  compile_pbr_asset_pack.py          validate/hash/stage PNGs + runtime catalog
+assets/renderer_dxr/materials/
+  README.md                          artist handoff and archive instructions
+  materials.json                     source identity/channel manifest
+  *_base_color.png                   973 separate material sets
+  *_normal.png
+  *_metalness.png
+  *_roughness.png
+  *_emissive.png
 ```
 
 The exact subdivision can change when implementation reveals a better boundary, but do not collapse device setup, scene compilation, path tracing, Streamline, and presentation into one source file.
@@ -440,9 +456,30 @@ Create a renderer-native manifest keyed by stable source material identity. It m
 - Alpha mode and cutoff.
 - UV transform.
 
-`tools/build_dxr_materials.py` should extract the albedo, normal, metalness, and roughness panels from the committed `textures_pbr/*.png` sheets and produce conventional renderer-native textures plus a manifest. It must not invoke the old Q2RTX package builder or inherit its channel packing and naming. Add deterministic hashes and golden tests for every output.
+`tools/export_pbr_asset_pack.py` follows the authoritative GLFT load order and
+animation/model tables, decodes all renderer color-texture identities, and
+merges the committed `textures_pbr/*.png` sheets where authored maps exist. It
+writes five conventional, separately editable PNGs per identity in one flat
+directory. Unauthored maps are generated explicitly as tangent normal
+`(128,128,255)`, metalness `0`, roughness `1`, and emission `0`, preserving the
+base alpha. Additive/glare source art has an explicit emissive map and unit
+factor. `materials.json` records class, dimensions, source provenance, exact
+world/vector/bitmap binding, alpha mode, color spaces, generated-channel list,
+and non-color source assets.
 
-Decode base-color textures from sRGB to linear before BRDF use. Treat normal, roughness, metalness, and emissive scalar data according to their declared color spaces. A missing PBR entry falls back visibly and deterministically to decoded source albedo, roughness `1`, metalness `0`, emissive `0`; log the material identity once. Do not infer metalness or emission from pixel brightness at runtime.
+`tools/compile_pbr_asset_pack.py` rejects missing, extra, malformed, renamed,
+or wrong-sized PNGs and private/absolute provenance paths, copies the artist
+PNGs byte-for-byte into the build package, hashes files and decoded pixels, and
+writes a metadata-only runtime catalog. It must not invoke the old Q2RTX
+package builder or inherit its channel packing and naming. The C++ library
+loads all five PNGs for all 973 identities and indexes world, vector-face, and
+bitmap bindings. World and companion compilation require a matching binding;
+there is no runtime texture synthesis or decoded-source fallback.
+
+Decode base-color textures from sRGB to linear before BRDF use. Treat normal,
+roughness, metalness, and emissive scalar data according to their declared
+color spaces. Do not infer metalness or emission from pixel brightness at
+runtime.
 
 For a metallic-roughness model:
 
@@ -559,9 +596,9 @@ Establish the opaque RR path before adding ambiguous presentation layers:
 - The camera-space companion weapon is implemented as a pre-RR ray-traced
   foreground layer rather than a post-RR overlay. Its exact `ENT_NEXT_2`
   NDC/eye-depth output is unprojected through the same DXR camera, assigned
-  decoded source albedo with the renderer's existing flat-normal,
-  roughness-one, metalness-zero fallback, alpha tested in any-hit, and stored in
-  a dynamic BLAS with its own instance mask. A weapon-only primary probe wins
+  the five preconverted PNGs selected by each face's exact source map offset,
+  UV bounds, and glare flag, alpha tested in any-hit, and stored in a dynamic
+  BLAS with its own instance mask. A weapon-only primary probe wins
   regardless of world depth; secondary weapon and visibility rays use both
   masks for self-occlusion, world shadows, and PBR reflections. Current/previous
   camera-relative vertices produce valid depth, normals, materials, motion, and
@@ -570,7 +607,11 @@ Establish the opaque RR path before adding ambiguous presentation layers:
   world's emitter sampling distribution; they do not use a post-tone-map
   additive blend.
 - HUD/text remain presentation overlays after RR and tone mapping.
-- Water first needs an explicitly authored PBR material and valid moving geometry history. Begin with a rough dielectric reflection model. Defer transmission/refraction until its ray type, absorption, nested-medium behavior, guides, and motion tests are specified.
+- Water surfaces already resolve their selected floor five-PNG PBR set and have
+  valid moving geometry history. `waterfile` only animates texture coordinates
+  and is not a color texture. A water-specific rough dielectric model remains
+  pending; defer transmission/refraction until its ray type, absorption,
+  nested-medium behavior, guides, and motion tests are specified.
 - Text screens and non-game presentation set `renderingGameFrames=false` and reset history when returning to the world.
 
 ## Diagnostics required before visual tuning
@@ -618,16 +659,20 @@ Every commit should build and test independently. Do not batch the whole rendere
 
 ### 4. `Add renderer-native AB3D2 PBR materials`
 
-Current status: all five runtime channels are packaged and sampled. The
-old-renderer-compatible colored `technolights` mask and source-authored
-`floor_0101` panel are explicit emissive textures with factor 200;
-`brownspeakers` and `technotritile` are non-emissive. Source `floor_0201` is
-also bound to its authored PBR sheet. Material debug spheres/planes remain
-later work.
+Current status: the complete flat artist package described above is committed:
+973 material identities and 4,865 directly loaded PNG maps. Exact bindings
+cover every wall/floor slot, vector/weapon face region, and referenced bitmap
+mode/frame; the backdrop and UI atlases are packaged as unbound presentation
+assets. The old-renderer-compatible colored `technolights` mask and
+source-authored `floor_0101` panel are explicit emissive textures with factor
+200; `brownspeakers` and `technotritile` are non-emissive. Source `floor_0201`
+is also bound to its authored PBR sheet. Missing/corrupt maps and bindings fail
+loudly, and material debug spheres/planes remain later work.
 
-- Add deterministic sheet extraction, manifest schema, hashes, and golden tests.
+- Maintain deterministic full-source export, manifest schema, hashes, and
+  inventory/golden tests.
 - Upload base color, normals, roughness, metalness, and explicit emissive textures.
-- Add material debug spheres/planes and fallback reporting.
+- Add material debug spheres/planes.
 - Include required MIT/project/asset notices; include no Q2 package output.
 
 ### 5. `Compile SceneFrame geometry for DXR`

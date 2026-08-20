@@ -6,6 +6,9 @@ and raw scene/image increments from Phases 4--9.
 On 2026-08-17 the user explicitly authorized a narrow comparison with the
 sibling `alienbreed3d2-rtx-renderer` to recover its emissive material behavior;
 that exception is recorded below.
+On 2026-08-20 the user separately authorized the plan-listed companion-weapon
+files in that sibling as behavioral evidence. No sibling texture or generated
+material package was imported.
 
 ## Project-authored implementation
 
@@ -23,22 +26,34 @@ enabled executables. It does not include, link, discover, load, or stage NVIDIA
 Streamline or NGX files.
 
 The Phase 4 material build reads the committed project-authored
-`textures_pbr/*.png` sheets, `data/renderer_dxr/material_sources.json`, and the
-authoritative `amiga/media/includes/{floortile,newtexturemaps.pal,256pal}`
-source assets. `tools/build_dxr_materials.py` extracts conventional, separate
-base-color, normal, metalness, roughness, and emissive RGB textures. It records
-source, pixel, and output hashes in a renderer-native manifest; it does not
-invoke or consume the old Q2 package builder, its output, packed channels, or
-material files.
+`textures_pbr/*.png` sheets and the authoritative GLFT-selected Amiga assets:
+wall WADs, the floor atlas, shared vector texture maps/palette, all loaded
+vector models, referenced bitmap/lighted/additive/glare WAD/PTR/palette
+frames, the backdrop, and the display palette. The three existing UI font
+PNGs are included as presentation textures. `tools/export_pbr_asset_pack.py`
+decodes those sources into 973 material identities and writes five separate
+editable PNGs for each to the flat `assets/renderer_dxr/materials/` directory.
+That is 4,865 PNGs covering walls, floors, weapon/vector faces, enemies,
+billboards/effects, environment, and UI. Unauthored normal, metalness,
+roughness, and emissive maps are explicit neutral placeholders, identified in
+`materials.json`, rather than runtime-generated data. `waterfile` is retained
+in the manifest as non-color texture-coordinate animation data.
+
+`tools/compile_pbr_asset_pack.py` validates the flat package and dimensions,
+copies the PNGs byte-for-byte, records file and decoded-pixel hashes, and emits
+the metadata-only `AB3PBR3` catalog. Runtime pixels are decoded from the staged
+PNGs themselves. The process does not invoke or consume the old Q2 package
+builder, its output, packed channels, or material files.
 
 The authoritative `shared_wall` IDs come from the wall texture load order in
 `amiga/ab3d2_source/modules/res.s:Res_LoadWallTextures`, as published by
 `game_bootstrap_make_wall_surface` in `SceneMaterial.source_asset_id`.
 Authored sheets without a demonstrated runtime binding remain unbound. Source
-wall IDs 0 and 12 deliberately use the plan's visible fallback until matching
-authored PBR entries exist. The user-authorized comparison demonstrated the
-`floor_0201` binding and the two-emitter catalog. Metalness and emissive
-intensity are not inferred from brightness at runtime.
+wall IDs 0 and 12 and every otherwise unauthored entry now have committed
+neutral placeholder PBR maps, so the runtime has no decoded-source material
+fallback. The user-authorized comparison demonstrated the `floor_0201` binding
+and the two-emitter catalog. Metalness and emissive intensity are not inferred
+from brightness at runtime.
 
 The compatibility evidence was
 `tools/build_native_rtx_materials.py`,
@@ -78,10 +93,11 @@ contract. OpenGL now calls this renderer-neutral implementation; no geometry
 rule came from a removed renderer or generated Q2 scene.
 
 `src/renderer_dxr/dxr_scene.cpp` consumes that shared geometry
-and the public `SceneFrame` contract. It decodes source wall data through the
-existing project `source_world_material_decode` path, creates a renderer-local
-five-channel material atlas, and constructs project-authored vertex/material
-buffers and BLAS/TLAS resources. The current ray shader uses the licensed
+and the public `SceneFrame` contract. It requires the preconverted five-PNG
+binding for every world surface and exact source-map/UV/glare binding for every
+companion face, creates a renderer-local five-channel material atlas, and
+constructs project-authored vertex/material buffers and BLAS/TLAS resources.
+The current ray shader uses the licensed
 blue-noise/Owen-scrambled Sobol package recorded below, jittered primary rays,
 explicit dimension-addressed Lambertian/GGX sampling,
 explicit emissive/environment next-event sampling, MIS, and an analytic sky
