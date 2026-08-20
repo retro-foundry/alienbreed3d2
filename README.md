@@ -55,8 +55,13 @@ session. Supported keys are:
   direction and throughput, spends no bounce, and takes its reconstruction
   guides from the surface behind. Visibility rays do not see it at all, so it
   casts no shadow. That matches the source's blended draw paths and the OpenGL
-  backend's `glBlendFunc(GL_ONE, GL_ONE)` with depth writes disabled. HUD and
-  text remain outside the DXR path.
+  backend's `glBlendFunc(GL_ONE, GL_ONE)` with depth writes disabled.
+  Projectile billboards occupy a fixed run of reserved instances rather than
+  entering and leaving the scene, because a sprite joining the instance list is
+  a layout change and therefore a full rebuild behind a GPU flush. Firing
+  costs one rebuild the first time a level shows a given bullet, to bring its
+  PBR maps into the atlas, and none after that. HUD and text remain outside the
+  DXR path.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first

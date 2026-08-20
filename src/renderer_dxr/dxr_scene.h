@@ -134,6 +134,10 @@ private:
         uint64_t vertex_hash = 0;
         bool view_weapon = false;
         bool world_bitmap = false;
+        /* A reserved projectile slot: matched by position rather than by
+         * identity, because the ObjT record behind it is a pool the source
+         * reuses and its occupant is expected to change. */
+        bool projectile_pool = false;
         bool world_vector = false;
         bool opaque = true;
     };
@@ -158,6 +162,10 @@ private:
     bool history_reset_pending_ = true;
     uint64_t geometry_update_count_ = 0;
     uint64_t rebuild_count_ = 0;
+    /* Reserved projectile slots the compiled scene currently holds. It only
+     * ever grows, to a high-water mark, because shrinking it is a layout
+     * change and therefore a rebuild. */
+    size_t projectile_pool_capacity_ = 0u;
     uint32_t atlas_width_ = 0;
     uint32_t atlas_height_ = 0;
     std::vector<DxrSceneVertex> vertices_;

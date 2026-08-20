@@ -1681,7 +1681,18 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     app->exit_code = 1;
                     return 0;
                 }
+                /*
+                 * Fire twice. The first burst is allowed to rebuild: a bullet
+                 * kind the level has not shown yet has no PBR maps in the
+                 * atlas, and only a rebuild can add them. The second burst must
+                 * not rebuild at all - that is what the reserved projectile
+                 * slots are for, and the only way to tell a pool that recycles
+                 * from a scene that churns on every shot.
+                 */
+                for (unsigned burst = 0u; burst < 2u; ++burst) {
                 baseline_rebuilds = renderer_scene_rebuild_count(app->renderer);
+                total_present_ticks = UINT64_C(0);
+                maximum_present_ticks = UINT64_C(0);
                 if (!game_input_set_raw_key(
                         &app->game.input,
                         app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
@@ -1738,25 +1749,23 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     renderer_scene_rebuild_count(app->renderer) -
                     baseline_rebuilds;
                 /*
-                 * A shot puts real projectile geometry into the scene and takes
-                 * it out again, and an instance appearing or retiring is a
-                 * layout change no refit can absorb, so a burst is allowed a
-                 * rebuild per lifecycle boundary. What must not come back is
-                 * the weapon's own pose churn: the Shotgun animates on
-                 * essentially every frame of the burst, so a regression there
-                 * costs a rebuild per frame. Half the frame count separates the
-                 * two by a wide margin, and the count is reported either way.
+                 * Once the atlas holds this bullet's maps, nothing about firing
+                 * may rebuild the scene: the projectile enters and leaves a
+                 * reserved slot, and the Shotgun's pose changes are a
+                 * camera-local vertex and BLAS refit. A rebuild here drains the
+                 * GPU queue and resets the reconstruction history, which reads
+                 * as a hitch and a burst of noise every time the trigger is
+                 * pulled.
                  */
-                if (firing_rebuilds >=
-                    (uint64_t)GAME_APP_DXR_SHOTGUN_FRAMES / 2u) {
+                if (burst != 0u && firing_rebuilds != UINT64_C(0)) {
                     fprintf(stderr,
                             "[RENDER] DXR Shotgun firing rebuilt the scene in Level %c "
-                            "(%llu -> %llu over %u frames)\n",
+                            "(%llu -> %llu over %u frames of burst %u)\n",
                             (char)('A' + level_index),
                             (unsigned long long)baseline_rebuilds,
                             (unsigned long long)renderer_scene_rebuild_count(
                                 app->renderer),
-                            (unsigned)GAME_APP_DXR_SHOTGUN_FRAMES);
+                            (unsigned)GAME_APP_DXR_SHOTGUN_FRAMES, burst);
                     app->exit_code = 1;
                     return 0;
                 }
@@ -1769,9 +1778,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     return 0;
                 }
                 fprintf(stdout,
-                        "[RENDER] DXR Level %c Shotgun firing frames=%u mean_ms=%.3f "
-                        "max_ms=%.3f scene_rebuilds=%llu\n",
-                        (char)('A' + level_index),
+                        "[RENDER] DXR Level %c Shotgun burst %u frames=%u "
+                        "mean_ms=%.3f max_ms=%.3f scene_rebuilds=%llu\n",
+                        (char)('A' + level_index), burst,
                         (unsigned)GAME_APP_DXR_SHOTGUN_FRAMES,
                         1000.0 * (double)total_present_ticks /
                             ((double)performance_frequency *
@@ -1779,6 +1788,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                         1000.0 * (double)maximum_present_ticks /
                             (double)performance_frequency,
                         (unsigned long long)firing_rebuilds);
+                }
             }
             /*
              * newanims.s:brightanim is the authored Gouraud animation, and in
