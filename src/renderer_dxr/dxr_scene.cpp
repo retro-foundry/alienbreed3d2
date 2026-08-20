@@ -46,6 +46,31 @@ struct DxrWorldBitmapCompilation {
     uint64_t vertex_hash = UINT64_C(1469598103934665603);
 };
 
+struct DxrWorldVectorInstance {
+    SourceVectorSceneMesh source = {};
+    std::vector<DxrSceneVertex> vertices;
+    const SceneSpriteInstance *instance = nullptr;
+    uint64_t vertex_hash = UINT64_C(1469598103934665603);
+};
+
+struct DxrWorldVectorCompilation {
+    std::vector<DxrWorldVectorInstance> instances;
+    uint64_t layout_hash = UINT64_C(1469598103934665603);
+    uint64_t vertex_hash = UINT64_C(1469598103934665603);
+
+    ~DxrWorldVectorCompilation()
+    {
+        for (DxrWorldVectorInstance &instance : instances) {
+            source_vector_scene_mesh_destroy(&instance.source);
+        }
+    }
+
+    DxrWorldVectorCompilation() = default;
+    DxrWorldVectorCompilation(const DxrWorldVectorCompilation &) = delete;
+    DxrWorldVectorCompilation &operator=(
+        const DxrWorldVectorCompilation &) = delete;
+};
+
 namespace {
 
 constexpr uint32_t atlas_maximum_extent = 8192u;
@@ -316,6 +341,141 @@ bool compile_world_bitmaps(const SceneFrame &frame,
             result.vertex_hash, &compiled.vertex_hash,
             sizeof(compiled.vertex_hash));
         result.instances.push_back(std::move(compiled));
+    }
+    const size_t count = result.instances.size();
+    result.layout_hash = hash_bytes(result.layout_hash, &count, sizeof(count));
+    return true;
+}
+
+bool compile_world_vectors(const SceneFrame &frame,
+                           DxrWorldVectorCompilation &result,
+                           std::string &error)
+{
+    for (size_t index = 0; index < frame.count; ++index) {
+        const SceneCommand &command = frame.commands[index];
+        if (command.type != SCENE_COMMAND_SPRITE_INSTANCE) {
+            continue;
+        }
+        const SceneSpriteInstance &scene_instance =
+            command.data.sprite_instance;
+        const SceneSprite &sprite = scene_instance.sprite;
+        if (sprite.presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
+            sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
+            (sprite.flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
+            continue;
+        }
+        result.instances.emplace_back();
+        DxrWorldVectorInstance &compiled = result.instances.back();
+        compiled.instance = &scene_instance;
+        char compile_error[512] = {};
+        if (!source_vector_scene_compile_world_ray_traced(
+                &sprite, &compiled.source, compile_error,
+                sizeof(compile_error))) {
+            error = "DXR source world-vector compilation failed: ";
+            error += compile_error;
+            return false;
+        }
+        if (!compiled.source.triangles ||
+            compiled.source.triangle_count == 0u ||
+            !compiled.source.materials ||
+            compiled.source.material_count == 0u ||
+            compiled.source.triangle_count > UINT32_MAX / 3u ||
+            compiled.source.material_count > UINT32_MAX) {
+            error = "DXR source world vector compiled no stable faces";
+            return false;
+        }
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &sprite.source_record_id,
+            sizeof(sprite.source_record_id));
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &scene_instance.source_mesh_id,
+            sizeof(scene_instance.source_mesh_id));
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &sprite.source_asset_id,
+            sizeof(sprite.source_asset_id));
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &compiled.source.triangle_count,
+            sizeof(compiled.source.triangle_count));
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &compiled.source.material_count,
+            sizeof(compiled.source.material_count));
+        for (size_t material_index = 0;
+             material_index < compiled.source.material_count;
+             ++material_index) {
+            const SourceVectorSceneMaterial &material =
+                compiled.source.materials[material_index];
+            if (!material.rgba || material.width == 0u ||
+                material.height == 0u) {
+                error = "DXR source world vector contains an invalid material";
+                return false;
+            }
+            result.layout_hash = hash_bytes(
+                result.layout_hash, &material.source_map_offset,
+                sizeof(material.source_map_offset));
+            result.layout_hash = hash_bytes(
+                result.layout_hash, &material.minimum_u,
+                sizeof(material.minimum_u));
+            result.layout_hash = hash_bytes(
+                result.layout_hash, &material.maximum_u,
+                sizeof(material.maximum_u));
+            result.layout_hash = hash_bytes(
+                result.layout_hash, &material.minimum_v,
+                sizeof(material.minimum_v));
+            result.layout_hash = hash_bytes(
+                result.layout_hash, &material.maximum_v,
+                sizeof(material.maximum_v));
+            result.layout_hash = hash_bytes(
+                result.layout_hash, &material.glare,
+                sizeof(material.glare));
+        }
+        compiled.vertices.reserve(compiled.source.triangle_count * 3u);
+        for (size_t triangle_index = 0;
+             triangle_index < compiled.source.triangle_count;
+             ++triangle_index) {
+            const SourceVectorSceneTriangle &triangle =
+                compiled.source.triangles[triangle_index];
+            if (triangle.material_index >= compiled.source.material_count) {
+                error = "DXR source world vector references an invalid material";
+                return false;
+            }
+            result.layout_hash = hash_bytes(
+                result.layout_hash, &triangle.material_index,
+                sizeof(triangle.material_index));
+            result.layout_hash = hash_bytes(
+                result.layout_hash, &triangle.additive,
+                sizeof(triangle.additive));
+            for (const SourceVectorSceneVertex &source : triangle.vertices) {
+                if (!std::isfinite(source.x) || !std::isfinite(source.y) ||
+                    !std::isfinite(source.z) || !std::isfinite(source.u) ||
+                    !std::isfinite(source.v)) {
+                    error = "DXR source world vector contains a non-finite vertex";
+                    return false;
+                }
+                DxrSceneVertex vertex = {};
+                vertex.position[0] = source.x;
+                vertex.position[1] = source.y;
+                vertex.position[2] = source.z;
+                vertex.texture_coordinate[0] = source.u;
+                vertex.texture_coordinate[1] = source.v;
+                vertex.material_index = triangle.material_index;
+                vertex.emitter_index = UINT32_MAX;
+                vertex.primitive = static_cast<uint32_t>(
+                    triangle.additive ? DxrScenePrimitive::world_effect :
+                                        DxrScenePrimitive::world_vector);
+                /* Do not carry doapoly flat/Gouraud light into PBR entities. */
+                vertex.emissive_scale = 1.0f;
+                compiled.vertex_hash = hash_bytes(
+                    compiled.vertex_hash, vertex.position,
+                    sizeof(vertex.position));
+                compiled.vertex_hash = hash_bytes(
+                    compiled.vertex_hash, vertex.texture_coordinate,
+                    sizeof(vertex.texture_coordinate));
+                compiled.vertices.push_back(vertex);
+            }
+        }
+        result.vertex_hash = hash_bytes(
+            result.vertex_hash, &compiled.vertex_hash,
+            sizeof(compiled.vertex_hash));
     }
     const size_t count = result.instances.size();
     result.layout_hash = hash_bytes(result.layout_hash, &count, sizeof(count));
@@ -653,10 +813,14 @@ bool DxrScene::update(const SceneFrame &frame,
 {
     DxrViewWeaponCompilation view_weapon;
     DxrWorldBitmapCompilation world_bitmaps;
+    DxrWorldVectorCompilation world_vectors;
     if (!compile_view_weapon(frame, camera, view_weapon, error)) {
         return false;
     }
     if (!compile_world_bitmaps(frame, world_bitmaps, error)) {
+        return false;
+    }
+    if (!compile_world_vectors(frame, world_vectors, error)) {
         return false;
     }
     DxrSceneGeometryHashes hashes = dxr_scene_geometry_hashes(frame);
@@ -670,6 +834,11 @@ bool DxrScene::update(const SceneFrame &frame,
     hashes.vertex_data = hash_bytes(hashes.vertex_data,
                                     &world_bitmaps.vertex_hash,
                                     sizeof(world_bitmaps.vertex_hash));
+    hashes.layout = hash_bytes(hashes.layout, &world_vectors.layout_hash,
+                               sizeof(world_vectors.layout_hash));
+    hashes.vertex_data = hash_bytes(hashes.vertex_data,
+                                    &world_vectors.vertex_hash,
+                                    sizeof(world_vectors.vertex_hash));
     const DxrSceneUpdateKind update_kind =
         dxr_scene_classify_update(has_hashes_, scene_hashes_, hashes);
     requires_flush = false;
@@ -679,7 +848,8 @@ bool DxrScene::update(const SceneFrame &frame,
     if (update_kind == DxrSceneUpdateKind::rebuild) {
         history_reset_pending_ = true;
         requires_flush = true;
-        return compile(frame, view_weapon, world_bitmaps, hashes, error);
+        return compile(frame, view_weapon, world_bitmaps, world_vectors,
+                       hashes, error);
     }
 
     /*
@@ -691,6 +861,7 @@ bool DxrScene::update(const SceneFrame &frame,
     const bool light_changed = scene_hashes_.vertex_light != hashes.vertex_light;
     bool static_changed = false;
     if (!compile_geometry_update(frame, view_weapon, world_bitmaps,
+                                 world_vectors,
                                  light_changed,
                                  static_changed, error)) {
         return false;
@@ -700,7 +871,8 @@ bool DxrScene::update(const SceneFrame &frame,
             "DXR static SceneFrame geometry changed; rebuilding scene resources");
         requires_flush = true;
         history_reset_pending_ = true;
-        return compile(frame, view_weapon, world_bitmaps, hashes, error);
+        return compile(frame, view_weapon, world_bitmaps, world_vectors,
+                       hashes, error);
     }
     scene_hashes_ = hashes;
     has_hashes_ = true;
@@ -711,6 +883,7 @@ bool DxrScene::update(const SceneFrame &frame,
 bool DxrScene::compile(const SceneFrame &frame,
                        const DxrViewWeaponCompilation &view_weapon,
                        const DxrWorldBitmapCompilation &world_bitmaps,
+                       const DxrWorldVectorCompilation &world_vectors,
                        const DxrSceneGeometryHashes &hashes,
                        std::string &error)
 {
@@ -719,6 +892,9 @@ bool DxrScene::compile(const SceneFrame &frame,
     std::map<MaterialKey, uint32_t> material_indices;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t>
         compiled_bitmap_material_indices;
+    std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
+                        uint8_t, uint8_t, uint8_t>, uint32_t>
+        compiled_vector_material_indices;
     std::vector<uint32_t> compiled_surface_material_indices;
     std::vector<CompiledInstance> compiled_instances;
 
@@ -896,6 +1072,92 @@ bool DxrScene::compile(const SceneFrame &frame,
             "the ray-traced scene and preloads active animation frames");
     }
 
+    for (const DxrWorldVectorInstance &vector : world_vectors.instances) {
+        const SceneSprite &sprite = vector.instance->sprite;
+        for (size_t material_index = 0;
+             material_index < vector.source.material_count;
+             ++material_index) {
+            const SourceVectorSceneMaterial &source =
+                vector.source.materials[material_index];
+            const auto key = std::make_tuple(
+                sprite.source_asset_id, source.source_map_offset,
+                source.minimum_u, source.maximum_u,
+                source.minimum_v, source.maximum_v, source.glare);
+            if (compiled_vector_material_indices.find(key) !=
+                compiled_vector_material_indices.end()) {
+                continue;
+            }
+            const DxrMaterialDefinition *pbr = nullptr;
+            if (!material_library_.resolve_vector(
+                    sprite.source_asset_id, source.source_map_offset,
+                    source.minimum_u, source.maximum_u,
+                    source.minimum_v, source.maximum_v, source.glare,
+                    pbr, error)) {
+                return false;
+            }
+            if (!pbr || pbr->width != source.width ||
+                pbr->height != source.height || images.size() >= UINT32_MAX) {
+                error = "DXR world-vector PBR PNG extent disagrees with its source face";
+                return false;
+            }
+            MaterialImage image;
+            image.width = pbr->width;
+            image.height = pbr->height;
+            image.pixels = pbr->pixels;
+            image.normal_strength = pbr->normal_strength;
+            image.specular_factor = pbr->specular_factor;
+            std::memcpy(image.emissive_factor, pbr->emissive_factor,
+                        sizeof(image.emissive_factor));
+            image.average_emissive_luminance =
+                average_emissive_luminance(image);
+            compiled_vector_material_indices.emplace(
+                key, static_cast<uint32_t>(images.size()));
+            images.push_back(std::move(image));
+        }
+        if (compiled_vertices.size() >
+            UINT32_MAX - vector.vertices.size()) {
+            error = "DXR world vector exceeds scene index limits";
+            return false;
+        }
+        const size_t first_vertex = compiled_vertices.size();
+        for (DxrSceneVertex vertex : vector.vertices) {
+            if (vertex.material_index >= vector.source.material_count) {
+                error = "DXR world vector references an invalid source material";
+                return false;
+            }
+            const SourceVectorSceneMaterial &source =
+                vector.source.materials[vertex.material_index];
+            const auto key = std::make_tuple(
+                sprite.source_asset_id, source.source_map_offset,
+                source.minimum_u, source.maximum_u,
+                source.minimum_v, source.maximum_v, source.glare);
+            const auto material = compiled_vector_material_indices.find(key);
+            if (material == compiled_vector_material_indices.end()) {
+                error = "DXR world-vector PBR material was not packed";
+                return false;
+            }
+            vertex.material_index = material->second;
+            compiled_vertices.push_back(vertex);
+        }
+        CompiledInstance compiled_instance;
+        compiled_instance.source_instance_id = sprite.source_record_id;
+        compiled_instance.source_mesh_id = vector.instance->source_mesh_id;
+        compiled_instance.first_surface = static_cast<uint32_t>(
+            compiled_surface_material_indices.size());
+        compiled_instance.first_vertex = static_cast<uint32_t>(first_vertex);
+        compiled_instance.vertex_count = static_cast<uint32_t>(
+            vector.vertices.size());
+        compiled_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
+        compiled_instance.vertex_hash = vector.vertex_hash;
+        compiled_instance.world_vector = true;
+        compiled_instance.opaque = false;
+        compiled_instances.push_back(compiled_instance);
+    }
+    if (!world_vectors.instances.empty()) {
+        debug_output(
+            "DXR world vectors: stable animated PBR meshes share the ray-traced scene");
+    }
+
     uint32_t compiled_view_weapon_first_material =
         static_cast<uint32_t>(images.size());
     uint32_t compiled_view_weapon_material_count = 0u;
@@ -1064,6 +1326,8 @@ bool DxrScene::compile(const SceneFrame &frame,
     view_weapon_material_count_ = compiled_view_weapon_material_count;
     bitmap_material_indices_ =
         std::move(compiled_bitmap_material_indices);
+    vector_material_indices_ =
+        std::move(compiled_vector_material_indices);
     instances_ = std::move(compiled_instances);
     blas_update_pending_.assign(instances_.size(), false);
     atlas_pixels_ = std::move(compiled_atlases);
@@ -1081,6 +1345,7 @@ bool DxrScene::compile(const SceneFrame &frame,
 bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                                        const DxrViewWeaponCompilation &view_weapon,
                                        const DxrWorldBitmapCompilation &world_bitmaps,
+                                       const DxrWorldVectorCompilation &world_vectors,
                                        bool light_changed,
                                        bool &static_changed,
                                        std::string &error)
@@ -1189,6 +1454,53 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
             for (size_t vertex_index = 0;
                  vertex_index < bitmap.vertices.size(); ++vertex_index) {
                 DxrSceneVertex vertex = bitmap.vertices[vertex_index];
+                vertex.material_index = material->second;
+                compiled_vertices[previous.first_vertex + vertex_index] = vertex;
+            }
+        }
+        compiled_instances.push_back(compiled_instance);
+        compiled_updates.push_back(instance_changed);
+        ++instance_cursor;
+    }
+    for (const DxrWorldVectorInstance &vector : world_vectors.instances) {
+        if (instance_cursor >= instances_.size()) {
+            error = "DXR geometry-only update added a world-vector BLAS";
+            return false;
+        }
+        const CompiledInstance &previous = instances_[instance_cursor];
+        const SceneSprite &sprite = vector.instance->sprite;
+        if (!previous.world_vector || previous.world_bitmap ||
+            previous.view_weapon ||
+            previous.source_instance_id != sprite.source_record_id ||
+            previous.source_mesh_id != vector.instance->source_mesh_id ||
+            previous.acceleration_class != SCENE_ACCELERATION_CLASS_DYNAMIC ||
+            previous.vertex_count != vector.vertices.size()) {
+            error = "DXR geometry-only update changed the world-vector layout";
+            return false;
+        }
+        CompiledInstance compiled_instance = previous;
+        compiled_instance.vertex_hash = vector.vertex_hash;
+        const bool instance_changed =
+            compiled_instance.vertex_hash != previous.vertex_hash;
+        if (instance_changed) {
+            for (size_t vertex_index = 0;
+                 vertex_index < vector.vertices.size(); ++vertex_index) {
+                DxrSceneVertex vertex = vector.vertices[vertex_index];
+                if (vertex.material_index >= vector.source.material_count) {
+                    error = "DXR updated world vector references an invalid material";
+                    return false;
+                }
+                const SourceVectorSceneMaterial &source =
+                    vector.source.materials[vertex.material_index];
+                const auto key = std::make_tuple(
+                    sprite.source_asset_id, source.source_map_offset,
+                    source.minimum_u, source.maximum_u,
+                    source.minimum_v, source.maximum_v, source.glare);
+                const auto material = vector_material_indices_.find(key);
+                if (material == vector_material_indices_.end()) {
+                    error = "DXR world-vector animation selected an unpacked PBR material";
+                    return false;
+                }
                 vertex.material_index = material->second;
                 compiled_vertices[previous.first_vertex + vertex_index] = vertex;
             }

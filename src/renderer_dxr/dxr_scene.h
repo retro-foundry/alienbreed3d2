@@ -23,10 +23,12 @@ enum class DxrScenePrimitive : uint32_t {
     view_weapon = 1u,
     world_billboard = 2u,
     world_effect = 3u,
+    world_vector = 4u,
 };
 
 struct DxrViewWeaponCompilation;
 struct DxrWorldBitmapCompilation;
+struct DxrWorldVectorCompilation;
 
 /* Layout mirrored by `SceneVertex` in shaders/path_trace.hlsl. */
 struct DxrSceneVertex {
@@ -126,16 +128,19 @@ private:
         uint64_t vertex_hash = 0;
         bool view_weapon = false;
         bool world_bitmap = false;
+        bool world_vector = false;
         bool opaque = true;
     };
 
     bool compile(const SceneFrame &frame,
                  const DxrViewWeaponCompilation &view_weapon,
                  const DxrWorldBitmapCompilation &world_bitmaps,
+                 const DxrWorldVectorCompilation &world_vectors,
                  const DxrSceneGeometryHashes &hashes, std::string &error);
     bool compile_geometry_update(const SceneFrame &frame,
                                  const DxrViewWeaponCompilation &view_weapon,
                                  const DxrWorldBitmapCompilation &world_bitmaps,
+                                 const DxrWorldVectorCompilation &world_vectors,
                                  bool light_changed,
                                  bool &static_changed, std::string &error);
     void release_gpu();
@@ -158,6 +163,9 @@ private:
     uint32_t view_weapon_material_count_ = 0u;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t>
         bitmap_material_indices_;
+    std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
+                        uint8_t, uint8_t, uint8_t>, uint32_t>
+        vector_material_indices_;
     std::vector<CompiledInstance> instances_;
     std::vector<bool> blas_update_pending_;
     std::array<std::vector<uint8_t>,
