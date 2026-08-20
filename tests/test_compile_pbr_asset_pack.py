@@ -32,7 +32,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
     def test_artist_directory_is_complete_sorted_and_zip_ready(self) -> None:
         materials = self.spec["materials"]
         self.assertEqual(self.spec["schema_version"], 5)
-        self.assertEqual(len(materials), 973)
+        self.assertEqual(len(materials), 978)
         self.assertEqual(
             Counter(material["class"] for material in materials),
             {
@@ -42,7 +42,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
                 "vector_model": 284,
                 "enemy_billboard": 233,
                 "billboard": 46,
-                "effect_billboard": 31,
+                "effect_billboard": 36,
                 "environment": 1,
                 "ui": 3,
             },
@@ -52,7 +52,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             for material in materials
             for channel in CHANNELS
         }
-        self.assertEqual(len(expected_pngs), 4_865)
+        self.assertEqual(len(expected_pngs), 4_890)
         self.assertEqual(
             {
                 path.relative_to(ASSET_DIR).as_posix()
@@ -120,7 +120,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             magic, version, count, channels, record_size = RUNTIME_HEADER.unpack_from(runtime)
             self.assertEqual(magic, RUNTIME_MAGIC)
             self.assertEqual(version, RUNTIME_VERSION)
-            self.assertEqual(count, 973)
+            self.assertEqual(count, 978)
             self.assertEqual(channels, len(CHANNELS))
             self.assertEqual(record_size, RUNTIME_RECORD.size)
             table_size = RUNTIME_HEADER.size + count * record_size

@@ -16,7 +16,7 @@ class PbrAssetExporterTest(unittest.TestCase):
         self.assertEqual(len(game_link), exporter.GLFT_SIZE)
         layout = exporter.glft_layout()
         references, enemy_assets = exporter.bitmap_references(game_link, layout)
-        self.assertEqual(len(references), 310)
+        self.assertEqual(len(references), 315)
         self.assertEqual(enemy_assets, {0, 3, 6, 11, 12, 13})
         self.assertEqual(
             Counter(reference.mode for reference in references),
@@ -26,9 +26,24 @@ class PbrAssetExporterTest(unittest.TestCase):
                 "lighted_3": 60,
                 "lighted_4": 54,
                 "lighted_5": 20,
-                "glare": 16,
+                "glare": 21,
                 "additive": 15,
             },
+        )
+        # Object 21's default animation runs rows zero to five, stepping asset
+        # eight through frames 14 to 19 before row five self-loops on the last
+        # one. Every row has to be bound: the runtime enters at row zero,
+        # because DEFANIMOBJ indexes the table by EntT_Timer1_w and every seed
+        # of that word is a literal zero. Entering at ODefT_DefaultAnimLen_w
+        # instead bound frame 19 alone and the renderer failed on the first
+        # glare that reached frame 15.
+        self.assertEqual(
+            sorted(
+                reference.frame
+                for reference in references
+                if reference.asset_id == 8 and reference.mode == "glare"
+            ),
+            list(range(20)),
         )
 
         media = exporter.MediaIndex(ROOT / "amiga" / "media")

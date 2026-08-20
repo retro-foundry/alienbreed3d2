@@ -7686,6 +7686,296 @@
       "alpha_mode": "additive",
       "base_color_space": "srgb",
       "binding": {
+        "frame_index": 14,
+        "kind": "bitmap",
+        "mode": "glare",
+        "source_asset_id": 8
+      },
+      "channels": {
+        "base_color": "effects/billboard_08_glare_frame_14_glare_base_color.png",
+        "emissive": "effects/billboard_08_glare_frame_14_glare_emissive.png",
+        "metalness": "effects/billboard_08_glare_frame_14_glare_metalness.png",
+        "normal": "effects/billboard_08_glare_frame_14_glare_normal.png",
+        "roughness": "effects/billboard_08_glare_frame_14_glare_roughness.png"
+      },
+      "class": "effect_billboard",
+      "emissive_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "emissive_space": "srgb",
+      "generated_channels": [
+        "normal",
+        "metalness",
+        "roughness"
+      ],
+      "height": 32,
+      "metalness_space": "linear",
+      "name": "billboard_08_glare_frame_14_glare",
+      "normal_space": "linear_tangent",
+      "normal_strength": 1.0,
+      "roughness_space": "linear",
+      "source": {
+        "files": [
+          "includes/glare.wad",
+          "includes/glare.ptr",
+          "includes/glare.256pal"
+        ],
+        "frame_metrics": [
+          448,
+          0,
+          16,
+          16
+        ],
+        "sha256": [
+          "9ab45108583b1f0c77ae2d7d4af8c2345893c1aa9c760fc0de4e1f4edee902ff",
+          "01eb13612f8c32bc1722f88b30a1e06f396ed15ed73cb051293a5dd75dc955d1",
+          "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
+        ]
+      },
+      "specular_factor": 1.0,
+      "tags": [],
+      "two_sided": true,
+      "width": 32
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_mode": "additive",
+      "base_color_space": "srgb",
+      "binding": {
+        "frame_index": 15,
+        "kind": "bitmap",
+        "mode": "glare",
+        "source_asset_id": 8
+      },
+      "channels": {
+        "base_color": "effects/billboard_08_glare_frame_15_glare_base_color.png",
+        "emissive": "effects/billboard_08_glare_frame_15_glare_emissive.png",
+        "metalness": "effects/billboard_08_glare_frame_15_glare_metalness.png",
+        "normal": "effects/billboard_08_glare_frame_15_glare_normal.png",
+        "roughness": "effects/billboard_08_glare_frame_15_glare_roughness.png"
+      },
+      "class": "effect_billboard",
+      "emissive_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "emissive_space": "srgb",
+      "generated_channels": [
+        "normal",
+        "metalness",
+        "roughness"
+      ],
+      "height": 32,
+      "metalness_space": "linear",
+      "name": "billboard_08_glare_frame_15_glare",
+      "normal_space": "linear_tangent",
+      "normal_strength": 1.0,
+      "roughness_space": "linear",
+      "source": {
+        "files": [
+          "includes/glare.wad",
+          "includes/glare.ptr",
+          "includes/glare.256pal"
+        ],
+        "frame_metrics": [
+          448,
+          32,
+          16,
+          16
+        ],
+        "sha256": [
+          "9ab45108583b1f0c77ae2d7d4af8c2345893c1aa9c760fc0de4e1f4edee902ff",
+          "01eb13612f8c32bc1722f88b30a1e06f396ed15ed73cb051293a5dd75dc955d1",
+          "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
+        ]
+      },
+      "specular_factor": 1.0,
+      "tags": [],
+      "two_sided": true,
+      "width": 32
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_mode": "additive",
+      "base_color_space": "srgb",
+      "binding": {
+        "frame_index": 16,
+        "kind": "bitmap",
+        "mode": "glare",
+        "source_asset_id": 8
+      },
+      "channels": {
+        "base_color": "effects/billboard_08_glare_frame_16_glare_base_color.png",
+        "emissive": "effects/billboard_08_glare_frame_16_glare_emissive.png",
+        "metalness": "effects/billboard_08_glare_frame_16_glare_metalness.png",
+        "normal": "effects/billboard_08_glare_frame_16_glare_normal.png",
+        "roughness": "effects/billboard_08_glare_frame_16_glare_roughness.png"
+      },
+      "class": "effect_billboard",
+      "emissive_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "emissive_space": "srgb",
+      "generated_channels": [
+        "normal",
+        "metalness",
+        "roughness"
+      ],
+      "height": 32,
+      "metalness_space": "linear",
+      "name": "billboard_08_glare_frame_16_glare",
+      "normal_space": "linear_tangent",
+      "normal_strength": 1.0,
+      "roughness_space": "linear",
+      "source": {
+        "files": [
+          "includes/glare.wad",
+          "includes/glare.ptr",
+          "includes/glare.256pal"
+        ],
+        "frame_metrics": [
+          480,
+          0,
+          16,
+          16
+        ],
+        "sha256": [
+          "9ab45108583b1f0c77ae2d7d4af8c2345893c1aa9c760fc0de4e1f4edee902ff",
+          "01eb13612f8c32bc1722f88b30a1e06f396ed15ed73cb051293a5dd75dc955d1",
+          "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
+        ]
+      },
+      "specular_factor": 1.0,
+      "tags": [],
+      "two_sided": true,
+      "width": 32
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_mode": "additive",
+      "base_color_space": "srgb",
+      "binding": {
+        "frame_index": 17,
+        "kind": "bitmap",
+        "mode": "glare",
+        "source_asset_id": 8
+      },
+      "channels": {
+        "base_color": "effects/billboard_08_glare_frame_17_glare_base_color.png",
+        "emissive": "effects/billboard_08_glare_frame_17_glare_emissive.png",
+        "metalness": "effects/billboard_08_glare_frame_17_glare_metalness.png",
+        "normal": "effects/billboard_08_glare_frame_17_glare_normal.png",
+        "roughness": "effects/billboard_08_glare_frame_17_glare_roughness.png"
+      },
+      "class": "effect_billboard",
+      "emissive_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "emissive_space": "srgb",
+      "generated_channels": [
+        "normal",
+        "metalness",
+        "roughness"
+      ],
+      "height": 64,
+      "metalness_space": "linear",
+      "name": "billboard_08_glare_frame_17_glare",
+      "normal_space": "linear_tangent",
+      "normal_strength": 1.0,
+      "roughness_space": "linear",
+      "source": {
+        "files": [
+          "includes/glare.wad",
+          "includes/glare.ptr",
+          "includes/glare.256pal"
+        ],
+        "frame_metrics": [
+          512,
+          0,
+          32,
+          32
+        ],
+        "sha256": [
+          "9ab45108583b1f0c77ae2d7d4af8c2345893c1aa9c760fc0de4e1f4edee902ff",
+          "01eb13612f8c32bc1722f88b30a1e06f396ed15ed73cb051293a5dd75dc955d1",
+          "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
+        ]
+      },
+      "specular_factor": 1.0,
+      "tags": [],
+      "two_sided": true,
+      "width": 64
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_mode": "additive",
+      "base_color_space": "srgb",
+      "binding": {
+        "frame_index": 18,
+        "kind": "bitmap",
+        "mode": "glare",
+        "source_asset_id": 8
+      },
+      "channels": {
+        "base_color": "effects/billboard_08_glare_frame_18_glare_base_color.png",
+        "emissive": "effects/billboard_08_glare_frame_18_glare_emissive.png",
+        "metalness": "effects/billboard_08_glare_frame_18_glare_metalness.png",
+        "normal": "effects/billboard_08_glare_frame_18_glare_normal.png",
+        "roughness": "effects/billboard_08_glare_frame_18_glare_roughness.png"
+      },
+      "class": "effect_billboard",
+      "emissive_factor": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "emissive_space": "srgb",
+      "generated_channels": [
+        "normal",
+        "metalness",
+        "roughness"
+      ],
+      "height": 64,
+      "metalness_space": "linear",
+      "name": "billboard_08_glare_frame_18_glare",
+      "normal_space": "linear_tangent",
+      "normal_strength": 1.0,
+      "roughness_space": "linear",
+      "source": {
+        "files": [
+          "includes/glare.wad",
+          "includes/glare.ptr",
+          "includes/glare.256pal"
+        ],
+        "frame_metrics": [
+          576,
+          0,
+          32,
+          32
+        ],
+        "sha256": [
+          "9ab45108583b1f0c77ae2d7d4af8c2345893c1aa9c760fc0de4e1f4edee902ff",
+          "01eb13612f8c32bc1722f88b30a1e06f396ed15ed73cb051293a5dd75dc955d1",
+          "3fed504c8d8468c03b3bd3fb94274fc4f6588a6de68447de55388c59a95e1e5f"
+        ]
+      },
+      "specular_factor": 1.0,
+      "tags": [],
+      "two_sided": true,
+      "width": 64
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_mode": "additive",
+      "base_color_space": "srgb",
+      "binding": {
         "frame_index": 19,
         "kind": "bitmap",
         "mode": "glare",

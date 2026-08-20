@@ -331,12 +331,24 @@ def bitmap_references(data: bytes, layout: GlftLayout) -> tuple[set[BitmapRefere
 
     for object_index in range(OBJECT_COUNT):
         definition = layout.object_definitions + object_index * 40
-        graphics_type = be16(data, definition + 2)
-        for animation, initial_offset in (
-            (layout.object_default_animations, 12),
-            (layout.object_action_animations, 22),
+        graphics_type = be16s(data, definition + 2)
+        for animation in (
+            layout.object_default_animations,
+            layout.object_action_animations,
         ):
-            frame_index = be16(data, definition + initial_offset)
+            # Both walks start at row zero. DEFANIMOBJ/ACTANIMOBJ index their
+            # table by EntT_Timer1_w, and every seed of that word is a literal
+            # zero - newaliencontrol.s:261/280/345/363/401 and
+            # modules/ai.s:127/138/250 - so row zero is the only entry point an
+            # object animation ever has. ODefT_DefaultAnimLen_w and
+            # ODefT_ActiveAnimLen_w at offsets 12 and 22 are not start rows;
+            # defs.i marks both unused, and reading them as start rows dropped
+            # every row upstream of them. Object 21's glare chain is the case
+            # that proves it: rows 0-5 animate asset 8 through frames 14-19 and
+            # row 5 self-loops, so entering at offset 12's value of five
+            # exported the terminal frame alone and left the five frames the
+            # animation actually opens with unbound.
+            frame_index = 0
             visited: set[int] = set()
             while frame_index not in visited:
                 if frame_index >= OBJECT_ANIMATION_FRAME_COUNT:
@@ -348,7 +360,10 @@ def bitmap_references(data: bytes, layout: GlftLayout) -> tuple[set[BitmapRefere
                     animation + object_index * 120 + frame_index * 6 :
                     animation + object_index * 120 + frame_index * 6 + 6
                 ]
-                if graphics_type == 0:
+                # DEFANIMOBJ/ACTANIMOBJ branch on ODefT_GFXType_w as a signed
+                # word: below one draws a bitmap, one draws a vector model, and
+                # above one draws a glare.
+                if graphics_type < 1:
                     add(record[0], record[1], "bitmap")
                 elif graphics_type > 1:
                     add(record[0], record[1], "glare")

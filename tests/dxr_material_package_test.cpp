@@ -16,7 +16,7 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "material package load failed: %s\n", error.c_str());
         return 1;
     }
-    if (library.size() != 973u) {
+    if (library.size() != 978u) {
         std::fprintf(stderr, "material package exposed unexpected bindings\n");
         return 1;
     }
@@ -153,6 +153,36 @@ int main(int argc, char **argv)
                          lights, error) ||
         library.resident_size() != resident_size) {
         std::fprintf(stderr, "resident material was decoded more than once\n");
+        return 1;
+    }
+    /*
+     * Object 21's glare animation steps asset eight through frames 14 to 19,
+     * and the whole run of 20 has to be bound. The exporter used to enter that
+     * animation at ODefT_DefaultAnimLen_w instead of row zero, which bound
+     * frame 19 alone; the renderer then failed outright on the first glare that
+     * reached frame 15, because a missing binding is not something a world
+     * billboard can fall back from.
+     */
+    std::vector<ab3d2::dxr::DxrBitmapMaterialBinding> glare_frames;
+    if (!library.resolve_bitmap_asset_mode(8u, 7u, glare_frames, error)) {
+        std::fprintf(stderr, "glare animation-frame enumeration failed\n");
+        return 1;
+    }
+    uint32_t glare_frame_mask = 0u;
+    for (const auto &binding : glare_frames) {
+        if (binding.source_asset_id != 8u || binding.source_mode != 7u ||
+            binding.frame_index >= 32u || !binding.definition) {
+            std::fprintf(stderr, "glare animation enumeration crossed a mode\n");
+            return 1;
+        }
+        glare_frame_mask |= 1u << binding.frame_index;
+    }
+    const ab3d2::dxr::DxrMaterialDefinition *glare_frame_15 = nullptr;
+    if (glare_frame_mask != 0x000fffffu ||
+        !library.resolve_bitmap(8u, 15u, 7u, glare_frame_15, error) ||
+        !glare_frame_15 ||
+        glare_frame_15->name != "billboard_08_glare_frame_15_glare") {
+        std::fprintf(stderr, "glare animation is missing a reachable frame\n");
         return 1;
     }
     return 0;
