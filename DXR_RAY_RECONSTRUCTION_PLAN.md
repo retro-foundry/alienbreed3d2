@@ -13,7 +13,7 @@ The repository baseline for this work is commit `86241dd` (`Replace GPL RTX rend
 
 Those bullets describe the historical `86241dd` baseline, not the current
 tree. A Windows build configured with `AB3D2_ENABLE_DXR=ON` now contains the
-working experimental opaque-world DXR path tracer described below; an
+working experimental world/entity DXR path tracer described below; an
 `AB3D2_ENABLE_DXR=OFF` build still contains the fail-fast stub by design.
 Following explicit user direction on 2026-08-17, the sibling
 `alienbreed3d2-rtx-renderer` source was inspected only to recover its emissive
@@ -28,7 +28,7 @@ source or shader was copied into this tree.
 
 The implementation has reached the Streamline DLSS Ray Reconstruction
 milestone. The foundation was validated on a GeForce RTX 4080 in Debug and
-Release, and the current opaque PBR path was validated in Debug on a GeForce
+Release, and the current PBR scene path was validated in Debug on a GeForce
 RTX 3090, with Windows SDK DXC 1.8.2502.11 (SHA-256
 `7C6918A0E2D4E437629FA8549F5CE800970494780F363BBBE1E3D3034F435AEE`). The
 Phase 2 D3D12/DXR lifecycle remains the foundation. Phase 4 now exports every
@@ -55,14 +55,22 @@ selected floor PBR material.
 
 The implemented Phase 5/6 slice shares the tested native world-coordinate
 conversion and concave X/Z ear clipping with OpenGL, compiles opaque
-`SceneFrame` world surfaces, resolves their required preconverted PNGs, uploads
-positions/UVs/material indices and an atlas, and builds default-heap BLAS/TLAS
-resources. Stable static world meshes and dynamic door/lift/water meshes use
-separate BLAS objects. Topology-stable dynamic frames reuse material atlases,
-upload only geometry/emitter buffers through a three-frame upload set, refit
-changed dynamic BLAS objects, and update the TLAS without a queue flush. It
-deliberately excludes sprites, world vector objects, water-specific behavior,
-HUD, and text. The player companion weapon is now the first vector exception:
+`SceneFrame` world surfaces plus non-projectile bitmap/glare commands and world
+vector models, resolves their required preconverted PNGs, uploads
+positions/UVs/material indices and atlases, and builds default-heap BLAS/TLAS
+resources. Stable static world meshes and dynamic door/lift/water, billboard,
+vector-entity, and weapon meshes use separate BLAS objects. Renderer-neutral
+bitmap compilation preserves `draw_Bitmap` placement, attachment, clipping,
+flip, and mode semantics in a fixed six-vertex layout. Renderer-neutral world
+vector compilation preserves `rotate_object` transforms, animation
+interpolation, part order, and sector clipping while allocating three stable
+triangle slots for every source fan triangle. Hidden, clipped, or inactive
+records become zero-area slots, so ordinary animation only uploads vertices,
+material indices, and emitter data before refitting the affected dynamic BLAS.
+Material atlases are retained and the TLAS updates without a queue flush.
+Transient projectile sprites, water-specific transmission/refraction, HUD, and
+text remain excluded. The player companion weapon uses the same stable-vector
+approach:
 the source `rotate_object` pose is converted to camera-local level units using
 the documented one-quarter-level-unit model scale, attached to the DXR camera
 basis, and stored in its own alpha-tested dynamic BLAS. Weapon and world
@@ -123,9 +131,15 @@ production runtime using manual hooks and a stable custom project GUID. On a
 GeForce RTX 3090 it initializes NGX, selects a fixed optimal low-resolution
 input for the chosen quality mode, evaluates DLSS-RR, and presents the
 full-resolution reconstructed HDR output. The raw-noise mode and every Phase 8
-guide view remain available for diagnosis. Dynamic sprite/world-vector-object
-geometry, raw per-guide readback statistics and ID overlays, transparencies,
-HUD, and text overlays remain outstanding; the companion weapon no longer does.
+guide view remain available for diagnosis. Non-projectile bitmap billboards,
+items, bitmap enemies, additive/glare effects, vector items, and animated 3D
+enemies are now PBR geometry in the same pre-RR TLAS. Their exact active
+material frames are decoded lazily; animation retains the atlas and
+reconstruction history. Source flat/Gouraud lighting is neutralized for these
+entities and the companion weapon, leaving illumination to the path tracer.
+Raw per-guide readback statistics and ID overlays, transient projectile
+sprites, water transmission/refraction, HUD, and text overlays remain
+outstanding.
 
 Phase 11 then attacked the reconstructed image's temporal stability, which had
 never settled the way TAA does. Its first result is a measurement: the hidden
@@ -637,8 +651,17 @@ Call `slIsFeatureSupported(sl::kFeatureDLSS_RR, adapterInfo)` for the selected a
 Establish the opaque RR path before adding ambiguous presentation layers:
 
 - Opaque and alpha-tested world geometry participates in primary rays, depth, normals, materials, motion, and TLAS visibility.
-- Additive/glare sprites and other transparent effects are initially rendered after RR in output resolution. This prevents their missing geometry depth/motion from corrupting reconstruction.
-- If post-RR transparent quality is insufficient, add NVIDIA's premultiplied transparency overlay and color-before-transparency guides exactly as the pinned RR guide describes. Do not invent partial guide semantics.
+- Non-projectile bitmap billboards use alpha-tested, camera-facing geometry in
+  the TLAS. Bitmap items/enemies and their lighted animation modes resolve the
+  exact `(asset, frame, mode)` five-map PBR identity. Additive/glare commands
+  use alpha-tested emissive surfaces in the same TLAS, so they are visible to
+  primary, secondary, reflection, and visibility rays and reach RR with valid
+  geometry guides. They remain excluded from sampled area emitters because the
+  source commands describe visual effects rather than radiometric lights.
+- Transient projectile/contact sprites remain outside the DXR scene. Adding
+  them requires a topology-stable slot policy that does not reintroduce the
+  firing-time scene rebuild and reconstruction-history reset already removed
+  from the weapon path.
 - The camera-space companion weapon is implemented as pre-RR ray-traced world
   geometry rather than a post-RR overlay. Its exact `ENT_NEXT_2` source pose is
   converted to camera-local level units at the documented quarter-unit model
@@ -707,8 +730,8 @@ Every commit should build and test independently. Do not batch the whole rendere
 
 Current status: the complete category-sorted artist package described above is
 committed: 973 material identities and 4,865 directly loaded PNG maps. Exact
-bindings cover every wall/floor slot, vector/weapon face region, and referenced
-bitmap mode/frame; the backdrop and UI atlases are packaged as unbound
+bindings cover every wall/floor slot, bitmap frame/mode, and vector/weapon face
+region; the backdrop and UI atlases are packaged as unbound
 presentation assets. The old-renderer-compatible colored `technolights` mask
 and source-authored `floor_0101` panel are explicit emissive textures with
 factor 200; `brownspeakers` and `technotritile` are non-emissive. Source
@@ -727,12 +750,17 @@ debug spheres/planes remain later work.
 
 ### 5. `Compile SceneFrame geometry for DXR`
 
-Current status: opaque static and door/lift/water world geometry, the exact
-camera-relative companion weapon, shared coordinate conversion and
-triangulation, stable material indices, and bounded three-frame dynamic GPU
-upload are implemented. Dynamic sprite/world-vector-object categories remain
-later work. The weapon retains current/previous vertices and refits only its
-dynamic BLAS when its source pose or camera-relative world position changes.
+Current status: opaque static and door/lift/water world geometry,
+non-projectile bitmap billboards/items/enemies/effects, animated vector
+items/3D enemies, and the exact camera-relative companion weapon are
+implemented with shared coordinate conversion, stable material indices, and
+bounded three-frame dynamic GPU upload. Bitmap commands retain a fixed
+two-triangle quad across clipping, visibility, and frame changes. World vector
+commands retain source part/face order and fixed clipped-triangle capacity
+across animation and active-part changes. Each entity category retains
+current/previous vertices and refits only its dynamic BLAS when its pose,
+placement, attachment, or material frame changes. The weapon follows the same
+policy when its source pose or camera-relative world position changes.
 Its DXR compile retains a fixed source-record layout across on/off, near-plane,
 and backface culling; inert faces are zero-area slots. The actual Shotgun and
 Assault Rifle action sequences have layout-hash regressions, and the hidden GPU
@@ -749,14 +777,15 @@ modulate the DXR mesh.
 
 ### 6. `Build and validate DXR acceleration structures`
 
-Current status: opaque, two-sided static/dynamic world BLAS objects and one
-alpha-tested companion BLAS plus one TLAS are built and primary visibility is
-traced for all Levels A--P. Moving
+Current status: opaque, two-sided static/dynamic world BLAS objects, dynamic
+alpha-tested billboard/vector/companion BLAS objects, and one shared TLAS are
+built and primary visibility is traced for all Levels A--P. Moving
 door/lift/water vertex ranges retain PBR/emissive atlases, refit only changed
 dynamic BLAS objects, and update the TLAS in place without the old per-frame
 queue flush. The D3D debug-layer foundation test exercises this update path.
-Dynamic sprite/world-vector-object acceleration structures, auxiliary guide
-outputs, and PIX validation remain later work.
+GPU diagnostics count primary-hit pixels separately for bitmap and vector
+entities. Transient projectile acceleration structures, auxiliary guide
+readback statistics/ID overlays, and PIX validation remain later work.
 
 - Add default-heap BLAS/TLAS resources, scratch allocation, barriers, build/update policy, and shader tables.
 - Trace primary visibility into IDs, normals, depth, and albedo.
@@ -767,9 +796,12 @@ outputs, and PIX validation remain later work.
 Current status: the fresh noisy HDR target, stochastic primary rays, authored
 PBR sampling, Lambertian/GGX mixture, visible-normal specular sampling,
 three-hit indirect paths, global emissive/environment next-event sampling,
-visibility rays, MIS, and CPU finite/PDF checks are implemented for opaque
-world geometry and the PBR companion weapon. Dynamic sprite/world-vector-object
-geometry and later presentation classes remain incomplete.
+visibility rays, MIS, and CPU finite/PDF checks are implemented for world
+geometry, non-projectile bitmap/vector entities and effects, and the PBR
+companion weapon. Alpha-tested surfaces participate at every ray depth;
+additive/glare commands use unit-scaled authored emission but are not sampled
+as area lights. Later presentation classes and transient projectiles remain
+incomplete.
 
 - The pinned 256-spp blue-noise/Owen-scrambled Sobol sampler is implemented
   with explicit dimensions for every environment, emitter, BSDF, and specular
@@ -782,7 +814,7 @@ geometry and later presentation classes remain incomplete.
 ### 8. `Generate complete Ray Reconstruction guides`
 
 - Current status: all seven mandatory guide textures are separate, named, and
-  written by the world/companion path tracer. Primary misses write zero albedo,
+  written by the world/entity/companion path tracer. Primary misses write zero albedo,
   normal, roughness, depth, and hit distance; a zero hit distance also denotes
   a specular-ray miss. History-invalid motion is `(65504, 65504)`, reserving the
   largest finite FP16 value outside the clamped valid range, while valid sky
@@ -796,7 +828,7 @@ geometry and later presentation classes remain incomplete.
 
 ### 9. `Integrate Streamline DLSS Ray Reconstruction 2.12`
 
-- Current status: implemented for the world/companion pipeline. Quality,
+- Current status: implemented for the world/entity/companion pipeline. Quality,
   balanced, performance, and ultra-performance modes use Streamline's fixed
   optimal input dimensions and a full-resolution output. The renderer submits
   all required Phase 8 guides, matrices/constants, options, frame token, and
@@ -809,9 +841,10 @@ geometry and later presentation classes remain incomplete.
 
 ### 10. `Complete DXR presentation and regression coverage`
 
-- Current status: exposure/tone mapping and the pre-RR PBR companion's shared-
-  depth world geometry are implemented. Hidden DXR smoke reads in-world primary
-  coverage and a fresh-radiance checksum from a GPU UAV; the 2026-08-20 Level A
+- Current status: exposure/tone mapping and shared-depth pre-RR PBR world,
+  billboard, vector-entity, effect, and companion geometry are implemented.
+  Hidden DXR smoke reads per-category primary coverage and a fresh-radiance
+  checksum from a GPU UAV; the 2026-08-20 Level A
   run passed, and a diffuse-albedo capture confirmed the source-scale lower-view
   surface supplies real world depth and reconstruction guides. The production
   ACES exposure is now `1`: the former `0.015`
@@ -821,9 +854,10 @@ geometry and later presentation classes remain incomplete.
   highlight roll-off. CTest no longer supplies an exposure override, so its
   Level A--P smoke exercises the production presentation and both companion
   assertions directly. No coverage assertion or checksum threshold was
-  removed. Post-RR transparencies, HUD, text, and optional NVIDIA transparency
-  guides remain.
-- Add post-RR transparencies, HUD, text, and optional NVIDIA transparency guides if captures prove they are needed.
+  removed. Transmissive/alpha-blended presentation, HUD, text, and optional
+  NVIDIA transparency guides remain.
+- Add transmissive/alpha-blended presentation, HUD, text, and optional NVIDIA
+  transparency guides if captures prove they are needed.
 - Add scripted camera/dynamic-scene captures, all-level native smoke tests, resize/device-loss tests, packaging, documentation, and licence audit.
 - Run the complete OpenGL, converter/material, Web, and source-runtime suites.
 
@@ -1054,21 +1088,32 @@ nothing passes any stability bound trivially.
 
 - ID-independent debug-layer-clean diagnostic create/render/resize/minimize/restore/shutdown loops, including a multi-thousand-frame run.
 - The dedicated foundation test does not require game content. The RTX
-  all-level smoke separately renders each opaque world frame twice and requires
+  all-level smoke separately renders each world/entity frame twice and requires
   nonzero, different readback checksums. It additionally requires nonzero GPU
   primary-hit coverage for the initial and key-six Rocket Launcher companion;
   on the first requested level it also times the complete Shotgun firing
-  animation and rejects any scene rebuild after weapon selection. It does not
-  claim UI, projectile, or complete scene-category coverage. The foundation's synthetic
+  animation and rejects any scene rebuild after weapon selection. It requires
+  nonzero bitmap primary-hit coverage and uses an occlusion-free diagnostic
+  view of a real active source vector command when an initial level camera
+  cannot see one, then requires nonzero vector primary-hit coverage. It does
+  not claim UI, projectile, or complete transparent/transmissive coverage. The foundation's synthetic
   scene also retains one camera/geometry state for 32 presented frames and
   rejects a repeated adjacent temporal sample before exercising motion.
+- The 2026-08-20 Release all-level run reported 4,822 visible Level A bitmap
+  primary pixels and 11,198/654,905 pixels from real vector-entity probes in
+  Levels D/P. Its 48-frame Level A Shotgun sequence averaged 9.858 ms, peaked
+  at 11.283 ms, and retained the two expected scene builds without a firing
+  rebuild. The subsequent full 26-test Debug suite passed, including
+  D3D12-validation-clean foundation and all-level game smokes.
 - Adapter DXR-tier checks and clear unsupported-device diagnostics.
 - After phase 3, adapter-LUID consistency, signed-plugin loading, `presentCommon()` execution, and clear unsupported driver/plugin/RR diagnostics.
 - BLAS/TLAS correctness for static, updated, rebuilt, appearing, and disappearing instances.
 - Guide buffer format, extent, state, range, finite-value, clear-value, and coverage assertions.
 - Fixed-scene captures at RR input scales corresponding to quality and performance modes.
 - Small camera translation/yaw and dynamic object motion with no unexplained guide collapse.
-- Level A through P smoke runs, including water, doors/lifts, bitmap sprites, vector models, glare, weapon, text, and HUD.
+- Level A through P smoke runs, including water, doors/lifts, non-projectile
+  bitmap sprites, vector models, glare, and weapon. Projectile, text, and HUD
+  coverage are separate outstanding requirements.
 - Streamline evaluation success, resource release/recreation, frame-token consistency, and history reset after mode changes.
 
 ### Existing project regressions
@@ -1087,16 +1132,18 @@ The renderer is ready for normal use only when all of these are true:
   scoped user-authorized sibling evidence above, AB3D2 project code/assets,
   public graphics specifications, and the pinned NVIDIA SDK/documentation.
 - The current explicit `renderer=rtx` creates the documented experimental raw
-  world/companion D3D12/DXR backend on supported Windows/DXR hardware and fails
+  world/entity/companion D3D12/DXR backend on supported Windows/DXR hardware
+  and fails
   clearly elsewhere. It is not yet the complete renderer. Normal-use
   completion additionally requires the open scene/PBR/guide/presentation work.
-  The world/companion path does provide working Streamline DLSS-RR support on
+  The world/entity/companion path does provide working Streamline DLSS-RR support on
   compatible hardware.
 - The raw path-traced input is visibly noisy and physically coherent; disabling RR reveals no hidden temporal/spatial denoiser.
 - Every mandatory RR input is present at the correct resolution, format, range, space, and frame, with dense camera/dynamic motion and correct reset behavior.
 - Small camera movement does not erase lighting or reflection information from the reconstructed result.
 - Near and far surfaces receive lighting according to traced visibility and material response, without BSP/PVS/zone lists, arbitrary light caps, or distance fallbacks.
-- AB3D Gouraud/ZoneT lighting does not affect DXR radiance, while OpenGL behavior remains unchanged.
+- AB3D flat/Gouraud lighting does not affect DXR entity or weapon radiance;
+  their incident lighting is traced, while OpenGL behavior remains unchanged.
 - Static and dynamic geometry, water, opaque sprites, vector objects, transparent effects, weapon, HUD, and text each follow their documented pipeline stage.
 - Resize, minimize/restore, level transition, device loss, and shutdown are deterministic and debug-layer clean.
 - OpenGL, Web, gameplay, source-runtime, converter, and material tests remain green.

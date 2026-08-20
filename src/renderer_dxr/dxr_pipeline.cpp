@@ -897,7 +897,7 @@ bool DxrPipeline::create_diagnostics(ID3D12Device5 *device,
             "ID3D12Device::CreateCommittedResource(DXR diagnostics)", result);
         return false;
     }
-    diagnostics_->SetName(L"AB3D2 DXR View Weapon Diagnostics");
+    diagnostics_->SetName(L"AB3D2 DXR Entity Diagnostics");
     diagnostics_have_output_ = false;
     D3D12_UNORDERED_ACCESS_VIEW_DESC diagnostic_view = {};
     diagnostic_view.Format = DXGI_FORMAT_R32_UINT;
@@ -924,7 +924,7 @@ bool DxrPipeline::create_diagnostics(ID3D12Device5 *device,
         return false;
     }
     diagnostics_readback_->SetName(
-        L"AB3D2 DXR View Weapon Diagnostic Readback");
+        L"AB3D2 DXR Entity Diagnostic Readback");
     return true;
 }
 
@@ -933,7 +933,7 @@ bool DxrPipeline::record_diagnostics_begin(
 {
     if (!command_list || !diagnostics_ || !diagnostics_readback_ ||
         !descriptor_heap_) {
-        error = "DXR view-weapon diagnostics are incomplete";
+        error = "DXR entity diagnostics are incomplete";
         return false;
     }
     const D3D12_RESOURCE_BARRIER to_write = transition(
@@ -956,7 +956,7 @@ bool DxrPipeline::record_diagnostics_end(
     ID3D12GraphicsCommandList4 *command_list, std::string &error)
 {
     if (!command_list || !diagnostics_ || !diagnostics_readback_) {
-        error = "DXR view-weapon diagnostic readback is incomplete";
+        error = "DXR entity diagnostic readback is incomplete";
         return false;
     }
     const D3D12_RESOURCE_BARRIER finished = uav_barrier(diagnostics_.Get());
@@ -975,7 +975,7 @@ bool DxrPipeline::record_diagnostics_end(
 bool DxrPipeline::collect_diagnostics(std::string &error)
 {
     if (!diagnostics_readback_) {
-        error = "DXR view-weapon diagnostic readback is unavailable";
+        error = "DXR entity diagnostic readback is unavailable";
         return false;
     }
     constexpr SIZE_T diagnostic_bytes = 4u * sizeof(uint32_t);
@@ -984,7 +984,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     const HRESULT result = diagnostics_readback_->Map(0, &read, &mapped);
     if (FAILED(result)) {
         error = hresult_error(
-            "ID3D12Resource::Map(DXR view-weapon diagnostics)", result);
+            "ID3D12Resource::Map(DXR entity diagnostics)", result);
         return false;
     }
     const auto *values = static_cast<const uint32_t *>(mapped);
@@ -995,7 +995,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     const D3D12_RANGE no_write = {0, 0};
     diagnostics_readback_->Unmap(0, &no_write);
     debug_output(
-        "DXR view weapon diagnostics: in-world primary pixels=" +
+        "DXR entity diagnostics: view_weapon_primary_pixels=" +
         std::to_string(last_view_weapon_coverage_) + " radiance=" +
         std::to_string(last_view_weapon_rgb_checksum_) + " world_bitmaps=" +
         std::to_string(last_world_bitmap_coverage_) + " world_vectors=" +

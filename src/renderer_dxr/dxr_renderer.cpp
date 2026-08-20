@@ -190,10 +190,11 @@ bool DxrRenderer::initialize(int window_width, int window_height,
         return false;
     }
     debug_output(
-        "SceneFrame DXR renderer initialized; opaque world and the exact "
-        "camera-relative companion weapon uses shared-depth in-world PBR "
-        "visibility before reconstruction; sprites, "
-        "other vector objects, HUD, and text remain outside this milestone"
+        "SceneFrame DXR renderer initialized; world, non-projectile bitmap "
+        "and glare commands, animated world vectors, and the exact "
+        "camera-relative companion weapon use shared-depth in-world PBR "
+        "visibility before reconstruction; transient projectiles, HUD, and "
+        "text remain outside this milestone"
 #if defined(AB3D2_ENABLE_STREAMLINE)
         "; Streamline DLSS Ray Reconstruction 2.12 integration is enabled"
 #endif

@@ -11,10 +11,10 @@
 /*
  * Clean-room boundary for the native RTX backend.  A disabled or unsupported
  * build supplies the fail-fast stub.  The enabled Windows implementation ray
- * traces opaque SceneFrame world geometry and the exact ENT_NEXT_2 companion
- * weapon as source-scale camera-relative geometry in the shared PBR scene
- * into a fresh noisy image before Ray Reconstruction.
- * Other sprites, vector objects, HUD, and text remain outside this milestone.
+ * traces SceneFrame world geometry, non-projectile bitmap/glare commands,
+ * animated world vector models, and the exact ENT_NEXT_2 companion weapon in
+ * one shared PBR scene before Ray Reconstruction.  Transient projectile
+ * sprites, HUD, and text remain outside this milestone.
  */
 typedef struct RendererRtx RendererRtx;
 

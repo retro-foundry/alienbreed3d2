@@ -37,16 +37,19 @@ session. Supported keys are:
   subdivision. The default is `4`; `1` retains the strict source mesh; and
 - `renderer=opengl|rtx` selects the desktop graphics backend. It defaults to
   `opengl`. A normal build retains the clean-room RTX fail-fast stub. A native
-  Windows build configured with `AB3D2_ENABLE_DXR=ON` ray traces the opaque
-  `SceneFrame` world into a fresh, visibly noisy HDR image. It samples the
-  renderer-native base-color, normal, roughness, metalness, and explicit
+  Windows build configured with `AB3D2_ENABLE_DXR=ON` ray traces the
+  `SceneFrame` world, non-projectile bitmap billboards/effects, animated world
+  vector models, and companion weapon into a fresh, visibly noisy HDR image.
+  It samples the renderer-native base-color, normal, roughness, metalness, and explicit
   emissive channels with a multi-bounce Lambertian/GGX path tracer, authored
   area emitters, environment lighting, shadow rays, MIS, and a pinned
   dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player 1's
   companion weapon is source-scale camera-relative PBR geometry in the same
   depth-ordered TLAS. It reflects, shadows, and is occluded by the world, and
-  supplies HDR radiance plus every guide before Ray Reconstruction. It does
-  not yet draw sprites, world vector objects, HUD, or text.
+  supplies HDR radiance plus every guide before Ray Reconstruction. Bitmap
+  items/enemies, additive/glare effects, and 3D items/enemies likewise use
+  their preconverted PBR maps inside the shared TLAS before reconstruction.
+  Transient projectile sprites, HUD, and text remain outside the DXR path.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
@@ -471,8 +474,10 @@ settings from the user-directed renderer comparison. Other unauthored maps use
 the neutral defaults recorded in the manifest. The build validates every PNG and embeds
 its exact compressed bytes in one runtime package. DXR reads only the package
 catalog at startup and decodes a material's five PNGs when the live scene first
-requires that binding. A missing/corrupt map or missing world/weapon binding is
-fatal; the runtime does not regenerate fallback textures.
+requires that binding. Active bitmap assets admit all frames of the selected
+source mode together, so animation does not repack the atlas or reset RR
+history. A missing/corrupt map or missing world/entity/weapon binding is fatal;
+the runtime does not regenerate fallback textures.
 
 Each pixel traces a fresh three-hit path
 with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,
@@ -488,8 +493,14 @@ so the reflection guide and noisy radiance no longer use unrelated directions.
 A renderer-neutral history epoch resets camera and
 geometry history across level/quickload discontinuities; topology-stable world
 motion uses the previous vertex positions at the current hit barycentrics.
-Dynamic sprite/world-vector-object geometry, transparencies, and HUD/text
-overlays remain outstanding.
+Non-projectile bitmap sprites and animated world vector objects now retain
+stable renderer-neutral layouts, resolve their exact preconverted PBR maps on
+demand, and update dynamic BLAS objects without repacking the global material
+atlas. Alpha-tested bitmap/vector surfaces and emissive additive/glare effects
+therefore participate in primary, secondary, shadow, and reflection rays and
+write the RR guides before reconstruction. Source flat/Gouraud lighting does
+not modulate the DXR entity or weapon materials. Transient projectile sprites
+and HUD/text overlays remain outstanding.
 
 Empty/non-world frames retain the diagnostic triangle. Resize,
 minimize/restore, fences, DRED reporting, and orderly shutdown remain covered.
@@ -503,13 +514,16 @@ lifecycle check and run the game-content check with:
 The RTX smoke renders each Level A--P frame twice and requires two nonzero,
 different readback checksums, proving both game-derived output and fresh random
 sampling. It also requires nonzero GPU primary-hit coverage from the initial
-and key-six Rocket Launcher companions. An all-black image now fails the
-readback check. Set
+and key-six Rocket Launcher companions, cumulative bitmap entity coverage, and
+world-vector coverage. If a real active vector entity is occluded from a
+level's initial camera, the test presents that exact command in an
+occlusion-free diagnostic view without changing gameplay. An all-black image
+now fails the readback check. Set
 `AB3D2_DXR_DEBUG_LOG=1` to mirror DXR diagnostics to stderr during a run, and
 set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
-smoke to save the latest presented frame. Sprite, world-vector-object,
-projectile, HUD, and text coverage remain zero at this milestone; weapon
-coverage and its fresh-radiance checksum come from a GPU UAV.
+smoke to save the latest presented frame. Weapon, bitmap-entity, and
+vector-entity coverage come from a GPU UAV. Transient projectile, HUD, and text
+coverage are not claimed at this milestone.
 The ACES presentation pass uses exposure `1` by default, keeping ordinary
 traced lighting above 8-bit display quantization. Set `AB3D2_DXR_EXPOSURE` to a
 finite value from `0.001` through `100` for diagnostic exposure sweeps. The
