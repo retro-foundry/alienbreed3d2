@@ -51,7 +51,8 @@ enum class DxrReconstructionBuffer : size_t {
 class DxrPipeline final {
 public:
     bool initialize(ID3D12Device5 *device, std::string &error);
-    bool update_scene(const SceneFrame &frame, bool &requires_flush,
+    bool update_scene(const SceneFrame &frame, const RenderView &view,
+                      UINT width, UINT height, bool &requires_flush,
                       std::string &error);
     bool record(ID3D12Device5 *device, ID3D12GraphicsCommandList4 *command_list,
                  UINT width, UINT height,
@@ -61,12 +62,19 @@ public:
                  uint32_t frame_slot, DxrStreamline *streamline,
                  std::string &error);
     void commit_presented_frame();
+    bool collect_diagnostics(std::string &error);
 
     ID3D12RootSignature *root_signature() const { return root_signature_.Get(); }
     ID3D12PipelineState *pipeline_state() const { return pipeline_state_.Get(); }
     bool has_scene() const { return scene_.ready(); }
     uint64_t scene_emissive_scale_fold() const {
         return scene_.emissive_scale_fold();
+    }
+    size_t last_view_weapon_coverage() const {
+        return last_view_weapon_coverage_;
+    }
+    uint64_t last_view_weapon_rgb_checksum() const {
+        return last_view_weapon_rgb_checksum_;
     }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
@@ -83,6 +91,7 @@ private:
                                  std::string &error);
     bool create_raytracing_pipeline(ID3D12Device5 *device, std::string &error);
     bool create_blue_noise_sampler(ID3D12Device5 *device, std::string &error);
+    bool create_diagnostics(ID3D12Device5 *device, std::string &error);
     bool create_descriptor_heap(ID3D12Device5 *device, std::string &error);
     bool configure_debug_view(std::string &error);
     bool configure_resampling(std::string &error);
@@ -94,6 +103,10 @@ private:
                                        std::string &error);
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor(UINT index) const;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor(UINT index) const;
+    bool record_diagnostics_begin(ID3D12GraphicsCommandList4 *command_list,
+                                  std::string &error);
+    bool record_diagnostics_end(ID3D12GraphicsCommandList4 *command_list,
+                                std::string &error);
 
     Microsoft::WRL::ComPtr<ID3D12RootSignature> root_signature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline_state_;
@@ -103,6 +116,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12StateObject> ray_state_object_;
     Microsoft::WRL::ComPtr<ID3D12Resource> shader_table_;
     Microsoft::WRL::ComPtr<ID3D12Resource> blue_noise_sampler_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_zero_upload_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_readback_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
                static_cast<size_t>(DxrReconstructionBuffer::count)>
@@ -123,6 +139,8 @@ private:
     uint32_t debug_view_ = 0;
     bool debug_view_requested_ = false;
     float debug_scalar_range_ = 8192.0f;
+    size_t last_view_weapon_coverage_ = 0u;
+    uint64_t last_view_weapon_rgb_checksum_ = 0u;
     struct DxrFrameHistory {
         reconstruction::CameraProjection previous_camera = {};
         reconstruction::PixelJitter previous_jitter = {};

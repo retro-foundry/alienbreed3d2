@@ -1,6 +1,7 @@
 static const float Pi = 3.14159265358979323846;
 static const float RayEpsilon = 0.05;
 static const uint InvalidIndex = 0xffffffffu;
+static const uint PrimitiveViewWeapon = 1u;
 static const float InvalidMotion = 65504.0;
 /*
  * Mirrors `reconstruction::scene_far_plane` in dxr_reconstruction_math.h, which
@@ -17,6 +18,7 @@ struct SceneVertex
     float2 textureCoordinate;
     uint materialIndex;
     uint emitterIndex;
+    uint primitive;
     /*
      * The source Gouraud shade response at this vertex, one being the brightest
      * source row. It scales authored emission only; incident lighting is traced.
@@ -98,6 +100,7 @@ struct SurfaceData
     float3 emission;
     uint materialIndex;
     uint emitterIndex;
+    uint primitive;
 };
 
 struct BsdfEvaluation
@@ -132,6 +135,9 @@ RWStructuredBuffer<PackedLightReservoir> CurrentReservoirs : register(u10);
 /* Read-only this frame, but declared as a UAV so both reservoir buffers can stay
  * in the unordered-access state and the frame needs no state transitions. */
 RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
+/* Primary-ray view-weapon coverage and fresh-radiance checksum. The hidden GPU
+ * smoke reads this after the dispatch; it is never used to shade the image. */
+RWStructuredBuffer<uint> Diagnostics : register(u12);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -430,6 +436,7 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
         third.textureCoordinate * payload.barycentrics.y;
     surface.materialIndex = first.materialIndex;
     surface.emitterIndex = first.emitterIndex;
+    surface.primitive = first.primitive;
     float3 tangent;
     float3 bitangent;
     triangleFrame(firstVertex, incomingDirection, surface.geometricNormal,
@@ -1172,6 +1179,7 @@ void RayGeneration()
 
     PackedLightReservoir reservoir = (PackedLightReservoir)0;
     float3 accumulatedRadiance = 0.0;
+    bool primaryViewWeaponHit = false;
 
     for (uint sampleOrdinal = 0u; sampleOrdinal < SamplesPerPixel;
          ++sampleOrdinal) {
@@ -1236,6 +1244,8 @@ void RayGeneration()
         if (depth == 0u && sampleOrdinal == 0u) {
             primaryGuides = writeSurfaceGuides(pixel, payload, surface,
                                               viewDirection, dimensions);
+            primaryViewWeaponHit =
+                surface.primitive == PrimitiveViewWeapon;
         }
         if (any(surface.emission > 0.0)) {
             float weight = depth == 0u ? 1.0 : powerHeuristic(
@@ -1313,9 +1323,36 @@ void RayGeneration()
     accumulatedRadiance += radiance;
     }  /* end sampleOrdinal loop */
 
-    NoisyRadiance[pixel] = float4(max(accumulatedRadiance /
-        float(SamplesPerPixel), 0.0), 1.0);
+    float3 resolvedRadiance = max(accumulatedRadiance /
+        float(SamplesPerPixel), 0.0);
+    NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
+    if (primaryViewWeaponHit) {
+        uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
+        InterlockedAdd(Diagnostics[0], 1u);
+        InterlockedAdd(Diagnostics[1],
+            encoded.r * 3u + encoded.g * 5u + encoded.b * 7u);
+    }
     CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = reservoir;
+}
+
+[shader("anyhit")]
+void AnyHit(inout SurfacePayload payload,
+            BuiltInTriangleIntersectionAttributes attributes)
+{
+    uint firstVertex = (InstanceID() + PrimitiveIndex()) * 3u;
+    SceneVertex first = Vertices[firstVertex + 0u];
+    SceneVertex second = Vertices[firstVertex + 1u];
+    SceneVertex third = Vertices[firstVertex + 2u];
+    float firstWeight = 1.0 - attributes.barycentrics.x -
+        attributes.barycentrics.y;
+    float2 textureCoordinate = first.textureCoordinate * firstWeight +
+        second.textureCoordinate * attributes.barycentrics.x +
+        third.textureCoordinate * attributes.barycentrics.y;
+    SceneMaterial material = Materials[first.materialIndex];
+    if (BaseColorAtlas.Load(int3(
+            materialTexel(material, textureCoordinate), 0)).a <= 0.0) {
+        IgnoreHit();
+    }
 }
 
 [shader("miss")]

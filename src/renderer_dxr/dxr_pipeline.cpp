@@ -156,7 +156,7 @@ struct FrameConstants {
 
 /*
  * The ray root signature spends two DWORDs per root descriptor and one per
- * descriptor table, so this block plus the current bindings sits at roughly 58 of
+ * descriptor table, so this block plus the current bindings sits at roughly 60 of
  * the 64 available DWORDs. Move this to a constant buffer view rather than
  * trimming it if more constants are needed.
  */
@@ -646,7 +646,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
-    std::array<D3D12_ROOT_PARAMETER, 11> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 12> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -672,6 +672,8 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[9].Descriptor.ShaderRegister = 10;
     parameters[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[10].Descriptor.ShaderRegister = 11;
+    parameters[11].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[11].Descriptor.ShaderRegister = 12;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -688,12 +690,14 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t surface_miss[] = L"SurfaceMiss";
     static constexpr wchar_t shadow_miss[] = L"ShadowMiss";
     static constexpr wchar_t closest_hit[] = L"ClosestHit";
+    static constexpr wchar_t any_hit[] = L"AnyHit";
     static constexpr wchar_t hit_group_name[] = L"HitGroup";
-    std::array<D3D12_EXPORT_DESC, 4> exports = {};
+    std::array<D3D12_EXPORT_DESC, 5> exports = {};
     exports[0].Name = ray_generation;
     exports[1].Name = surface_miss;
     exports[2].Name = shadow_miss;
     exports[3].Name = closest_hit;
+    exports[4].Name = any_hit;
     D3D12_DXIL_LIBRARY_DESC library_description = {};
     library_description.DXILLibrary = {library.data(), library.size()};
     library_description.NumExports = static_cast<UINT>(exports.size());
@@ -702,6 +706,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     hit_group.HitGroupExport = hit_group_name;
     hit_group.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
     hit_group.ClosestHitShaderImport = closest_hit;
+    hit_group.AnyHitShaderImport = any_hit;
     D3D12_RAYTRACING_SHADER_CONFIG shader_configuration = {};
     shader_configuration.MaxPayloadSizeInBytes = 20u;
     shader_configuration.MaxAttributeSizeInBytes = 8u;
@@ -860,6 +865,136 @@ bool DxrPipeline::create_blue_noise_sampler(ID3D12Device5 *device,
     }
     std::memcpy(mapped, bytes.data(), bytes.size());
     blue_noise_sampler_->Unmap(0, nullptr);
+    return true;
+}
+
+bool DxrPipeline::create_diagnostics(ID3D12Device5 *device,
+                                     std::string &error)
+{
+    constexpr UINT64 diagnostic_bytes = 2u * sizeof(uint32_t);
+    D3D12_RESOURCE_DESC description = buffer_description(diagnostic_bytes);
+    description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+    const D3D12_HEAP_PROPERTIES default_heap =
+        heap_properties(D3D12_HEAP_TYPE_DEFAULT);
+    HRESULT result = device->CreateCommittedResource(
+        &default_heap, D3D12_HEAP_FLAG_NONE, &description,
+        D3D12_RESOURCE_STATE_COPY_SOURCE, nullptr,
+        IID_PPV_ARGS(&diagnostics_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateCommittedResource(DXR diagnostics)", result);
+        return false;
+    }
+    diagnostics_->SetName(L"AB3D2 DXR View Weapon Diagnostics");
+
+    description.Flags = D3D12_RESOURCE_FLAG_NONE;
+    const D3D12_HEAP_PROPERTIES upload_heap =
+        heap_properties(D3D12_HEAP_TYPE_UPLOAD);
+    result = device->CreateCommittedResource(
+        &upload_heap, D3D12_HEAP_FLAG_NONE, &description,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+        IID_PPV_ARGS(&diagnostics_zero_upload_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateCommittedResource(DXR diagnostic zero)",
+            result);
+        return false;
+    }
+    diagnostics_zero_upload_->SetName(
+        L"AB3D2 DXR View Weapon Diagnostic Zero Upload");
+    void *mapped = nullptr;
+    const D3D12_RANGE no_read = {0, 0};
+    result = diagnostics_zero_upload_->Map(0, &no_read, &mapped);
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Resource::Map(DXR diagnostic zero)", result);
+        return false;
+    }
+    std::memset(mapped, 0, static_cast<size_t>(diagnostic_bytes));
+    diagnostics_zero_upload_->Unmap(0, nullptr);
+
+    const D3D12_HEAP_PROPERTIES readback_heap =
+        heap_properties(D3D12_HEAP_TYPE_READBACK);
+    result = device->CreateCommittedResource(
+        &readback_heap, D3D12_HEAP_FLAG_NONE, &description,
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+        IID_PPV_ARGS(&diagnostics_readback_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateCommittedResource(DXR diagnostic readback)",
+            result);
+        return false;
+    }
+    diagnostics_readback_->SetName(
+        L"AB3D2 DXR View Weapon Diagnostic Readback");
+    return true;
+}
+
+bool DxrPipeline::record_diagnostics_begin(
+    ID3D12GraphicsCommandList4 *command_list, std::string &error)
+{
+    if (!command_list || !diagnostics_ || !diagnostics_zero_upload_ ||
+        !diagnostics_readback_) {
+        error = "DXR view-weapon diagnostics are incomplete";
+        return false;
+    }
+    const D3D12_RESOURCE_BARRIER to_clear = transition(
+        diagnostics_.Get(), D3D12_RESOURCE_STATE_COPY_SOURCE,
+        D3D12_RESOURCE_STATE_COPY_DEST);
+    command_list->ResourceBarrier(1, &to_clear);
+    command_list->CopyBufferRegion(diagnostics_.Get(), 0,
+                                   diagnostics_zero_upload_.Get(), 0,
+                                   2u * sizeof(uint32_t));
+    const D3D12_RESOURCE_BARRIER to_write = transition(
+        diagnostics_.Get(), D3D12_RESOURCE_STATE_COPY_DEST,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    command_list->ResourceBarrier(1, &to_write);
+    return true;
+}
+
+bool DxrPipeline::record_diagnostics_end(
+    ID3D12GraphicsCommandList4 *command_list, std::string &error)
+{
+    if (!command_list || !diagnostics_ || !diagnostics_readback_) {
+        error = "DXR view-weapon diagnostic readback is incomplete";
+        return false;
+    }
+    const D3D12_RESOURCE_BARRIER finished = uav_barrier(diagnostics_.Get());
+    command_list->ResourceBarrier(1, &finished);
+    const D3D12_RESOURCE_BARRIER to_copy = transition(
+        diagnostics_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_COPY_SOURCE);
+    command_list->ResourceBarrier(1, &to_copy);
+    command_list->CopyBufferRegion(diagnostics_readback_.Get(), 0,
+                                   diagnostics_.Get(), 0,
+                                   2u * sizeof(uint32_t));
+    return true;
+}
+
+bool DxrPipeline::collect_diagnostics(std::string &error)
+{
+    if (!diagnostics_readback_) {
+        error = "DXR view-weapon diagnostic readback is unavailable";
+        return false;
+    }
+    constexpr SIZE_T diagnostic_bytes = 2u * sizeof(uint32_t);
+    const D3D12_RANGE read = {0, diagnostic_bytes};
+    void *mapped = nullptr;
+    const HRESULT result = diagnostics_readback_->Map(0, &read, &mapped);
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Resource::Map(DXR view-weapon diagnostics)", result);
+        return false;
+    }
+    const auto *values = static_cast<const uint32_t *>(mapped);
+    last_view_weapon_coverage_ = values[0];
+    last_view_weapon_rgb_checksum_ = values[1];
+    const D3D12_RANGE no_write = {0, 0};
+    diagnostics_readback_->Unmap(0, &no_write);
+    debug_output(
+        "DXR view weapon diagnostics: primary pixels=" +
+        std::to_string(last_view_weapon_coverage_) + " radiance=" +
+        std::to_string(last_view_weapon_rgb_checksum_));
     return true;
 }
 
@@ -1028,14 +1163,21 @@ bool DxrPipeline::initialize(ID3D12Device5 *device, std::string &error)
         create_diagnostic_pipeline(device, vertex_shader, pixel_shader, error) &&
         create_present_pipeline(device, present_vertex_shader, error) &&
         create_blue_noise_sampler(device, error) &&
+        create_diagnostics(device, error) &&
         create_raytracing_pipeline(device, error) &&
         create_descriptor_heap(device, error);
 }
 
-bool DxrPipeline::update_scene(const SceneFrame &frame, bool &requires_flush,
-                               std::string &error)
+bool DxrPipeline::update_scene(const SceneFrame &frame, const RenderView &view,
+                               UINT width, UINT height,
+                               bool &requires_flush, std::string &error)
 {
-    return scene_.update(frame, requires_flush, error);
+    const SceneCamera *camera = find_camera(frame);
+    const reconstruction::CameraProjection projection = camera ?
+        camera_projection(*camera, view, width, height) :
+        reconstruction::CameraProjection{};
+    return scene_.update(frame, camera ? &projection : nullptr,
+                         requires_flush, error);
 }
 
 bool DxrPipeline::record(ID3D12Device5 *device,
@@ -1049,6 +1191,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
 {
     if (!device || !command_list) {
         error = "DXR frame recording received incomplete D3D12 state";
+        return false;
+    }
+    if (!record_diagnostics_begin(command_list, error)) {
         return false;
     }
     const std::array<D3D12_CPU_DESCRIPTOR_HANDLE,
@@ -1066,6 +1211,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         return false;
     }
     if (!scene_.ready()) {
+        if (!record_diagnostics_end(command_list, error)) {
+            return false;
+        }
         history_.valid = false;
         history_.pending = false;
         command_list->SetGraphicsRootSignature(root_signature_.Get());
@@ -1166,6 +1314,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         9, light_reservoirs_[reservoir_slot]->GetGPUVirtualAddress());
     command_list->SetComputeRootUnorderedAccessView(
         10, light_reservoirs_[1u - reservoir_slot]->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
+        11, diagnostics_->GetGPUVirtualAddress());
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};
@@ -1178,6 +1328,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     dispatch.Height = render_height;
     dispatch.Depth = 1;
     command_list->DispatchRays(&dispatch);
+    if (!record_diagnostics_end(command_list, error)) {
+        return false;
+    }
 
     std::array<D3D12_RESOURCE_BARRIER,
                static_cast<size_t>(DxrReconstructionBuffer::count)>

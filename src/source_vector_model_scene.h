@@ -7,6 +7,10 @@
 #include "scene_frame.h"
 #include "render_view.h"
 
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
 typedef struct {
     float x;
     float y;
@@ -44,5 +48,9 @@ int source_vector_scene_compile_world(
     const RenderView *view, float drawable_aspect,
     SourceVectorSceneMesh *out_mesh, char *error, size_t error_size);
 void source_vector_scene_mesh_destroy(SourceVectorSceneMesh *mesh);
+
+#if defined(__cplusplus)
+}
+#endif
 
 #endif

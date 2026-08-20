@@ -644,7 +644,8 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     if (!resize(static_cast<UINT>(client_width), static_cast<UINT>(client_height), error)) {
         return false;
     }
-    if (!pipeline.update_scene(scene_frame, scene_requires_flush, error)) {
+    if (!pipeline.update_scene(scene_frame, view, width_, height_,
+                               scene_requires_flush, error)) {
         return false;
     }
     if (scene_requires_flush && !flush(error)) {
@@ -744,8 +745,12 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         return fail_device_operation("ID3D12CommandQueue::Signal(frame)", result, error);
     }
     frame.fence_value = fence_value;
-    return (!capture_scene || collect_scene_readback(fence_value, error)) &&
-        check_debug_messages(error);
+    if (capture_scene &&
+        (!collect_scene_readback(fence_value, error) ||
+         !pipeline.collect_diagnostics(error))) {
+        return false;
+    }
+    return check_debug_messages(error);
 }
 
 bool DxrDevice::presentation_size(int &width, int &height) const

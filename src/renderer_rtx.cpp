@@ -116,15 +116,16 @@ extern "C" size_t renderer_rtx_last_ui_coverage(const RendererRtx *renderer)
 
 extern "C" size_t renderer_rtx_last_view_weapon_coverage(const RendererRtx *renderer)
 {
-    (void)renderer;
-    return 0;
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_view_weapon_coverage() : 0u;
 }
 
 extern "C" uint64_t renderer_rtx_last_view_weapon_rgb_checksum(
     const RendererRtx *renderer)
 {
-    (void)renderer;
-    return UINT64_C(0);
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_view_weapon_rgb_checksum() :
+        UINT64_C(0);
 }
 
 extern "C" size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer)

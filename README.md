@@ -42,9 +42,9 @@ session. Supported keys are:
   renderer-native base-color, normal, roughness, metalness, and explicit
   emissive channels with a multi-bounce Lambertian/GGX path tracer, authored
   area emitters, environment lighting, shadow rays, MIS, and a pinned
-  dimension-addressed blue-noise/Owen-scrambled Sobol sequence. It does not yet
-  draw sprites, vector objects,
-  the weapon, HUD, or text.
+  dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player 1's
+  companion weapon is primary camera-relative PBR geometry in the same TLAS;
+  it does not yet draw sprites, world vector objects, HUD, or text.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
@@ -424,10 +424,15 @@ GPU-based validation mode.
 
 The DXR backend creates a native SDL/`HWND` window without OpenGL,
 selects a high-performance hardware adapter with feature level 12_0,
-`ID3D12Device5`, and a nonzero DXR tier. It compiles opaque world surfaces from
-the renderer-neutral `SceneFrame`, uploads positions, UVs, material indices,
-and renderer-native base-color, tangent-normal, metalness, roughness, and
-emissive atlases, then builds one BLAS and TLAS. `technolights` and the source
+`ID3D12Device5`, and a nonzero DXR tier. It compiles opaque world surfaces and
+Player 1's exact `ENT_NEXT_2` companion from the renderer-neutral `SceneFrame`,
+uploads positions, UVs, material/primitive indices, and renderer-native
+base-color, tangent-normal, metalness, roughness, and emissive atlases, then
+builds static/dynamic BLAS objects and one TLAS. The companion compiler's exact
+NDC and eye depth are inverted through the DXR camera into an alpha-tested,
+camera-relative dynamic BLAS; it therefore contributes primary radiance,
+depth, normals, motion, and every Ray Reconstruction guide rather than being a
+post-tone-map overlay. `technolights` and the source
 `floor_0101` panel use colored emissive masks at factor 200; other materials
 remain non-emissive. Every vertex also carries the source Gouraud shade
 response for its surface, and that scales authored emission, so an emissive
@@ -450,8 +455,8 @@ so the reflection guide and noisy radiance no longer use unrelated directions.
 A renderer-neutral history epoch resets camera and
 geometry history across level/quickload discontinuities; topology-stable world
 motion uses the previous vertex positions at the current hit barycentrics.
-Dynamic sprite/vector-object geometry, transparencies, and overlays remain
-outstanding.
+Dynamic sprite/world-vector-object geometry, transparencies, and HUD/text
+overlays remain outstanding.
 
 Empty/non-world frames retain the diagnostic triangle. Resize,
 minimize/restore, fences, DRED reporting, and orderly shutdown remain covered.
@@ -464,11 +469,18 @@ lifecycle check and run the game-content check with:
 
 The RTX smoke renders each Level A--P frame twice and requires two nonzero,
 different readback checksums, proving both game-derived output and fresh random
-sampling. An all-black image now fails the readback check. Set
+sampling. It also requires nonzero GPU primary-hit coverage from the initial
+and key-six Rocket Launcher companions. An all-black image now fails the
+readback check. Set
 `AB3D2_DXR_DEBUG_LOG=1` to mirror DXR diagnostics to stderr during a run, and
 set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
-smoke to save the latest presented frame. Sprite, vector-object, weapon,
-projectile, HUD, and text coverage remain zero at this milestone.
+smoke to save the latest presented frame. Sprite, world-vector-object,
+projectile, HUD, and text coverage remain zero at this milestone; weapon
+coverage and its fresh-radiance checksum come from a GPU UAV.
+The CTest all-level invocation sets `AB3D2_DXR_EXPOSURE=1`: the in-world weapon
+covers Level D's few default-exposure nonblack floor samples, and this explicit
+diagnostic exposure keeps its stochastic output above 8-bit readback
+quantization without relaxing either checksum or weapon-coverage assertions.
 
 The RTX smoke then freezes the camera, view, and scene frame and presents
 `AB3D2_DXR_STABILITY_FRAMES` frames (default 24, range 4--4096), reporting the

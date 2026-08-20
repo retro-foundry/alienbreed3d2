@@ -190,8 +190,9 @@ bool DxrRenderer::initialize(int window_width, int window_height,
         return false;
     }
     debug_output(
-        "opaque SceneFrame DXR renderer initialized; sprites, vector objects, "
-        "HUD, weapon, and text remain outside this milestone"
+        "SceneFrame DXR renderer initialized; opaque world and the exact "
+        "camera-relative companion weapon use primary PBR geometry; sprites, "
+        "other vector objects, HUD, and text remain outside this milestone"
 #if defined(AB3D2_ENABLE_STREAMLINE)
         "; Streamline DLSS Ray Reconstruction 2.12 integration is enabled"
 #endif
@@ -232,6 +233,17 @@ uint64_t DxrRenderer::last_scene_saturated_pixels() const
 uint64_t DxrRenderer::last_scene_emissive_scale_fold() const
 {
     return pipeline_ ? pipeline_->scene_emissive_scale_fold() : UINT64_C(0);
+}
+
+size_t DxrRenderer::last_view_weapon_coverage() const
+{
+    return pipeline_ ? pipeline_->last_view_weapon_coverage() : 0u;
+}
+
+uint64_t DxrRenderer::last_view_weapon_rgb_checksum() const
+{
+    return pipeline_ ? pipeline_->last_view_weapon_rgb_checksum() :
+        UINT64_C(0);
 }
 
 }  // namespace ab3d2::dxr

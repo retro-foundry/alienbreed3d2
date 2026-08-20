@@ -2,6 +2,7 @@
 #define AB3D2_DXR_SCENE_H
 
 #include "dxr_materials.h"
+#include "dxr_reconstruction_math.h"
 #include "dxr_scene_update.h"
 #include "scene_frame.h"
 
@@ -15,12 +16,20 @@
 
 namespace ab3d2::dxr {
 
+enum class DxrScenePrimitive : uint32_t {
+    world = 0u,
+    view_weapon = 1u,
+};
+
+struct DxrViewWeaponCompilation;
+
 /* Layout mirrored by `SceneVertex` in shaders/path_trace.hlsl. */
 struct DxrSceneVertex {
     float position[3];
     float texture_coordinate[2];
     uint32_t material_index;
     uint32_t emitter_index;
+    uint32_t primitive;
     /*
      * The source Gouraud shade response for this vertex, scaling the material's
      * authored emission. `hires.s:goursides` selects a flat's shade row from its
@@ -30,6 +39,8 @@ struct DxrSceneVertex {
      */
     float emissive_scale;
 };
+
+static_assert(sizeof(DxrSceneVertex) == 36u);
 
 struct DxrSceneMaterial {
     uint32_t atlas_x;
@@ -57,8 +68,9 @@ class DxrScene final {
 public:
     static constexpr uint32_t upload_frame_count = 3u;
 
-    bool update(const SceneFrame &frame, bool &requires_flush,
-                std::string &error);
+    bool update(const SceneFrame &frame,
+                const reconstruction::CameraProjection *camera,
+                bool &requires_flush, std::string &error);
     bool record_build(ID3D12Device5 *device,
                       ID3D12GraphicsCommandList4 *command_list,
                       uint32_t frame_slot,
@@ -103,11 +115,16 @@ private:
         SceneAccelerationClass acceleration_class =
             SCENE_ACCELERATION_CLASS_STATIC;
         uint64_t vertex_hash = 0;
+        bool view_weapon = false;
+        bool opaque = true;
     };
 
     bool compile(const SceneFrame &frame,
+                 const DxrViewWeaponCompilation &view_weapon,
                  const DxrSceneGeometryHashes &hashes, std::string &error);
-    bool compile_geometry_update(const SceneFrame &frame, bool light_changed,
+    bool compile_geometry_update(const SceneFrame &frame,
+                                 const DxrViewWeaponCompilation &view_weapon,
+                                 bool light_changed,
                                  bool &static_changed, std::string &error);
     void release_gpu();
 
@@ -124,6 +141,8 @@ private:
     std::vector<DxrEmissiveTriangle> emissive_triangles_;
     std::vector<uint32_t> surface_material_indices_;
     std::vector<float> material_emissive_luminance_;
+    uint32_t view_weapon_first_material_ = 0u;
+    uint32_t view_weapon_material_count_ = 0u;
     std::vector<CompiledInstance> instances_;
     std::vector<bool> blas_update_pending_;
     std::array<std::vector<uint8_t>,

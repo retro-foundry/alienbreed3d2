@@ -723,7 +723,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     endif()
     add_test(NAME ab3d2_renderer_rtx_game_smoke
              COMMAND $<TARGET_FILE:ab3d2> --gpu-smoke all --renderer rtx)
-    set_tests_properties(ab3d2_renderer_rtx_game_smoke PROPERTIES TIMEOUT 120)
+    set_tests_properties(
+      ab3d2_renderer_rtx_game_smoke PROPERTIES
+      TIMEOUT 120
+      # The in-world companion legitimately covers Level D's handful of
+      # default-exposure nonblack floor samples. Keep the smoke on the real
+      # tone-map path while exposing that scene's sub-8-bit stochastic signal.
+      ENVIRONMENT "AB3D2_DXR_EXPOSURE=1")
   else()
     add_executable(ab3d2_renderer_rtx_stub_test
                    tests/renderer_rtx_stub_test.c src/renderer_rtx_stub.c)

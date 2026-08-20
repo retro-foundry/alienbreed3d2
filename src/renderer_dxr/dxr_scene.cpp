@@ -3,6 +3,7 @@
 #include "dxr_alias_table.h"
 #include "dxr_debug.h"
 #include "scene_geometry_compile.h"
+#include "source_vector_model_scene.h"
 #include "source_world_material.h"
 
 #include <algorithm>
@@ -15,9 +16,37 @@
 
 namespace ab3d2::dxr {
 
+struct DxrViewWeaponCompilation {
+    SourceVectorSceneMesh source = {};
+    std::vector<DxrSceneVertex> vertices;
+    const SceneSprite *sprite = nullptr;
+    uint64_t layout_hash = UINT64_C(1469598103934665603);
+    uint64_t vertex_hash = UINT64_C(1469598103934665603);
+
+    ~DxrViewWeaponCompilation()
+    {
+        source_vector_scene_mesh_destroy(&source);
+    }
+
+    DxrViewWeaponCompilation() = default;
+    DxrViewWeaponCompilation(const DxrViewWeaponCompilation &) = delete;
+    DxrViewWeaponCompilation &operator=(const DxrViewWeaponCompilation &) = delete;
+};
+
 namespace {
 
 constexpr uint32_t atlas_maximum_extent = 8192u;
+constexpr uint64_t fnv_prime = UINT64_C(1099511628211);
+
+uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
+{
+    const auto *bytes = static_cast<const uint8_t *>(data);
+    for (size_t index = 0; index < size; ++index) {
+        hash ^= bytes[index];
+        hash *= fnv_prime;
+    }
+    return hash;
+}
 
 struct MaterialKey {
     SceneMaterialSource source;
@@ -46,6 +75,143 @@ struct MaterialImage {
     float emissive_factor[3] = {};
     float average_emissive_luminance = 0.0f;
 };
+
+bool compile_view_weapon(
+    const SceneFrame &frame,
+    const reconstruction::CameraProjection *camera,
+    DxrViewWeaponCompilation &result, std::string &error)
+{
+    for (size_t index = 0; index < frame.count; ++index) {
+        const SceneCommand &command = frame.commands[index];
+        if (command.type != SCENE_COMMAND_SPRITE_INSTANCE ||
+            command.data.sprite_instance.sprite.presentation !=
+                SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON) {
+            continue;
+        }
+        if (result.sprite) {
+            error = "DXR SceneFrame contains multiple player view weapons";
+            return false;
+        }
+        result.sprite = &command.data.sprite_instance.sprite;
+    }
+
+    const uint8_t present = result.sprite ? 1u : 0u;
+    result.layout_hash = hash_bytes(result.layout_hash, &present,
+                                    sizeof(present));
+    if (!result.sprite) {
+        return true;
+    }
+    if (!camera || !(camera->aspect > 0.0f) ||
+        !(camera->tan_half_fov_y > 0.0f)) {
+        error = "DXR view weapon requires a valid camera projection";
+        return false;
+    }
+
+    char compile_error[512] = {};
+    if (!source_vector_scene_compile_view_weapon(
+            result.sprite, camera->aspect, &result.source, compile_error,
+            sizeof(compile_error))) {
+        error = "DXR source view weapon compilation failed: ";
+        error += compile_error;
+        return false;
+    }
+    if (!result.source.triangles || result.source.triangle_count == 0u ||
+        !result.source.materials || result.source.material_count == 0u ||
+        result.source.triangle_count > UINT32_MAX / 3u ||
+        result.source.material_count > UINT32_MAX) {
+        error = "DXR source view weapon compiled no drawable vector faces";
+        return false;
+    }
+
+    result.layout_hash = hash_bytes(
+        result.layout_hash, &result.sprite->source_asset_id,
+        sizeof(result.sprite->source_asset_id));
+    result.layout_hash = hash_bytes(
+        result.layout_hash, &result.source.triangle_count,
+        sizeof(result.source.triangle_count));
+    result.layout_hash = hash_bytes(
+        result.layout_hash, &result.source.material_count,
+        sizeof(result.source.material_count));
+    for (size_t material_index = 0;
+         material_index < result.source.material_count; ++material_index) {
+        const SourceVectorSceneMaterial &material =
+            result.source.materials[material_index];
+        if (!material.rgba || material.width == 0u || material.height == 0u ||
+            static_cast<size_t>(material.width) >
+                std::numeric_limits<size_t>::max() / material.height / 4u) {
+            error = "DXR source view weapon contains an invalid material";
+            return false;
+        }
+        const size_t byte_count = static_cast<size_t>(material.width) *
+            material.height * 4u;
+        result.layout_hash = hash_bytes(result.layout_hash, &material.width,
+                                        sizeof(material.width));
+        result.layout_hash = hash_bytes(result.layout_hash, &material.height,
+                                        sizeof(material.height));
+        result.layout_hash = hash_bytes(result.layout_hash, material.rgba,
+                                        byte_count);
+    }
+
+    result.vertices.reserve(result.source.triangle_count * 3u);
+    for (size_t triangle_index = 0;
+         triangle_index < result.source.triangle_count; ++triangle_index) {
+        const SourceVectorSceneTriangle &triangle =
+            result.source.triangles[triangle_index];
+        if (triangle.material_index >= result.source.material_count) {
+            error = "DXR source view weapon references an invalid material";
+            return false;
+        }
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &triangle.material_index,
+            sizeof(triangle.material_index));
+        result.layout_hash = hash_bytes(result.layout_hash, &triangle.additive,
+                                        sizeof(triangle.additive));
+        for (const SourceVectorSceneVertex &source : triangle.vertices) {
+            if (!(source.z > 0.0f) || !std::isfinite(source.x) ||
+                !std::isfinite(source.y) || !std::isfinite(source.z) ||
+                !std::isfinite(source.u) || !std::isfinite(source.v)) {
+                error = "DXR source view weapon contains an invalid projected vertex";
+                return false;
+            }
+
+            /*
+             * source_vector_scene_compile_view_weapon preserves
+             * objdrawhires.s's NDC and positive eye depth. Reversing the DXR
+             * primary-ray projection places that exact companion point in
+             * camera-relative world space: no invented near-camera plane or
+             * post-tone-map screen mesh is involved.
+             */
+            const float right_distance = source.x * source.z * camera->aspect *
+                camera->tan_half_fov_y;
+            const float up_distance = source.y * source.z *
+                camera->tan_half_fov_y;
+            DxrSceneVertex vertex = {};
+            vertex.position[0] = camera->position.x +
+                camera->forward.x * source.z +
+                camera->right.x * right_distance + camera->up.x * up_distance;
+            vertex.position[1] = camera->position.y +
+                camera->forward.y * source.z +
+                camera->right.y * right_distance + camera->up.y * up_distance;
+            vertex.position[2] = camera->position.z +
+                camera->forward.z * source.z +
+                camera->right.z * right_distance + camera->up.z * up_distance;
+            vertex.texture_coordinate[0] = source.u;
+            vertex.texture_coordinate[1] = source.v;
+            vertex.material_index = triangle.material_index;
+            vertex.emitter_index = UINT32_MAX;
+            vertex.primitive = static_cast<uint32_t>(
+                DxrScenePrimitive::view_weapon);
+            vertex.emissive_scale = 1.0f;
+            result.layout_hash = hash_bytes(
+                result.layout_hash, vertex.texture_coordinate,
+                sizeof(vertex.texture_coordinate));
+            result.vertex_hash = hash_bytes(result.vertex_hash, vertex.position,
+                                            sizeof(vertex.position));
+            result.vertices.push_back(vertex);
+        }
+    }
+    return true;
+}
 
 float srgb_to_linear(uint8_t encoded)
 {
@@ -225,6 +391,7 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
         vertex.texture_coordinate[1] = source.texture_v * v_scale;
         vertex.material_index = material_index;
         vertex.emitter_index = UINT32_MAX;
+        vertex.primitive = static_cast<uint32_t>(DxrScenePrimitive::world);
         vertex.emissive_scale = source_gouraud_emissive_scale(
             geometry.primitive, source.source_light_level);
         vertices.push_back(vertex);
@@ -365,10 +532,20 @@ void DxrScene::release_gpu()
     instance_upload_.Reset();
 }
 
-bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
-                      std::string &error)
+bool DxrScene::update(const SceneFrame &frame,
+                      const reconstruction::CameraProjection *camera,
+                      bool &requires_flush, std::string &error)
 {
-    const DxrSceneGeometryHashes hashes = dxr_scene_geometry_hashes(frame);
+    DxrViewWeaponCompilation view_weapon;
+    if (!compile_view_weapon(frame, camera, view_weapon, error)) {
+        return false;
+    }
+    DxrSceneGeometryHashes hashes = dxr_scene_geometry_hashes(frame);
+    hashes.layout = hash_bytes(hashes.layout, &view_weapon.layout_hash,
+                               sizeof(view_weapon.layout_hash));
+    hashes.vertex_data = hash_bytes(hashes.vertex_data,
+                                    &view_weapon.vertex_hash,
+                                    sizeof(view_weapon.vertex_hash));
     const DxrSceneUpdateKind update_kind =
         dxr_scene_classify_update(has_hashes_, scene_hashes_, hashes);
     requires_flush = false;
@@ -378,7 +555,7 @@ bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
     if (update_kind == DxrSceneUpdateKind::rebuild) {
         history_reset_pending_ = true;
         requires_flush = true;
-        return compile(frame, hashes, error);
+        return compile(frame, view_weapon, hashes, error);
     }
 
     /*
@@ -389,7 +566,8 @@ bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
      */
     const bool light_changed = scene_hashes_.vertex_light != hashes.vertex_light;
     bool static_changed = false;
-    if (!compile_geometry_update(frame, light_changed, static_changed, error)) {
+    if (!compile_geometry_update(frame, view_weapon, light_changed,
+                                 static_changed, error)) {
         return false;
     }
     if (static_changed) {
@@ -397,7 +575,7 @@ bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
             "DXR static SceneFrame geometry changed; rebuilding scene resources");
         requires_flush = true;
         history_reset_pending_ = true;
-        return compile(frame, hashes, error);
+        return compile(frame, view_weapon, hashes, error);
     }
     scene_hashes_ = hashes;
     has_hashes_ = true;
@@ -406,6 +584,7 @@ bool DxrScene::update(const SceneFrame &frame, bool &requires_flush,
 }
 
 bool DxrScene::compile(const SceneFrame &frame,
+                       const DxrViewWeaponCompilation &view_weapon,
                        const DxrSceneGeometryHashes &hashes,
                        std::string &error)
 {
@@ -557,6 +736,107 @@ bool DxrScene::compile(const SceneFrame &frame,
         }
     }
 
+    uint32_t compiled_view_weapon_first_material =
+        static_cast<uint32_t>(images.size());
+    uint32_t compiled_view_weapon_material_count = 0u;
+    if (view_weapon.sprite) {
+        if (images.size() > UINT32_MAX - view_weapon.source.material_count ||
+            compiled_vertices.size() > UINT32_MAX - view_weapon.vertices.size()) {
+            error = "DXR view weapon exceeds scene index limits";
+            return false;
+        }
+        std::vector<bool> additive_materials(
+            view_weapon.source.material_count, false);
+        for (size_t triangle_index = 0;
+             triangle_index < view_weapon.source.triangle_count;
+             ++triangle_index) {
+            const SourceVectorSceneTriangle &triangle =
+                view_weapon.source.triangles[triangle_index];
+            additive_materials[triangle.material_index] =
+                additive_materials[triangle.material_index] ||
+                triangle.additive != 0u;
+        }
+        for (size_t material_index = 0;
+             material_index < view_weapon.source.material_count;
+             ++material_index) {
+            const SourceVectorSceneMaterial &source =
+                view_weapon.source.materials[material_index];
+            MaterialImage image;
+            image.width = source.width;
+            image.height = source.height;
+            const size_t byte_count = static_cast<size_t>(source.width) *
+                source.height * 4u;
+            image.pixels[static_cast<size_t>(DxrMaterialChannel::base_color)]
+                .assign(source.rgba, source.rgba + byte_count);
+            for (DxrMaterialChannel channel : {
+                     DxrMaterialChannel::normal,
+                     DxrMaterialChannel::metalness,
+                     DxrMaterialChannel::roughness,
+                     DxrMaterialChannel::emissive}) {
+                image.pixels[static_cast<size_t>(channel)].assign(
+                    byte_count, 0u);
+            }
+            for (size_t texel = 0; texel < byte_count; texel += 4u) {
+                auto &normal = image.pixels[
+                    static_cast<size_t>(DxrMaterialChannel::normal)];
+                normal[texel + 0u] = 128u;
+                normal[texel + 1u] = 128u;
+                normal[texel + 2u] = 255u;
+                normal[texel + 3u] = source.rgba[texel + 3u];
+                auto &metalness = image.pixels[
+                    static_cast<size_t>(DxrMaterialChannel::metalness)];
+                metalness[texel + 3u] = source.rgba[texel + 3u];
+                auto &roughness = image.pixels[
+                    static_cast<size_t>(DxrMaterialChannel::roughness)];
+                roughness[texel + 0u] = 255u;
+                roughness[texel + 1u] = 255u;
+                roughness[texel + 2u] = 255u;
+                roughness[texel + 3u] = source.rgba[texel + 3u];
+                if (additive_materials[material_index]) {
+                    auto &emissive = image.pixels[
+                        static_cast<size_t>(DxrMaterialChannel::emissive)];
+                    std::memcpy(emissive.data() + texel,
+                                source.rgba + texel, 4u);
+                }
+            }
+            if (additive_materials[material_index]) {
+                image.emissive_factor[0] = 1.0f;
+                image.emissive_factor[1] = 1.0f;
+                image.emissive_factor[2] = 1.0f;
+            }
+            image.average_emissive_luminance =
+                average_emissive_luminance(image);
+            images.push_back(std::move(image));
+        }
+        compiled_view_weapon_material_count =
+            static_cast<uint32_t>(view_weapon.source.material_count);
+
+        const size_t first_vertex = compiled_vertices.size();
+        for (DxrSceneVertex vertex : view_weapon.vertices) {
+            vertex.material_index += compiled_view_weapon_first_material;
+            compiled_vertices.push_back(vertex);
+        }
+        CompiledInstance compiled_instance;
+        compiled_instance.source_instance_id =
+            view_weapon.sprite->source_record_id;
+        compiled_instance.source_mesh_id =
+            view_weapon.sprite->source_asset_id;
+        compiled_instance.first_surface = static_cast<uint32_t>(
+            compiled_surface_material_indices.size());
+        compiled_instance.first_vertex = static_cast<uint32_t>(first_vertex);
+        compiled_instance.vertex_count = static_cast<uint32_t>(
+            view_weapon.vertices.size());
+        compiled_instance.acceleration_class =
+            SCENE_ACCELERATION_CLASS_DYNAMIC;
+        compiled_instance.vertex_hash = view_weapon.vertex_hash;
+        compiled_instance.view_weapon = true;
+        compiled_instance.opaque = false;
+        compiled_instances.push_back(compiled_instance);
+        debug_output(
+            "DXR view weapon: source companion is primary camera-relative "
+            "PBR geometry; source additive faces use authored colour as emission");
+    }
+
     std::vector<DxrEmissiveTriangle> compiled_emitters;
     std::vector<float> compiled_material_luminance;
     compiled_material_luminance.reserve(images.size());
@@ -652,6 +932,8 @@ bool DxrScene::compile(const SceneFrame &frame,
         std::move(compiled_surface_material_indices);
     material_emissive_luminance_ =
         std::move(compiled_material_luminance);
+    view_weapon_first_material_ = compiled_view_weapon_first_material;
+    view_weapon_material_count_ = compiled_view_weapon_material_count;
     instances_ = std::move(compiled_instances);
     blas_update_pending_.assign(instances_.size(), false);
     atlas_pixels_ = std::move(compiled_atlases);
@@ -666,6 +948,7 @@ bool DxrScene::compile(const SceneFrame &frame,
 }
 
 bool DxrScene::compile_geometry_update(const SceneFrame &frame,
+                                       const DxrViewWeaponCompilation &view_weapon,
                                        bool light_changed,
                                        bool &static_changed,
                                        std::string &error)
@@ -741,6 +1024,39 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
         compiled_instances.push_back(compiled_instance);
         compiled_updates.push_back(instance_changed);
         surface_cursor += mesh.surface_count;
+        ++instance_cursor;
+    }
+    if (view_weapon.sprite) {
+        if (instance_cursor >= instances_.size()) {
+            error = "DXR geometry-only update added the view-weapon BLAS";
+            return false;
+        }
+        const CompiledInstance &previous = instances_[instance_cursor];
+        if (!previous.view_weapon || previous.acceleration_class !=
+                SCENE_ACCELERATION_CLASS_DYNAMIC ||
+            previous.vertex_count != view_weapon.vertices.size() ||
+            view_weapon_material_count_ !=
+                view_weapon.source.material_count ||
+            view_weapon_first_material_ > materials_.size() ||
+            view_weapon_material_count_ >
+                materials_.size() - view_weapon_first_material_) {
+            error = "DXR geometry-only update changed the view-weapon layout";
+            return false;
+        }
+        CompiledInstance compiled_instance = previous;
+        compiled_instance.vertex_hash = view_weapon.vertex_hash;
+        const bool instance_changed =
+            compiled_instance.vertex_hash != previous.vertex_hash;
+        if (instance_changed) {
+            for (size_t vertex_index = 0;
+                 vertex_index < view_weapon.vertices.size(); ++vertex_index) {
+                DxrSceneVertex vertex = view_weapon.vertices[vertex_index];
+                vertex.material_index += view_weapon_first_material_;
+                compiled_vertices[previous.first_vertex + vertex_index] = vertex;
+            }
+        }
+        compiled_instances.push_back(compiled_instance);
+        compiled_updates.push_back(instance_changed);
         ++instance_cursor;
     }
     if (surface_cursor != surface_material_indices_.size() ||
@@ -855,7 +1171,9 @@ bool DxrScene::record_build(ID3D12Device5 *device,
             }
             D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
             geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-            geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+            geometry.Flags = instance.opaque ?
+                D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE :
+                D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
             geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
             geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
             geometry.Triangles.VertexCount = instance.vertex_count;
@@ -1121,7 +1439,9 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         const CompiledInstance &instance = instances_[index];
         D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
         geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+        geometry.Flags = instance.opaque ?
+            D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE :
+            D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
         geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
         geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
         geometry.Triangles.VertexCount = instance.vertex_count;
@@ -1179,7 +1499,9 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         const CompiledInstance &instance = instances_[index];
         D3D12_RAYTRACING_GEOMETRY_DESC geometry = {};
         geometry.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-        geometry.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+        geometry.Flags = instance.opaque ?
+            D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE :
+            D3D12_RAYTRACING_GEOMETRY_FLAG_NONE;
         geometry.Triangles.IndexFormat = DXGI_FORMAT_UNKNOWN;
         geometry.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
         geometry.Triangles.VertexCount = instance.vertex_count;
