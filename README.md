@@ -56,12 +56,15 @@ session. Supported keys are:
   guides from the surface behind. Visibility rays do not see it at all, so it
   casts no shadow. That matches the source's blended draw paths and the OpenGL
   backend's `glBlendFunc(GL_ONE, GL_ONE)` with depth writes disabled.
-  Projectile billboards occupy a fixed run of reserved instances rather than
+  World billboards occupy a fixed run of reserved instances rather than
   entering and leaving the scene, because a sprite joining the instance list is
-  a layout change and therefore a full rebuild behind a GPU flush. Firing
-  costs one rebuild the first time a level shows a given bullet, to bring its
-  PBR maps into the atlas, and none after that. HUD and text remain outside the
-  DXR path.
+  a layout change and therefore a full rebuild behind a GPU flush - around
+  95 ms at 2560x1440. `object_scene_submit_active` publishes the live prefix of
+  the ObjT array and skips vacated records, so without the pool a bullet
+  appearing, an alien dying or an item being collected each cost one: walking a
+  level with the trigger held measured 17 rebuilds over 400 frames before the
+  pool and 1 after. What remains is a material kind entering the atlas for the
+  first time, once per kind per level. HUD and text remain outside the DXR path.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first

@@ -104,34 +104,35 @@ constexpr uint64_t fnv_prime = UINT64_C(1099511628211);
  */
 constexpr float source_glare_additive_strength = 0.8f;
 /*
- * Projectile billboards live in a fixed run of reserved instances rather than
- * appearing and disappearing from the scene's instance list.
+ * Every world billboard lives in a fixed run of reserved instances rather than
+ * appearing in and disappearing from the scene's instance list.
  *
  * A sprite entering or leaving that list is a layout change, and a layout
  * change is a full rebuild: every BLAS, the TLAS, the emitter table and the
  * whole PBR atlas, behind a GPU flush, with the reconstruction history reset on
- * top. That is around a tenth of a second, and firing a weapon used to spend it
- * twice - once when the bullet appeared and once when it retired. Reserving the
- * slots instead keeps the layout fixed, so a projectile appearing is the same
- * cheap vertex write and BLAS refit that an animating billboard already is.
+ * top. On Level A at 2560x1440 that measures around 95 ms, and it used to be
+ * spent whenever a bullet appeared or retired, an alien died, or an item was
+ * collected: `object_scene_submit_active` publishes the live prefix of the ObjT
+ * array and skips vacated records, so any of those shifts the whole list.
  *
  * The slots are a pool, matched by position and not by identity, because the
- * ObjT records behind them are a pool the source reuses. `defs.i` bounds it at
- * NUM_PLR_SHOT_DATA plus NUM_ALIEN_SHOT_DATA, which is what the baseline
- * covers; death fragments and impact pops can exceed it, so the pool doubles to
- * a high-water mark. Growing is itself a layout change, so it costs one rebuild
- * and then stops happening.
+ * ObjT records behind them are a pool the source reuses. A vacated record
+ * shifting its successors up therefore costs each one a vertex write and a
+ * two-triangle BLAS refit - what an animating billboard already costs - instead
+ * of a rebuild. The baseline covers a level's ordinary live-object count and
+ * the pool doubles to a high-water mark past it; growing is itself a layout
+ * change, so it costs one rebuild and then stops happening.
  */
-constexpr size_t projectile_pool_baseline =
-    OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
-constexpr size_t projectile_pool_limit = 512u;
+constexpr size_t world_bitmap_pool_baseline =
+    4u * OBJECT_RUNTIME_PROJECTILE_SLOT_COUNT;
+constexpr size_t world_bitmap_pool_limit = 1024u;
 /*
  * The vertex hash a reserved slot reports while nothing occupies it. It must not
  * depend on the camera or the frame: an empty slot's vertices stay exactly where
  * its last occupant left them, collapsed onto a point, so a constant here is
  * what keeps the geometry update from refitting every empty slot every frame.
  */
-constexpr uint64_t empty_projectile_slot_hash = UINT64_C(0x9e3779b97f4a7c15);
+constexpr uint64_t empty_world_bitmap_slot_hash = UINT64_C(0x9e3779b97f4a7c15);
 
 uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
 {
@@ -354,13 +355,7 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
             camera = &frame.commands[index].data.camera;
         }
     }
-    /*
-     * Lasting billboards first and projectiles second, so the pool occupies one
-     * contiguous run at the end whatever order the frame submitted them in.
-     */
-    std::vector<DxrWorldBitmapInstance> projectiles;
-    for (size_t pass = 0; pass < 2u; ++pass) {
-    const bool collecting_projectiles = pass != 0u;
+    std::vector<DxrWorldBitmapInstance> occupants;
     for (size_t index = 0; index < frame.count; ++index) {
         const SceneCommand &command = frame.commands[index];
         if (command.type != SCENE_COMMAND_SPRITE_INSTANCE) {
@@ -380,11 +375,6 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
         if (sprite.presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
             (sprite.source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP &&
              sprite.source != SCENE_SPRITE_SOURCE_GLARE_BITMAP)) {
-            continue;
-        }
-        const bool is_projectile =
-            (sprite.flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u;
-        if (is_projectile != collecting_projectiles) {
             continue;
         }
         if (!camera) {
@@ -444,42 +434,20 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
             compiled.vertex_hash, &compiled.source.material_mode,
             sizeof(compiled.source.material_mode));
         /*
-         * A projectile contributes nothing to the layout. Its identity, mesh
-         * and asset all belong to the occupant of a reserved slot rather than to
-         * the scene's shape, and hashing any of them here is exactly what turned
-         * every shot into a rebuild.
+         * Nothing about an occupant reaches the layout. Its identity, mesh and
+         * asset belong to whatever the source put in that ObjT record, not to
+         * the scene's shape, and hashing any of it here is what made an alien
+         * dying or an item being collected rebuild the whole scene.
          */
-        if (!collecting_projectiles) {
-            result.layout_hash = hash_bytes(
-                result.layout_hash, &sprite.source_record_id,
-                sizeof(sprite.source_record_id));
-            result.layout_hash = hash_bytes(
-                result.layout_hash, &scene_instance.source_mesh_id,
-                sizeof(scene_instance.source_mesh_id));
-            result.layout_hash = hash_bytes(
-                result.layout_hash, &sprite.source_asset_id,
-                sizeof(sprite.source_asset_id));
-            result.layout_hash = hash_bytes(
-                result.layout_hash, &sprite.source,
-                sizeof(sprite.source));
-        }
         result.vertex_hash = hash_bytes(
             result.vertex_hash, &compiled.vertex_hash,
             sizeof(compiled.vertex_hash));
-        if (collecting_projectiles) {
-            projectiles.push_back(std::move(compiled));
-        } else {
-            result.instances.push_back(std::move(compiled));
-        }
+        occupants.push_back(std::move(compiled));
     }
-    }
-    const size_t lasting_count = result.instances.size();
-    result.layout_hash =
-        hash_bytes(result.layout_hash, &lasting_count, sizeof(lasting_count));
-    result.pool_first = lasting_count;
+    result.pool_first = 0u;
     result.pool_capacity = pool_capacity;
-    result.pool_overflow = projectiles.size() > pool_capacity ?
-        projectiles.size() - pool_capacity : 0u;
+    result.pool_overflow = occupants.size() > pool_capacity ?
+        occupants.size() - pool_capacity : 0u;
     result.layout_hash =
         hash_bytes(result.layout_hash, &pool_capacity, sizeof(pool_capacity));
     if (result.pool_overflow != 0u) {
@@ -487,8 +455,8 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
          * against a capacity it is about to discard. */
         return true;
     }
-    for (DxrWorldBitmapInstance &projectile : projectiles) {
-        result.instances.push_back(std::move(projectile));
+    for (DxrWorldBitmapInstance &occupant : occupants) {
+        result.instances.push_back(std::move(occupant));
     }
     /*
      * Reserved-but-empty slots. Six vertices collapsed onto the camera so the
@@ -499,7 +467,7 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
     while (result.instances.size() < result.pool_first + pool_capacity) {
         DxrWorldBitmapInstance empty;
         empty.occupied = false;
-        empty.vertex_hash = empty_projectile_slot_hash;
+        empty.vertex_hash = empty_world_bitmap_slot_hash;
         empty.vertices.assign(6u, DxrSceneVertex{});
         for (DxrSceneVertex &vertex : empty.vertices) {
             const SceneRenderPoint origin =
@@ -1005,29 +973,29 @@ bool DxrScene::update(const SceneFrame &frame,
      * source's own bound and only grows, doubling past a frame that needed more
      * so a busy firefight settles after one rebuild instead of one per shot.
      */
-    if (projectile_pool_capacity_ == 0u) {
-        projectile_pool_capacity_ = projectile_pool_baseline;
+    if (world_bitmap_pool_capacity_ == 0u) {
+        world_bitmap_pool_capacity_ = world_bitmap_pool_baseline;
     }
-    if (!compile_world_bitmaps(frame, projectile_pool_capacity_,
+    if (!compile_world_bitmaps(frame, world_bitmap_pool_capacity_,
                                world_bitmaps, error)) {
         return false;
     }
     if (world_bitmaps.pool_overflow != 0u) {
         const size_t needed =
-            projectile_pool_capacity_ + world_bitmaps.pool_overflow;
-        if (needed > projectile_pool_limit) {
+            world_bitmap_pool_capacity_ + world_bitmaps.pool_overflow;
+        if (needed > world_bitmap_pool_limit) {
             error = "DXR world-bitmap projectile pool exceeded its limit";
             return false;
         }
-        size_t grown = projectile_pool_capacity_;
+        size_t grown = world_bitmap_pool_capacity_;
         while (grown < needed) {
             grown *= 2u;
         }
-        projectile_pool_capacity_ = std::min(grown, projectile_pool_limit);
+        world_bitmap_pool_capacity_ = std::min(grown, world_bitmap_pool_limit);
         debug_output("DXR projectile pool grown to " +
-                     std::to_string(projectile_pool_capacity_) + " slots");
+                     std::to_string(world_bitmap_pool_capacity_) + " slots");
         world_bitmaps = DxrWorldBitmapCompilation{};
-        if (!compile_world_bitmaps(frame, projectile_pool_capacity_,
+        if (!compile_world_bitmaps(frame, world_bitmap_pool_capacity_,
                                    world_bitmaps, error)) {
             return false;
         }
@@ -1232,7 +1200,7 @@ bool DxrScene::compile(const SceneFrame &frame,
                 SCENE_ACCELERATION_CLASS_DYNAMIC;
             compiled_instance.vertex_hash = bitmap.vertex_hash;
             compiled_instance.world_bitmap = true;
-            compiled_instance.projectile_pool = true;
+            compiled_instance.bitmap_pool = true;
             compiled_instance.opaque = false;
             compiled_instances.push_back(compiled_instance);
             continue;
@@ -1311,7 +1279,7 @@ bool DxrScene::compile(const SceneFrame &frame,
         compiled_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
         compiled_instance.vertex_hash = bitmap.vertex_hash;
         compiled_instance.world_bitmap = true;
-        compiled_instance.projectile_pool = pool_slot;
+        compiled_instance.bitmap_pool = pool_slot;
         compiled_instance.opaque = false;
         compiled_instances.push_back(compiled_instance);
     }
@@ -1683,7 +1651,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
         }
         const CompiledInstance &previous = instances_[instance_cursor];
         if (!previous.world_bitmap || previous.view_weapon ||
-            previous.projectile_pool != pool_slot ||
+            previous.bitmap_pool != pool_slot ||
             previous.acceleration_class != SCENE_ACCELERATION_CLASS_DYNAMIC ||
             previous.vertex_count != 6u) {
             error = "DXR geometry-only update changed the world-bitmap layout";
@@ -1717,17 +1685,10 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
         }
         const SceneSprite &sprite = bitmap.instance->sprite;
         /*
-         * A lasting billboard keeps its identity across frames. A pool slot
-         * does not: its occupant is whichever projectile the source put in that
-         * ObjT record, so checking identity here is what a pool exists to
-         * avoid.
+         * A pool slot has no identity to check: its occupant is whichever
+         * object the source left in that ObjT record, and checking identity
+         * here is exactly what the pool exists to avoid.
          */
-        if (!pool_slot &&
-            (previous.source_instance_id != sprite.source_record_id ||
-             previous.source_mesh_id != bitmap.instance->source_mesh_id)) {
-            error = "DXR geometry-only update changed the world-bitmap layout";
-            return false;
-        }
         if (previous.vertex_count != bitmap.vertices.size()) {
             error = "DXR geometry-only update changed the world-bitmap layout";
             return false;
@@ -1742,9 +1703,10 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                 return false;
             }
             /*
-             * The first time a projectile of this kind appears its PBR maps are
+             * The first time an object of this kind appears its PBR maps are
              * not in the atlas yet. Rebuilding is the only way to add them, and
-             * it happens once per kind per level rather than once per shot.
+             * it happens once per kind per level rather than once per shot or
+             * once per death.
              */
             static_changed = true;
             return true;

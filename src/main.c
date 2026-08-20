@@ -1944,6 +1944,125 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     return 0;
                 }
             }
+            /* Only on the first requested level: 400 frames sixteen times
+             * would dominate the all-level smoke. */
+            if (level_index == first_level) {
+                    /*
+                     * Walk into the level with the trigger held. This is the shape
+                     * of ordinary play, and the property it holds is that none of
+                     * it rebuilds the scene. A bullet appearing, its impact
+                     * retiring, an alien dying and an item being collected all move
+                     * records in and out of the live ObjT prefix that
+                     * object_scene_submit_active publishes, and each one used to
+                     * cost a full rebuild behind a GPU flush with the
+                     * reconstruction history reset on top - measured at around
+                     * 95 ms on this level, which is what made ordinary play stutter.
+                     *
+                     * Frame timing is deliberately not asserted here. The hidden
+                     * smoke reads the whole frame buffer back every frame, which
+                     * costs more than the frame it measures, so the rebuild count is
+                     * the only honest signal this harness has.
+                     */
+                    {
+                        enum { GAME_APP_DXR_WALK_FRAMES = 400 };
+                        uint64_t walk_baseline;
+                        uint64_t walk_rebuilds;
+                        unsigned walk_frame = 0u;
+
+                        /*
+                         * Settle back onto the ordinary scene first. The
+                         * directed effect probe above presents a frame with no
+                         * world geometry at all, so returning from it is a real
+                         * layout change and must not be counted against the
+                         * walk.
+                         */
+                        scene_frame_begin(&app->frame);
+                        if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+                            !renderer_present(app->renderer, &app->frame,
+                                              &app->view, error, sizeof(error))) {
+                            fprintf(stderr,
+                                    "[RENDER] DXR walk settling frame failed in "
+                                    "Level %c: %s\n",
+                                    (char)('A' + level_index), error);
+                            app->exit_code = 1;
+                            return 0;
+                        }
+                        walk_baseline =
+                            renderer_scene_rebuild_count(app->renderer);
+                        if (!game_input_set_raw_key(
+                                &app->game.input,
+                                app->game.controls.assigned_raw_keys[GAME_CONTROL_FORWARDS],
+                                1, error, sizeof(error)) ||
+                            !game_input_set_raw_key(
+                                &app->game.input,
+                                app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE],
+                                1, error, sizeof(error))) {
+                            fprintf(stderr,
+                                    "[GAME] DXR walk smoke could not hold its controls in Level %c: %s\n",
+                                    (char)('A' + level_index), error);
+                            app->exit_code = 1;
+                            return 0;
+                        }
+                        for (; walk_frame < (unsigned)GAME_APP_DXR_WALK_FRAMES;
+                             ++walk_frame) {
+                            if (!game_bootstrap_update_single_player(
+                                    &app->game, error, sizeof(error))) {
+                                fprintf(stderr,
+                                        "[GAME] DXR walk update %u failed in Level %c: %s\n",
+                                        walk_frame, (char)('A' + level_index), error);
+                                app->exit_code = 1;
+                                return 0;
+                            }
+                            scene_frame_begin(&app->frame);
+                            if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+                                !renderer_present(app->renderer, &app->frame,
+                                                  &app->view, error, sizeof(error))) {
+                                fprintf(stderr,
+                                        "[RENDER] DXR walk frame %u failed in Level %c: %s\n",
+                                        walk_frame, (char)('A' + level_index), error);
+                                app->exit_code = 1;
+                                return 0;
+                            }
+                        }
+                        (void)game_input_set_raw_key(
+                            &app->game.input,
+                            app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE],
+                            0, error, sizeof(error));
+                        (void)game_input_set_raw_key(
+                            &app->game.input,
+                            app->game.controls.assigned_raw_keys[GAME_CONTROL_FORWARDS],
+                            0, error, sizeof(error));
+                        walk_rebuilds =
+                            renderer_scene_rebuild_count(app->renderer) -
+                            walk_baseline;
+                        /*
+                         * What remains is a material kind entering the atlas
+                         * for the first time, which only a rebuild can do and
+                         * which happens once per kind per level. Object churn
+                         * is what must not be here: measured on this walk it
+                         * cost 17 rebuilds before the world-bitmap pool and 1
+                         * after, so the allowance separates the two by an order
+                         * of magnitude and the count is reported either way.
+                         */
+                        if (walk_rebuilds > UINT64_C(4)) {
+                            fprintf(stderr,
+                                    "[RENDER] DXR walking and firing rebuilt the scene in "
+                                    "Level %c (%llu -> %llu over %u frames)\n",
+                                    (char)('A' + level_index),
+                                    (unsigned long long)walk_baseline,
+                                    (unsigned long long)renderer_scene_rebuild_count(
+                                        app->renderer),
+                                    walk_frame);
+                            app->exit_code = 1;
+                            return 0;
+                        }
+                        fprintf(stdout,
+                                "[RENDER] DXR Level %c walked and fired %u frames with "
+                                "%llu scene rebuilds\n",
+                                (char)('A' + level_index), walk_frame,
+                                (unsigned long long)walk_rebuilds);
+                    }
+            }
             continue;
         }
         if (renderer_last_ui_coverage(app->renderer) == 0u) {
