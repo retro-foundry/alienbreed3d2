@@ -126,6 +126,28 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "material package decoded unused PNGs\n");
         return 1;
     }
+    std::vector<ab3d2::dxr::DxrBitmapMaterialBinding> enemy_frames;
+    const size_t before_enemy_frames = library.resident_size();
+    if (!library.resolve_bitmap_asset_mode(0u, 0u, enemy_frames, error) ||
+        enemy_frames.empty()) {
+        std::fprintf(stderr, "bitmap animation-frame enumeration failed\n");
+        return 1;
+    }
+    bool found_enemy_frame_zero = false;
+    for (const auto &binding : enemy_frames) {
+        found_enemy_frame_zero = found_enemy_frame_zero ||
+            (binding.frame_index == 0u && binding.definition == enemy);
+        if (binding.source_asset_id != 0u || binding.source_mode != 0u ||
+            !binding.definition) {
+            std::fprintf(stderr, "bitmap animation enumeration crossed a mode\n");
+            return 1;
+        }
+    }
+    if (!found_enemy_frame_zero ||
+        library.resident_size() != before_enemy_frames + enemy_frames.size() - 1u) {
+        std::fprintf(stderr, "bitmap animation enumeration decoded the wrong set\n");
+        return 1;
+    }
     const size_t resident_size = library.resident_size();
     if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 6u,
                          lights, error) ||

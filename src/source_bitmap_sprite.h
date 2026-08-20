@@ -6,6 +6,10 @@
 
 #include "scene_frame.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     uint8_t *rgba;
     uint16_t width;
@@ -49,5 +53,9 @@ int source_bitmap_scene_compile_world(const SceneSprite *sprite,
                                       const SceneCamera *camera,
                                       SourceBitmapSceneMesh *out_mesh,
                                       char *error, size_t error_size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

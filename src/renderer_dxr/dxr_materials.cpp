@@ -534,4 +534,45 @@ bool DxrMaterialLibrary::resolve_bitmap(
     return resolve_index(found->second, definition, error);
 }
 
+bool DxrMaterialLibrary::resolve_bitmap_asset_mode(
+    uint32_t source_asset_id, uint32_t source_mode,
+    std::vector<DxrBitmapMaterialBinding> &bindings,
+    std::string &error)
+{
+    bindings.clear();
+    if (!loaded_) {
+        error = "DXR PBR bitmap enumeration requires a loaded catalog";
+        return false;
+    }
+    auto entry = bitmap_bindings_.lower_bound(
+        std::make_tuple(source_asset_id, 0u, 0u));
+    while (entry != bitmap_bindings_.end() &&
+           std::get<0>(entry->first) == source_asset_id) {
+        if (std::get<2>(entry->first) != source_mode) {
+            ++entry;
+            continue;
+        }
+        const DxrMaterialDefinition *definition = nullptr;
+        if (!resolve_index(entry->second, definition, error)) {
+            bindings.clear();
+            return false;
+        }
+        DxrBitmapMaterialBinding binding;
+        binding.source_asset_id = source_asset_id;
+        binding.frame_index = std::get<1>(entry->first);
+        binding.source_mode = std::get<2>(entry->first);
+        binding.definition = definition;
+        bindings.push_back(binding);
+        ++entry;
+    }
+    if (bindings.empty()) {
+        std::ostringstream message;
+        message << "DXR PBR bitmap asset/mode has no packaged materials: asset="
+                << source_asset_id << " mode=" << source_mode;
+        error = message.str();
+        return false;
+    }
+    return true;
+}
+
 }  // namespace ab3d2::dxr

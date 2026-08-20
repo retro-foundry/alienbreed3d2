@@ -37,6 +37,13 @@ struct DxrMaterialDefinition {
                static_cast<size_t>(DxrMaterialChannel::count)> pixels;
 };
 
+struct DxrBitmapMaterialBinding {
+    uint32_t source_asset_id = 0;
+    uint32_t frame_index = 0;
+    uint32_t source_mode = 0;
+    const DxrMaterialDefinition *definition = nullptr;
+};
+
 class DxrMaterialLibrary final {
 public:
     bool load(const std::filesystem::path &path, std::string &error);
@@ -53,6 +60,12 @@ public:
     bool resolve_bitmap(
         uint32_t source_asset_id, uint32_t frame_index,
         uint32_t source_mode, const DxrMaterialDefinition *&definition,
+        std::string &error);
+    /* Resolve every packaged frame for one active bitmap mode. This lets a
+     * live animated ObjT switch material indices without repacking its atlas. */
+    bool resolve_bitmap_asset_mode(
+        uint32_t source_asset_id, uint32_t source_mode,
+        std::vector<DxrBitmapMaterialBinding> &bindings,
         std::string &error);
     size_t size() const { return definitions_.size(); }
     size_t resident_size() const { return resident_size_; }

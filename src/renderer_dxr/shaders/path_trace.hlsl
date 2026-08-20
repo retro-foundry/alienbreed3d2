@@ -1381,8 +1381,10 @@ void AnyHit(inout SurfacePayload payload,
         second.textureCoordinate * attributes.barycentrics.x +
         third.textureCoordinate * attributes.barycentrics.y;
     SceneMaterial material = Materials[first.materialIndex];
+    /* Artist-authored billboard/vector cutouts use the material manifest's
+     * mask threshold. Opaque world BLAS skip this shader. */
     if (BaseColorAtlas.Load(int3(
-            materialTexel(material, textureCoordinate), 0)).a <= 0.0) {
+            materialTexel(material, textureCoordinate), 0)).a < 0.5) {
         IgnoreHit();
     }
 }

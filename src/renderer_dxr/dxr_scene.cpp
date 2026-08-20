@@ -3,6 +3,7 @@
 #include "dxr_alias_table.h"
 #include "dxr_debug.h"
 #include "scene_geometry_compile.h"
+#include "source_bitmap_sprite.h"
 #include "source_vector_model_scene.h"
 
 #include <algorithm>
@@ -30,6 +31,19 @@ struct DxrViewWeaponCompilation {
     DxrViewWeaponCompilation() = default;
     DxrViewWeaponCompilation(const DxrViewWeaponCompilation &) = delete;
     DxrViewWeaponCompilation &operator=(const DxrViewWeaponCompilation &) = delete;
+};
+
+struct DxrWorldBitmapInstance {
+    SourceBitmapSceneMesh source = {};
+    std::vector<DxrSceneVertex> vertices;
+    const SceneSpriteInstance *instance = nullptr;
+    uint64_t vertex_hash = UINT64_C(1469598103934665603);
+};
+
+struct DxrWorldBitmapCompilation {
+    std::vector<DxrWorldBitmapInstance> instances;
+    uint64_t layout_hash = UINT64_C(1469598103934665603);
+    uint64_t vertex_hash = UINT64_C(1469598103934665603);
 };
 
 namespace {
@@ -212,6 +226,99 @@ bool compile_view_weapon(
             result.vertices.push_back(vertex);
         }
     }
+    return true;
+}
+
+bool compile_world_bitmaps(const SceneFrame &frame,
+                           DxrWorldBitmapCompilation &result,
+                           std::string &error)
+{
+    const SceneCamera *camera = nullptr;
+    for (size_t index = 0; index < frame.count; ++index) {
+        if (frame.commands[index].type == SCENE_COMMAND_CAMERA) {
+            if (camera) {
+                error = "DXR SceneFrame contains multiple cameras";
+                return false;
+            }
+            camera = &frame.commands[index].data.camera;
+        }
+    }
+    for (size_t index = 0; index < frame.count; ++index) {
+        const SceneCommand &command = frame.commands[index];
+        if (command.type != SCENE_COMMAND_SPRITE_INSTANCE) {
+            continue;
+        }
+        const SceneSpriteInstance &scene_instance =
+            command.data.sprite_instance;
+        const SceneSprite &sprite = scene_instance.sprite;
+        if (sprite.presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
+            sprite.source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP ||
+            (sprite.flags & (SCENE_SPRITE_FLAG_ADDITIVE |
+                             SCENE_SPRITE_FLAG_PROJECTILE)) != 0u) {
+            continue;
+        }
+        if (!camera) {
+            error = "DXR world billboards require a SceneFrame camera";
+            return false;
+        }
+        DxrWorldBitmapInstance compiled;
+        char compile_error[512] = {};
+        if (!source_bitmap_scene_compile_world(
+                &sprite, camera, &compiled.source, compile_error,
+                sizeof(compile_error))) {
+            error = "DXR source world-bitmap compilation failed: ";
+            error += compile_error;
+            return false;
+        }
+        compiled.instance = &scene_instance;
+        compiled.vertices.reserve(6u);
+        for (const SourceBitmapSceneVertex &source : compiled.source.vertices) {
+            DxrSceneVertex vertex = {};
+            vertex.position[0] = source.x;
+            vertex.position[1] = source.y;
+            vertex.position[2] = source.z;
+            vertex.texture_coordinate[0] = source.u;
+            vertex.texture_coordinate[1] = source.v;
+            vertex.emitter_index = UINT32_MAX;
+            vertex.primitive = static_cast<uint32_t>(
+                compiled.source.additive ? DxrScenePrimitive::world_effect :
+                                           DxrScenePrimitive::world_billboard);
+            /* The packaged PBR maps are unlit assets. Ignore draw_Bitmap's
+             * palette brightness and let traced incident radiance light them. */
+            vertex.emissive_scale = 1.0f;
+            compiled.vertex_hash = hash_bytes(
+                compiled.vertex_hash, vertex.position,
+                sizeof(vertex.position));
+            compiled.vertex_hash = hash_bytes(
+                compiled.vertex_hash, vertex.texture_coordinate,
+                sizeof(vertex.texture_coordinate));
+            compiled.vertices.push_back(vertex);
+        }
+        compiled.vertex_hash = hash_bytes(
+            compiled.vertex_hash, &sprite.frame_index,
+            sizeof(sprite.frame_index));
+        compiled.vertex_hash = hash_bytes(
+            compiled.vertex_hash, &compiled.source.material_mode,
+            sizeof(compiled.source.material_mode));
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &sprite.source_record_id,
+            sizeof(sprite.source_record_id));
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &scene_instance.source_mesh_id,
+            sizeof(scene_instance.source_mesh_id));
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &sprite.source_asset_id,
+            sizeof(sprite.source_asset_id));
+        result.layout_hash = hash_bytes(
+            result.layout_hash, &sprite.source,
+            sizeof(sprite.source));
+        result.vertex_hash = hash_bytes(
+            result.vertex_hash, &compiled.vertex_hash,
+            sizeof(compiled.vertex_hash));
+        result.instances.push_back(std::move(compiled));
+    }
+    const size_t count = result.instances.size();
+    result.layout_hash = hash_bytes(result.layout_hash, &count, sizeof(count));
     return true;
 }
 
@@ -416,7 +523,9 @@ bool compile_emissive_triangles(
          first_vertex += 3u) {
         const uint32_t material_index = vertices[first_vertex].material_index;
         if (vertices[first_vertex].primitive == static_cast<uint32_t>(
-                DxrScenePrimitive::view_weapon)) {
+                DxrScenePrimitive::view_weapon) ||
+            vertices[first_vertex].primitive == static_cast<uint32_t>(
+                DxrScenePrimitive::world_effect)) {
             continue;
         }
         if (material_index >= material_luminance.size()) {
@@ -543,7 +652,11 @@ bool DxrScene::update(const SceneFrame &frame,
                       bool &requires_flush, std::string &error)
 {
     DxrViewWeaponCompilation view_weapon;
+    DxrWorldBitmapCompilation world_bitmaps;
     if (!compile_view_weapon(frame, camera, view_weapon, error)) {
+        return false;
+    }
+    if (!compile_world_bitmaps(frame, world_bitmaps, error)) {
         return false;
     }
     DxrSceneGeometryHashes hashes = dxr_scene_geometry_hashes(frame);
@@ -552,6 +665,11 @@ bool DxrScene::update(const SceneFrame &frame,
     hashes.vertex_data = hash_bytes(hashes.vertex_data,
                                     &view_weapon.vertex_hash,
                                     sizeof(view_weapon.vertex_hash));
+    hashes.layout = hash_bytes(hashes.layout, &world_bitmaps.layout_hash,
+                               sizeof(world_bitmaps.layout_hash));
+    hashes.vertex_data = hash_bytes(hashes.vertex_data,
+                                    &world_bitmaps.vertex_hash,
+                                    sizeof(world_bitmaps.vertex_hash));
     const DxrSceneUpdateKind update_kind =
         dxr_scene_classify_update(has_hashes_, scene_hashes_, hashes);
     requires_flush = false;
@@ -561,7 +679,7 @@ bool DxrScene::update(const SceneFrame &frame,
     if (update_kind == DxrSceneUpdateKind::rebuild) {
         history_reset_pending_ = true;
         requires_flush = true;
-        return compile(frame, view_weapon, hashes, error);
+        return compile(frame, view_weapon, world_bitmaps, hashes, error);
     }
 
     /*
@@ -572,7 +690,8 @@ bool DxrScene::update(const SceneFrame &frame,
      */
     const bool light_changed = scene_hashes_.vertex_light != hashes.vertex_light;
     bool static_changed = false;
-    if (!compile_geometry_update(frame, view_weapon, light_changed,
+    if (!compile_geometry_update(frame, view_weapon, world_bitmaps,
+                                 light_changed,
                                  static_changed, error)) {
         return false;
     }
@@ -581,7 +700,7 @@ bool DxrScene::update(const SceneFrame &frame,
             "DXR static SceneFrame geometry changed; rebuilding scene resources");
         requires_flush = true;
         history_reset_pending_ = true;
-        return compile(frame, view_weapon, hashes, error);
+        return compile(frame, view_weapon, world_bitmaps, hashes, error);
     }
     scene_hashes_ = hashes;
     has_hashes_ = true;
@@ -591,12 +710,15 @@ bool DxrScene::update(const SceneFrame &frame,
 
 bool DxrScene::compile(const SceneFrame &frame,
                        const DxrViewWeaponCompilation &view_weapon,
+                       const DxrWorldBitmapCompilation &world_bitmaps,
                        const DxrSceneGeometryHashes &hashes,
                        std::string &error)
 {
     std::vector<DxrSceneVertex> compiled_vertices;
     std::vector<MaterialImage> images;
     std::map<MaterialKey, uint32_t> material_indices;
+    std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t>
+        compiled_bitmap_material_indices;
     std::vector<uint32_t> compiled_surface_material_indices;
     std::vector<CompiledInstance> compiled_instances;
 
@@ -688,6 +810,90 @@ bool DxrScene::compile(const SceneFrame &frame,
                 dxr_scene_instance_vertex_hash(instance);
             compiled_instances.push_back(compiled_instance);
         }
+    }
+
+    for (const DxrWorldBitmapInstance &bitmap : world_bitmaps.instances) {
+        const SceneSprite &sprite = bitmap.instance->sprite;
+        bool mode_is_loaded = false;
+        for (const auto &entry : compiled_bitmap_material_indices) {
+            if (std::get<0>(entry.first) == sprite.source_asset_id &&
+                std::get<2>(entry.first) == bitmap.source.material_mode) {
+                mode_is_loaded = true;
+                break;
+            }
+        }
+        if (!mode_is_loaded) {
+            std::vector<DxrBitmapMaterialBinding> bindings;
+            if (!material_library_.resolve_bitmap_asset_mode(
+                    sprite.source_asset_id, bitmap.source.material_mode,
+                    bindings, error)) {
+                return false;
+            }
+            for (const DxrBitmapMaterialBinding &binding : bindings) {
+                const auto key = std::make_tuple(
+                    binding.source_asset_id, binding.frame_index,
+                    binding.source_mode);
+                if (compiled_bitmap_material_indices.find(key) !=
+                    compiled_bitmap_material_indices.end()) {
+                    continue;
+                }
+                if (!binding.definition || images.size() >= UINT32_MAX) {
+                    error = "DXR bitmap PBR material enumeration is invalid";
+                    return false;
+                }
+                const DxrMaterialDefinition &pbr = *binding.definition;
+                MaterialImage image;
+                image.width = pbr.width;
+                image.height = pbr.height;
+                image.pixels = pbr.pixels;
+                image.normal_strength = pbr.normal_strength;
+                image.specular_factor = pbr.specular_factor;
+                std::memcpy(image.emissive_factor, pbr.emissive_factor,
+                            sizeof(image.emissive_factor));
+                image.average_emissive_luminance =
+                    average_emissive_luminance(image);
+                compiled_bitmap_material_indices.emplace(
+                    key, static_cast<uint32_t>(images.size()));
+                images.push_back(std::move(image));
+            }
+        }
+        const auto current_key = std::make_tuple(
+            sprite.source_asset_id, static_cast<uint32_t>(sprite.frame_index),
+            bitmap.source.material_mode);
+        const auto current = compiled_bitmap_material_indices.find(current_key);
+        if (current == compiled_bitmap_material_indices.end() ||
+            compiled_vertices.size() > UINT32_MAX - bitmap.vertices.size()) {
+            std::ostringstream message;
+            message << "DXR current bitmap PBR binding is unavailable: asset="
+                    << sprite.source_asset_id << " frame="
+                    << sprite.frame_index << " mode="
+                    << bitmap.source.material_mode;
+            error = message.str();
+            return false;
+        }
+        const size_t first_vertex = compiled_vertices.size();
+        for (DxrSceneVertex vertex : bitmap.vertices) {
+            vertex.material_index = current->second;
+            compiled_vertices.push_back(vertex);
+        }
+        CompiledInstance compiled_instance;
+        compiled_instance.source_instance_id = sprite.source_record_id;
+        compiled_instance.source_mesh_id = bitmap.instance->source_mesh_id;
+        compiled_instance.first_surface = static_cast<uint32_t>(
+            compiled_surface_material_indices.size());
+        compiled_instance.first_vertex = static_cast<uint32_t>(first_vertex);
+        compiled_instance.vertex_count = static_cast<uint32_t>(
+            bitmap.vertices.size());
+        compiled_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
+        compiled_instance.vertex_hash = bitmap.vertex_hash;
+        compiled_instance.world_bitmap = true;
+        compiled_instance.opaque = false;
+        compiled_instances.push_back(compiled_instance);
+    }
+    if (!world_bitmaps.instances.empty()) {
+        debug_output(
+            "DXR world billboards: dynamic alpha-tested PBR geometry shares "
+            "the ray-traced scene and preloads active animation frames");
     }
 
     uint32_t compiled_view_weapon_first_material =
@@ -856,6 +1062,8 @@ bool DxrScene::compile(const SceneFrame &frame,
         std::move(compiled_material_luminance);
     view_weapon_first_material_ = compiled_view_weapon_first_material;
     view_weapon_material_count_ = compiled_view_weapon_material_count;
+    bitmap_material_indices_ =
+        std::move(compiled_bitmap_material_indices);
     instances_ = std::move(compiled_instances);
     blas_update_pending_.assign(instances_.size(), false);
     atlas_pixels_ = std::move(compiled_atlases);
@@ -872,6 +1080,7 @@ bool DxrScene::compile(const SceneFrame &frame,
 
 bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                                        const DxrViewWeaponCompilation &view_weapon,
+                                       const DxrWorldBitmapCompilation &world_bitmaps,
                                        bool light_changed,
                                        bool &static_changed,
                                        std::string &error)
@@ -947,6 +1156,45 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
         compiled_instances.push_back(compiled_instance);
         compiled_updates.push_back(instance_changed);
         surface_cursor += mesh.surface_count;
+        ++instance_cursor;
+    }
+    for (const DxrWorldBitmapInstance &bitmap : world_bitmaps.instances) {
+        if (instance_cursor >= instances_.size()) {
+            error = "DXR geometry-only update added a world-bitmap BLAS";
+            return false;
+        }
+        const CompiledInstance &previous = instances_[instance_cursor];
+        const SceneSprite &sprite = bitmap.instance->sprite;
+        if (!previous.world_bitmap || previous.view_weapon ||
+            previous.source_instance_id != sprite.source_record_id ||
+            previous.source_mesh_id != bitmap.instance->source_mesh_id ||
+            previous.acceleration_class != SCENE_ACCELERATION_CLASS_DYNAMIC ||
+            previous.vertex_count != bitmap.vertices.size()) {
+            error = "DXR geometry-only update changed the world-bitmap layout";
+            return false;
+        }
+        const auto material_key = std::make_tuple(
+            sprite.source_asset_id, static_cast<uint32_t>(sprite.frame_index),
+            bitmap.source.material_mode);
+        const auto material = bitmap_material_indices_.find(material_key);
+        if (material == bitmap_material_indices_.end()) {
+            error = "DXR bitmap animation selected a material outside its preloaded atlas";
+            return false;
+        }
+        CompiledInstance compiled_instance = previous;
+        compiled_instance.vertex_hash = bitmap.vertex_hash;
+        const bool instance_changed =
+            compiled_instance.vertex_hash != previous.vertex_hash;
+        if (instance_changed) {
+            for (size_t vertex_index = 0;
+                 vertex_index < bitmap.vertices.size(); ++vertex_index) {
+                DxrSceneVertex vertex = bitmap.vertices[vertex_index];
+                vertex.material_index = material->second;
+                compiled_vertices[previous.first_vertex + vertex_index] = vertex;
+            }
+        }
+        compiled_instances.push_back(compiled_instance);
+        compiled_updates.push_back(instance_changed);
         ++instance_cursor;
     }
     if (view_weapon.sprite) {
