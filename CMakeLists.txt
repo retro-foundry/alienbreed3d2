@@ -600,6 +600,11 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
                    tests.test_export_pbr_asset_pack)
   set_tests_properties(ab3d2_pbr_asset_exporter_test PROPERTIES
                        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+  add_test(NAME ab3d2_pbr_asset_compiler_test
+           COMMAND "${Python3_EXECUTABLE}" -m unittest
+                   tests.test_compile_pbr_asset_pack)
+  set_tests_properties(ab3d2_pbr_asset_compiler_test PROPERTIES
+                       WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
   if(AB3D2_ENABLE_DXR)
     add_executable(ab3d2_dxr_brdf_test tests/dxr_brdf_test.cpp)
     set_target_properties(ab3d2_dxr_brdf_test

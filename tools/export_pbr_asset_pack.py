@@ -655,6 +655,31 @@ class PackWriter:
             encoding="utf-8",
             newline="\n",
         )
+        (self.output_dir / "README.md").write_text(
+            """# AB3D2 PBR texture pack
+
+This directory is deliberately flat and zip-ready. Every material has five PNGs:
+
+- `_base_color.png` — sRGB colour and source alpha
+- `_normal.png` — tangent-space normal (linear)
+- `_metalness.png` — metalness (linear)
+- `_roughness.png` — roughness (linear)
+- `_emissive.png` — sRGB emission colour and source alpha
+
+Keep each edited channel at the dimensions recorded in `materials.json`. Channels
+listed in `generated_channels` are neutral placeholders awaiting artwork. The
+runtime validates and loads these PNG files directly; `materials.json` records the
+source asset and renderer binding for every material.
+
+From the repository root, create an artist archive with:
+
+```powershell
+Compress-Archive assets/renderer_dxr/materials/* ab3d2-pbr-textures.zip
+```
+""",
+            encoding="utf-8",
+            newline="\n",
+        )
 
 
 def authored_sheet_channels(
