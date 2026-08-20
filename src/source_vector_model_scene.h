@@ -55,7 +55,9 @@ int source_vector_scene_compile_view_weapon(
 /* Compile the same source pose into camera-local level units.  +X is camera
  * right, +Y is camera up, and +Z is camera forward.  Authored model geometry
  * retains the original renderer's one-quarter level-unit scale. Source-culled
- * faces remain zero-area slots so animation never changes a DXR BLAS layout. */
+ * faces remain zero-area slots so animation never changes a DXR BLAS layout.
+ * Vertex source_light is neutral 1: the PBR/DXR consumer traces illumination
+ * instead of applying the source directional flat/Gouraud response. */
 int source_vector_scene_compile_view_weapon_camera(
     const SceneSprite *sprite, SourceVectorSceneMesh *out_mesh,
     char *error, size_t error_size);

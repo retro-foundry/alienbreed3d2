@@ -740,12 +740,23 @@ static int source_vector_scene_compile(
                     sprite, face_bytes, &map_offset, error, error_size)) {
                 goto fail;
             }
-            flat_light = source_vector_scene_flat_light(
-                sprite, bytes + frame.polygon_angle_offset,
-                size - frame.polygon_angle_offset, face_bytes,
-                error, error_size);
-            if (flat_light < 0.0f ||
-                !source_vector_scene_decode_material(
+            if (stable_view_weapon) {
+                /*
+                 * The camera-local mesh is consumed only by the PBR/DXR path.
+                 * Do not carry objdrawhires.s:doapoly's directional flat or
+                 * Gouraud response into that mesh: incident illumination is
+                 * traced. The projected/OpenGL source path below still uses
+                 * the exact authored face and point lighting.
+                 */
+                flat_light = 1.0f;
+            } else {
+                flat_light = source_vector_scene_flat_light(
+                    sprite, bytes + frame.polygon_angle_offset,
+                    size - frame.polygon_angle_offset, face_bytes,
+                    error, error_size);
+                if (flat_light < 0.0f) goto fail;
+            }
+            if (!source_vector_scene_decode_material(
                     sprite, map_offset, min_u, max_u, min_v, max_v, glare,
                     &material, error, error_size) ||
                 !source_vector_scene_append_material(
@@ -812,8 +823,10 @@ static int source_vector_scene_compile(
                         ((float)(max_u - min_u) + 1.0f);
                     vertex->v = ((float)(entry[3u] - min_v) + 0.5f) /
                         ((float)(max_v - min_v) + 1.0f);
-                    vertex->source_light = glare ? 1.0f : flat_light;
-                    if (gouraud && !source_vector_scene_point_light(
+                    vertex->source_light = stable_view_weapon ? 1.0f :
+                        (glare ? 1.0f : flat_light);
+                    if (!stable_view_weapon && gouraud &&
+                        !source_vector_scene_point_light(
                             sprite, bytes + frame.frame_offset + 4u,
                             frame.point_count, point_index,
                             &vertex->source_light, error, error_size)) {

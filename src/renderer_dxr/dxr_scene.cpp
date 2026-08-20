@@ -200,6 +200,9 @@ bool compile_view_weapon(
             vertex.emitter_index = UINT32_MAX;
             vertex.primitive = static_cast<uint32_t>(
                 DxrScenePrimitive::view_weapon);
+            /* Camera-local weapon vertices deliberately carry no
+             * objdrawhires.s:doapoly flat/Gouraud modulation. Authored PBR
+             * emission remains unscaled and all incident light is traced. */
             vertex.emissive_scale = 1.0f;
             result.layout_hash = hash_bytes(
                 result.layout_hash, vertex.texture_coordinate,

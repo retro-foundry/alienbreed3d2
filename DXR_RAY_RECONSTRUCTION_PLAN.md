@@ -78,6 +78,12 @@ now retains every source part/face slot in file order and represents a culled or
 disabled face as an exact zero-area triangle. Firing therefore stays on the
 existing vertex upload/dynamic-BLAS refit path without a queue flush or global
 history reset; projected OpenGL/source behavior continues to omit those faces.
+The camera-local weapon compiler also fixes every retained vertex's source-light
+scalar at neutral one and does not evaluate `objdrawhires.s:doapoly`'s
+directional flat/Gouraud response. PBR base color, normals, roughness,
+metalness, specular factor, and authored emission remain intact; all incident
+weapon illumination is traced. The projected OpenGL compiler continues to
+apply the original directional lighting.
 
 Phase 7 now writes one fresh un-denoised `R16G16B16A16_FLOAT` sample per pixel
 and presents it with a full-screen tone-map pass. The path integrator evaluates
@@ -731,7 +737,10 @@ Its DXR compile retains a fixed source-record layout across on/off, near-plane,
 and backface culling; inert faces are zero-area slots. The actual Shotgun and
 Assault Rifle action sequences have layout-hash regressions, and the hidden GPU
 smoke presents 48 real Shotgun updates while asserting that the full scene
-rebuild count does not change after selection.
+rebuild count does not change after selection. Camera-local weapon vertices
+also carry neutral source light, with a regression proving that a fully dark
+source Gouraud input remains fully dark in the projected/OpenGL mesh but cannot
+modulate the DXR mesh.
 
 - Add shared tested world-coordinate conversion and triangulation.
 - Add renderer-neutral object-space vector geometry where needed.

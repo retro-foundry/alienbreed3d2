@@ -447,8 +447,11 @@ reflect, shadow, be shadowed by, and be occluded by the world while contributing
 HDR radiance, depth, normals, motion, and every reconstruction guide.
 `technolights` and the source
 `floor_0101` panel use colored emissive masks at factor 200; other materials
-remain non-emissive. Every vertex also carries the source Gouraud shade
-response for its surface, and that scales authored emission, so an emissive
+remain non-emissive. Companion weapon vertices do not consume the source
+`doapoly` directional flat/Gouraud response: non-emissive weapon illumination
+comes only from traced incident radiance, while authored PBR emissive maps stay
+at their material intensity. World vertices carry the source Gouraud shade
+response for their surface, and that scales authored emission, so an emissive
 panel in a zone whose `CurrentPointBrights_vl` words hold an
 `Anim_BrightTable_vw` index pulses with `newanims.s:brightanim` - which is what
 animates the `floor_0101` light panel the player starts beside in Level A. A

@@ -98,6 +98,7 @@ static int check_vector_view_weapon_compile(void)
     model[128] = 0u; model[129] = 0u; model[130] = 0u; model[131] = 0u;
     model[132] = 4u; model[133] = 0u;
     model[134] = 96u;
+    model[137] = 1u;
     model[138] = 0xffu; model[139] = 0xffu;
     texture_map[1024u] = 1u;
     texture_map[1028u] = 2u;
@@ -124,6 +125,9 @@ static int check_vector_view_weapon_compile(void)
     sprite.view_weapon_projection.centre_y = 1u;
     sprite.view_weapon_projection.scale_numerator = 1u;
     sprite.view_weapon_projection.scale_denominator = 1u;
+    /* doapoly's Gouraud point-angle lookup maps all three fixture points to
+     * entry zero. Make that source response fully dark. */
+    sprite.source_point_and_polygon_brightness[0u] = 31;
     if (!source_vector_scene_compile_view_weapon(
             &sprite, 1.0f, &mesh, error, sizeof(error))) {
         fprintf(stderr, "vector compiler rejected an exact triangle fixture: %s\n", error);
@@ -133,10 +137,10 @@ static int check_vector_view_weapon_compile(void)
         mesh.materials[0].width != 2u || mesh.materials[0].height != 2u ||
         mesh.triangles[0].vertices[0].x >= mesh.triangles[0].vertices[1].x ||
         mesh.triangles[0].vertices[2].y >= mesh.triangles[0].vertices[0].y ||
-        mesh.triangles[0].vertices[0].source_light < 0.9f ||
+        mesh.triangles[0].vertices[0].source_light > 0.001f ||
         memcmp(mesh.materials[0].rgba,
                (uint8_t[]){100u,10u,20u,255u}, 4u) != 0) {
-        fprintf(stderr, "vector compiler lost source winding, projection, light, or map colour\n");
+        fprintf(stderr, "vector compiler lost source winding, Gouraud light, or map colour\n");
         source_vector_scene_mesh_destroy(&mesh);
         return 0;
     }
@@ -153,9 +157,12 @@ static int check_vector_view_weapon_compile(void)
         fabsf(camera_mesh.triangles[0].vertices[0].y - 0.25f) > 0.00001f ||
         fabsf(camera_mesh.triangles[0].vertices[0].z - 50.0f) > 0.00001f ||
         fabsf(camera_mesh.triangles[0].vertices[1].x - 0.24609375f) > 0.00001f ||
-        fabsf(camera_mesh.triangles[0].vertices[2].y - -0.25f) > 0.00001f) {
+        fabsf(camera_mesh.triangles[0].vertices[2].y - -0.25f) > 0.00001f ||
+        camera_mesh.triangles[0].vertices[0].source_light != 1.0f ||
+        camera_mesh.triangles[0].vertices[1].source_light != 1.0f ||
+        camera_mesh.triangles[0].vertices[2].source_light != 1.0f) {
         fprintf(stderr,
-                "vector compiler lost the source quarter-unit camera scale\n");
+                "camera-local compiler lost its DXR scale or neutral lighting\n");
         source_vector_scene_mesh_destroy(&camera_mesh);
         source_vector_scene_mesh_destroy(&mesh);
         return 0;
