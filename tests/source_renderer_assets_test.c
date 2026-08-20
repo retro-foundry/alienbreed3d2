@@ -74,6 +74,7 @@ static int check_vector_view_weapon_compile(void)
     uint8_t display[256u * 6u] = {0};
     SceneSprite sprite = {0};
     SourceVectorSceneMesh mesh = {0};
+    SourceVectorSceneMesh camera_mesh = {0};
     char error[256] = {0};
 
     model[2] = 0u; model[3] = 3u;
@@ -137,6 +138,27 @@ static int check_vector_view_weapon_compile(void)
         source_vector_scene_mesh_destroy(&mesh);
         return 0;
     }
+    if (!source_vector_scene_compile_view_weapon_camera(
+            &sprite, &camera_mesh, error, sizeof(error))) {
+        fprintf(stderr,
+                "vector compiler rejected a camera-local triangle fixture: %s\n",
+                error);
+        source_vector_scene_mesh_destroy(&mesh);
+        return 0;
+    }
+    if (camera_mesh.triangle_count != 1u ||
+        fabsf(camera_mesh.triangles[0].vertices[0].x - -0.25f) > 0.00001f ||
+        fabsf(camera_mesh.triangles[0].vertices[0].y - 0.25f) > 0.00001f ||
+        fabsf(camera_mesh.triangles[0].vertices[0].z - 50.0f) > 0.00001f ||
+        fabsf(camera_mesh.triangles[0].vertices[1].x - 0.24609375f) > 0.00001f ||
+        fabsf(camera_mesh.triangles[0].vertices[2].y - -0.25f) > 0.00001f) {
+        fprintf(stderr,
+                "vector compiler lost the source quarter-unit camera scale\n");
+        source_vector_scene_mesh_destroy(&camera_mesh);
+        source_vector_scene_mesh_destroy(&mesh);
+        return 0;
+    }
+    source_vector_scene_mesh_destroy(&camera_mesh);
     source_vector_scene_mesh_destroy(&mesh);
     return 1;
 }

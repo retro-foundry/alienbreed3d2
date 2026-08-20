@@ -63,14 +63,14 @@ upload only geometry/emitter buffers through a three-frame upload set, refit
 changed dynamic BLAS objects, and update the TLAS without a queue flush. It
 deliberately excludes sprites, world vector objects, water-specific behavior,
 HUD, and text. The player companion weapon is now the first vector exception:
-its exact source-projected points are inverted through the DXR camera into
-camera-relative world positions, stored in their own alpha-tested dynamic
-BLAS, and included in the TLAS behind a dedicated instance mask. A weapon-only
-primary probe gives it cleared-depth foreground precedence over the world;
-secondary weapon paths use both masks so its PBR surfaces retain world and
-environment reflections. Each companion face resolves its exact source map/
-UV/glare identity to the corresponding editable five-PNG PBR set. The combined
-noisy radiance, guides, and motion are written before Ray Reconstruction.
+the source `rotate_object` pose is converted to camera-local level units using
+the documented one-quarter-level-unit model scale, attached to the DXR camera
+basis, and stored in its own alpha-tested dynamic BLAS. Weapon and world
+instances share one TLAS mask and one nearest-hit query, so all primary,
+secondary, and visibility rays can see both. Each companion face resolves its
+exact source map/UV/glare identity to the corresponding editable five-PNG PBR
+set. Its noisy radiance, real world depth, guides, and motion are written before
+Ray Reconstruction.
 
 Phase 7 now writes one fresh un-denoised `R16G16B16A16_FLOAT` sample per pixel
 and presents it with a full-screen tone-map pass. The path integrator evaluates
@@ -255,18 +255,22 @@ Local path: `C:\Users\paula\Documents\Projects\alienbreed3d2-rtx-renderer`
   `amiga/ab3d2_source/hires.s:Plr1_Use`,
   `objdrawhires.s:draw_PolygonModel`, `rotate_object`, `PutinParts`, `doapoly`,
   and `predoglare`, together with the current clean-tree
-  `source_vector_scene_compile_view_weapon` and
-  `SceneViewWeaponProjection` contract.
+  `source_vector_scene_compile_view_weapon`,
+  `source_vector_model_world_offset`, and `SceneViewWeaponProjection`
+  contracts.
 
 The current D3D12 implementation is original to this tree. It reuses the
-project-owned source compiler, reverses the current DXR primary-ray projection
-to retain the compiler's exact NDC and positive eye depth, appends one dynamic
-BLAS/TLAS instance with a foreground-only mask, and emits a two-word GPU
-diagnostic. World primary and secondary rays use only the world mask. A
-successful foreground probe selects the companion independent of world hit
-distance, after which its secondary and visibility rays use both masks. No
-sibling C or GLSL file, Q2RTX material convention, or generated package was
-copied or linked.
+project-owned source compiler. The initial implementation reversed the DXR
+primary projection and gave the dynamic companion BLAS a foreground-only mask;
+following explicit user direction on 2026-08-20, that cleared-depth design was
+replaced. `source_vector_scene_compile_view_weapon_camera` now retains the
+source pose/part/face decisions while converting `rotate_object` eye values to
+uniform camera-local level units (`x/256`, `y/256`, `-z/2`). This is the same
+one-quarter-level-unit authored model scale documented by the original
+full-screen path. DXR attaches those vertices to the camera basis, assigns the
+same instance mask as the world, performs a single nearest-hit query, and emits
+a two-word in-world-primary GPU diagnostic. No sibling C or GLSL file, Q2RTX
+material convention, or generated package was copied or linked.
 
 ### Heitz et al. screen-space blue-noise sampler
 
@@ -463,9 +467,10 @@ This gate is implemented when `AB3D2_ENABLE_STREAMLINE=ON`:
 - Build the TLAS every presented frame using current transforms. Retain previous transforms for motion output.
 - Compile opaque or alpha-tested world bitmap objects to camera-facing quads only when their source semantics require it. Keep additive/glare effects out of the opaque TLAS for the first RR milestone.
 - Add a true object-space vector-model compiler for DXR world objects. The
-  view-projected helper remains the source-faithful authority for the companion:
-  DXR reverses its current camera projection into primary camera-relative world
-  vertices while preserving its exact projected NDC and eye depth.
+  projected helper remains available for the OpenGL source presentation. DXR's
+  companion path instead preserves the same source pose/part/face decisions and
+  converts the original eye axes into camera-local level units at the documented
+  one-quarter model scale before attaching them to the camera basis.
 
 ### PBR materials
 
@@ -621,14 +626,14 @@ Establish the opaque RR path before adding ambiguous presentation layers:
 - Opaque and alpha-tested world geometry participates in primary rays, depth, normals, materials, motion, and TLAS visibility.
 - Additive/glare sprites and other transparent effects are initially rendered after RR in output resolution. This prevents their missing geometry depth/motion from corrupting reconstruction.
 - If post-RR transparent quality is insufficient, add NVIDIA's premultiplied transparency overlay and color-before-transparency guides exactly as the pinned RR guide describes. Do not invent partial guide semantics.
-- The camera-space companion weapon is implemented as a pre-RR ray-traced
-  foreground layer rather than a post-RR overlay. Its exact `ENT_NEXT_2`
-  NDC/eye-depth output is unprojected through the same DXR camera, assigned
-  the five preconverted PNGs selected by each face's exact source map offset,
-  UV bounds, and glare flag, alpha tested in any-hit, and stored in a dynamic
-  BLAS with its own instance mask. A weapon-only primary probe wins
-  regardless of world depth; secondary weapon and visibility rays use both
-  masks for self-occlusion, world shadows, and PBR reflections. Current/previous
+- The camera-space companion weapon is implemented as pre-RR ray-traced world
+  geometry rather than a post-RR overlay. Its exact `ENT_NEXT_2` source pose is
+  converted to camera-local level units at the documented quarter-unit model
+  scale, assigned the five preconverted PNGs selected by each face's exact
+  source map offset, UV bounds, and glare flag, alpha tested in any-hit, and
+  stored in a dynamic BLAS. It shares the world's instance mask and nearest-hit
+  query; primary, secondary, and visibility rays therefore provide ordinary
+  depth occlusion, mutual shadows, and PBR reflections. Current/previous
   camera-relative vertices produce valid depth, normals, materials, motion, and
   all mandatory RR guides before reconstruction. Authored `predoglare` faces
   map their decoded colour to unit surface emission but are excluded from the
@@ -783,12 +788,12 @@ geometry and later presentation classes remain incomplete.
 
 ### 10. `Complete DXR presentation and regression coverage`
 
-- Current status: exposure/tone mapping and the pre-RR PBR companion foreground
-  layer are implemented. Hidden DXR smoke reads foreground-hit coverage and a
-  fresh-radiance checksum from a GPU UAV; the 2026-08-20 Level A run passed and
-  Level A/Level D diffuse-albedo captures confirmed the lower-view traced
-  silhouette has cleared-depth precedence over the world while retaining its
-  reconstruction guides. The production ACES exposure is now `1`: the former `0.015`
+- Current status: exposure/tone mapping and the pre-RR PBR companion's shared-
+  depth world geometry are implemented. Hidden DXR smoke reads in-world primary
+  coverage and a fresh-radiance checksum from a GPU UAV; the 2026-08-20 Level A
+  run passed, and a diffuse-albedo capture confirmed the source-scale lower-view
+  surface supplies real world depth and reconstruction guides. The production
+  ACES exposure is now `1`: the former `0.015`
   default crushed ordinary traced lighting below the display range. Level A
   exposure sweeps at one and eight samples per pixel confirmed that exposure
   one restores the scene response while retaining the existing filmic

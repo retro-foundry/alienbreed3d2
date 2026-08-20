@@ -12,8 +12,8 @@
  * Clean-room boundary for the native RTX backend.  A disabled or unsupported
  * build supplies the fail-fast stub.  The enabled Windows implementation ray
  * traces opaque SceneFrame world geometry and the exact ENT_NEXT_2 companion
- * weapon as a camera-relative, cleared-depth PBR foreground layer into a fresh
- * noisy image before Ray Reconstruction.
+ * weapon as source-scale camera-relative geometry in the shared PBR scene
+ * into a fresh noisy image before Ray Reconstruction.
  * Other sprites, vector objects, HUD, and text remain outside this milestone.
  */
 typedef struct RendererRtx RendererRtx;

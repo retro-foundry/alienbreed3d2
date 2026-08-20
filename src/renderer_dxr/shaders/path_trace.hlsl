@@ -1,10 +1,8 @@
 static const float Pi = 3.14159265358979323846;
 static const float RayEpsilon = 0.05;
 static const uint InvalidIndex = 0xffffffffu;
-static const uint WorldInstanceMask = 0x01u;
-static const uint ViewWeaponInstanceMask = 0x02u;
-static const uint ForegroundPathInstanceMask =
-    WorldInstanceMask | ViewWeaponInstanceMask;
+static const uint SceneInstanceMask = 0x01u;
+static const uint ViewWeaponPrimitive = 1u;
 static const float InvalidMotion = 65504.0;
 /*
  * Mirrors `reconstruction::scene_far_plane` in dxr_reconstruction_math.h, which
@@ -1193,28 +1191,24 @@ void RayGeneration()
         CameraRight * (unjitteredNdc.x * Aspect * TanHalfFovY) +
         CameraUp * (unjitteredNdc.y * TanHalfFovY));
 
-    /*
-     * Probe the camera-space companion independently from the world. Choosing
-     * this hit whenever it exists gives the weapon its own cleared-depth
-     * foreground layer, while the radiance and every guide are still written
-     * before Ray Reconstruction. Secondary foreground rays use both masks so
-     * PBR reflections can see the world and the weapon can self-occlude.
-     */
+    /* The camera-attached weapon and room share the same nearest-hit query.
+     * This gives the source-scale geometry ordinary world depth while keeping
+     * its radiance and reconstruction guides in the primary DXR pass. */
     RayDesc primaryRay;
     primaryRay.Origin = CameraPosition;
     primaryRay.Direction = direction;
     primaryRay.TMin = RayEpsilon;
     primaryRay.TMax = SceneFarPlane;
-    SurfacePayload foregroundPayload;
-    foregroundPayload.rayDistance = 0.0;
-    foregroundPayload.barycentrics = 0.0;
-    foregroundPayload.primitiveIndex = InvalidIndex;
-    foregroundPayload.hit = 0u;
-    TraceRay(Scene, RAY_FLAG_NONE, ViewWeaponInstanceMask,
-             0, 0, 0, primaryRay, foregroundPayload);
-    bool primaryViewWeaponHit = foregroundPayload.hit != 0u;
-    uint pathInstanceMask = primaryViewWeaponHit ?
-        ForegroundPathInstanceMask : WorldInstanceMask;
+    SurfacePayload primaryPayload;
+    primaryPayload.rayDistance = 0.0;
+    primaryPayload.barycentrics = 0.0;
+    primaryPayload.primitiveIndex = InvalidIndex;
+    primaryPayload.hit = 0u;
+    TraceRay(Scene, RAY_FLAG_NONE, SceneInstanceMask,
+             0, 0, 0, primaryRay, primaryPayload);
+    bool primaryViewWeaponHit = primaryPayload.hit != 0u &&
+        Vertices[primaryPayload.primitiveIndex * 3u].primitive ==
+            ViewWeaponPrimitive;
 
     PackedLightReservoir reservoir = (PackedLightReservoir)0;
     float3 accumulatedRadiance = 0.0;
@@ -1240,11 +1234,10 @@ void RayGeneration()
         payload.barycentrics = 0.0;
         payload.primitiveIndex = InvalidIndex;
         payload.hit = 0u;
-        if (depth == 0u && primaryViewWeaponHit) {
-            payload = foregroundPayload;
+        if (depth == 0u) {
+            payload = primaryPayload;
         } else {
-            TraceRay(Scene, RAY_FLAG_NONE,
-                     depth == 0u ? WorldInstanceMask : pathInstanceMask,
+            TraceRay(Scene, RAY_FLAG_NONE, SceneInstanceMask,
                      0, 0, 0, ray, payload);
         }
         if (depth == 1u && firstBounceSpecular && sampleOrdinal == 0u) {
@@ -1302,7 +1295,7 @@ void RayGeneration()
             sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 4u));
         if (depth == 0u) {
             radiance += throughput * sampleEnvironmentLighting(
-                surface, viewDirection, environmentSample, pathInstanceMask);
+                surface, viewDirection, environmentSample, SceneInstanceMask);
         }
         if (depth == 0u) {
             /* The reservoir's first candidate consumes the same emitter
@@ -1311,11 +1304,11 @@ void RayGeneration()
             radiance += throughput * resampleEmitterLighting(
                 pixel, dimensions, effectiveSampleIndex, surface, viewDirection,
                 previousSurfacePosition(payload), primaryGuides.motion,
-                pathInstanceMask, reservoir);
+                SceneInstanceMask, reservoir);
         } else {
             radiance += throughput * sampleEmitterLighting(
                 surface, viewDirection, emitterSelection, emitterSample,
-                pathInstanceMask);
+                SceneInstanceMask);
         }
 
         if (depth + 1u >= MaximumDepth) {

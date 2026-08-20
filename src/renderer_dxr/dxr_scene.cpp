@@ -36,7 +36,6 @@ namespace {
 
 constexpr uint32_t atlas_maximum_extent = 8192u;
 constexpr uint8_t world_instance_mask = 0x01u;
-constexpr uint8_t view_weapon_instance_mask = 0x02u;
 constexpr uint64_t fnv_prime = UINT64_C(1099511628211);
 
 uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
@@ -98,15 +97,14 @@ bool compile_view_weapon(
     if (!result.sprite) {
         return true;
     }
-    if (!camera || !(camera->aspect > 0.0f) ||
-        !(camera->tan_half_fov_y > 0.0f)) {
-        error = "DXR view weapon requires a valid camera projection";
+    if (!camera) {
+        error = "DXR view weapon requires a valid camera transform";
         return false;
     }
 
     char compile_error[512] = {};
-    if (!source_vector_scene_compile_view_weapon(
-            result.sprite, camera->aspect, &result.source, compile_error,
+    if (!source_vector_scene_compile_view_weapon_camera(
+            result.sprite, &result.source, compile_error,
             sizeof(compile_error))) {
         error = "DXR source view weapon compilation failed: ";
         error += compile_error;
@@ -176,31 +174,26 @@ bool compile_view_weapon(
             if (!(source.z > 0.0f) || !std::isfinite(source.x) ||
                 !std::isfinite(source.y) || !std::isfinite(source.z) ||
                 !std::isfinite(source.u) || !std::isfinite(source.v)) {
-                error = "DXR source view weapon contains an invalid projected vertex";
+                error = "DXR source view weapon contains an invalid camera-local vertex";
                 return false;
             }
 
             /*
-             * source_vector_scene_compile_view_weapon preserves
-             * objdrawhires.s's NDC and positive eye depth. Reversing the DXR
-             * primary-ray projection places that exact companion point in
-             * camera-relative world space: no invented near-camera plane or
-             * post-tone-map screen mesh is involved.
+             * The source compiler returns the authored model at its documented
+             * quarter-level-unit scale in camera-local axes.  Attach that real
+             * geometry to the current camera without reverse-projecting a
+             * screen-space silhouette.
              */
-            const float right_distance = source.x * source.z * camera->aspect *
-                camera->tan_half_fov_y;
-            const float up_distance = source.y * source.z *
-                camera->tan_half_fov_y;
             DxrSceneVertex vertex = {};
             vertex.position[0] = camera->position.x +
                 camera->forward.x * source.z +
-                camera->right.x * right_distance + camera->up.x * up_distance;
+                camera->right.x * source.x + camera->up.x * source.y;
             vertex.position[1] = camera->position.y +
                 camera->forward.y * source.z +
-                camera->right.y * right_distance + camera->up.y * up_distance;
+                camera->right.y * source.x + camera->up.y * source.y;
             vertex.position[2] = camera->position.z +
                 camera->forward.z * source.z +
-                camera->right.z * right_distance + camera->up.z * up_distance;
+                camera->right.z * source.x + camera->up.z * source.y;
             vertex.texture_coordinate[0] = source.u;
             vertex.texture_coordinate[1] = source.v;
             vertex.material_index = triangle.material_index;
@@ -758,8 +751,8 @@ bool DxrScene::compile(const SceneFrame &frame,
         compiled_instance.opaque = false;
         compiled_instances.push_back(compiled_instance);
         debug_output(
-            "DXR view weapon: source companion is masked camera-relative "
-            "foreground geometry using exact-face PBR PNG materials");
+            "DXR view weapon: source-scale camera-relative geometry shares "
+            "world depth and uses exact-face PBR PNG materials");
     }
 
     std::vector<DxrEmissiveTriangle> compiled_emitters;
@@ -1514,15 +1507,9 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         description.Transform[1][1] = 1.0f;
         description.Transform[2][2] = 1.0f;
         description.InstanceID = instances_[index].first_vertex / 3u;
-        /*
-         * The companion is a foreground primary layer. The ray-generation
-         * shader probes its mask independently from the world, which is the
-         * ray-tracing equivalent of clearing depth before drawing the weapon.
-         * Secondary weapon rays use both masks so its PBR surfaces can reflect
-         * the world and self-occlude; world paths never see the companion.
-         */
-        description.InstanceMask = instances_[index].view_weapon ?
-            view_weapon_instance_mask : world_instance_mask;
+        /* World and camera-attached weapon geometry share one depth-ordered
+         * scene.  Primary, secondary, and visibility rays all see both. */
+        description.InstanceMask = world_instance_mask;
         description.Flags =
             D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
         description.AccelerationStructure =

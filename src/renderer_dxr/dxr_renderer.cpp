@@ -191,7 +191,7 @@ bool DxrRenderer::initialize(int window_width, int window_height,
     }
     debug_output(
         "SceneFrame DXR renderer initialized; opaque world and the exact "
-        "camera-relative companion weapon use masked world/foreground PBR "
+        "camera-relative companion weapon uses shared-depth in-world PBR "
         "visibility before reconstruction; sprites, "
         "other vector objects, HUD, and text remain outside this milestone"
 #if defined(AB3D2_ENABLE_STREAMLINE)

@@ -23,6 +23,12 @@ typedef struct {
     int32_t sort_key;
 } SourceVectorScenePart;
 
+typedef enum {
+    SOURCE_VECTOR_SCENE_WORLD,
+    SOURCE_VECTOR_SCENE_VIEW_PROJECTED,
+    SOURCE_VECTOR_SCENE_VIEW_CAMERA
+} SourceVectorSceneSpace;
+
 static void source_vector_scene_set_error(char *error, size_t error_size,
                                           const char *message)
 {
@@ -584,7 +590,7 @@ void source_vector_scene_mesh_destroy(SourceVectorSceneMesh *mesh)
 
 static int source_vector_scene_compile(
     const SceneSprite *sprite, const SceneCamera *camera,
-    const RenderView *view, float drawable_aspect, int camera_space,
+    const RenderView *view, float drawable_aspect, SourceVectorSceneSpace space,
     SourceVectorSceneMesh *out_mesh, char *error, size_t error_size)
 {
     SourceVectorSceneMesh mesh = {0};
@@ -596,15 +602,19 @@ static int source_vector_scene_compile(
     SourceVectorScenePart parts[32] = {{0}};
     uint32_t part_count = 0u;
     uint32_t on_off;
+    const int view_weapon = space != SOURCE_VECTOR_SCENE_WORLD;
+    const int projected_view_weapon =
+        space == SOURCE_VECTOR_SCENE_VIEW_PROJECTED;
 
-    if (!sprite || !out_mesh || drawable_aspect <= 0.0f ||
+    if (!sprite || !out_mesh ||
+        (space != SOURCE_VECTOR_SCENE_VIEW_CAMERA && drawable_aspect <= 0.0f) ||
         sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
-        (camera_space ?
+        (view_weapon ?
             sprite->presentation != SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON :
             sprite->presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT) ||
-        (!camera_space && (!camera || !view)) ||
+        (!view_weapon && (!camera || !view)) ||
         !sprite->source_bytes || sprite->source_byte_count < 6u ||
-        (camera_space && !source_vector_make_view_weapon_matrix(
+        (projected_view_weapon && !source_vector_make_view_weapon_matrix(
             &sprite->view_weapon_projection, drawable_aspect, projection))) {
         source_vector_scene_set_error(
             error, error_size,
@@ -659,7 +669,7 @@ static int source_vector_scene_compile(
             ++part_count;
         }
     }
-    if (camera_space && source_vector_scene_read_be16s(bytes) != 0 &&
+    if (view_weapon && source_vector_scene_read_be16s(bytes) != 0 &&
         !source_vector_scene_sort_parts(
             sprite, bytes, size, &frame, previous_points,
             parts, part_count, error, error_size)) {
@@ -751,7 +761,7 @@ static int source_vector_scene_compile(
                     const uint8_t *previous_point_bytes = previous_points ?
                         previous_points + (size_t)point_index * 6u : NULL;
 
-                    if (camera_space) {
+                    if (view_weapon) {
                         SourceVectorEyePoint point;
 
                         if (!source_vector_scene_model_point(
@@ -761,9 +771,23 @@ static int source_vector_scene_compile(
                             front_facing = 0;
                             break;
                         }
-                        vertex->x = projection[0u] * point.x / -point.z;
-                        vertex->y = projection[5u] * point.y / -point.z;
-                        vertex->z = -point.z;
+                        if (projected_view_weapon) {
+                            vertex->x = projection[0u] * point.x / -point.z;
+                            vertex->y = projection[5u] * point.y / -point.z;
+                            vertex->z = -point.z;
+                        } else {
+                            /*
+                             * objdrawhires.s's full-screen model path makes
+                             * one authored X/Y/Z unit exactly one quarter of
+                             * one level unit.  rotate_object represents X/Y
+                             * with 64 subunits and Z with one half-unit, so
+                             * these divisors recover a uniform source scale
+                             * without reverse-projecting a screen overlay.
+                             */
+                            vertex->x = point.x / 256.0f;
+                            vertex->y = point.y / 256.0f;
+                            vertex->z = -point.z / 2.0f;
+                        }
                     } else {
                         source_vector_scene_world_point(
                             sprite, point_bytes, previous_point_bytes,
@@ -788,9 +812,16 @@ static int source_vector_scene_compile(
                     float projected_y[3];
 
                     for (uint32_t corner = 0u; corner < 3u; ++corner) {
-                        if (camera_space) {
-                            projected_x[corner] = triangle.vertices[corner].x;
-                            projected_y[corner] = triangle.vertices[corner].y;
+                        if (view_weapon) {
+                            if (projected_view_weapon) {
+                                projected_x[corner] = triangle.vertices[corner].x;
+                                projected_y[corner] = triangle.vertices[corner].y;
+                            } else {
+                                projected_x[corner] = triangle.vertices[corner].x /
+                                    triangle.vertices[corner].z;
+                                projected_y[corner] = triangle.vertices[corner].y /
+                                    triangle.vertices[corner].z;
+                            }
                         } else if (!source_vector_scene_project_world(
                                        &triangle.vertices[corner], camera, view,
                                        drawable_aspect, &projected_x[corner],
@@ -809,7 +840,7 @@ static int source_vector_scene_compile(
                     }
                 }
                 if (!front_facing) break;
-                if (!camera_space) {
+                if (!view_weapon) {
                     SourceVectorSceneVertex clipped[5];
                     float top_y = -(float)sprite->source_clip_top_y / 128.0f;
                     float bottom_y = -(float)sprite->source_clip_bottom_y / 128.0f;
@@ -855,7 +886,17 @@ int source_vector_scene_compile_view_weapon(
     SourceVectorSceneMesh *out_mesh, char *error, size_t error_size)
 {
     return source_vector_scene_compile(
-        sprite, NULL, NULL, drawable_aspect, 1,
+        sprite, NULL, NULL, drawable_aspect,
+        SOURCE_VECTOR_SCENE_VIEW_PROJECTED,
+        out_mesh, error, error_size);
+}
+
+int source_vector_scene_compile_view_weapon_camera(
+    const SceneSprite *sprite, SourceVectorSceneMesh *out_mesh,
+    char *error, size_t error_size)
+{
+    return source_vector_scene_compile(
+        sprite, NULL, NULL, 0.0f, SOURCE_VECTOR_SCENE_VIEW_CAMERA,
         out_mesh, error, error_size);
 }
 
@@ -865,6 +906,6 @@ int source_vector_scene_compile_world(
     SourceVectorSceneMesh *out_mesh, char *error, size_t error_size)
 {
     return source_vector_scene_compile(
-        sprite, camera, view, drawable_aspect, 0,
+        sprite, camera, view, drawable_aspect, SOURCE_VECTOR_SCENE_WORLD,
         out_mesh, error, error_size);
 }

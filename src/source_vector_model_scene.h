@@ -52,6 +52,12 @@ typedef struct {
 int source_vector_scene_compile_view_weapon(
     const SceneSprite *sprite, float drawable_aspect,
     SourceVectorSceneMesh *out_mesh, char *error, size_t error_size);
+/* Compile the same source pose into camera-local level units.  +X is camera
+ * right, +Y is camera up, and +Z is camera forward.  Authored model geometry
+ * retains the original renderer's one-quarter level-unit scale. */
+int source_vector_scene_compile_view_weapon_camera(
+    const SceneSprite *sprite, SourceVectorSceneMesh *out_mesh,
+    char *error, size_t error_size);
 int source_vector_scene_compile_world(
     const SceneSprite *sprite, const SceneCamera *camera,
     const RenderView *view, float drawable_aspect,
