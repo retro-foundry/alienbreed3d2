@@ -2036,15 +2036,16 @@ static int game_app_run_gpu_smoke(GameApp *app)
                             renderer_scene_rebuild_count(app->renderer) -
                             walk_baseline;
                         /*
-                         * What remains is a material kind entering the atlas
-                         * for the first time, which only a rebuild can do and
-                         * which happens once per kind per level. Object churn
-                         * is what must not be here: measured on this walk it
-                         * cost 17 rebuilds before the world-bitmap pool and 1
-                         * after, so the allowance separates the two by an order
-                         * of magnitude and the count is reported either way.
+                         * Object churn is what must not be here. This walk cost
+                         * 17 rebuilds before the world-bitmap pool and 0 with
+                         * it and the remembered draw modes; what can still
+                         * legitimately appear is a material kind entering the
+                         * atlas for the first time, which only a rebuild can do
+                         * and which happens once per kind per level. The
+                         * allowance separates the two by an order of magnitude,
+                         * and the count is reported either way.
                          */
-                        if (walk_rebuilds > UINT64_C(4)) {
+                        if (walk_rebuilds > UINT64_C(2)) {
                             fprintf(stderr,
                                     "[RENDER] DXR walking and firing rebuilt the scene in "
                                     "Level %c (%llu -> %llu over %u frames)\n",

@@ -12,6 +12,8 @@
 #include <array>
 #include <cstdint>
 #include <map>
+#include <set>
+#include <utility>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -146,7 +148,8 @@ private:
                  const DxrViewWeaponCompilation &view_weapon,
                  const DxrWorldBitmapCompilation &world_bitmaps,
                  const DxrWorldVectorCompilation &world_vectors,
-                 const DxrSceneGeometryHashes &hashes, std::string &error);
+                 const DxrSceneGeometryHashes &hashes,
+                 uint64_t world_layout, std::string &error);
     bool compile_geometry_update(const SceneFrame &frame,
                                  const DxrViewWeaponCompilation &view_weapon,
                                  const DxrWorldBitmapCompilation &world_bitmaps,
@@ -177,6 +180,16 @@ private:
     uint32_t view_weapon_material_count_ = 0u;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t>
         bitmap_material_indices_;
+    /*
+     * Every source-asset and draw-mode pair the level has shown, so a rebuild
+     * repacks the atlas with all of them and not only the ones on screen at
+     * that instant. Without it a recurring effect - a muzzle flash, an impact
+     * pop - dropped out of the atlas whenever it was not visible and cost a
+     * rebuild on its next appearance, over and over. Cleared when the world
+     * geometry changes, which is what a level load looks like from here.
+     */
+    std::set<std::pair<uint32_t, uint32_t>> bitmap_modes_seen_;
+    uint64_t bitmap_modes_world_layout_ = 0;
     std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
                         uint8_t, uint8_t, uint8_t>, uint32_t>
         vector_material_indices_;

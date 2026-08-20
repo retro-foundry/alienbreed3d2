@@ -1008,6 +1008,7 @@ bool DxrScene::update(const SceneFrame &frame,
         return false;
     }
     DxrSceneGeometryHashes hashes = dxr_scene_geometry_hashes(frame);
+    const uint64_t world_layout = hashes.layout;
     hashes.layout = hash_bytes(hashes.layout, &view_weapon.layout_hash,
                                sizeof(view_weapon.layout_hash));
     hashes.vertex_data = hash_bytes(hashes.vertex_data,
@@ -1033,7 +1034,7 @@ bool DxrScene::update(const SceneFrame &frame,
         history_reset_pending_ = true;
         requires_flush = true;
         return compile(frame, view_weapon, world_bitmaps, world_vectors,
-                       hashes, error);
+                       hashes, world_layout, error);
     }
 
     /*
@@ -1056,7 +1057,7 @@ bool DxrScene::update(const SceneFrame &frame,
         requires_flush = true;
         history_reset_pending_ = true;
         return compile(frame, view_weapon, world_bitmaps, world_vectors,
-                       hashes, error);
+                       hashes, world_layout, error);
     }
     scene_hashes_ = hashes;
     has_hashes_ = true;
@@ -1069,7 +1070,7 @@ bool DxrScene::compile(const SceneFrame &frame,
                        const DxrWorldBitmapCompilation &world_bitmaps,
                        const DxrWorldVectorCompilation &world_vectors,
                        const DxrSceneGeometryHashes &hashes,
-                       std::string &error)
+                       uint64_t world_layout, std::string &error)
 {
     std::vector<DxrSceneVertex> compiled_vertices;
     std::vector<MaterialImage> images;
@@ -1172,6 +1173,73 @@ bool DxrScene::compile(const SceneFrame &frame,
         }
     }
 
+    /*
+     * A level load replaces the world, and with it every object that can appear
+     * in it, so the remembered draw modes start again from nothing. A frame with
+     * no world geometry at all is not a level: the directed probes the hidden
+     * smoke presents look like that, and forgetting on them would throw the
+     * memory away for the frame that follows.
+     */
+    bool frame_has_world = false;
+    for (size_t index = 0; index < frame.count && !frame_has_world; ++index) {
+        frame_has_world =
+            frame.commands[index].type == SCENE_COMMAND_GEOMETRY_INSTANCE &&
+            frame.commands[index].data.geometry_instance.mesh.surface_count != 0u;
+    }
+    if (frame_has_world && bitmap_modes_world_layout_ != world_layout) {
+        bitmap_modes_seen_.clear();
+        bitmap_modes_world_layout_ = world_layout;
+    }
+
+    const auto load_bitmap_mode = [&](uint32_t asset, uint32_t mode) -> bool {
+        for (const auto &entry : compiled_bitmap_material_indices) {
+            if (std::get<0>(entry.first) == asset &&
+                std::get<2>(entry.first) == mode) {
+                return true;
+            }
+        }
+        std::vector<DxrBitmapMaterialBinding> bindings;
+        if (!material_library_.resolve_bitmap_asset_mode(asset, mode, bindings,
+                                                        error)) {
+            return false;
+        }
+        for (const DxrBitmapMaterialBinding &binding : bindings) {
+            const auto key = std::make_tuple(
+                binding.source_asset_id, binding.frame_index,
+                binding.source_mode);
+            if (compiled_bitmap_material_indices.find(key) !=
+                compiled_bitmap_material_indices.end()) {
+                continue;
+            }
+            if (!binding.definition || images.size() >= UINT32_MAX) {
+                error = "DXR bitmap PBR material enumeration is invalid";
+                return false;
+            }
+            const DxrMaterialDefinition &pbr = *binding.definition;
+            MaterialImage image;
+            image.width = pbr.width;
+            image.height = pbr.height;
+            image.pixels = pbr.pixels;
+            image.normal_strength = pbr.normal_strength;
+            image.specular_factor = pbr.specular_factor;
+            std::memcpy(image.emissive_factor, pbr.emissive_factor,
+                        sizeof(image.emissive_factor));
+            image.average_emissive_luminance = average_emissive_luminance(image);
+            compiled_bitmap_material_indices.emplace(
+                key, static_cast<uint32_t>(images.size()));
+            images.push_back(std::move(image));
+        }
+        return true;
+    };
+
+    /* Everything the level has ever shown, before anything currently on
+     * screen, so a repack keeps the whole set rather than this instant's. */
+    for (const auto &seen : bitmap_modes_seen_) {
+        if (!load_bitmap_mode(seen.first, seen.second)) {
+            return false;
+        }
+    }
+
     for (size_t bitmap_index = 0; bitmap_index < world_bitmaps.instances.size();
          ++bitmap_index) {
         const DxrWorldBitmapInstance &bitmap =
@@ -1206,48 +1274,11 @@ bool DxrScene::compile(const SceneFrame &frame,
             continue;
         }
         const SceneSprite &sprite = bitmap.instance->sprite;
-        bool mode_is_loaded = false;
-        for (const auto &entry : compiled_bitmap_material_indices) {
-            if (std::get<0>(entry.first) == sprite.source_asset_id &&
-                std::get<2>(entry.first) == bitmap.source.material_mode) {
-                mode_is_loaded = true;
-                break;
-            }
-        }
-        if (!mode_is_loaded) {
-            std::vector<DxrBitmapMaterialBinding> bindings;
-            if (!material_library_.resolve_bitmap_asset_mode(
-                    sprite.source_asset_id, bitmap.source.material_mode,
-                    bindings, error)) {
-                return false;
-            }
-            for (const DxrBitmapMaterialBinding &binding : bindings) {
-                const auto key = std::make_tuple(
-                    binding.source_asset_id, binding.frame_index,
-                    binding.source_mode);
-                if (compiled_bitmap_material_indices.find(key) !=
-                    compiled_bitmap_material_indices.end()) {
-                    continue;
-                }
-                if (!binding.definition || images.size() >= UINT32_MAX) {
-                    error = "DXR bitmap PBR material enumeration is invalid";
-                    return false;
-                }
-                const DxrMaterialDefinition &pbr = *binding.definition;
-                MaterialImage image;
-                image.width = pbr.width;
-                image.height = pbr.height;
-                image.pixels = pbr.pixels;
-                image.normal_strength = pbr.normal_strength;
-                image.specular_factor = pbr.specular_factor;
-                std::memcpy(image.emissive_factor, pbr.emissive_factor,
-                            sizeof(image.emissive_factor));
-                image.average_emissive_luminance =
-                    average_emissive_luminance(image);
-                compiled_bitmap_material_indices.emplace(
-                    key, static_cast<uint32_t>(images.size()));
-                images.push_back(std::move(image));
-            }
+        bitmap_modes_seen_.emplace(sprite.source_asset_id,
+                                   bitmap.source.material_mode);
+        if (!load_bitmap_mode(sprite.source_asset_id,
+                              bitmap.source.material_mode)) {
+            return false;
         }
         const auto current_key = std::make_tuple(
             sprite.source_asset_id, static_cast<uint32_t>(sprite.frame_index),
