@@ -53,6 +53,10 @@ size_t renderer_last_ui_coverage(const Renderer *renderer);
 size_t renderer_last_view_weapon_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the camera-space weapon's changed RGB pixels. */
 uint64_t renderer_last_view_weapon_rgb_checksum(const Renderer *renderer);
+/* Hidden DXR-smoke primary-ray pixels for world billboard/effect and vector
+ * entity geometry after alpha testing. */
+size_t renderer_last_world_bitmap_coverage(const Renderer *renderer);
+size_t renderer_last_world_vector_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke coverage for source projectile and fragment bitmap draws. */
 size_t renderer_last_projectile_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */

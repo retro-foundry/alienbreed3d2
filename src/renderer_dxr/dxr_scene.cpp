@@ -277,9 +277,9 @@ bool compile_world_bitmaps(const SceneFrame &frame,
             command.data.sprite_instance;
         const SceneSprite &sprite = scene_instance.sprite;
         if (sprite.presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
-            sprite.source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP ||
-            (sprite.flags & (SCENE_SPRITE_FLAG_ADDITIVE |
-                             SCENE_SPRITE_FLAG_PROJECTILE)) != 0u) {
+            (sprite.source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP &&
+             sprite.source != SCENE_SPRITE_SOURCE_GLARE_BITMAP) ||
+            (sprite.flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
             continue;
         }
         if (!camera) {

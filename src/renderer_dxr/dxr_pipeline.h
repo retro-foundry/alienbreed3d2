@@ -77,6 +77,12 @@ public:
     uint64_t last_view_weapon_rgb_checksum() const {
         return last_view_weapon_rgb_checksum_;
     }
+    size_t last_world_bitmap_coverage() const {
+        return last_world_bitmap_coverage_;
+    }
+    size_t last_world_vector_coverage() const {
+        return last_world_vector_coverage_;
+    }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
 
@@ -104,6 +110,7 @@ private:
                                        std::string &error);
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor(UINT index) const;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor(UINT index) const;
+    D3D12_CPU_DESCRIPTOR_HANDLE diagnostic_clear_descriptor() const;
     bool record_diagnostics_begin(ID3D12GraphicsCommandList4 *command_list,
                                   std::string &error);
     bool record_diagnostics_end(ID3D12GraphicsCommandList4 *command_list,
@@ -118,9 +125,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> shader_table_;
     Microsoft::WRL::ComPtr<ID3D12Resource> blue_noise_sampler_;
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_zero_upload_;
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_readback_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> diagnostic_cpu_heap_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
                static_cast<size_t>(DxrReconstructionBuffer::count)>
         reconstruction_targets_;
@@ -142,6 +149,9 @@ private:
     float debug_scalar_range_ = 8192.0f;
     size_t last_view_weapon_coverage_ = 0u;
     uint64_t last_view_weapon_rgb_checksum_ = 0u;
+    size_t last_world_bitmap_coverage_ = 0u;
+    size_t last_world_vector_coverage_ = 0u;
+    bool diagnostics_have_output_ = false;
     struct DxrFrameHistory {
         reconstruction::CameraProjection previous_camera = {};
         reconstruction::PixelJitter previous_jitter = {};

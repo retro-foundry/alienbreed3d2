@@ -190,6 +190,18 @@ uint64_t renderer_last_view_weapon_rgb_checksum(const Renderer *renderer)
     }
 }
 
+size_t renderer_last_world_bitmap_coverage(const Renderer *renderer)
+{
+    if (!renderer || renderer->backend != RENDERER_BACKEND_RTX) return 0u;
+    return renderer_rtx_last_world_bitmap_coverage(renderer->rtx);
+}
+
+size_t renderer_last_world_vector_coverage(const Renderer *renderer)
+{
+    if (!renderer || renderer->backend != RENDERER_BACKEND_RTX) return 0u;
+    return renderer_rtx_last_world_vector_coverage(renderer->rtx);
+}
+
 size_t renderer_last_projectile_coverage(const Renderer *renderer)
 {
     if (!renderer) return 0u;

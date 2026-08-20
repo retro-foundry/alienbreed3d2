@@ -1319,6 +1319,91 @@ static uint64_t game_app_point_brightness_fold(const GameBootstrap *game)
     return fold;
 }
 
+/* Present one real active world-vector command without room occlusion. This is
+ * a hidden DXR validation view only: the source asset, pose, sector clipping,
+ * material identities, and object transform remain untouched; only the copied
+ * camera is placed directly behind it. */
+static int game_app_probe_dxr_world_vector(
+    GameApp *app, size_t *out_coverage, int *out_found,
+    char *error, size_t error_size)
+{
+    const SceneCommand *camera_source = NULL;
+    const SceneCommand *lighting_source = NULL;
+    const SceneCommand *environment_source = NULL;
+    const SceneCommand *vector_source = NULL;
+    SceneFrame probe = {0};
+    SceneCommand camera;
+    RenderView probe_view;
+    int result = 0;
+
+    if (!app || !out_coverage || !out_found) return 0;
+    *out_coverage = 0u;
+    *out_found = 0;
+    for (size_t index = 0u; index < app->frame.count; ++index) {
+        const SceneCommand *command = &app->frame.commands[index];
+        if (command->type == SCENE_COMMAND_CAMERA) {
+            camera_source = command;
+        } else if (command->type == SCENE_COMMAND_LIGHTING) {
+            lighting_source = command;
+        } else if (command->type == SCENE_COMMAND_ENVIRONMENT) {
+            environment_source = command;
+        } else if (!vector_source &&
+                   command->type == SCENE_COMMAND_SPRITE_INSTANCE &&
+                   command->data.sprite_instance.sprite.presentation ==
+                       SCENE_SPRITE_PRESENTATION_WORLD_OBJECT &&
+                   command->data.sprite_instance.sprite.source ==
+                       SCENE_SPRITE_SOURCE_VECTOR_MODEL &&
+                   (command->data.sprite_instance.sprite.flags &
+                    SCENE_SPRITE_FLAG_PROJECTILE) == 0u) {
+            vector_source = command;
+        }
+    }
+    if (!vector_source) return 1;
+    *out_found = 1;
+    if (!camera_source || !scene_frame_init(&probe, 4u)) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "DXR vector probe has no camera or frame storage");
+        }
+        return 0;
+    }
+    probe.history_epoch = app->frame.history_epoch + UINT64_C(1);
+    camera = *camera_source;
+    camera.data.camera.position.x =
+        vector_source->data.sprite_instance.sprite.position.x;
+    camera.data.camera.position.y =
+        vector_source->data.sprite_instance.sprite.position.y;
+    camera.data.camera.position.z = (int16_t)(uint16_t)(
+        vector_source->data.sprite_instance.sprite.position.z - 128);
+    camera.data.camera.source_position_x_16_16 = 0;
+    camera.data.camera.source_position_z_16_16 = 0;
+    camera.data.camera.has_source_position_16_16 = 0u;
+    camera.data.camera.yaw = 0u;
+    camera.data.camera.look_offset = 0;
+    if (!scene_frame_submit(&probe, &camera) ||
+        (lighting_source && !scene_frame_submit(&probe, lighting_source)) ||
+        (environment_source && !scene_frame_submit(&probe, environment_source)) ||
+        !scene_frame_submit(&probe, vector_source)) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "DXR vector probe could not retain its commands");
+        }
+        goto done;
+    }
+    probe_view = app->view;
+    probe_view.pitch_degrees = 0.0f;
+    if (!renderer_present(app->renderer, &probe, &probe_view,
+                          error, error_size)) {
+        goto done;
+    }
+    *out_coverage = renderer_last_world_vector_coverage(app->renderer);
+    result = 1;
+
+done:
+    scene_frame_destroy(&probe);
+    return result;
+}
+
 static int game_app_run_gpu_smoke(GameApp *app)
 {
     enum {
@@ -1332,6 +1417,8 @@ static int game_app_run_gpu_smoke(GameApp *app)
     char error[256];
     uint16_t first_level = app->selected_level_index;
     uint16_t last_level = app->gpu_smoke_all_levels != 0 ? 15u : first_level;
+    size_t dxr_world_bitmap_coverage = 0u;
+    size_t dxr_world_vector_coverage = 0u;
     RendererBackend smoke_backend = app->has_renderer_backend_from_command_line != 0u ?
         app->renderer_backend_from_command_line :
         app->desktop_settings.renderer_backend;
@@ -1371,10 +1458,10 @@ static int game_app_run_gpu_smoke(GameApp *app)
         if (smoke_backend == RENDERER_BACKEND_RTX) {
             uint64_t first_checksum = renderer_last_frame_rgb_checksum(app->renderer);
 
-            /* The raw DXR milestone currently covers opaque SceneFrame world
-             * geometry only. Keep its all-level smoke focused on successful
-             * material decode, BLAS/TLAS construction, and DispatchRays; the
-             * OpenGL branch below retains the complete UI/effect contract. */
+            /* The DXR milestone covers opaque world geometry, PBR bitmap
+             * billboards/effects, animated world vectors, and the weapon in
+             * one nearest-hit scene. The OpenGL branch below retains its
+             * separate source UI/effect presentation contract. */
             if (first_checksum == UINT64_C(0) ||
                 !renderer_present(app->renderer, &app->frame, &app->view,
                                   error, sizeof(error)) ||
@@ -1706,6 +1793,43 @@ static int game_app_run_gpu_smoke(GameApp *app)
                             (char)('A' + level_index),
                             (unsigned long long)dim_emissive_fold,
                             (unsigned long long)bright_emissive_fold);
+                }
+            }
+            {
+                size_t bitmap_coverage =
+                    renderer_last_world_bitmap_coverage(app->renderer);
+                size_t vector_coverage =
+                    renderer_last_world_vector_coverage(app->renderer);
+                int vector_found = 0;
+                if (vector_coverage == 0u &&
+                    !game_app_probe_dxr_world_vector(
+                        app, &vector_coverage, &vector_found,
+                        error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] DXR Level %c vector entity probe failed: %s\n",
+                            (char)('A' + level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                dxr_world_bitmap_coverage += bitmap_coverage;
+                dxr_world_vector_coverage += vector_coverage;
+                fprintf(stdout,
+                        "[RENDER] DXR Level %c entity primary pixels="
+                        "bitmaps:%zu vectors:%zu%s\n",
+                        (char)('A' + level_index), bitmap_coverage,
+                        vector_coverage,
+                        vector_found ? " (directed real-entity probe)" : "");
+                if (app->gpu_smoke_all_levels != 0 &&
+                    level_index == last_level &&
+                    (dxr_world_bitmap_coverage == 0u ||
+                     dxr_world_vector_coverage == 0u)) {
+                    fprintf(stderr,
+                            "[RENDER] DXR all-level smoke saw no primary-ray "
+                            "coverage for %s entities\n",
+                            dxr_world_bitmap_coverage == 0u ?
+                                "bitmap" : "vector");
+                    app->exit_code = 1;
+                    return 0;
                 }
             }
             continue;

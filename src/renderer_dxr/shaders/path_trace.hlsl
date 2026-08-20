@@ -3,6 +3,9 @@ static const float RayEpsilon = 0.05;
 static const uint InvalidIndex = 0xffffffffu;
 static const uint SceneInstanceMask = 0x01u;
 static const uint ViewWeaponPrimitive = 1u;
+static const uint WorldBillboardPrimitive = 2u;
+static const uint WorldEffectPrimitive = 3u;
+static const uint WorldVectorPrimitive = 4u;
 static const float InvalidMotion = 65504.0;
 /*
  * Mirrors `reconstruction::scene_far_plane` in dxr_reconstruction_math.h, which
@@ -1206,9 +1209,9 @@ void RayGeneration()
     primaryPayload.hit = 0u;
     TraceRay(Scene, RAY_FLAG_NONE, SceneInstanceMask,
              0, 0, 0, primaryRay, primaryPayload);
-    bool primaryViewWeaponHit = primaryPayload.hit != 0u &&
-        Vertices[primaryPayload.primitiveIndex * 3u].primitive ==
-            ViewWeaponPrimitive;
+    uint primaryPrimitive = primaryPayload.hit != 0u ?
+        Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
+    bool primaryViewWeaponHit = primaryPrimitive == ViewWeaponPrimitive;
 
     PackedLightReservoir reservoir = (PackedLightReservoir)0;
     float3 accumulatedRadiance = 0.0;
@@ -1363,6 +1366,13 @@ void RayGeneration()
         InterlockedAdd(Diagnostics[0], 1u);
         InterlockedAdd(Diagnostics[1],
             encoded.r * 3u + encoded.g * 5u + encoded.b * 7u);
+    }
+    if (primaryPrimitive == WorldBillboardPrimitive ||
+        primaryPrimitive == WorldEffectPrimitive) {
+        InterlockedAdd(Diagnostics[2], 1u);
+    }
+    if (primaryPrimitive == WorldVectorPrimitive) {
+        InterlockedAdd(Diagnostics[3], 1u);
     }
     CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = reservoir;
 }
