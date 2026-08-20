@@ -142,6 +142,13 @@ extern "C" size_t renderer_rtx_last_world_vector_coverage(
         renderer->implementation->last_world_vector_coverage() : 0u;
 }
 
+extern "C" size_t renderer_rtx_last_world_additive_coverage(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_world_additive_coverage() : 0u;
+}
+
 extern "C" size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer)
 {
     (void)renderer;

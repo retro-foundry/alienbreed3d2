@@ -76,6 +76,14 @@ namespace {
 constexpr uint32_t atlas_maximum_extent = 8192u;
 constexpr uint8_t world_instance_mask = 0x01u;
 constexpr uint64_t fnv_prime = UINT64_C(1099511628211);
+/*
+ * `objdrawhires.s:draw_bitmap_glare` adds a blend-table result rather than the
+ * texel, so a glare reads dimmer than draw_bitmap_additive's full-strength add.
+ * The packaged emissive channel carries the decoded texel for both, and this is
+ * the factor renderer_opengl.c holds a glare's contribution at, so both
+ * backends show the effect at the same strength.
+ */
+constexpr float source_glare_additive_strength = 0.8f;
 
 uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
 {
@@ -276,10 +284,17 @@ bool compile_world_bitmaps(const SceneFrame &frame,
         const SceneSpriteInstance &scene_instance =
             command.data.sprite_instance;
         const SceneSprite &sprite = scene_instance.sprite;
+        /*
+         * Projectiles are traced with every other world bitmap. The source
+         * draws them from the same objdrawhires.s:draw_Bitmap paths, and
+         * source_bitmap_scene_compile_world already applies the contact bias a
+         * depth-ordered scene needs, so the only thing excluding them achieved
+         * was that a bullet, its impact pop and every additive particle were
+         * missing from the ray-traced image.
+         */
         if (sprite.presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
             (sprite.source != SCENE_SPRITE_SOURCE_OBJECT_BITMAP &&
-             sprite.source != SCENE_SPRITE_SOURCE_GLARE_BITMAP) ||
-            (sprite.flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
+             sprite.source != SCENE_SPRITE_SOURCE_GLARE_BITMAP)) {
             continue;
         }
         if (!camera) {
@@ -308,9 +323,22 @@ bool compile_world_bitmaps(const SceneFrame &frame,
             vertex.primitive = static_cast<uint32_t>(
                 compiled.source.additive ? DxrScenePrimitive::world_effect :
                                            DxrScenePrimitive::world_billboard);
-            /* The packaged PBR maps are unlit assets. Ignore draw_Bitmap's
-             * palette brightness and let traced incident radiance light them. */
-            vertex.emissive_scale = 1.0f;
+            /*
+             * The packaged PBR maps are unlit assets. Ignore draw_Bitmap's
+             * palette brightness and let traced incident radiance light them.
+             *
+             * An additive billboard is the exception: it is never lit, and its
+             * emissive channel is the decoded source blend result, so this is
+             * the additive strength instead. The renderer-neutral compiler
+             * reports the glare/additive split from objdrawhires.s, and the
+             * OpenGL path holds a glare at 0.8 where an additive bitmap draws
+             * at full strength; keeping the same pair keeps the two backends
+             * showing the same effect.
+             */
+            vertex.emissive_scale =
+                compiled.source.material_mode ==
+                        SOURCE_BITMAP_MATERIAL_MODE_GLARE
+                    ? source_glare_additive_strength : 1.0f;
             compiled.vertex_hash = hash_bytes(
                 compiled.vertex_hash, vertex.position,
                 sizeof(vertex.position));
@@ -359,9 +387,10 @@ bool compile_world_vectors(const SceneFrame &frame,
         const SceneSpriteInstance &scene_instance =
             command.data.sprite_instance;
         const SceneSprite &sprite = scene_instance.sprite;
+        /* Projectile vector models are traced with every other world vector,
+         * for the reason given in compile_world_bitmaps. */
         if (sprite.presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
-            sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
-            (sprite.flags & SCENE_SPRITE_FLAG_PROJECTILE) != 0u) {
+            sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL) {
             continue;
         }
         result.instances.emplace_back();
@@ -462,7 +491,12 @@ bool compile_world_vectors(const SceneFrame &frame,
                 vertex.primitive = static_cast<uint32_t>(
                     triangle.additive ? DxrScenePrimitive::world_effect :
                                         DxrScenePrimitive::world_vector);
-                /* Do not carry doapoly flat/Gouraud light into PBR entities. */
+                /*
+                 * Do not carry doapoly flat/Gouraud light into PBR entities.
+                 * A `predoglare` face keeps full strength as well: unlike a
+                 * glare bitmap, renderer_opengl.c draws the additive vector
+                 * pass at an opacity of one.
+                 */
                 vertex.emissive_scale = 1.0f;
                 compiled.vertex_hash = hash_bytes(
                     compiled.vertex_hash, vertex.position,

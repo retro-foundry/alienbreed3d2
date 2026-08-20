@@ -26,6 +26,18 @@ typedef struct {
 } SourceBitmapSceneVertex;
 
 /*
+ * objdrawhires.s selects a bitmap's draw path from ObjT byte 10. Zero is the
+ * plain object palette, two to five are draw_bitmap_lighted's zone-sampled
+ * palette rows, and the two blended paths are named here because a backend has
+ * to tell them apart: draw_bitmap_additive adds its texel at full strength and
+ * draw_bitmap_glare adds a blend-table result.
+ */
+enum {
+    SOURCE_BITMAP_MATERIAL_MODE_ADDITIVE = 6u,
+    SOURCE_BITMAP_MATERIAL_MODE_GLARE = 7u
+};
+
+/*
  * Renderer-neutral world billboard compiled from objdrawhires.s:draw_Bitmap.
  * The six-vertex list is retained even when sector clipping hides the frame;
  * hidden sprites collapse to a degenerate quad so a dynamic BLAS keeps the

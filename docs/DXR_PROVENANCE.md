@@ -128,6 +128,34 @@ emissive materials survive `doapoly`'s Gouraud modulation having been dropped
 from PBR entities, so they are left to gather this from the world around them
 like any other incident light.
 
+The additive-effect model is project-authored from the source's own blended
+draw paths. `objdrawhires.s:draw_bitmap_additive`, `draw_bitmap_glare` and
+`DOGLAREPOLY` add their result into the frame buffer, and the source has no
+depth buffer for them to write, so an additive surface is light that never
+occludes. `traceSegment` in `src/renderer_dxr/shaders/path_trace.hlsl` is the
+path-traced statement of that: a ray passes straight through a
+`DxrScenePrimitive::world_effect` triangle, adds its emission, keeps its
+direction and throughput, and spends no bounce, because passing through is not
+a scattering event. The reconstruction guides come from the first surface
+behind the effect, which is the only surface in the pixel with a depth, normal
+and albedo of its own. `AnyHit` drops the layer for visibility rays alone -
+they are the only rays that skip the closest-hit shader - so an additive effect
+casts no shadow. No MIS weight applies anywhere: `compile_emissive_triangles`
+keeps every `world_effect` triangle out of the emitter list, so no next-event
+estimator samples one.
+
+Its strength needs no fitted constant. The packaged emissive channel already
+carries the decoded source blend result, and exposure is one, so the texel is
+the radiance. The one split that is reproduced is `draw_bitmap_glare` adding a
+blend-table result where `draw_bitmap_additive` adds the texel at full
+strength: `source_glare_additive_strength` in `dxr_scene.cpp` holds a glare
+bitmap at the same 0.8 that `renderer_opengl.c` does, and a `predoglare` vector
+face keeps full strength because the OpenGL additive vector pass draws at an
+opacity of one. Projectiles are traced with every other world bitmap and vector
+for the same reason: the source draws them from these paths, and
+`source_bitmap_scene_compile_world` already carries the contact bias a
+depth-ordered scene needs.
+
 `src/scene_geometry_compile.c` is a project-authored extraction of the native
 port's current coordinate interpretation and polygon triangulation. Its
 coordinate evidence remains `modules/transform.s:RotateLevelPts`,

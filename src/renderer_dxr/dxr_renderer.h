@@ -38,6 +38,7 @@ public:
     uint64_t last_view_weapon_rgb_checksum() const;
     size_t last_world_bitmap_coverage() const;
     size_t last_world_vector_coverage() const;
+    size_t last_world_additive_coverage() const;
 
 private:
     bool create_window(int window_width, int window_height, const char *window_title,

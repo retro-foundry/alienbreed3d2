@@ -38,7 +38,7 @@ session. Supported keys are:
 - `renderer=opengl|rtx` selects the desktop graphics backend. It defaults to
   `opengl`. A normal build retains the clean-room RTX fail-fast stub. A native
   Windows build configured with `AB3D2_ENABLE_DXR=ON` ray traces the
-  `SceneFrame` world, non-projectile bitmap billboards/effects, animated world
+  `SceneFrame` world, bitmap billboards/effects, projectiles, animated world
   vector models, and companion weapon into a fresh, visibly noisy HDR image.
   It samples the renderer-native base-color, normal, roughness, metalness, and explicit
   emissive channels with a multi-bounce Lambertian/GGX path tracer, authored
@@ -49,7 +49,14 @@ session. Supported keys are:
   supplies HDR radiance plus every guide before Ray Reconstruction. Bitmap
   items/enemies, additive/glare effects, and 3D items/enemies likewise use
   their preconverted PBR maps inside the shared TLAS before reconstruction.
-  Transient projectile sprites, HUD, and text remain outside the DXR path.
+  Projectiles and particles are traced with them. An additive source effect -
+  a glare, an additive bitmap, or a `predoglare` vector face - is light that
+  never occludes: a ray passes through it collecting its emission, keeps its
+  direction and throughput, spends no bounce, and takes its reconstruction
+  guides from the surface behind. Visibility rays do not see it at all, so it
+  casts no shadow. That matches the source's blended draw paths and the OpenGL
+  backend's `glBlendFunc(GL_ONE, GL_ONE)` with depth writes disabled. HUD and
+  text remain outside the DXR path.
   The Web build always uses OpenGL/WebGL.
 
 `run_default` is accepted as an alias for `always_run`, matching the first

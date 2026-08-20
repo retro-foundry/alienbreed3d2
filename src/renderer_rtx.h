@@ -40,6 +40,7 @@ size_t renderer_rtx_last_view_weapon_coverage(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_view_weapon_rgb_checksum(const RendererRtx *renderer);
 size_t renderer_rtx_last_world_bitmap_coverage(const RendererRtx *renderer);
 size_t renderer_rtx_last_world_vector_coverage(const RendererRtx *renderer);
+size_t renderer_rtx_last_world_additive_coverage(const RendererRtx *renderer);
 size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *renderer);
 double renderer_rtx_last_frame_delta(const RendererRtx *renderer);

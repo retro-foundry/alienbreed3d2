@@ -263,4 +263,9 @@ size_t DxrRenderer::last_world_vector_coverage() const
     return pipeline_ ? pipeline_->last_world_vector_coverage() : 0u;
 }
 
+size_t DxrRenderer::last_world_additive_coverage() const
+{
+    return pipeline_ ? pipeline_->last_world_additive_coverage() : 0u;
+}
+
 }  // namespace ab3d2::dxr

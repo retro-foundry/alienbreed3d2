@@ -1107,18 +1107,19 @@ static void game_app_tick(GameApp *app)
  * so its glare fixture uses an authored fixed ObjT frame. Neither mutates
  * campaign simulation simply to make an effect visible.
  */
-static int game_app_append_source_effect_smoke(GameApp *app, int glare,
+static int game_app_append_source_effect_smoke(GameApp *app, SceneFrame *frame,
+                                               int glare,
                                                char *error, size_t error_size)
 {
     const SceneCamera *camera;
     int16_t sine;
     int16_t cosine;
 
-    if (!app || app->frame.count == 0u ||
-        app->frame.commands[0u].type != SCENE_COMMAND_CAMERA) {
+    if (!app || !frame || frame->count == 0u ||
+        frame->commands[0u].type != SCENE_COMMAND_CAMERA) {
         return 0;
     }
-    camera = &app->frame.commands[0u].data.camera;
+    camera = &frame->commands[0u].data.camera;
     if (!game_math_sine(&app->game.math, camera->yaw, &sine, error, error_size) ||
         !game_math_cosine(&app->game.math, camera->yaw, &cosine, error, error_size)) {
         return 0;
@@ -1206,8 +1207,8 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
                 !command.data.sprite_instance.sprite.source_aux_bytes ||
                 !command.data.sprite_instance.sprite.source_palette_bytes ||
                 !command.data.sprite_instance.sprite.source_display_palette_bytes ||
-                !scene_frame_reserve(&app->frame, app->frame.count + 1u) ||
-                !scene_frame_submit(&app->frame, &command)) {
+                !scene_frame_reserve(frame, frame->count + 1u) ||
+                !scene_frame_submit(frame, &command)) {
                 return 0;
             }
             return 1;
@@ -1282,8 +1283,8 @@ static int game_app_append_source_effect_smoke(GameApp *app, int glare,
                 !command.data.sprite_instance.sprite.source_aux_bytes ||
                 !command.data.sprite_instance.sprite.source_palette_bytes ||
                 !command.data.sprite_instance.sprite.source_display_palette_bytes ||
-                !scene_frame_reserve(&app->frame, app->frame.count + 1u) ||
-                !scene_frame_submit(&app->frame, &command)) {
+                !scene_frame_reserve(frame, frame->count + 1u) ||
+                !scene_frame_submit(frame, &command)) {
                 return 0;
             }
             return 1;
@@ -1404,6 +1405,72 @@ done:
     return result;
 }
 
+/*
+ * Additive effects never become a primary surface: a ray passes through one,
+ * collects its emission, and shades whatever stands behind it. That is the
+ * point of them, and it also means the bitmap and vector coverage counters
+ * cannot see them, so this drives the real ItsABullet and DEFANIMOBJ glare
+ * descriptors at the camera and reads the additive-layer counter instead.
+ * Without it nothing in the smoke can tell a traced glare from a missing one.
+ */
+static int game_app_probe_dxr_source_effects(
+    GameApp *app, size_t *out_coverage, char *error, size_t error_size)
+{
+    const SceneCommand *camera_source = NULL;
+    const SceneCommand *lighting_source = NULL;
+    const SceneCommand *environment_source = NULL;
+    SceneFrame probe = {0};
+    int result = 0;
+
+    if (!app || !out_coverage) return 0;
+    *out_coverage = 0u;
+    for (size_t index = 0u; index < app->frame.count; ++index) {
+        const SceneCommand *command = &app->frame.commands[index];
+        if (command->type == SCENE_COMMAND_CAMERA) {
+            camera_source = command;
+        } else if (command->type == SCENE_COMMAND_LIGHTING) {
+            lighting_source = command;
+        } else if (command->type == SCENE_COMMAND_ENVIRONMENT) {
+            environment_source = command;
+        }
+    }
+    if (!camera_source || !scene_frame_init(&probe, 8u)) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "DXR effect probe has no camera or frame storage");
+        }
+        return 0;
+    }
+    probe.history_epoch = app->frame.history_epoch + UINT64_C(1);
+    if (!scene_frame_submit(&probe, camera_source) ||
+        (lighting_source && !scene_frame_submit(&probe, lighting_source)) ||
+        (environment_source && !scene_frame_submit(&probe, environment_source))) {
+        if (error && error_size > 0u) {
+            (void)snprintf(error, error_size,
+                           "DXR effect probe could not retain its commands");
+        }
+        goto done;
+    }
+    /* Both blended source paths: draw_bitmap_additive's full-strength add and
+     * draw_bitmap_glare's blend-table result. */
+    for (int glare = 0; glare <= 1; ++glare) {
+        if (!game_app_append_source_effect_smoke(app, &probe, glare,
+                                                 error, error_size)) {
+            goto done;
+        }
+    }
+    if (!renderer_present(app->renderer, &probe, &app->view,
+                          error, error_size)) {
+        goto done;
+    }
+    *out_coverage = renderer_last_world_additive_coverage(app->renderer);
+    result = 1;
+
+done:
+    scene_frame_destroy(&probe);
+    return result;
+}
+
 static int game_app_run_gpu_smoke(GameApp *app)
 {
     enum {
@@ -1419,6 +1486,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
     uint16_t last_level = app->gpu_smoke_all_levels != 0 ? 15u : first_level;
     size_t dxr_world_bitmap_coverage = 0u;
     size_t dxr_world_vector_coverage = 0u;
+    size_t dxr_world_additive_coverage = 0u;
     RendererBackend smoke_backend = app->has_renderer_backend_from_command_line != 0u ?
         app->renderer_backend_from_command_line :
         app->desktop_settings.renderer_backend;
@@ -1577,6 +1645,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 enum { GAME_APP_DXR_SHOTGUN_FRAMES = 48 };
                 const uint64_t performance_frequency = SDL_GetPerformanceFrequency();
                 uint64_t baseline_rebuilds;
+                uint64_t firing_rebuilds;
                 uint64_t total_present_ticks = UINT64_C(0);
                 uint64_t maximum_present_ticks = UINT64_C(0);
 
@@ -1665,14 +1734,29 @@ static int game_app_run_gpu_smoke(GameApp *app)
                         maximum_present_ticks = present_ticks;
                     }
                 }
-                if (renderer_scene_rebuild_count(app->renderer) != baseline_rebuilds) {
+                firing_rebuilds =
+                    renderer_scene_rebuild_count(app->renderer) -
+                    baseline_rebuilds;
+                /*
+                 * A shot puts real projectile geometry into the scene and takes
+                 * it out again, and an instance appearing or retiring is a
+                 * layout change no refit can absorb, so a burst is allowed a
+                 * rebuild per lifecycle boundary. What must not come back is
+                 * the weapon's own pose churn: the Shotgun animates on
+                 * essentially every frame of the burst, so a regression there
+                 * costs a rebuild per frame. Half the frame count separates the
+                 * two by a wide margin, and the count is reported either way.
+                 */
+                if (firing_rebuilds >=
+                    (uint64_t)GAME_APP_DXR_SHOTGUN_FRAMES / 2u) {
                     fprintf(stderr,
                             "[RENDER] DXR Shotgun firing rebuilt the scene in Level %c "
-                            "(%llu -> %llu)\n",
+                            "(%llu -> %llu over %u frames)\n",
                             (char)('A' + level_index),
                             (unsigned long long)baseline_rebuilds,
                             (unsigned long long)renderer_scene_rebuild_count(
-                                app->renderer));
+                                app->renderer),
+                            (unsigned)GAME_APP_DXR_SHOTGUN_FRAMES);
                     app->exit_code = 1;
                     return 0;
                 }
@@ -1694,7 +1778,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                              (double)GAME_APP_DXR_SHOTGUN_FRAMES),
                         1000.0 * (double)maximum_present_ticks /
                             (double)performance_frequency,
-                        (unsigned long long)baseline_rebuilds);
+                        (unsigned long long)firing_rebuilds);
             }
             /*
              * newanims.s:brightanim is the authored Gouraud animation, and in
@@ -1811,23 +1895,41 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     app->exit_code = 1;
                     return 0;
                 }
+                size_t additive_coverage =
+                    renderer_last_world_additive_coverage(app->renderer);
+                int additive_probed = 0;
+                if (additive_coverage == 0u) {
+                    additive_probed = 1;
+                    if (!game_app_probe_dxr_source_effects(
+                            app, &additive_coverage, error, sizeof(error))) {
+                        fprintf(stderr,
+                                "[RENDER] DXR Level %c additive effect probe failed: %s\n",
+                                (char)('A' + level_index), error);
+                        app->exit_code = 1;
+                        return 0;
+                    }
+                }
                 dxr_world_bitmap_coverage += bitmap_coverage;
                 dxr_world_vector_coverage += vector_coverage;
+                dxr_world_additive_coverage += additive_coverage;
                 fprintf(stdout,
                         "[RENDER] DXR Level %c entity primary pixels="
-                        "bitmaps:%zu vectors:%zu%s\n",
+                        "bitmaps:%zu vectors:%zu additive:%zu%s%s\n",
                         (char)('A' + level_index), bitmap_coverage,
-                        vector_coverage,
-                        vector_found ? " (directed real-entity probe)" : "");
+                        vector_coverage, additive_coverage,
+                        vector_found ? " (directed real-entity probe)" : "",
+                        additive_probed ? " (directed real-effect probe)" : "");
                 if (app->gpu_smoke_all_levels != 0 &&
                     level_index == last_level &&
                     (dxr_world_bitmap_coverage == 0u ||
-                     dxr_world_vector_coverage == 0u)) {
+                     dxr_world_vector_coverage == 0u ||
+                     dxr_world_additive_coverage == 0u)) {
                     fprintf(stderr,
                             "[RENDER] DXR all-level smoke saw no primary-ray "
                             "coverage for %s entities\n",
-                            dxr_world_bitmap_coverage == 0u ?
-                                "bitmap" : "vector");
+                            dxr_world_bitmap_coverage == 0u ? "bitmap" :
+                                dxr_world_vector_coverage == 0u ? "vector" :
+                                    "additive");
                     app->exit_code = 1;
                     return 0;
                 }
@@ -1972,7 +2074,8 @@ static int game_app_run_gpu_smoke(GameApp *app)
             if (!scene_frame_submit(&app->frame, &source_effect_camera) ||
                 (source_effect_has_lighting &&
                  !scene_frame_submit(&app->frame, &source_effect_lighting)) ||
-                !game_app_append_source_effect_smoke(app, glare, error, sizeof(error)) ||
+                !game_app_append_source_effect_smoke(app, &app->frame, glare,
+                                                     error, sizeof(error)) ||
                 !renderer_present(app->renderer, &app->frame, &app->view, error, sizeof(error))) {
                 fprintf(stderr, "[RENDER] GPU %s effect smoke failed for Level %c: %s\n",
                         glare != 0 ? "glare" : "additive", (char)('A' + level_index), error);

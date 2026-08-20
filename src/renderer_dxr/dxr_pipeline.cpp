@@ -883,7 +883,7 @@ bool DxrPipeline::create_blue_noise_sampler(ID3D12Device5 *device,
 bool DxrPipeline::create_diagnostics(ID3D12Device5 *device,
                                      std::string &error)
 {
-    constexpr UINT64 diagnostic_bytes = 4u * sizeof(uint32_t);
+    constexpr UINT64 diagnostic_bytes = 5u * sizeof(uint32_t);
     D3D12_RESOURCE_DESC description = buffer_description(diagnostic_bytes);
     description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const D3D12_HEAP_PROPERTIES default_heap =
@@ -902,7 +902,7 @@ bool DxrPipeline::create_diagnostics(ID3D12Device5 *device,
     D3D12_UNORDERED_ACCESS_VIEW_DESC diagnostic_view = {};
     diagnostic_view.Format = DXGI_FORMAT_R32_UINT;
     diagnostic_view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-    diagnostic_view.Buffer.NumElements = 4u;
+    diagnostic_view.Buffer.NumElements = 5u;
     device->CreateUnorderedAccessView(
         diagnostics_.Get(), nullptr, &diagnostic_view,
         cpu_descriptor(diagnostics_uav));
@@ -967,7 +967,7 @@ bool DxrPipeline::record_diagnostics_end(
     command_list->ResourceBarrier(1, &to_copy);
     command_list->CopyBufferRegion(diagnostics_readback_.Get(), 0,
                                    diagnostics_.Get(), 0,
-                                   4u * sizeof(uint32_t));
+                                   5u * sizeof(uint32_t));
     diagnostics_have_output_ = true;
     return true;
 }
@@ -978,7 +978,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
         error = "DXR entity diagnostic readback is unavailable";
         return false;
     }
-    constexpr SIZE_T diagnostic_bytes = 4u * sizeof(uint32_t);
+    constexpr SIZE_T diagnostic_bytes = 5u * sizeof(uint32_t);
     const D3D12_RANGE read = {0, diagnostic_bytes};
     void *mapped = nullptr;
     const HRESULT result = diagnostics_readback_->Map(0, &read, &mapped);
@@ -992,6 +992,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     last_view_weapon_rgb_checksum_ = values[1];
     last_world_bitmap_coverage_ = values[2];
     last_world_vector_coverage_ = values[3];
+    last_world_additive_coverage_ = values[4];
     const D3D12_RANGE no_write = {0, 0};
     diagnostics_readback_->Unmap(0, &no_write);
     debug_output(
@@ -999,7 +1000,8 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
         std::to_string(last_view_weapon_coverage_) + " radiance=" +
         std::to_string(last_view_weapon_rgb_checksum_) + " world_bitmaps=" +
         std::to_string(last_world_bitmap_coverage_) + " world_vectors=" +
-        std::to_string(last_world_vector_coverage_));
+        std::to_string(last_world_vector_coverage_) + " additive_layers=" +
+        std::to_string(last_world_additive_coverage_));
     return true;
 }
 

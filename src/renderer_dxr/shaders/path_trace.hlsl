@@ -225,6 +225,19 @@ static const float SpecularHitDistanceBlend = 0.2;
  * thing in the room, which is the point.
  */
 static const float AuthoredAmbientScale = 1.0;
+/*
+ * How many additive layers one ray segment resolves before it gives up and
+ * shades the next one as ordinary geometry.
+ *
+ * `objdrawhires.s:draw_bitmap_additive`, `draw_bitmap_glare` and `DOGLAREPOLY`
+ * add their result into the frame buffer without testing or writing depth, so
+ * an additive surface is light that never occludes and any number of them can
+ * stack over one pixel. A path tracer has to spend a traversal on each, and the
+ * limit only has to exceed what the source can actually pile up: a bullet, its
+ * impact pop, and the glare panels around them. Sixteen is far above that, and
+ * exhausting it leaves an opaque emissive quad rather than a hole in the world.
+ */
+static const uint AdditiveLayerLimit = 16u;
 /* Temporal reuse is rejected unless the reprojected surface matches this closely:
  * a world-space distance within this fraction of the view depth, so the tolerance
  * scales with the Amiga-sized world instead of assuming a unit system, and a
@@ -539,6 +552,84 @@ float3 previousSurfacePosition(SurfacePayload payload)
     return first.position * firstWeight +
         second.position * payload.barycentrics.x +
         third.position * payload.barycentrics.y;
+}
+
+/*
+ * One ray segment resolved through the additive geometry standing in it.
+ *
+ * The source renderer draws its glares, additive bitmaps and `predoglare`
+ * vector faces with the destination unchanged apart from the addition, and the
+ * OpenGL path reproduces that as `glBlendFunc(GL_ONE, GL_ONE)` with
+ * `glDepthMask(GL_FALSE)`: the effect adds light, is occluded by anything in
+ * front of it, and occludes nothing itself. The path-traced equivalent is a
+ * surface a ray passes straight through, collecting its emission on the way and
+ * keeping both its direction and its throughput. That is why an additive hit
+ * does not consume a bounce - it is not a scattering event - and why the
+ * reconstruction guides come from the first surface behind the effect instead
+ * of the effect itself, which has no depth, normal or albedo of its own.
+ *
+ * The accumulated radiance is the whole additive contribution for the segment,
+ * and it needs no MIS weight: `compile_emissive_triangles` in dxr_scene.cpp
+ * keeps every `world_effect` triangle out of the emitter list, so no
+ * next-event estimator ever samples one and a BSDF-sampled path is the only
+ * estimator that sees it.
+ */
+struct SegmentTraversal
+{
+    /* The first hit that is not additive, or a miss. */
+    SurfacePayload payload;
+    float3 additiveRadiance;
+    /* Distance from the segment's own origin, across every layer passed. */
+    float distance;
+    uint additiveLayers;
+};
+
+SegmentTraversal traceSegment(RayDesc ray)
+{
+    SegmentTraversal result;
+    result.additiveRadiance = 0.0;
+    result.distance = 0.0;
+    result.additiveLayers = 0u;
+    float travelled = 0.0;
+    const float reach = ray.TMax;
+    for (uint layer = 0u; layer <= AdditiveLayerLimit; ++layer) {
+        SurfacePayload payload;
+        payload.rayDistance = 0.0;
+        payload.barycentrics = 0.0;
+        payload.primitiveIndex = InvalidIndex;
+        payload.hit = 0u;
+        TraceRay(Scene, RAY_FLAG_NONE, SceneInstanceMask,
+                 0, 0, 0, ray, payload);
+        result.payload = payload;
+        result.distance = travelled + payload.rayDistance;
+        if (payload.hit == 0u) {
+            return result;
+        }
+        if (Vertices[payload.primitiveIndex * 3u].primitive !=
+            WorldEffectPrimitive) {
+            return result;
+        }
+        if (layer == AdditiveLayerLimit) {
+            /* Out of layers. Leave this one for the caller to shade as an
+             * ordinary emissive surface, which also adds the emission this
+             * loop would otherwise have counted twice. */
+            return result;
+        }
+        SurfaceData surface = loadSurface(payload, ray.Direction);
+        result.additiveRadiance += surface.emission;
+        ++result.additiveLayers;
+        travelled += payload.rayDistance;
+        /* Resume just past the layer with the segment's remaining reach, so
+         * passing through costs distance rather than extending it. */
+        float remaining = reach - travelled;
+        if (remaining <= RayEpsilon) {
+            result.payload.hit = 0u;
+            return result;
+        }
+        ray.Origin = surface.position + ray.Direction * RayEpsilon;
+        ray.TMax = remaining;
+    }
+    return result;
 }
 
 /* NVIDIA Streamline v2.12.0 ProgrammingGuideDLSS_RR.md section 4.2.1. */
@@ -1258,13 +1349,14 @@ void RayGeneration()
     primaryRay.Direction = direction;
     primaryRay.TMin = RayEpsilon;
     primaryRay.TMax = SceneFarPlane;
-    SurfacePayload primaryPayload;
-    primaryPayload.rayDistance = 0.0;
-    primaryPayload.barycentrics = 0.0;
-    primaryPayload.primitiveIndex = InvalidIndex;
-    primaryPayload.hit = 0u;
-    TraceRay(Scene, RAY_FLAG_NONE, SceneInstanceMask,
-             0, 0, 0, primaryRay, primaryPayload);
+    /*
+     * The additive effects in front of the primary surface are resolved once
+     * here rather than per sample: their radiance is a deterministic property
+     * of the segment, so re-tracing them for every sample would cost traversals
+     * to reach the same sum.
+     */
+    SegmentTraversal primarySegment = traceSegment(primaryRay);
+    SurfacePayload primaryPayload = primarySegment.payload;
     uint primaryPrimitive = primaryPayload.hit != 0u ?
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
     bool primaryViewWeaponHit = primaryPrimitive == ViewWeaponPrimitive;
@@ -1289,22 +1381,24 @@ void RayGeneration()
 
     for (uint depth = 0u; depth < MaximumDepth; ++depth) {
         SurfacePayload payload;
-        payload.rayDistance = 0.0;
-        payload.barycentrics = 0.0;
-        payload.primitiveIndex = InvalidIndex;
-        payload.hit = 0u;
+        float segmentDistance = 0.0;
         if (depth == 0u) {
+            /* The primary segment's additive radiance is added once, outside
+             * this loop, for the reason given where it is traced. */
             payload = primaryPayload;
+            segmentDistance = primarySegment.distance;
         } else {
-            TraceRay(Scene, RAY_FLAG_NONE, SceneInstanceMask,
-                     0, 0, 0, ray, payload);
+            SegmentTraversal segment = traceSegment(ray);
+            payload = segment.payload;
+            segmentDistance = segment.distance;
+            radiance += throughput * segment.additiveRadiance;
         }
         if (depth == 1u && firstBounceSpecular && sampleOrdinal == 0u) {
             /* A specular ray that escapes the scene reflects something
              * effectively infinitely far away, which is the far plane rather
              * than a zero distance at the shading point. */
             float sampledHitDistance =
-                payload.hit != 0u ? payload.rayDistance : SceneFarPlane;
+                payload.hit != 0u ? segmentDistance : SceneFarPlane;
             SpecularHitDistance[pixel] =
                 primaryGuides.historyHitDistanceValid ?
                 lerp(primaryGuides.historyHitDistance, sampledHitDistance,
@@ -1313,7 +1407,7 @@ void RayGeneration()
         }
         if (depth == 1u && !firstBounceSpecular && sampleOrdinal == 0u) {
             float sampledHitDistance =
-                payload.hit != 0u ? payload.rayDistance : SceneFarPlane;
+                payload.hit != 0u ? segmentDistance : SceneFarPlane;
             DiffuseHitDistance[pixel] = sampledHitDistance;
         }
         if (payload.hit == 0u) {
@@ -1424,8 +1518,17 @@ void RayGeneration()
     accumulatedRadiance += radiance;
     }  /* end sampleOrdinal loop */
 
+    /*
+     * The primary segment's additive layers land on the resolved estimate,
+     * where every sample would have contributed the same value. They are
+     * deliberately outside the per-sample radiance clamp: an additive texel is
+     * bounded by one and the layer limit bounds how many can stack, so the sum
+     * cannot reach the clamp, and clamping the pixel's traced lighting against
+     * a total that includes an effect in front of it would dim the room instead
+     * of the outlier the clamp exists for.
+     */
     float3 resolvedRadiance = max(accumulatedRadiance /
-        float(SamplesPerPixel), 0.0);
+        float(SamplesPerPixel), 0.0) + primarySegment.additiveRadiance;
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
     if (primaryViewWeaponHit) {
         uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
@@ -1440,6 +1543,15 @@ void RayGeneration()
     if (primaryPrimitive == WorldVectorPrimitive) {
         InterlockedAdd(Diagnostics[3], 1u);
     }
+    /*
+     * Additive effects never become the primary surface, so the counters above
+     * cannot see them. This one counts the pixels a primary ray crossed an
+     * additive layer on, which is the only evidence the hidden smoke has that
+     * glares, additive bitmaps and `predoglare` faces reach the image at all.
+     */
+    if (primarySegment.additiveLayers != 0u) {
+        InterlockedAdd(Diagnostics[4], 1u);
+    }
     CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = reservoir;
 }
 
@@ -1449,6 +1561,19 @@ void AnyHit(inout SurfacePayload payload,
 {
     uint firstVertex = (InstanceID() + PrimitiveIndex()) * 3u;
     SceneVertex first = Vertices[firstVertex + 0u];
+    /*
+     * Additive geometry casts no shadow. `glDepthMask(GL_FALSE)` is what the
+     * OpenGL path uses to say the same thing, and the source never had a depth
+     * buffer to write: a glare or additive bitmap adds light and takes none
+     * away. Visibility rays are exactly the rays that must not see it, and they
+     * are the only rays that skip the closest-hit shader, so the ray's own
+     * flags separate them from the surface rays that have to pass through the
+     * layer and collect its emission.
+     */
+    if (first.primitive == WorldEffectPrimitive &&
+        (RayFlags() & RAY_FLAG_SKIP_CLOSEST_HIT_SHADER) != 0u) {
+        IgnoreHit();
+    }
     SceneVertex second = Vertices[firstVertex + 1u];
     SceneVertex third = Vertices[firstVertex + 2u];
     float firstWeight = 1.0 - attributes.barycentrics.x -

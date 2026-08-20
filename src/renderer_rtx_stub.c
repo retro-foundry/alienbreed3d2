@@ -127,6 +127,12 @@ size_t renderer_rtx_last_world_vector_coverage(const RendererRtx *renderer)
     return 0u;
 }
 
+size_t renderer_rtx_last_world_additive_coverage(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return 0u;
+}
+
 uint64_t renderer_rtx_scene_rebuild_count(const RendererRtx *renderer)
 {
     (void)renderer;

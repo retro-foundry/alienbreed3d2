@@ -83,6 +83,12 @@ public:
     size_t last_world_vector_coverage() const {
         return last_world_vector_coverage_;
     }
+    /* Primary-ray pixels that crossed at least one additive layer. Additive
+     * effects are never the primary surface, so the two counters above cannot
+     * report them. */
+    size_t last_world_additive_coverage() const {
+        return last_world_additive_coverage_;
+    }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
 
@@ -151,6 +157,7 @@ private:
     uint64_t last_view_weapon_rgb_checksum_ = 0u;
     size_t last_world_bitmap_coverage_ = 0u;
     size_t last_world_vector_coverage_ = 0u;
+    size_t last_world_additive_coverage_ = 0u;
     bool diagnostics_have_output_ = false;
     struct DxrFrameHistory {
         reconstruction::CameraProjection previous_camera = {};

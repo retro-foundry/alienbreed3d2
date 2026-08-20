@@ -253,10 +253,10 @@ void source_bitmap_sprite_image_destroy(SourceBitmapSpriteImage *image)
 static uint32_t source_bitmap_scene_material_mode(const SceneSprite *sprite)
 {
     if (sprite->source == SCENE_SPRITE_SOURCE_GLARE_BITMAP) {
-        return 7u;
+        return SOURCE_BITMAP_MATERIAL_MODE_GLARE;
     }
     if ((sprite->flags & SCENE_SPRITE_FLAG_ADDITIVE) != 0u) {
-        return 6u;
+        return SOURCE_BITMAP_MATERIAL_MODE_ADDITIVE;
     }
     if ((sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u) {
         return (uint32_t)(sprite->source_effect & 0x7fu);
@@ -296,8 +296,9 @@ int source_bitmap_scene_compile_world(const SceneSprite *sprite,
         return 0;
     }
     mesh.material_mode = source_bitmap_scene_material_mode(sprite);
-    mesh.additive = (uint8_t)(mesh.material_mode == 6u ||
-                              mesh.material_mode == 7u);
+    mesh.additive = (uint8_t)(
+        mesh.material_mode == SOURCE_BITMAP_MATERIAL_MODE_ADDITIVE ||
+        mesh.material_mode == SOURCE_BITMAP_MATERIAL_MODE_GLARE);
     if ((sprite->flags & SCENE_SPRITE_FLAG_LIGHT_PALETTE) != 0u &&
         (mesh.material_mode < 2u || mesh.material_mode > 5u)) {
         source_bitmap_sprite_set_error(

@@ -57,6 +57,7 @@ uint64_t renderer_last_view_weapon_rgb_checksum(const Renderer *renderer);
  * entity geometry after alpha testing. */
 size_t renderer_last_world_bitmap_coverage(const Renderer *renderer);
 size_t renderer_last_world_vector_coverage(const Renderer *renderer);
+size_t renderer_last_world_additive_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke coverage for source projectile and fragment bitmap draws. */
 size_t renderer_last_projectile_coverage(const Renderer *renderer);
 /* Hidden GPU-smoke checksum of the fully presented framebuffer's RGB output. */
