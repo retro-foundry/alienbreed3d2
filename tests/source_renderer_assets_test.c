@@ -147,6 +147,8 @@ static int check_vector_view_weapon_compile(void)
     SourceVectorSceneMesh camera_mesh = {0};
     SourceVectorSceneMesh hidden_camera_mesh = {0};
     SourceVectorSceneMesh hidden_projected_mesh = {0};
+    SourceVectorSceneMesh world_mesh = {0};
+    SourceVectorSceneMesh hidden_world_mesh = {0};
     char error[256] = {0};
 
     model[2] = 0u; model[3] = 3u;
@@ -239,9 +241,42 @@ static int check_vector_view_weapon_compile(void)
     }
     source_vector_scene_mesh_destroy(&camera_mesh);
 
+    sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+    sprite.position.x = 100;
+    sprite.position.y = 128;
+    sprite.position.z = 200;
+    sprite.source_clip_top_y = -10 * 128;
+    sprite.source_clip_bottom_y = 10 * 128;
+    if (!source_vector_scene_compile_world_ray_traced(
+            &sprite, &world_mesh, error, sizeof(error))) {
+        fprintf(stderr, "vector compiler rejected ray-traced world geometry: %s\n",
+                error);
+        source_vector_scene_mesh_destroy(&mesh);
+        return 0;
+    }
+    if (world_mesh.material_count != 1u || world_mesh.triangle_count != 3u ||
+        fabsf(world_mesh.triangles[0].vertices[0].x - 100.25f) > 0.00001f ||
+        fabsf(world_mesh.triangles[0].vertices[0].y - -0.75f) > 0.00001f ||
+        fabsf(world_mesh.triangles[0].vertices[0].z - 200.0f) > 0.00001f ||
+        world_mesh.triangles[0].vertices[0].source_light != 1.0f ||
+        world_mesh.triangles[0].vertices[1].source_light != 1.0f ||
+        world_mesh.triangles[0].vertices[2].source_light != 1.0f ||
+        world_mesh.triangles[1].vertices[0].x !=
+            world_mesh.triangles[1].vertices[1].x ||
+        world_mesh.triangles[2].vertices[0].y !=
+            world_mesh.triangles[2].vertices[2].y) {
+        fprintf(stderr,
+                "ray-traced world compiler lost scale, neutral light, or fixed clip slots\n");
+        source_vector_scene_mesh_destroy(&world_mesh);
+        source_vector_scene_mesh_destroy(&mesh);
+        return 0;
+    }
+    source_vector_scene_mesh_destroy(&world_mesh);
+
     /* The source rasterizer omits a disabled part. DXR retains an inert slot
      * so the source on/off word cannot change its dynamic BLAS topology. */
     model[53] = 0u;
+    sprite.presentation = SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON;
     if (!source_vector_scene_compile_view_weapon_camera(
             &sprite, &hidden_camera_mesh, error, sizeof(error)) ||
         !source_vector_scene_compile_view_weapon(
@@ -279,6 +314,33 @@ static int check_vector_view_weapon_compile(void)
     }
     source_vector_scene_mesh_destroy(&hidden_camera_mesh);
     source_vector_scene_mesh_destroy(&hidden_projected_mesh);
+    sprite.presentation = SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+    if (!source_vector_scene_compile_world_ray_traced(
+            &sprite, &hidden_world_mesh, error, sizeof(error)) ||
+        hidden_world_mesh.triangle_count != 3u ||
+        hidden_world_mesh.material_count != 1u) {
+        fprintf(stderr,
+                "ray-traced world compiler changed layout for a disabled part\n");
+        source_vector_scene_mesh_destroy(&hidden_world_mesh);
+        source_vector_scene_mesh_destroy(&mesh);
+        return 0;
+    }
+    for (size_t triangle = 0u; triangle < hidden_world_mesh.triangle_count;
+         ++triangle) {
+        if (hidden_world_mesh.triangles[triangle].vertices[0].x !=
+                hidden_world_mesh.triangles[triangle].vertices[1].x ||
+            hidden_world_mesh.triangles[triangle].vertices[0].y !=
+                hidden_world_mesh.triangles[triangle].vertices[2].y ||
+            hidden_world_mesh.triangles[triangle].vertices[0].z !=
+                hidden_world_mesh.triangles[triangle].vertices[2].z) {
+            fprintf(stderr,
+                    "ray-traced world compiler exposed a disabled part\n");
+            source_vector_scene_mesh_destroy(&hidden_world_mesh);
+            source_vector_scene_mesh_destroy(&mesh);
+            return 0;
+        }
+    }
+    source_vector_scene_mesh_destroy(&hidden_world_mesh);
     source_vector_scene_mesh_destroy(&mesh);
     return 1;
 }

@@ -65,6 +65,12 @@ int source_vector_scene_compile_world(
     const SceneSprite *sprite, const SceneCamera *camera,
     const RenderView *view, float drawable_aspect,
     SourceVectorSceneMesh *out_mesh, char *error, size_t error_size);
+/* Compile renderer-neutral world geometry for ray tracing. Every authored
+ * part/face retains fixed triangle slots, including inactive and sector-clipped
+ * faces, and source flat/Gouraud illumination is neutralized. */
+int source_vector_scene_compile_world_ray_traced(
+    const SceneSprite *sprite, SourceVectorSceneMesh *out_mesh,
+    char *error, size_t error_size);
 void source_vector_scene_mesh_destroy(SourceVectorSceneMesh *mesh);
 
 #if defined(__cplusplus)

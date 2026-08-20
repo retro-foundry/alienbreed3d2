@@ -26,6 +26,7 @@ typedef struct {
 
 typedef enum {
     SOURCE_VECTOR_SCENE_WORLD,
+    SOURCE_VECTOR_SCENE_WORLD_RAY_TRACED,
     SOURCE_VECTOR_SCENE_VIEW_PROJECTED,
     SOURCE_VECTOR_SCENE_VIEW_CAMERA
 } SourceVectorSceneSpace;
@@ -603,19 +604,23 @@ static int source_vector_scene_compile(
     SourceVectorScenePart parts[32] = {{0}};
     uint32_t part_count = 0u;
     uint32_t on_off;
-    const int view_weapon = space != SOURCE_VECTOR_SCENE_WORLD;
+    const int world = space == SOURCE_VECTOR_SCENE_WORLD ||
+        space == SOURCE_VECTOR_SCENE_WORLD_RAY_TRACED;
+    const int view_weapon = !world;
     const int projected_view_weapon =
         space == SOURCE_VECTOR_SCENE_VIEW_PROJECTED;
     const int stable_view_weapon =
         space == SOURCE_VECTOR_SCENE_VIEW_CAMERA;
+    const int stable_geometry = stable_view_weapon ||
+        space == SOURCE_VECTOR_SCENE_WORLD_RAY_TRACED;
 
     if (!sprite || !out_mesh ||
-        (space != SOURCE_VECTOR_SCENE_VIEW_CAMERA && drawable_aspect <= 0.0f) ||
+        (!stable_geometry && drawable_aspect <= 0.0f) ||
         sprite->source != SCENE_SPRITE_SOURCE_VECTOR_MODEL ||
         (view_weapon ?
             sprite->presentation != SCENE_SPRITE_PRESENTATION_PLAYER1_VIEW_WEAPON :
             sprite->presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT) ||
-        (!view_weapon && (!camera || !view)) ||
+        (space == SOURCE_VECTOR_SCENE_WORLD && (!camera || !view)) ||
         !sprite->source_bytes || sprite->source_byte_count < 6u ||
         (projected_view_weapon && !source_vector_make_view_weapon_matrix(
             &sprite->view_weapon_projection, drawable_aspect, projection))) {
@@ -665,7 +670,7 @@ static int source_vector_scene_compile(
             goto fail;
         }
         if ((on_off & (UINT32_C(1) << part_index)) != 0u ||
-            stable_view_weapon) {
+            stable_geometry) {
             parts[part_count].source_part_index = part_index;
             parts[part_count].relative_offset = relative;
             parts[part_count].sort_point_offset =
@@ -740,7 +745,7 @@ static int source_vector_scene_compile(
                     sprite, face_bytes, &map_offset, error, error_size)) {
                 goto fail;
             }
-            if (stable_view_weapon) {
+            if (stable_geometry) {
                 /*
                  * The camera-local mesh is consumed only by the PBR/DXR path.
                  * Do not carry objdrawhires.s:doapoly's directional flat or
@@ -823,9 +828,9 @@ static int source_vector_scene_compile(
                         ((float)(max_u - min_u) + 1.0f);
                     vertex->v = ((float)(entry[3u] - min_v) + 0.5f) /
                         ((float)(max_v - min_v) + 1.0f);
-                    vertex->source_light = stable_view_weapon ? 1.0f :
+                    vertex->source_light = stable_geometry ? 1.0f :
                         (glare ? 1.0f : flat_light);
-                    if (!stable_view_weapon && gouraud &&
+                    if (!stable_geometry && gouraud &&
                         !source_vector_scene_point_light(
                             sprite, bytes + frame.frame_offset + 4u,
                             frame.point_count, point_index,
@@ -833,8 +838,8 @@ static int source_vector_scene_compile(
                         goto fail;
                     }
                 }
-                if (!front_facing && !stable_view_weapon) break;
-                if (front_facing && !glare && fan == 1u) {
+                if (!front_facing && !stable_geometry) break;
+                if (!stable_geometry && front_facing && !glare && fan == 1u) {
                     float projected_x[3];
                     float projected_y[3];
 
@@ -866,7 +871,7 @@ static int source_vector_scene_compile(
                         front_facing = area < 0.0f;
                     }
                 }
-                if (!front_facing && !stable_view_weapon) break;
+                if (!front_facing && !stable_geometry) break;
                 if (!front_facing) {
                     /*
                      * The DXR BLAS must retain one immutable triangle layout
@@ -882,7 +887,42 @@ static int source_vector_scene_compile(
                     triangle.vertices[2u].y = triangle.vertices[0u].y;
                     triangle.vertices[2u].z = triangle.vertices[0u].z;
                 }
-                if (!view_weapon) {
+                if (space == SOURCE_VECTOR_SCENE_WORLD_RAY_TRACED) {
+                    SourceVectorSceneVertex clipped[5];
+                    float top_y = -(float)sprite->source_clip_top_y / 128.0f;
+                    float bottom_y = -(float)sprite->source_clip_bottom_y / 128.0f;
+                    uint32_t clipped_count;
+
+                    if (top_y < bottom_y) {
+                        source_vector_scene_set_error(
+                            error, error_size,
+                            "source vector object has an inverted sector span");
+                        goto fail;
+                    }
+                    clipped_count = source_vector_scene_clip_triangle_to_sector(
+                        triangle.vertices, top_y, bottom_y, clipped);
+                    /* A triangle clipped against two parallel planes becomes a
+                     * polygon with at most five vertices: three fixed fan slots.
+                     * Missing fans collapse to zero area so the BLAS layout is
+                     * invariant across pose, part toggles, and sector contact. */
+                    for (uint32_t slot = 0u; slot < 3u; ++slot) {
+                        SourceVectorSceneTriangle clipped_triangle = triangle;
+                        if (slot + 2u < clipped_count) {
+                            clipped_triangle.vertices[0u] = clipped[0u];
+                            clipped_triangle.vertices[1u] = clipped[slot + 1u];
+                            clipped_triangle.vertices[2u] = clipped[slot + 2u];
+                        } else {
+                            clipped_triangle.vertices[1u] =
+                                clipped_triangle.vertices[0u];
+                            clipped_triangle.vertices[2u] =
+                                clipped_triangle.vertices[0u];
+                        }
+                        if (!source_vector_scene_append_triangle(
+                                &mesh, &clipped_triangle, error, error_size)) {
+                            goto fail;
+                        }
+                    }
+                } else if (!view_weapon) {
                     SourceVectorSceneVertex clipped[5];
                     float top_y = -(float)sprite->source_clip_top_y / 128.0f;
                     float bottom_y = -(float)sprite->source_clip_bottom_y / 128.0f;
@@ -949,5 +989,15 @@ int source_vector_scene_compile_world(
 {
     return source_vector_scene_compile(
         sprite, camera, view, drawable_aspect, SOURCE_VECTOR_SCENE_WORLD,
+        out_mesh, error, error_size);
+}
+
+int source_vector_scene_compile_world_ray_traced(
+    const SceneSprite *sprite, SourceVectorSceneMesh *out_mesh,
+    char *error, size_t error_size)
+{
+    return source_vector_scene_compile(
+        sprite, NULL, NULL, 0.0f,
+        SOURCE_VECTOR_SCENE_WORLD_RAY_TRACED,
         out_mesh, error, error_size);
 }
