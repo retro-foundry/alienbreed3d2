@@ -57,6 +57,7 @@
 #include "player_shoot.h"
 #include "render_view.h"
 #include "scene_frame.h"
+#include "source_vector_model_scene.h"
 #include "source_vector_model_transform.h"
 #include "source_vector_projection.h"
 
@@ -1041,6 +1042,72 @@ static uint64_t level_data_hash_view_weapon_source_tick(uint64_t hash,
     return hash;
 }
 
+static uint64_t level_data_hash_bytes(uint64_t hash, const void *bytes,
+                                      size_t byte_count)
+{
+    const uint8_t *source = bytes;
+
+    for (size_t index = 0u; index < byte_count; ++index) {
+        hash ^= source[index];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static uint64_t level_data_hash_view_weapon_layout(
+    const SourceVectorSceneMesh *mesh)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+
+    hash = level_data_hash_bytes(
+        hash, &mesh->triangle_count, sizeof(mesh->triangle_count));
+    hash = level_data_hash_bytes(
+        hash, &mesh->material_count, sizeof(mesh->material_count));
+    for (size_t material_index = 0u;
+         material_index < mesh->material_count; ++material_index) {
+        const SourceVectorSceneMaterial *material =
+            &mesh->materials[material_index];
+
+        hash = level_data_hash_bytes(
+            hash, &material->width, sizeof(material->width));
+        hash = level_data_hash_bytes(
+            hash, &material->height, sizeof(material->height));
+        hash = level_data_hash_bytes(
+            hash, &material->source_map_offset,
+            sizeof(material->source_map_offset));
+        hash = level_data_hash_bytes(
+            hash, &material->minimum_u, sizeof(material->minimum_u));
+        hash = level_data_hash_bytes(
+            hash, &material->maximum_u, sizeof(material->maximum_u));
+        hash = level_data_hash_bytes(
+            hash, &material->minimum_v, sizeof(material->minimum_v));
+        hash = level_data_hash_bytes(
+            hash, &material->maximum_v, sizeof(material->maximum_v));
+        hash = level_data_hash_bytes(
+            hash, &material->glare, sizeof(material->glare));
+    }
+    for (size_t triangle_index = 0u;
+         triangle_index < mesh->triangle_count; ++triangle_index) {
+        const SourceVectorSceneTriangle *triangle =
+            &mesh->triangles[triangle_index];
+
+        hash = level_data_hash_bytes(
+            hash, &triangle->material_index,
+            sizeof(triangle->material_index));
+        hash = level_data_hash_bytes(
+            hash, &triangle->additive, sizeof(triangle->additive));
+        for (size_t vertex_index = 0u; vertex_index < 3u; ++vertex_index) {
+            hash = level_data_hash_bytes(
+                hash, &triangle->vertices[vertex_index].u,
+                sizeof(triangle->vertices[vertex_index].u));
+            hash = level_data_hash_bytes(
+                hash, &triangle->vertices[vertex_index].v,
+                sizeof(triangle->vertices[vertex_index].v));
+        }
+    }
+    return hash;
+}
+
 /*
  * hires.s:VBlankInterrupt calls dosomething at PAL 50 Hz. The host loop must
  * only interpolate completed source snapshots: increasing present rate must
@@ -1059,6 +1126,8 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
     GameShootDefinition shotgun_shoot;
     GameShootDefinition assault_rifle_shoot;
     uint64_t source_trace = UINT64_C(1469598103934665603);
+    uint64_t shotgun_layout_hash = UINT64_C(0);
+    uint64_t assault_rifle_layout_hash = UINT64_C(0);
     uint32_t source_vblanks = 0u;
     uint32_t baseline_asset_id = 0u;
     uint16_t baseline_frame_index = 0u;
@@ -1202,6 +1271,29 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
                 fprintf(stderr, "Shotgun companion lost its source view-weapon identity\n");
                 goto cleanup;
             }
+            {
+                SourceVectorSceneMesh stable_mesh = {0};
+                uint64_t *expected_layout = source_vblanks < 60u ?
+                    &shotgun_layout_hash : &assault_rifle_layout_hash;
+
+                if (!source_vector_scene_compile_view_weapon_camera(
+                        source_weapon, &stable_mesh, error, sizeof(error))) {
+                    fprintf(stderr,
+                            "camera-local firing-pose compilation failed: %s\n",
+                            error);
+                    goto cleanup;
+                }
+                const uint64_t layout_hash =
+                    level_data_hash_view_weapon_layout(&stable_mesh);
+                source_vector_scene_mesh_destroy(&stable_mesh);
+                if (*expected_layout == UINT64_C(0)) {
+                    *expected_layout = layout_hash;
+                } else if (*expected_layout != layout_hash) {
+                    fprintf(stderr,
+                            "camera-local weapon layout changed during the source firing sequence\n");
+                    goto cleanup;
+                }
+            }
             /*
              * The fire write is an immediate animation restart at VBlank 2.
              * Its selected display pose must then survive three more source
@@ -1321,7 +1413,9 @@ static int level_data_run_shotgun_animation_present_rate(const char *data_root,
     if (source_vblanks != 100u || vblank_clock.remainder_counter_units != 0u ||
         baseline_captured == 0u || saw_shotgun_action == 0u ||
         saw_shotgun_frame_blend == 0u || saw_four_tick_pose_advance == 0u ||
-        saw_assault_rifle_per_tick_advance == 0u) {
+        saw_assault_rifle_per_tick_advance == 0u ||
+        shotgun_layout_hash == UINT64_C(0) ||
+        assault_rifle_layout_hash == UINT64_C(0)) {
         fprintf(stderr,
                 "Shotgun animation did not complete its fixed 50 Hz source trace\n");
         goto cleanup;

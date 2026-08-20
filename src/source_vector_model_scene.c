@@ -21,6 +21,7 @@ typedef struct {
     int16_t relative_offset;
     int16_t sort_point_offset;
     int32_t sort_key;
+    uint8_t active;
 } SourceVectorScenePart;
 
 typedef enum {
@@ -605,6 +606,8 @@ static int source_vector_scene_compile(
     const int view_weapon = space != SOURCE_VECTOR_SCENE_WORLD;
     const int projected_view_weapon =
         space == SOURCE_VECTOR_SCENE_VIEW_PROJECTED;
+    const int stable_view_weapon =
+        space == SOURCE_VECTOR_SCENE_VIEW_CAMERA;
 
     if (!sprite || !out_mesh ||
         (space != SOURCE_VECTOR_SCENE_VIEW_CAMERA && drawable_aspect <= 0.0f) ||
@@ -661,15 +664,19 @@ static int source_vector_scene_compile(
                 "source vector model has more than 32 parts");
             goto fail;
         }
-        if ((on_off & (UINT32_C(1) << part_index)) != 0u) {
+        if ((on_off & (UINT32_C(1) << part_index)) != 0u ||
+            stable_view_weapon) {
             parts[part_count].source_part_index = part_index;
             parts[part_count].relative_offset = relative;
             parts[part_count].sort_point_offset =
                 source_vector_scene_read_be16s(bytes + list_offset + 2u);
+            parts[part_count].active = (uint8_t)(
+                (on_off & (UINT32_C(1) << part_index)) != 0u);
             ++part_count;
         }
     }
-    if (view_weapon && source_vector_scene_read_be16s(bytes) != 0 &&
+    if (view_weapon && !stable_view_weapon &&
+        source_vector_scene_read_be16s(bytes) != 0 &&
         !source_vector_scene_sort_parts(
             sprite, bytes, size, &frame, previous_points,
             parts, part_count, error, error_size)) {
@@ -686,7 +693,8 @@ static int source_vector_scene_compile(
             const uint8_t *face_bytes;
             uint8_t min_u = UINT8_MAX, max_u = 0u;
             uint8_t min_v = UINT8_MAX, max_v = 0u;
-            int gouraud, glare, front_facing = 1;
+            int gouraud, glare;
+            int front_facing = parts[order].active != 0u;
             float flat_light;
             size_t map_offset;
             SourceVectorSceneMaterial material = {0};
@@ -767,9 +775,15 @@ static int source_vector_scene_compile(
                         if (!source_vector_scene_model_point(
                                 sprite, point_bytes, previous_point_bytes,
                                 sprite->presentation_frame_interpolation_alpha,
-                                &point) || point.z >= -0.5f) {
+                                &point)) {
+                            source_vector_scene_set_error(
+                                error, error_size,
+                                "source view weapon point transform failed");
+                            goto fail;
+                        }
+                        if (point.z >= -0.5f) {
                             front_facing = 0;
-                            break;
+                            if (!stable_view_weapon) break;
                         }
                         if (projected_view_weapon) {
                             vertex->x = projection[0u] * point.x / -point.z;
@@ -806,8 +820,8 @@ static int source_vector_scene_compile(
                         goto fail;
                     }
                 }
-                if (!front_facing) break;
-                if (!glare && fan == 1u) {
+                if (!front_facing && !stable_view_weapon) break;
+                if (front_facing && !glare && fan == 1u) {
                     float projected_x[3];
                     float projected_y[3];
 
@@ -839,7 +853,22 @@ static int source_vector_scene_compile(
                         front_facing = area < 0.0f;
                     }
                 }
-                if (!front_facing) break;
+                if (!front_facing && !stable_view_weapon) break;
+                if (!front_facing) {
+                    /*
+                     * The DXR BLAS must retain one immutable triangle layout
+                     * across the source firing animation.  Preserve culled or
+                     * disabled source faces as exact zero-area triangles; they
+                     * cannot intersect a ray, but can become live vertices in
+                     * the next dynamic BLAS update without a queue flush.
+                     */
+                    triangle.vertices[1u].x = triangle.vertices[0u].x;
+                    triangle.vertices[1u].y = triangle.vertices[0u].y;
+                    triangle.vertices[1u].z = triangle.vertices[0u].z;
+                    triangle.vertices[2u].x = triangle.vertices[0u].x;
+                    triangle.vertices[2u].y = triangle.vertices[0u].y;
+                    triangle.vertices[2u].z = triangle.vertices[0u].z;
+                }
                 if (!view_weapon) {
                     SourceVectorSceneVertex clipped[5];
                     float top_y = -(float)sprite->source_clip_top_y / 128.0f;

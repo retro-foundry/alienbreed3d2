@@ -70,6 +70,7 @@ public:
     uint64_t scene_emissive_scale_fold() const {
         return scene_.emissive_scale_fold();
     }
+    uint64_t scene_rebuild_count() const { return scene_.rebuild_count(); }
     size_t last_view_weapon_coverage() const {
         return last_view_weapon_coverage_;
     }

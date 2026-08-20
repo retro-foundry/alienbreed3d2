@@ -863,6 +863,7 @@ bool DxrScene::compile(const SceneFrame &frame,
     gpu_build_pending_ = true;
     gpu_geometry_update_pending_ = false;
     geometry_update_count_ = 0;
+    ++rebuild_count_;
     return true;
 }
 

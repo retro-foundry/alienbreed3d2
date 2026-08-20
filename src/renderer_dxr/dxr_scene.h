@@ -104,6 +104,7 @@ public:
      * an image comparison cannot show while the sampler is still boiling.
      */
     uint64_t emissive_scale_fold() const;
+    uint64_t rebuild_count() const { return rebuild_count_; }
     bool history_reset_pending() const { return history_reset_pending_; }
     void mark_history_promoted() { history_reset_pending_ = false; }
 
@@ -137,6 +138,7 @@ private:
     bool gpu_geometry_update_pending_ = false;
     bool history_reset_pending_ = true;
     uint64_t geometry_update_count_ = 0;
+    uint64_t rebuild_count_ = 0;
     uint32_t atlas_width_ = 0;
     uint32_t atlas_height_ = 0;
     std::vector<DxrSceneVertex> vertices_;

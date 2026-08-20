@@ -1322,6 +1322,9 @@ static uint64_t game_app_point_brightness_fold(const GameBootstrap *game)
 static int game_app_run_gpu_smoke(GameApp *app)
 {
     enum {
+        /* modules/player.s: RAWKEY_1 selects ShootT/GLFT gun entry zero. */
+        GAME_APP_SHOTGUN_GUN_INDEX = 0u,
+        GAME_APP_SHOTGUN_RAW_KEY = 1u,
         /* test.lnk: GLFT gun entry six -> object 24 -> vectobj/rocketlauncher. */
         GAME_APP_ROCKET_LAUNCHER_GUN_INDEX = 5u,
         GAME_APP_ROCKET_LAUNCHER_VECTOR_ASSET = 17u
@@ -1472,6 +1475,139 @@ static int game_app_run_gpu_smoke(GameApp *app)
                         early_delta > 0.0 ? late_delta / early_delta : 0.0,
                         (unsigned long long)renderer_last_frame_saturated_pixels(
                             app->renderer));
+            }
+            /*
+             * Drive the real ShootT -> Plr1_Shot -> draw_PolygonModel sequence.
+             * Several authored Shotgun poses cull different polygons. Those
+             * visibility changes must remain a camera-local vertex/BLAS refit:
+             * a complete scene rebuild drains the GPU queue and invalidates the
+             * Ray Reconstruction history, which is visible as both a hitch and
+             * a temporary image-quality collapse. Exercise this only on the
+             * first requested level so the all-level smoke does not add the
+             * complete firing animation sixteen times.
+             */
+            if (level_index == first_level) {
+                enum { GAME_APP_DXR_SHOTGUN_FRAMES = 48 };
+                const uint64_t performance_frequency = SDL_GetPerformanceFrequency();
+                uint64_t baseline_rebuilds;
+                uint64_t total_present_ticks = UINT64_C(0);
+                uint64_t maximum_present_ticks = UINT64_C(0);
+
+                app->game.session.player1_inventory
+                    .weapons[GAME_APP_SHOTGUN_GUN_INDEX] = UINT8_MAX;
+                for (uint16_t ammunition_index = 0u;
+                     ammunition_index < GAME_INVENTORY_AMMUNITION_COUNT;
+                     ++ammunition_index) {
+                    app->game.session.player1_inventory
+                        .ammunition[ammunition_index] = 1000u;
+                }
+                if (!game_input_set_raw_key(
+                        &app->game.input, GAME_APP_SHOTGUN_RAW_KEY, 1,
+                        error, sizeof(error)) ||
+                    !game_bootstrap_update_single_player(
+                        &app->game, error, sizeof(error)) ||
+                    !game_input_set_raw_key(
+                        &app->game.input, GAME_APP_SHOTGUN_RAW_KEY, 0,
+                        error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[GAME] DXR smoke could not select the Shotgun in Level %c: %s\n",
+                            (char)('A' + level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                scene_frame_begin(&app->frame);
+                if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+                    !renderer_present(app->renderer, &app->frame, &app->view,
+                                      error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] DXR Shotgun selection frame failed for Level %c: %s\n",
+                            (char)('A' + level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                baseline_rebuilds = renderer_scene_rebuild_count(app->renderer);
+                if (!game_input_set_raw_key(
+                        &app->game.input,
+                        app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
+                        error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[GAME] DXR smoke could not press Shotgun fire in Level %c: %s\n",
+                            (char)('A' + level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                for (unsigned shot_frame = 0u;
+                     shot_frame < (unsigned)GAME_APP_DXR_SHOTGUN_FRAMES;
+                     ++shot_frame) {
+                    uint64_t present_begin;
+                    uint64_t present_ticks;
+
+                    if (!game_bootstrap_update_single_player(
+                            &app->game, error, sizeof(error)) ||
+                        (shot_frame == 0u &&
+                         !game_input_set_raw_key(
+                             &app->game.input,
+                             app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 0,
+                             error, sizeof(error)))) {
+                        fprintf(stderr,
+                                "[GAME] DXR Shotgun firing update %u failed in Level %c: %s\n",
+                                shot_frame, (char)('A' + level_index), error);
+                        app->exit_code = 1;
+                        return 0;
+                    }
+                    scene_frame_begin(&app->frame);
+                    if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame)) {
+                        fprintf(stderr,
+                                "[SCENE] DXR Shotgun firing frame %u failed in Level %c\n",
+                                shot_frame, (char)('A' + level_index));
+                        app->exit_code = 1;
+                        return 0;
+                    }
+                    present_begin = SDL_GetPerformanceCounter();
+                    if (!renderer_present(app->renderer, &app->frame, &app->view,
+                                          error, sizeof(error))) {
+                        fprintf(stderr,
+                                "[RENDER] DXR Shotgun firing frame %u failed in Level %c: %s\n",
+                                shot_frame, (char)('A' + level_index), error);
+                        app->exit_code = 1;
+                        return 0;
+                    }
+                    present_ticks = SDL_GetPerformanceCounter() - present_begin;
+                    total_present_ticks += present_ticks;
+                    if (present_ticks > maximum_present_ticks) {
+                        maximum_present_ticks = present_ticks;
+                    }
+                }
+                if (renderer_scene_rebuild_count(app->renderer) != baseline_rebuilds) {
+                    fprintf(stderr,
+                            "[RENDER] DXR Shotgun firing rebuilt the scene in Level %c "
+                            "(%llu -> %llu)\n",
+                            (char)('A' + level_index),
+                            (unsigned long long)baseline_rebuilds,
+                            (unsigned long long)renderer_scene_rebuild_count(
+                                app->renderer));
+                    app->exit_code = 1;
+                    return 0;
+                }
+                if (performance_frequency == UINT64_C(0) ||
+                    renderer_last_view_weapon_coverage(app->renderer) == 0u) {
+                    fprintf(stderr,
+                            "[RENDER] DXR Shotgun firing produced no measurable weapon "
+                            "output in Level %c\n", (char)('A' + level_index));
+                    app->exit_code = 1;
+                    return 0;
+                }
+                fprintf(stdout,
+                        "[RENDER] DXR Level %c Shotgun firing frames=%u mean_ms=%.3f "
+                        "max_ms=%.3f scene_rebuilds=%llu\n",
+                        (char)('A' + level_index),
+                        (unsigned)GAME_APP_DXR_SHOTGUN_FRAMES,
+                        1000.0 * (double)total_present_ticks /
+                            ((double)performance_frequency *
+                             (double)GAME_APP_DXR_SHOTGUN_FRAMES),
+                        1000.0 * (double)maximum_present_ticks /
+                            (double)performance_frequency,
+                        (unsigned long long)baseline_rebuilds);
             }
             /*
              * newanims.s:brightanim is the authored Gouraud animation, and in

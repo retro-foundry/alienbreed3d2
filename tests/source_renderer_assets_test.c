@@ -75,6 +75,8 @@ static int check_vector_view_weapon_compile(void)
     SceneSprite sprite = {0};
     SourceVectorSceneMesh mesh = {0};
     SourceVectorSceneMesh camera_mesh = {0};
+    SourceVectorSceneMesh hidden_camera_mesh = {0};
+    SourceVectorSceneMesh hidden_projected_mesh = {0};
     char error[256] = {0};
 
     model[2] = 0u; model[3] = 3u;
@@ -159,6 +161,47 @@ static int check_vector_view_weapon_compile(void)
         return 0;
     }
     source_vector_scene_mesh_destroy(&camera_mesh);
+
+    /* The source rasterizer omits a disabled part. DXR retains an inert slot
+     * so the source on/off word cannot change its dynamic BLAS topology. */
+    model[53] = 0u;
+    if (!source_vector_scene_compile_view_weapon_camera(
+            &sprite, &hidden_camera_mesh, error, sizeof(error)) ||
+        !source_vector_scene_compile_view_weapon(
+            &sprite, 1.0f, &hidden_projected_mesh, error, sizeof(error))) {
+        fprintf(stderr,
+                "vector compiler rejected a disabled-part triangle fixture: %s\n",
+                error);
+        source_vector_scene_mesh_destroy(&hidden_camera_mesh);
+        source_vector_scene_mesh_destroy(&hidden_projected_mesh);
+        source_vector_scene_mesh_destroy(&mesh);
+        return 0;
+    }
+    if (hidden_camera_mesh.triangle_count != 1u ||
+        hidden_camera_mesh.material_count != 1u ||
+        hidden_projected_mesh.triangle_count != 0u ||
+        hidden_projected_mesh.material_count != 0u ||
+        hidden_camera_mesh.triangles[0].vertices[0].x !=
+            hidden_camera_mesh.triangles[0].vertices[1].x ||
+        hidden_camera_mesh.triangles[0].vertices[0].y !=
+            hidden_camera_mesh.triangles[0].vertices[1].y ||
+        hidden_camera_mesh.triangles[0].vertices[0].z !=
+            hidden_camera_mesh.triangles[0].vertices[1].z ||
+        hidden_camera_mesh.triangles[0].vertices[0].x !=
+            hidden_camera_mesh.triangles[0].vertices[2].x ||
+        hidden_camera_mesh.triangles[0].vertices[0].y !=
+            hidden_camera_mesh.triangles[0].vertices[2].y ||
+        hidden_camera_mesh.triangles[0].vertices[0].z !=
+            hidden_camera_mesh.triangles[0].vertices[2].z) {
+        fprintf(stderr,
+                "camera-local compiler did not retain an inert disabled-part slot\n");
+        source_vector_scene_mesh_destroy(&hidden_camera_mesh);
+        source_vector_scene_mesh_destroy(&hidden_projected_mesh);
+        source_vector_scene_mesh_destroy(&mesh);
+        return 0;
+    }
+    source_vector_scene_mesh_destroy(&hidden_camera_mesh);
+    source_vector_scene_mesh_destroy(&hidden_projected_mesh);
     source_vector_scene_mesh_destroy(&mesh);
     return 1;
 }

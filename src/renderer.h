@@ -75,4 +75,7 @@ uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer);
  * authored emission. */
 uint64_t renderer_last_scene_emissive_scale_fold(const Renderer *renderer);
 
+/* Hidden GPU-smoke count of complete RTX scene-layout rebuilds. */
+uint64_t renderer_scene_rebuild_count(const Renderer *renderer);
+
 #endif

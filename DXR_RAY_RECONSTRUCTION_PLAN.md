@@ -70,7 +70,14 @@ instances share one TLAS mask and one nearest-hit query, so all primary,
 secondary, and visibility rays can see both. Each companion face resolves its
 exact source map/UV/glare identity to the corresponding editable five-PNG PBR
 set. Its noisy radiance, real world depth, guides, and motion are written before
-Ray Reconstruction.
+Ray Reconstruction. The source Shotgun firing sequence was measured at
+45, 41, 36, 30, 38, then 45 visible triangles. Treating those source culls as
+layout changes previously rebuilt the complete scene/material atlases, drained
+the GPU queue, and invalidated reconstruction history. The camera-local compiler
+now retains every source part/face slot in file order and represents a culled or
+disabled face as an exact zero-area triangle. Firing therefore stays on the
+existing vertex upload/dynamic-BLAS refit path without a queue flush or global
+history reset; projected OpenGL/source behavior continues to omit those faces.
 
 Phase 7 now writes one fresh un-denoised `R16G16B16A16_FLOAT` sample per pixel
 and presents it with a full-screen tone-map pass. The path integrator evaluates
@@ -720,6 +727,11 @@ triangulation, stable material indices, and bounded three-frame dynamic GPU
 upload are implemented. Dynamic sprite/world-vector-object categories remain
 later work. The weapon retains current/previous vertices and refits only its
 dynamic BLAS when its source pose or camera-relative world position changes.
+Its DXR compile retains a fixed source-record layout across on/off, near-plane,
+and backface culling; inert faces are zero-area slots. The actual Shotgun and
+Assault Rifle action sequences have layout-hash regressions, and the hidden GPU
+smoke presents 48 real Shotgun updates while asserting that the full scene
+rebuild count does not change after selection.
 
 - Add shared tested world-coordinate conversion and triangulation.
 - Add renderer-neutral object-space vector geometry where needed.
@@ -1036,7 +1048,9 @@ nothing passes any stability bound trivially.
   all-level smoke separately renders each opaque world frame twice and requires
   nonzero, different readback checksums. It additionally requires nonzero GPU
   primary-hit coverage for the initial and key-six Rocket Launcher companion;
-  it does not claim UI, projectile, or complete scene-category coverage. The foundation's synthetic
+  on the first requested level it also times the complete Shotgun firing
+  animation and rejects any scene rebuild after weapon selection. It does not
+  claim UI, projectile, or complete scene-category coverage. The foundation's synthetic
   scene also retains one camera/geometry state for 32 presented frames and
   rejects a repeated adjacent temporal sample before exercising motion.
 - Adapter DXR-tier checks and clear unsupported-device diagnostics.

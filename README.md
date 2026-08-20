@@ -432,9 +432,15 @@ uploads positions, UVs, material/primitive indices, and renderer-native
 base-color, tangent-normal, metalness, roughness, emissive, and dielectric
 specular material data, then
 builds static/dynamic BLAS objects and one TLAS. The companion compiler applies
-the source `rotate_object` pose, part sorting, face culling, and the documented
+the source `rotate_object` pose, on/off state, face culling, and documented
 one-quarter-level-unit model scale, then attaches those camera-local vertices
 to the DXR camera's right/up/forward basis in an alpha-tested dynamic BLAS.
+DXR keeps source part/face slots in file order because ray depth replaces the
+source painter sort. Culled or disabled faces become exact zero-area triangles.
+This fixed layout is important for the Shotgun: its authored firing poses vary
+from 45 to 30 visible triangles. They now update only the camera-local vertex
+buffer and refit its dynamic BLAS instead of rebuilding the scene/material
+atlases, draining the GPU queue, and resetting Ray Reconstruction history.
 Weapon and world instances use the same TLAS mask and nearest-hit query, so all
 primary, secondary, and visibility rays see both. The PBR weapon can therefore
 reflect, shadow, be shadowed by, and be occluded by the world while contributing
@@ -513,6 +519,11 @@ the 0--255 display scale together with a count of pixels saturating tone mapping
 A converging renderer's difference falls towards a floor; a boiling one holds it
 roughly constant. The value is reported, not bounded, because several levels
 render almost nothing at their smoke camera and would pass any bound trivially.
+On the first requested level it also selects and fires the real Shotgun through
+the complete source input/gameplay sequence, presents all 48 animation updates,
+reports mean/maximum presentation time, and requires the complete scene-rebuild
+counter to remain unchanged after selection. This guards both the firing hitch
+and the associated reconstruction-history quality drop.
 
 `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` set the emitter
 candidates resampled per primary hit and the number of candidates a pixel's
