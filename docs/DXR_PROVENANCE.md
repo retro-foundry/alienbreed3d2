@@ -175,6 +175,50 @@ explicit emissive/environment next-event sampling, MIS, and an analytic sky
 gradient. The renderer-native PBR material package is consumed directly by
 this runtime slice.
 
+On 2026-08-21 the user explicitly requested comparison with NVIDIA's samples
+after the project's initial temporal reservoir produced visible moving brown
+dots. The behavioral references read were NVIDIA RTXDI's public
+`Doc/Integration.md` and the RTXDI Library's `DI/Reservoir.hlsli`,
+`DI/TemporalResampling.hlsli`, `DI/SpatialResampling.hlsli`,
+`DI/SpatioTemporalResampling.hlsli`, and `Utils/BoilingFilter.hlsli`, from their
+public `main` branches on that date. The FullSample DI initial, temporal,
+spatial, and shading passes plus the runtime's `ReSTIRDI.cpp` defaults and sample
+quality presets were also inspected. They established the staged pass sequence,
+initial-candidate `M = 1` ownership and selection stratification, selected-only
+initial visibility, the fixed low-discrepancy neighbor-offset-buffer contract,
+surface-aware normalization contract,
+emitter-history mapping requirement, temporal neighbor search, spatial material/
+depth/normal validation, naive-sample discounting, disocclusion recovery, and
+visibility-discard and ray-traced correction semantics. The
+project HLSL was independently
+rewritten around the published ReSTIR reservoir equations and the renderer's own
+resources. No RTXDI source text, header, shader, table, library, binary, resource
+layout, or build dependency was copied, included, linked, or staged. The result
+uses the project's existing emitter alias table, vertex history, material atlas,
+sample streams, root signature, and renderer-owned dispatch sequence; it is not
+an RTXDI library integration.
+
+The comparison also showed that NVIDIA's Medium and Ultra quality paths feed
+ReSTIR from spatially informed ReGIR proposals. The official RTXDI ReGIR host
+configuration, regular-grid coordinate contract, presampling contract, local
+light selection contract, initial sampling contract, FullSample application
+bridge, triangle-volume target, and `UserInterface.cpp` quality presets were
+therefore inspected on 2026-08-21 as behavioral references. They established a
+camera-centered grid rebuilt each frame, corrected RIS entries, jittered cell
+lookup, complete out-of-grid selection, and the filter-free Ultra preset's
+16 initial candidates, four spatial samples, 16 disocclusion attempts,
+ray-traced correction, and disabled boiling/final-visibility reuse.
+
+The project implementation is independent. Its regular 16-cubed grid contains
+512 project-layout entries per cell, each built from eight candidates drawn from
+the existing complete global alias table. Its volume target is project-derived
+from triangle area, the renderer's conservative maximum-emissive-texture and
+authored-vertex bound, a solid-angle cap, and an RMS receiver-volume distance.
+Each entry stores only the project emitter index and mathematically required
+inverse proposal probability. No NVIDIA shader text, fitted distance formula,
+light hierarchy, constant table, resource layout, generated data, header,
+library, or binary was copied, imported, linked, or staged.
+
 The Phase 8 guide resources and motion/history implementation are
 project-authored. The specular-albedo guide deliberately implements the compact
 `EnvBRDFApprox2` integration formula published in section 4.2.1 of NVIDIA's
@@ -285,7 +329,7 @@ No substantial renderer implementation was copied. The sampler's third-party
 data and required MIT notice are the explicit, bounded exception documented
 above.
 
-## Published papers implemented from the mathematics
+## Historical published-mathematics implementation
 
 Phase 11 rebuilds the direct-lighting estimator from two published papers. Both
 are references in the same sense as the Heitz sampler description: only the
@@ -301,13 +345,13 @@ published mathematics was used, and no implementation of either was consulted.
   for the resampling candidate stream, which needs far more dimensions than the
   eight the pinned blue-noise tables optimize.
 
-NVIDIA's RTXDI SDK was explicitly excluded on user direction: no RTXDI header,
-shader, sample, or generated table was read, adapted, linked, or staged. The
-reservoir mathematics and the hash are implemented in project-authored HLSL and
-project-authored CPU headers, each carrying the citation and pinned by a CPU
-test. Reservoir resampling is a sampling technique rather than a denoiser; the
-noisy radiance input remains a single-sample stochastic estimate, so disabling
-Ray Reconstruction still reveals visible noise.
+Before the explicitly requested 2026-08-21 comparison recorded above, NVIDIA's
+RTXDI SDK had been excluded and the first reservoir version was written only
+from the papers. The replacement remains project-authored HLSL and CPU support:
+no RTXDI header, shader, generated table, library, or binary is included,
+linked, or staged. Reservoir resampling is a sampling technique rather than a
+denoiser; the noisy radiance input remains stochastic, so disabling Ray
+Reconstruction still reveals visible noise.
 
 ## Toolchain evidence
 

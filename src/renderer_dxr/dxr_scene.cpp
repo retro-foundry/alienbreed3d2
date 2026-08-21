@@ -1,4 +1,5 @@
 #include "dxr_scene.h"
+#include "dxr_emitter_history.h"
 
 #include "dxr_alias_table.h"
 #include "dxr_debug.h"
@@ -165,7 +166,7 @@ struct MaterialImage {
     float normal_strength = 1.0f;
     float specular_factor = 1.0f;
     float emissive_factor[3] = {};
-    float average_emissive_luminance = 0.0f;
+    float maximum_emissive_luminance = 0.0f;
 };
 
 bool compile_view_weapon(
@@ -637,7 +638,7 @@ float srgb_to_linear(uint8_t encoded)
         std::pow((value + 0.055f) / 1.055f, 2.4f);
 }
 
-float average_emissive_luminance(const MaterialImage &image)
+float maximum_emissive_luminance(const MaterialImage &image)
 {
     if (image.emissive_factor[0] == 0.0f &&
         image.emissive_factor[1] == 0.0f &&
@@ -646,7 +647,7 @@ float average_emissive_luminance(const MaterialImage &image)
     }
     const std::vector<uint8_t> &emissive = image.pixels[
         static_cast<size_t>(DxrMaterialChannel::emissive)];
-    double luminance = 0.0;
+    double maximum_luminance = 0.0;
     for (size_t offset = 0; offset < emissive.size(); offset += 4u) {
         const double red = srgb_to_linear(emissive[offset + 0u]) *
             image.emissive_factor[0];
@@ -654,10 +655,11 @@ float average_emissive_luminance(const MaterialImage &image)
             image.emissive_factor[1];
         const double blue = srgb_to_linear(emissive[offset + 2u]) *
             image.emissive_factor[2];
-        luminance += red * 0.2126 + green * 0.7152 + blue * 0.0722;
+        maximum_luminance = std::max(
+            maximum_luminance,
+            red * 0.2126 + green * 0.7152 + blue * 0.0722);
     }
-    return emissive.empty() ? 0.0f :
-        static_cast<float>(luminance / static_cast<double>(emissive.size() / 4u));
+    return static_cast<float>(maximum_luminance);
 }
 
 D3D12_HEAP_PROPERTIES heap_properties(D3D12_HEAP_TYPE type)
@@ -822,7 +824,7 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
 
 bool compile_emissive_triangles(
     std::vector<DxrSceneVertex> &vertices,
-    const std::vector<float> &material_luminance,
+    const std::vector<float> &material_emissive_bound,
     std::vector<DxrEmissiveTriangle> &emitters, std::string &error)
 {
     emitters.clear();
@@ -839,11 +841,11 @@ bool compile_emissive_triangles(
                 DxrScenePrimitive::world_effect)) {
             continue;
         }
-        if (material_index >= material_luminance.size()) {
+        if (material_index >= material_emissive_bound.size()) {
             error = "DXR geometry references an out-of-range material";
             return false;
         }
-        const float luminance = material_luminance[material_index];
+        const float luminance = material_emissive_bound[material_index];
         if (!(luminance > 0.0f)) {
             continue;
         }
@@ -863,7 +865,16 @@ bool compile_emissive_triangles(
         const float area = 0.5f * std::sqrt(
             cross[0] * cross[0] + cross[1] * cross[1] +
             cross[2] * cross[2]);
-        const float weight = area * luminance;
+        /* The emitter proposal uses conservative radiance bounds, like a light
+         * tree/ReGIR cell, rather than average power. Shading can land on the
+         * brightest texel and vertex of a triangle; weighting with their maxima
+         * prevents that valid sample from being selected with a probability
+         * derived from a much dimmer average. */
+        const float maximum_emissive_scale = std::max({
+            vertices[first_vertex + 0u].emissive_scale,
+            vertices[first_vertex + 1u].emissive_scale,
+            vertices[first_vertex + 2u].emissive_scale});
+        const float weight = area * luminance * maximum_emissive_scale;
         if (!(area > 1.0e-6f) || !std::isfinite(weight) ||
             !(weight > 0.0f)) {
             continue;
@@ -1130,8 +1141,8 @@ bool DxrScene::compile(const SceneFrame &frame,
                 image.specular_factor = pbr->specular_factor;
                 std::memcpy(image.emissive_factor, pbr->emissive_factor,
                             sizeof(image.emissive_factor));
-                image.average_emissive_luminance =
-                    average_emissive_luminance(image);
+                image.maximum_emissive_luminance =
+                    maximum_emissive_luminance(image);
                 material_index = static_cast<uint32_t>(images.size());
                 material_indices.emplace(key, material_index);
                 images.push_back(std::move(image));
@@ -1224,7 +1235,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             image.specular_factor = pbr.specular_factor;
             std::memcpy(image.emissive_factor, pbr.emissive_factor,
                         sizeof(image.emissive_factor));
-            image.average_emissive_luminance = average_emissive_luminance(image);
+            image.maximum_emissive_luminance = maximum_emissive_luminance(image);
             compiled_bitmap_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
@@ -1356,8 +1367,8 @@ bool DxrScene::compile(const SceneFrame &frame,
             image.specular_factor = pbr->specular_factor;
             std::memcpy(image.emissive_factor, pbr->emissive_factor,
                         sizeof(image.emissive_factor));
-            image.average_emissive_luminance =
-                average_emissive_luminance(image);
+            image.maximum_emissive_luminance =
+                maximum_emissive_luminance(image);
             compiled_vector_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
@@ -1441,8 +1452,8 @@ bool DxrScene::compile(const SceneFrame &frame,
             image.specular_factor = pbr->specular_factor;
             std::memcpy(image.emissive_factor, pbr->emissive_factor,
                         sizeof(image.emissive_factor));
-            image.average_emissive_luminance =
-                average_emissive_luminance(image);
+            image.maximum_emissive_luminance =
+                maximum_emissive_luminance(image);
             images.push_back(std::move(image));
         }
         compiled_view_weapon_material_count =
@@ -1475,14 +1486,14 @@ bool DxrScene::compile(const SceneFrame &frame,
     }
 
     std::vector<DxrEmissiveTriangle> compiled_emitters;
-    std::vector<float> compiled_material_luminance;
-    compiled_material_luminance.reserve(images.size());
+    std::vector<float> compiled_material_emissive_bound;
+    compiled_material_emissive_bound.reserve(images.size());
     for (const MaterialImage &image : images) {
-        compiled_material_luminance.push_back(
-            image.average_emissive_luminance);
+        compiled_material_emissive_bound.push_back(
+            image.maximum_emissive_luminance);
     }
     if (!compile_emissive_triangles(compiled_vertices,
-                                    compiled_material_luminance,
+                                    compiled_material_emissive_bound,
                                     compiled_emitters, error)) {
         return false;
     }
@@ -1568,8 +1579,8 @@ bool DxrScene::compile(const SceneFrame &frame,
     emissive_triangles_ = std::move(compiled_emitters);
     surface_material_indices_ =
         std::move(compiled_surface_material_indices);
-    material_emissive_luminance_ =
-        std::move(compiled_material_luminance);
+    material_emissive_bound_ =
+        std::move(compiled_material_emissive_bound);
     view_weapon_first_material_ = compiled_view_weapon_first_material;
     view_weapon_material_count_ = compiled_view_weapon_material_count;
     bitmap_material_indices_ =
@@ -1855,9 +1866,18 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
 
     std::vector<DxrEmissiveTriangle> compiled_emitters;
     if (!compile_emissive_triangles(compiled_vertices,
-                                    material_emissive_luminance_,
+                                    material_emissive_bound_,
                                     compiled_emitters, error)) {
         return false;
+    }
+    if (!emitter_history_layout_compatible<DxrEmissiveTriangle>(
+            emissive_triangles_, compiled_emitters)) {
+        /*
+         * Compaction can shift every later emitter when a dynamic triangle
+         * becomes emissive, non-emissive, or degenerate. Do not let an old
+         * reservoir index silently select a different triangle in that case.
+         */
+        history_reset_pending_ = true;
     }
     vertices_ = std::move(compiled_vertices);
     instances_ = std::move(compiled_instances);

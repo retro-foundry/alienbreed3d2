@@ -85,10 +85,10 @@ default, so the shipped template lists them commented out with their defaults:
   largest single performance lever: at 2560x1440 the three fastest measured
   12.7, 10.4 and 8.5 ms a frame. The default is `quality`;
 - `rtx_light_candidates=1` through `1024` and `rtx_reservoir_limit=0` through
-  `65536` control the direct-lighting reservoir. The defaults are `1` and `0`,
-  the single-sample estimator, which measured the best temporal stability
-  against the hidden smoke because its error is high frequency and that is what
-  Ray Reconstruction filters best; and
+  `65536` control the direct-lighting reservoir. The defaults are `16` and `20`,
+  the accepted filter-free ReGIR/ReSTIR configuration matching the NVIDIA Ultra
+  sample's initial and temporal counts. An explicit reservoir limit of zero
+  recovers the exact single-sample diagnostic estimator; and
 - `rtx_radiance_clamp=200`, `rtx_exposure=1`, and `rtx_ndf_trim=0.9` are the
   per-sample luminance ceiling, the linear multiplier applied before tone
   mapping, and the GGX visible-normal sampling trim.
@@ -587,22 +587,34 @@ render almost nothing at their smoke camera and would pass any bound trivially.
 On the first requested level it also selects and fires the real Shotgun through
 the complete source input/gameplay sequence, presents all 48 animation updates,
 reports mean/maximum presentation time, and requires the complete scene-rebuild
-counter to remain unchanged after selection. This guards both the firing hitch
-and the associated reconstruction-history quality drop.
+counter to remain unchanged after selection. It then walks and fires for 400
+frames, reporting the moving-frame display delta and count of pixels changing by
+at least 16 alongside the scene-rebuild count. These moving values are comparison
+metrics rather than pass/fail thresholds. The sequence guards both the firing
+hitch and the associated reconstruction-history quality drop.
 
 `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` set the emitter
-candidates resampled per primary hit and the number of candidates a pixel's
-reservoir history may stand for. They default to 4 and 128, which enables
-reservoir resampling of direct lighting. Setting
-`AB3D2_DXR_CANDIDATES=1 AB3D2_DXR_RESERVOIR_LIMIT=0` recovers the single-sample
-estimator exactly.
-
-Resampling more than halves the raw path's frame-to-frame difference and makes it
-converge, but it *raises* the reconstructed image's residual difference by about
-18%, because it trades high-frequency screen-space blue noise for error
-correlated across neighbouring pixels and across frames. Section 11 of
-`DXR_RAY_RECONSTRUCTION_PLAN.md` records the measurements; the two settings above
-are the A/B to run when judging the reconstructed image by eye.
+candidates resampled per primary hit and the maximum history-domain count
+accepted from each reused previous-frame reservoir. Initial candidates collapse
+to one temporal proposal, so increasing candidates does not shorten that history.
+They default to 16 and 20. A positive limit
+enables staged temporal and current-frame spatial reuse with material/depth/
+normal validation, stratified initial selection, selected-only initial
+visibility, fixed low-discrepancy neighbor offsets, naive-neighbor discounting,
+and ray-traced bias correction. Before initial sampling, a camera-centered
+16-by-16-by-16 ReGIR grid presamples 512 corrected light entries per cell from
+the complete global emitter alias table. Its project-owned volume target uses
+triangle area, a conservative emitted-radiance bound, and spatial solid angle;
+surfaces outside the grid retain the complete global proposal. The filter-free
+positive-history path uses four spatial neighbors and 16 disocclusion attempts,
+matching NVIDIA's Ultra structure. `16 / 20` passed the moving-camera visual
+acceptance check and is the production configuration; `4 / 128` mixes a low
+candidate count with a much longer history than NVIDIA's presets and is no
+longer recommended. An explicit zero history limit retains the exact
+single-sample diagnostic. Section 11 of
+`DXR_RAY_RECONSTRUCTION_PLAN.md` records
+why measurements from the former biased temporal approximation cannot be used to
+tune the corrected implementation.
 
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
 `normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`, or

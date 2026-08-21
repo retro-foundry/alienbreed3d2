@@ -2,6 +2,7 @@
 #define AB3D2_DXR_SAMPLE_STREAM_H
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 
 namespace ab3d2::dxr::sample_stream {
@@ -59,6 +60,38 @@ inline std::array<float, 4> uniforms(uint32_t pixel_x, uint32_t pixel_y,
         pcg4d({pixel_x, pixel_y, sample_index, sequence_index});
     return {uniform(hashed[0]), uniform(hashed[1]), uniform(hashed[2]),
             uniform(hashed[3])};
+}
+
+inline float stratified_candidate(float selection, uint32_t candidate,
+                                  uint32_t candidate_count)
+{
+    return candidate_count == 0u ? 0.0f :
+        (selection + static_cast<float>(candidate)) /
+            static_cast<float>(candidate_count);
+}
+
+constexpr uint32_t neighbor_offset_count = 256u;
+
+inline uint32_t reverse_low_byte(uint32_t value)
+{
+    value &= 0xffu;
+    value = ((value & 0x55u) << 1u) | ((value >> 1u) & 0x55u);
+    value = ((value & 0x33u) << 2u) | ((value >> 2u) & 0x33u);
+    value = ((value & 0x0fu) << 4u) | ((value >> 4u) & 0x0fu);
+    return value;
+}
+
+/* Fixed low-discrepancy disk mirrored by reservoirNeighborOffset in HLSL. */
+inline std::array<float, 2> spatial_neighbor_offset(uint32_t sequence_index)
+{
+    const uint32_t index = sequence_index & (neighbor_offset_count - 1u);
+    const uint32_t radius_index = reverse_low_byte(index);
+    const float radius = std::sqrt(
+        (static_cast<float>(radius_index) + 0.5f) /
+        static_cast<float>(neighbor_offset_count));
+    constexpr float golden_angle = 2.39996322972865332f;
+    const float angle = (static_cast<float>(index) + 0.5f) * golden_angle;
+    return {radius * std::cos(angle), radius * std::sin(angle)};
 }
 
 }  // namespace ab3d2::dxr::sample_stream

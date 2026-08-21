@@ -8,10 +8,11 @@
  * to the renderer boundary. None of them touch source assets or gameplay: they
  * trade image quality against frame cost.
  *
- * Zero on any field means "keep the renderer's own default". The tuned defaults
- * and the measurements behind them live with the code that uses them, in
- * renderer_dxr/dxr_pipeline.cpp, so the INI never has to restate a value the
- * renderer already documents, and an absent key is not the same as a zero.
+ * Zero on a quality field normally means "keep the renderer's own default".
+ * The reservoir history limit is the exception because zero is its explicit
+ * diagnostic/off value; reservoir_sample_limit_set distinguishes that value
+ * from an absent setting. The tuned defaults and the measurements behind them
+ * live with the code that uses them, in renderer_dxr/dxr_pipeline.cpp.
  */
 
 typedef enum {
@@ -41,11 +42,12 @@ typedef struct {
     /* Emitter candidates the direct-lighting reservoir draws per pixel. */
     uint16_t light_candidates;
     /*
-     * Cap on the historical sample count a reservoir carries. Zero disables
-     * temporal reuse, which is also the renderer's default, so zero here is
-     * unambiguous.
+     * Maximum historical sample count accepted from each reused previous-frame
+     * reservoir. Zero explicitly disables spatiotemporal reuse when the
+     * accompanying set flag is nonzero.
      */
     uint32_t reservoir_sample_limit;
+    uint8_t reservoir_sample_limit_set;
     /* Ceiling on a single sample's luminance, which bounds fireflies. */
     float radiance_clamp;
     /* Linear multiplier applied before tone mapping. */

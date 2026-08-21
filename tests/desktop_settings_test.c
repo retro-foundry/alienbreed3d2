@@ -143,6 +143,7 @@ int main(void)
         settings.ray_tracing.maximum_bounces != 0u ||
         settings.ray_tracing.light_candidates != 0u ||
         settings.ray_tracing.reservoir_sample_limit != 0u ||
+        settings.ray_tracing.reservoir_sample_limit_set != 0u ||
         settings.ray_tracing.radiance_clamp != 0.0f ||
         settings.ray_tracing.exposure != 0.0f ||
         settings.ray_tracing.ndf_trim != 0.0f ||
@@ -169,6 +170,7 @@ int main(void)
             settings.ray_tracing.maximum_bounces != 2u ||
             settings.ray_tracing.light_candidates != 16u ||
             settings.ray_tracing.reservoir_sample_limit != 32u ||
+            settings.ray_tracing.reservoir_sample_limit_set == 0u ||
             settings.ray_tracing.radiance_clamp < 50.4f ||
             settings.ray_tracing.radiance_clamp > 50.6f ||
             settings.ray_tracing.exposure < 1.24f ||
@@ -214,7 +216,8 @@ int main(void)
     desktop_settings_default(&settings);
     if (!desktop_settings_parse(&settings, "rtx_reservoir_limit=0\n", 22u,
                                 error, sizeof(error)) ||
-        settings.ray_tracing.reservoir_sample_limit != 0u) {
+        settings.ray_tracing.reservoir_sample_limit != 0u ||
+        settings.ray_tracing.reservoir_sample_limit_set == 0u) {
         fprintf(stderr, "a zero reservoir limit was not accepted: %s\n", error);
         return 1;
     }

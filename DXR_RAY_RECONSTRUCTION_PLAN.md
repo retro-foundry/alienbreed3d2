@@ -149,17 +149,16 @@ difference between consecutive presented frames. Fixed-phase jitter, non-degener
 sky guides, and a reprojected specular hit-distance guide moved the Level A plateau
 from 1.3596 to 1.1829 and, more importantly, made the image keep settling instead of
 flatlining immediately. An alias table replaced the linear emitter
-cumulative-distribution walk. Reservoir resampling of direct lighting is implemented
-and, measured against that metric, **disproves the phase's own premise**: every
-increase in candidate count or temporal history lowered the path-traced input's
-variance and raised the reconstructed image's residual difference, because it trades
-high-frequency screen-space blue noise for correlated error a denoiser cannot
-remove. Resampling is nevertheless enabled by default on explicit user direction,
-at the values measured best among the enabled configurations, and
-`AB3D2_DXR_CANDIDATES=1 AB3D2_DXR_RESERVOIR_LIMIT=0` recovers the single-sample
-estimator for comparison. Spatial reuse is contraindicated rather than merely
-deferred. No level yet demonstrates a settled image; read section 11 before
-spending further effort on the estimator.
+cumulative-distribution walk. The first temporal reservoir lowered raw variance
+but used biased `1 / M` normalization, one exact history tap, unstable compact
+light identities, and no spatial/disocclusion stage, so its negative measurements
+do not characterize a complete ReSTIR estimator. Section 11c now records a
+surface-aware ray-traced bias correction, validated emitter history, temporal
+neighbor search, and staged current-frame spatial/disocclusion reuse. The symptom-level weight clamp and
+boiling filter were removed. The corrected `16 / 20` path passed its interactive
+moving-camera visual check on 2026-08-21 and is now the production default.
+`AB3D2_DXR_RESERVOIR_LIMIT=0` remains the exact single-sample diagnostic; read
+section 11 before tuning the estimator.
 
 ### Current dependency gate
 
@@ -333,13 +332,16 @@ The candidate loop needs far more dimensions than the eight the Heitz tables
 optimize, so its stream comes from Mark Jarzynski and Marc Olano, *Hash Functions
 for GPU Rendering* (Journal of Computer Graphics Techniques 9(3), 2020).
 
-**Papers only.** No NVIDIA RTXDI header, shader, sample, or other third-party
-resampling implementation may be read, adapted, linked, or staged. Both
-implementations are written from the published mathematics and carry the citation
-in the shader and in the CPU test that pins them, exactly as the Heitz sampler
-does. Resampling is a sampling technique, not a denoiser: the path-traced input
-remains a single-sample stochastic estimate and disabling Ray Reconstruction must
-still reveal visible noise.
+The initial implementation was written from the papers only. On 2026-08-21 the
+user explicitly requested a comparison with NVIDIA's samples after visible brown
+dots persisted. NVIDIA RTXDI's public integration document and its temporal,
+spatial, fused-spatiotemporal, reservoir, and boiling-filter HLSL were then read
+as behavioral references. The project shader remains independently written from
+the published reservoir equations and the observed pass contracts: no RTXDI
+header, shader, table, library, or binary is copied, included, linked, or staged.
+`docs/DXR_PROVENANCE.md` records the exact scope. Resampling is a sampling
+technique, not a denoiser: the path-traced input remains a stochastic estimate
+and disabling Ray Reconstruction must still reveal visible noise.
 
 ### NVIDIA Streamline and Ray Reconstruction
 
@@ -550,7 +552,7 @@ For a metallic-roughness model:
 
 ### Emitters and environment
 
-Build renderer-owned emissive triangle records from explicitly authored emissive material entries. Weight a global sampling distribution by triangle area and emitted luminance, and trace visibility rays against the TLAS. This replaces every old spatial-light-list concept; there is no BSP, PVS, cluster, ZoneT, arbitrary cap, or global-fallback workaround.
+Build renderer-owned emissive triangle records from explicitly authored emissive material entries. Weight a complete global sampling distribution by triangle area and emitted luminance, use it to build the renderer-owned ReGIR proposal, and trace visibility rays against the TLAS. Receivers outside the finite grid sample that same complete distribution. This replaces every old spatial-light-list concept; there is no BSP, PVS, cluster, ZoneT, arbitrary light cap, or incomplete fallback.
 
 Use the `SceneEnvironment` backdrop/sky through a documented lat-long or equivalent environment mapping and build an importance distribution when the environment is emissive. Source additive/glare sprites are visual effects, not light emitters, until the material manifest explicitly assigns radiometric behavior.
 
@@ -927,17 +929,156 @@ address. The raw path without Ray Reconstruction measures 29.65 with a ratio of
 - Measured neutral for stability, which is the correct expectation: it changes
   the cost and the resolution of selection, not the variance.
 
-#### 11c. Single-pass temporal ReSTIR direct lighting — complete, and the premise
-is disproven
+#### 11c. Correct spatiotemporal ReSTIR direct lighting — implemented and
+visually accepted
 
-Implemented as designed, except that the environment was left out of the
+The first temporal reservoir was not equivalent to the NVIDIA samples the user
+was comparing against. It always finalized reuse with `1 / total M`, retained a
+compact emitter index across scene updates without checking that the index still
+named the same light, sampled one exact prior pixel, and had no spatial or
+disocclusion reuse. An arbitrary inverse-PDF ceiling and a post-shading boiling
+filter were later tried against the resulting brown dots. The filter made at most
+a tiny visible improvement and the ceiling changed the estimator, so both have
+been removed rather than retained as symptom-level fixes.
+
+The clean-room implementation now has the correctness pieces that comparison
+identified:
+
+- The 48-byte double-buffered reservoir carries the selected emitter sample,
+  finalized inverse-PDF weight, history-domain count, and its owning surface's world
+  position, shading and geometric normals, material index, and exact UV. Those
+  fields reconstruct the prior BSDF domain without adding another G-buffer.
+- A geometry-only scene update invalidates renderer history if compact emitter
+  slots stop naming the same triangle or if that triangle's area PDF changes.
+  A proposal-probability change alone remains compatible because each reservoir
+  stores the inverse PDF that generated its selected sample. Otherwise
+  `PreviousVertices` supplies the prior light
+  position and emissive scale when evaluating a temporal normalization term.
+- Motion reprojection first tries the exact prior pixel and up to eight randomized
+  matches within the four-pixel temporal search footprint. Matching uses the
+  previous position's linear depth, exact material identity, depth within 10%,
+  and shading/geometric normal cosines of at least 0.5, matching RTXDI's default
+  temporal thresholds rather than the former arbitrary `0.5% / 0.966` rejection.
+- Initial candidates are finalized into one current-frame proposal, matching
+  RTXDI's `M = 1` ownership rule. Candidate count therefore improves the initial
+  proposal without multiplying the current frame's temporal influence or
+  shortening the configured history length. Emitter-selection uniforms are
+  stratified across those candidates, matching the sample pass instead of
+  allowing a random candidate set to cluster on the same light buckets.
+- Primary integration and temporal reuse write a dedicated scratch field. After
+  a UAV barrier, a second ray-generation dispatch performs current-frame spatial
+  reuse and final shading into the published history buffer. A history-bearing
+  center samples one neighbor within 32 pixels; a fresh center makes eight
+  disocclusion-recovery attempts. Valid neighbors with `M <= 2` are discounted
+  rather than spread, matching RTXDI's naive-sampling threshold. A randomized
+  cyclic start walks a fixed, project-authored 256-point low-discrepancy disk,
+  satisfying the neighbor-offset-buffer contract without importing NVIDIA data.
+  Spatial neighbors require exact material identity, depth within 10%, and
+  shading and geometric normal cosines of at least 0.5.
+- Finalization evaluates the selected light at the current surface and at every
+  accepted prior surface. Its numerator is the target at the domain that supplied
+  the selected sample and its denominator is the represented-count-weighted sum
+  over all participating domains. Temporal correction checks visibility at the
+  previous owner for every selected sample (the higher-quality presets disable
+  the temporal visibility shortcut); spatial
+  correction traces visibility at each accepted neighbor. This is the
+  ray-traced surface-aware mode used by NVIDIA's higher-quality presets, not the
+  former biased `1 / M` approximation.
+- Initial RIS weights are unshadowed. Its selected sample alone traces the
+  optional initial-visibility ray; an occluded selection loses identity and
+  weight but retains `M = 1`. This matches NVIDIA's pass contract and avoids the
+  former per-candidate visibility proposal. The spatial/shading stage performs
+  final visibility again, so both fresh and reused reservoirs obey the same
+  publication rule.
+- The final shadow ray clears an occluded sample's light identity and weight but
+  keeps its represented count and owner surface, so the empty proposal domain
+  still participates in the next basic normalization. There is no reservoir
+  weight clamp, radiance average, blur, or boiling-filter pass.
+
+The environment/BSDF strategies remain separate MIS estimators, as before; this
+reservoir covers authored area emitters only. On 2026-08-21 a second explicit
+comparison identified the remaining architectural mismatch: NVIDIA's Medium and
+Ultra sample presets feed initial ReSTIR DI from a camera-centered ReGIR
+proposal, while this renderer still drew every candidate directly from one
+global alias table. The project now builds a regular 16-by-16-by-16 world grid
+before the primary dispatch. Each cell holds 512 independent RIS entries; each
+entry resamples eight candidates from the complete global alias table and stores
+the selected emitter plus its inverse proposal probability. A UAV barrier makes
+the rebuilt grid visible to initial sampling. Jittered cell lookup reduces hard
+cell boundaries, and an out-of-grid receiver deliberately samples the complete
+global distribution.
+
+The project-owned volume target contains the physical quantities a spatial
+light proposal needs without importing NVIDIA code or data: conservative emitted
+luminance, triangle solid angle, and an RMS receiver-volume distance. The RIS
+correction changes only which candidate is proposed; the reservoir target stays
+the existing global light/BSDF MIS integrand, so emitter-hit MIS remains
+complementary and moving the camera or grid cannot change the estimated
+integral. There is no light cap, reservoir-weight ceiling, boiling filter, or
+post-shading blur in this path.
+
+The same comparison showed that `4 / 128` was not a coherent NVIDIA quality
+preset. The filter-free Ultra structure uses 16 initial local-light samples,
+four spatial samples, 16 disocclusion-boost attempts, ray-traced temporal and
+spatial correction, no final-visibility shortcut, and the library's default
+history length of 20. The positive-history path now uses those structural
+spatial counts, and `16 / 20` replaces `4 / 128` as the visual-acceptance
+configuration. NVIDIA's current integration documentation, ReGIR sampling and
+presampling contracts, initial/temporal/spatial reservoir contracts, and sample
+preset configuration were read as behavioral references after the user
+explicitly requested the comparison. The shader here was written independently
+around the published reservoir equations and project resources; no NVIDIA
+header, shader, table, library, binary, or data is included or copied.
+
+The alias proposal now uses conservative emitted-radiance bounds: triangle area,
+the material's maximum emissive-texel luminance, and the maximum authored vertex
+emission scale. This prevents a hot texel or triangle corner from inheriting a
+probability based on a much dimmer average and supplies the complete build
+proposal for the ReGIR grid above. A proposal-only probability change keeps
+history because the stored inverse PDF already records the distribution that
+generated the reservoir; identity or area changes still invalidate it.
+
+Release shader/app builds and the focused reconstruction, sample-stream, and
+scene-update tests pass in both build configurations. The earlier 192-frame
+measurement, before the conservative emitter bound, gave a late Ray
+Reconstruction delta of `1.4320` at `4 / 128` versus `1.2035` at `1 / 0`.
+That regression identified proposal quality, not reservoir history length, as
+the remaining estimator problem.
+
+In a matched 96-frame Ray Reconstruction smoke after the bound correction,
+`4 / 128` measured `7.0736` early and `1.2062` late, versus `7.5256` and
+`1.2134` at `1 / 0`. Raising the candidate count to eight produced `7.0269`
+and `1.2068`, so it supplied no material improvement. The late-frame count of
+pixels whose maximum RGB component changed by at least 16 was `7399.8` at
+`4 / 128` versus `7241.2` at `1 / 0`: the former large mean regression is gone,
+but this tail remains 2.2% higher. That frozen-camera diagnostic was therefore
+not used by itself to decide visual acceptance.
+
+With ReGIR and the filter-free Ultra spatial counts active, a matched 96-frame
+Level A Ray Reconstruction sweep at `16 / 20` measured `6.9608` early and
+`1.1988` late, versus the already-recorded `7.5256` and `1.2134` at `1 / 0`.
+That is a 7.5% startup improvement and a 1.2% steady-state improvement. The
+large-delta tail was `7422.2` pixels versus `7241.2` at `1 / 0`, however, so the
+frozen-camera metric does not prove that the visible moving dots are gone. The
+old `4 / 128` combination measured `6.9953`, `1.2103`, and `7452.5` with the new
+grid/stage, confirming that the NVIDIA-like count/history combination is the
+better setting. On 2026-08-21 the user then performed the required interactive
+moving-camera check at `rtx_light_candidates=16` and
+`rtx_reservoir_limit=20` and reported that it looked good in motion. That closes
+the brown-dot swimming acceptance gate without a weight clamp, boiling filter,
+radiance average, or blur. `16 / 20` is consequently the production default;
+an explicit zero history limit retains the exact single-sample diagnostic.
+
+#### 11d. Historical biased temporal approximation and measurements
+
+The former approximation was implemented with the environment left out of the
 reservoir. Mixing the emitter and cosine-hemisphere strategies in one reservoir
 requires the mixture source pdf to stay unbiased, and the cosine strategy's pdf
 for an emitter-sampled direction is not computable without an extra ray. Emitters
 alone are the dominant, clearly diagnosed noise source, so they were measured
 first.
 
-- One 32-byte reservoir per render-resolution pixel, double buffered on the
+- The former 32-byte reservoir per render-resolution pixel, double buffered on the
   sample index's parity, holding the surviving emitter index, the two canonical
   randoms that place the point on it as 16-bit fixed point, the unbiased
   contribution weight, the sample count, and the owning surface's world position
@@ -972,11 +1113,37 @@ swimming:
   lighting/path estimates and contribute only to the per-frame radiance
   average.
 
-These are correctness fixes, not evidence that the earlier stability conclusion
-has reversed. A complete moving-camera visual check and matched post-fix SPP /
-reservoir sweep are still required before recording new quality numbers.
+These were correctness fixes rather than evidence that the earlier stability
+conclusion had reversed. The later corrected ReGIR/ReSTIR measurements and
+moving-camera acceptance result are recorded in 11c.
 
-**The measurements do not support the premise.** With a frozen Level A camera and
+That moving-camera check was performed with four candidates and a history cap of
+128. It confirmed that positive temporal reuse still left brown emitter samples
+swimming as dots over otherwise neutral surfaces. Stochastic nearest reservoir
+reprojection was then tested, but it produced no material improvement and made
+the reconstruction slightly blurrier, so it was removed. Reservoir addressing
+therefore remained an exact point reprojection in that implementation.
+
+One production temporal-ReSTIR correction from that test was retained: a final
+sample rejected by its shadow ray is invalidated before storage, so its
+unshadowed importance cannot dominate later frames. That correction alone did
+not close the visual issue.
+
+A dedicated post-temporal boiling-filter compute pass was then tried, following
+the placement and weight test used by
+[RTXDI's direct-lighting boiling filter](https://github.com/NVIDIA-RTX/RTXDI-Library/blob/main/Include/Rtxdi/DI/BoilingFilter.hlsli).
+The path-tracing ray-generation shader cannot synchronize a tile, so the pass
+runs immediately afterwards over 16-by-16 groups. It compares each finalized
+reservoir's inverse-PDF weight (`unbiasedWeight`) with the group's nonzero mean
+and empties weights above eleven times that mean (filter strength 0.5). It runs
+only when the history cap is positive.
+
+It was a history-only correction, but the user observed at most a tiny
+improvement. It and the arbitrary 20x inverse-PDF clamp were removed when the
+underlying normalization and missing reuse stages were corrected in 11c.
+
+**Historical result from the biased implementation, not acceptance evidence.**
+With a frozen Level A camera and
 DLSS-RR active, mean absolute per-component frame-to-frame difference over the
 final four frames of a 192-frame sweep:
 
@@ -1005,11 +1172,13 @@ correlated across neighbouring pixels and across frames, because neighbours
 increasingly agree on which emitter they picked and a reservoir holds its choice
 for many frames. A denoiser removes high-frequency error and cannot remove
 correlated error, and Ray Reconstruction's history makes correlated error persist
-and drift, which is what reads as boiling. Reducing estimator variance was
-therefore the wrong lever for this renderer's output stability.
+and drift, which is what reads as boiling. Reducing estimator variance therefore
+appeared to be the wrong lever for this renderer's output stability. Because the
+tested estimator omitted basic bias correction and spatial/disocclusion reuse,
+that conclusion does not apply to the implementation in 11c.
 
-Resampling is nevertheless enabled by default on explicit user direction, at
-four candidates and a history cap of 128. Those are the values measured best
+Resampling was then tested at four candidates and a history cap of 128. Those
+were the values measured best
 among the *enabled* configurations rather than best overall. Within them the
 candidate count dominates and the cap is nearly irrelevant:
 
@@ -1020,14 +1189,14 @@ candidate count dominates and the cap is nearly irrelevant:
 | 16 | 1.4455 | 1.4508 | 1.4467 | 1.4465 |
 | 32 | 1.4771 | 1.4750 | 1.4693 | 1.4674 |
 
-At the shipped default the reconstructed image measures 1.4006 against 1.1896 for
+At that tested configuration the reconstructed image measured 1.4006 against 1.1896 for
 the single-sample estimator, so the metric still prefers resampling off by 18%.
 The raw path measures 13.83 with a ratio of 0.6517 against 29.44 and 0.9904, so
 it is 53% better and converging for the first time.
 `AB3D2_DXR_CANDIDATES=1 AB3D2_DXR_RESERVOIR_LIMIT=0` recovers the single-sample
 estimator exactly, for comparison.
 
-The temporal acceptance test draws from an optimized blue-noise dimension rather
+The former temporal acceptance test drew from an optimized blue-noise dimension rather
 than the hash stream. That test decides whether a pixel keeps its history, so it
 determines where stale samples sit on screen, and drawing it from the hash lets
 neighbouring pixels hold their history in clumps. The change measures 1.4046 to
@@ -1036,10 +1205,11 @@ on principle and not on evidence: the stability metric is temporal and cannot
 observe the spatial clumping this addresses. That property needs an eye on the
 image.
 
-**Spatial reservoir reuse is contraindicated by this result** and must not be
-implemented on the assumption that it will help: it increases exactly the
-neighbour correlation the measurements identify as harmful. If it is tried, it has
-to be justified by its own measurement first.
+The former conclusion that spatial reservoir reuse was contraindicated was
+premature: the implementation being measured was not the comparable ReSTIR
+estimator. Section 11c now implements current-frame spatial reuse with
+ray-traced correction;
+its own moving-camera result, not this historical table, decides acceptance.
 
 #### 11e. Where the instability actually lives
 
@@ -1067,14 +1237,11 @@ saturated levels are the two worst, yet Level O plateaus at 0.7251 with no
 saturated pixels at all, so blown-out highlights are an aggravating factor rather
 than the mechanism.
 
-The previously untested lever was sample count against error character: more
-*independent* blue-noise samples per pixel per frame should lower the error's
-magnitude without correlating neighbours. A 2026-08-21 visual check found that
-raising SPP still swam, but that check exercised the broken history overwrite and
-jitter reprojection described in 11c. It must be repeated after those corrections
-before attributing the result to the estimator or Ray Reconstruction. Outlier
-magnitude and exposure are the other untouched candidate. The environment term
-also remains a one-sample binary-visibility estimate per path at every bounce.
+A 2026-08-21 visual check found that raising SPP still swam after the history
+overwrite and jitter reprojection fixes. That check exercised the biased
+temporal estimator documented in 11d and is superseded by the accepted 11c
+implementation. The environment term remains a one-sample binary-visibility
+estimate per path at every bounce.
 
 The all-level smoke's stability numbers should not be turned into a regression
 threshold until the near-black levels are understood, because a level that renders
@@ -1082,8 +1249,8 @@ nothing passes any stability bound trivially.
 
 #### 11f. Deferred
 
-- ReSTIR GI for the indirect channel. Deferred indefinitely: it is the same trade
-  the 11c measurements reject, applied to a second channel.
+- ReSTIR GI for the indirect channel. Direct-light ReSTIR is now accepted, but
+  indirect reuse remains a separate future feature rather than part of this fix.
 - `kBufferTypeDiffuseHitDistance`, and confirming whether tagging
   `kBufferTypeLinearDepth` with no `kBufferTypeDepth` is supported.
 - Dropping the forced `ePresetD` on every quality level.
@@ -1196,14 +1363,8 @@ The renderer is ready for normal use only when all of these are true:
 - Transmission/refraction, nested dielectrics, volumetrics, depth of field, motion blur, and frame generation: out of the initial renderer scope.
 - Responsivity, disocclusion, transparency, or other optional Streamline masks/guides: add only when the baseline required inputs are proven and a reproducible capture demonstrates the need.
 - Static BLAS compaction, bindless layout, sampler choice, and bounce-count/performance presets: measure after correctness; none may become a visual workaround.
-- Spatial reservoir reuse: not deferred but contraindicated. It increases the
-  neighbour correlation section 11c measures as harmful, so it may only be
-  revisited behind its own measurement, never on the assumption that more
-  resampling helps.
-- ReSTIR GI: deferred indefinitely for the same reason.
-- Independent samples per pixel per frame, and radiance outlier magnitude: the
-  two levers section 11e identifies as untested. Both lower error magnitude
-  without correlating neighbours, which is the combination no Phase 11
-  measurement covers.
+- Additional spatial passes beyond the one current-frame pass in 11c: measure the
+  accepted implementation before paying for more ray-traced neighbor domains.
+- ReSTIR GI: deferred indefinitely until direct-light ReSTIR is accepted.
 
 This plan intentionally leaves no compatibility path to the removed renderer. If a required behavior is missing, extend the clean renderer and its API-neutral `SceneFrame` evidence rather than reviving old code or data.

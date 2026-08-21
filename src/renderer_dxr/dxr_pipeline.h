@@ -13,6 +13,7 @@
 #include "renderer_ray_tracing_options.h"
 #include "scene_frame.h"
 #include "dxr_reconstruction_math.h"
+#include "dxr_light_grid.h"
 #include "dxr_scene.h"
 
 namespace ab3d2::dxr {
@@ -31,9 +32,12 @@ struct DxrLightReservoir {
     uint32_t sample_count;
     float surface_position[3];
     uint32_t surface_normal;
+    float surface_texture_coordinate[2];
+    uint32_t surface_geometric_normal;
+    uint32_t surface_material_index;
 };
 
-static_assert(sizeof(DxrLightReservoir) == 32u);
+static_assert(sizeof(DxrLightReservoir) == 48u);
 
 enum class DxrReconstructionBuffer : size_t {
     noisy_radiance,
@@ -99,6 +103,7 @@ public:
         options.maximum_bounces = static_cast<uint8_t>(maximum_depth_);
         options.light_candidates = static_cast<uint16_t>(candidate_count_);
         options.reservoir_sample_limit = reservoir_sample_limit_;
+        options.reservoir_sample_limit_set = UINT8_MAX;
         options.radiance_clamp = radiance_clamp_;
         options.exposure = exposure_;
         options.ndf_trim = ndf_trim_;
@@ -118,6 +123,7 @@ private:
                                  std::string &error);
     bool create_raytracing_pipeline(ID3D12Device5 *device, std::string &error);
     bool create_blue_noise_sampler(ID3D12Device5 *device, std::string &error);
+    bool create_light_grid(ID3D12Device5 *device, std::string &error);
     bool create_diagnostics(ID3D12Device5 *device, std::string &error);
     bool create_descriptor_heap(ID3D12Device5 *device, std::string &error);
     bool configure_debug_view(std::string &error);
@@ -145,6 +151,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12StateObject> ray_state_object_;
     Microsoft::WRL::ComPtr<ID3D12Resource> shader_table_;
     Microsoft::WRL::ComPtr<ID3D12Resource> blue_noise_sampler_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> light_grid_;
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_;
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_readback_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
@@ -153,6 +160,7 @@ private:
                static_cast<size_t>(DxrReconstructionBuffer::count)>
         reconstruction_targets_;
     Microsoft::WRL::ComPtr<ID3D12Resource> streamline_output_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> temporal_reservoirs_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> light_reservoirs_;
     UINT descriptor_size_ = 0;
     UINT render_width_ = 0;

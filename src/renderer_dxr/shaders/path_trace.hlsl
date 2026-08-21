@@ -61,6 +61,14 @@ struct EmissiveTriangle
     uint aliasIndex;
 };
 
+/* Mirrored by light_grid::Entry in dxr_light_grid.h. Each entry is one
+ * independently built RIS proposal for its world-space cell. */
+struct LightGridEntry
+{
+    uint emitterIndex;
+    float inverseSelectionProbability;
+};
+
 /*
  * One direct-lighting reservoir per pixel, mirrored by `DxrLightReservoir` in
  * dxr_pipeline.h. Bitterli et al. 2020 store the surviving sample, its unbiased
@@ -81,6 +89,9 @@ struct PackedLightReservoir
     uint sampleCount;
     float3 surfacePosition;
     uint surfaceNormal;
+    float2 surfaceTextureCoordinate;
+    uint surfaceGeometricNormal;
+    uint surfaceMaterialIndex;
 };
 
 struct SurfacePayload
@@ -150,6 +161,7 @@ RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
 /* Primary-ray view-weapon coverage and fresh-radiance checksum. The hidden GPU
  * smoke reads this after the dispatch; it is never used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
+RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -238,23 +250,52 @@ static const float AuthoredAmbientScale = 1.0;
  * exhausting it leaves an opaque emissive quad rather than a hole in the world.
  */
 static const uint AdditiveLayerLimit = 16u;
-/* Temporal reuse is rejected unless the reprojected surface matches this closely:
- * a world-space distance within this fraction of the view depth, so the tolerance
- * scales with the Amiga-sized world instead of assuming a unit system, and a
- * shading-normal agreement of at least this cosine. Tight values prevent
- * reservoirs from leaking across adjacent differently-oriented surfaces. */
-static const float ReservoirPositionTolerance = 0.005;
-static const float ReservoirNormalTolerance = 0.966;
 /*
- * Sample-index offset used to draw the temporal acceptance test from an
- * optimized blue-noise dimension without reusing the value that selected this
- * frame's first candidate. Half the 256-sample block keeps the two values far
- * apart in the sequence while both stay blue in screen space.
+ * The default RTXDI pass shape is staged: temporal reuse searches around the
+ * motion-reprojected pixel, then a second dispatch samples current-frame
+ * spatial neighbors. A fresh/disoccluded center takes eight neighbors while a
+ * center with useful history takes one. Spatial matches use the looser
+ * depth/normal thresholds appropriate for nearby, nonidentical points, but
+ * still require the exact same material.
  */
-static const uint ReservoirAcceptanceOffset = 128u;
-/* Clamp the reservoir's unbiased contribution weight to prevent extreme outliers
- * from persisting across frames and drifting as correlated temporal noise. */
-static const float ReservoirMaxWeight = 20.0;
+static const uint ReservoirTemporalSearchAttempts = 9u;
+static const float ReservoirTemporalSearchRadius = 4.0;
+/* NVIDIA's filter-free Ultra DI preset uses four ordinary spatial samples and
+ * sixteen disocclusion-boost attempts. This renderer also uses ray-traced
+ * correction and does not reuse final visibility, so those are the coherent
+ * structural counts for its positive-history path. */
+static const uint ReservoirSpatialSampleCount = 4u;
+static const uint ReservoirDisocclusionSampleCount = 16u;
+static const uint ReservoirSpatialDomainCount = 16u;
+static const uint ReservoirInitialSampleCount = 1u;
+static const uint ReservoirNaiveSampleThreshold = 2u;
+static const uint ReservoirNeighborOffsetCount = 256u;
+static const uint ReservoirNeighborOffsetMask =
+    ReservoirNeighborOffsetCount - 1u;
+static const float ReservoirSpatialRadius = 32.0;
+static const float ReservoirDepthTolerance = 0.1;
+static const float ReservoirNormalTolerance = 0.5;
+static const uint ReservoirTemporalSearchStream = 0x10000u;
+static const uint ReservoirSpatialStream = 0x10100u;
+static const uint ReservoirAcceptanceStream = 0x10200u;
+static const uint ReservoirSpatialAcceptanceStream = 0x10300u;
+/*
+ * Regular-grid ReGIR dimensions mirrored by dxr_light_grid.h. The grid is
+ * rebuilt around CameraPosition before the primary dispatch whenever ReSTIR is
+ * enabled. A lookup outside its 8192-unit span uses the full global proposal.
+ */
+static const uint LightGridCellsPerAxis = 16u;
+static const uint LightGridCellCount =
+    LightGridCellsPerAxis * LightGridCellsPerAxis * LightGridCellsPerAxis;
+static const uint LightGridLightsPerCell = 512u;
+static const uint LightGridBuildSamples = 8u;
+static const uint LightGridEntryCount =
+    LightGridCellCount * LightGridLightsPerCell;
+static const float LightGridCellSize = 512.0;
+static const float LightGridExtent =
+    LightGridCellSize * float(LightGridCellsPerAxis);
+static const uint LightGridBuildStream = 0x20000u;
+static const uint LightGridLookupStream = 0x20100u;
 
 /*
  * The `pcg4d` integer hash from Jarzynski and Olano, "Hash Functions for GPU
@@ -290,6 +331,22 @@ float4 sampleStream(uint2 pixel, uint sampleIndex, uint sequenceIndex)
     uint4 hashed = hashSampleStream(
         uint4(pixel.x, pixel.y, sampleIndex, sequenceIndex));
     return float4(hashed >> 8u) * (1.0 / 16777216.0);
+}
+
+/* A project-authored fixed low-discrepancy disk, serving the same contract as
+ * RTXDI's neighbor-offset buffer without importing its data or generator. The
+ * cyclic start changes per pixel/frame, but consecutive spatial attempts walk
+ * well-separated angles and bit-reversed radii instead of forming a fresh
+ * random clump every frame. */
+float2 reservoirNeighborOffset(uint sequenceIndex)
+{
+    uint index = sequenceIndex & ReservoirNeighborOffsetMask;
+    uint radiusIndex = reversebits(index) >> 24u;
+    float radius = sqrt((float(radiusIndex) + 0.5) /
+                        float(ReservoirNeighborOffsetCount));
+    const float goldenAngle = 2.39996322972865332;
+    float angle = (float(index) + 0.5) * goldenAngle;
+    return radius * float2(cos(angle), sin(angle));
 }
 
 /*
@@ -970,9 +1027,10 @@ struct EmitterEvaluation
     bool valid;
 };
 
-EmitterEvaluation evaluateEmitterSample(SurfaceData surface,
-                                        float3 viewDirection,
-                                        EmitterSample lightSample)
+EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
+                                                float3 viewDirection,
+                                                EmitterSample lightSample,
+                                                bool previousFrame)
 {
     EmitterEvaluation evaluation;
     evaluation.contribution = 0.0;
@@ -985,9 +1043,18 @@ EmitterEvaluation evaluateEmitterSample(SurfaceData surface,
         return evaluation;
     }
     EmissiveTriangle emitter = Emitters[lightSample.emitterIndex];
-    SceneVertex first = Vertices[emitter.firstVertex + 0u];
-    SceneVertex second = Vertices[emitter.firstVertex + 1u];
-    SceneVertex third = Vertices[emitter.firstVertex + 2u];
+    SceneVertex first;
+    SceneVertex second;
+    SceneVertex third;
+    if (previousFrame) {
+        first = PreviousVertices[emitter.firstVertex + 0u];
+        second = PreviousVertices[emitter.firstVertex + 1u];
+        third = PreviousVertices[emitter.firstVertex + 2u];
+    } else {
+        first = Vertices[emitter.firstVertex + 0u];
+        second = Vertices[emitter.firstVertex + 1u];
+        third = Vertices[emitter.firstVertex + 2u];
+    }
     float root = sqrt(lightSample.positionSample.x);
     float secondRandom = lightSample.positionSample.y;
     float3 barycentrics = float3(1.0 - root,
@@ -1041,6 +1108,160 @@ EmitterEvaluation evaluateEmitterSample(SurfaceData surface,
     return evaluation;
 }
 
+struct LightSelection
+{
+    uint emitterIndex;
+    /* RIS correction for selecting this emitter, excluding the independent
+     * uniform point sampled on its triangle. */
+    float inverseProbability;
+};
+
+float3 lightGridCellCenter(uint cellIndex)
+{
+    uint3 position;
+    position.x = cellIndex % LightGridCellsPerAxis;
+    uint yz = cellIndex / LightGridCellsPerAxis;
+    position.y = yz % LightGridCellsPerAxis;
+    position.z = yz / LightGridCellsPerAxis;
+    float3 origin = CameraPosition - LightGridExtent * 0.5;
+    return origin + (float3(position) + 0.5) * LightGridCellSize;
+}
+
+/*
+ * Importance of a triangle to arbitrary receivers in one jitter-expanded
+ * cell. The project-owned target uses RMS receiver distance, area/distance^2
+ * solid angle capped at a hemisphere, and a conservative luminance proxy. It
+ * is a proposal target, never a radiance clamp.
+ */
+float lightGridVolumeTarget(uint emitterIndex, float3 cellCenter)
+{
+    EmissiveTriangle emitter = Emitters[emitterIndex];
+    SceneVertex first = Vertices[emitter.firstVertex + 0u];
+    SceneVertex second = Vertices[emitter.firstVertex + 1u];
+    SceneVertex third = Vertices[emitter.firstVertex + 2u];
+    float3 emitterCenter =
+        (first.position + second.position + third.position) / 3.0;
+    float3 difference = emitterCenter - cellCenter;
+    float distanceSquared = dot(difference, difference);
+    /* A full cell diagonal bounds the cell plus the +/- half-cell lookup
+     * jitter. For a uniform spherical receiver volume, E[r^2] = 3 R^2 / 5. */
+    float volumeRadius = LightGridCellSize * sqrt(3.0);
+    float rmsDistanceSquared = distanceSquared +
+        0.6 * volumeRadius * volumeRadius;
+    float area = 1.0 / emitter.inverseArea;
+    float approximateSolidAngle = min(
+        area / rmsDistanceSquared, 2.0 * Pi);
+    return approximateSolidAngle *
+        (emitter.selectionProbability / area);
+}
+
+[shader("raygeneration")]
+void BuildLightGrid()
+{
+    uint2 dispatchIndex = DispatchRaysIndex().xy;
+    uint lightSlot = dispatchIndex.x * LightGridLightsPerCell +
+        dispatchIndex.y;
+    if (lightSlot >= LightGridEntryCount) {
+        return;
+    }
+    LightGridEntry output;
+    output.emitterIndex = InvalidIndex;
+    output.inverseSelectionProbability = 0.0;
+    if (EmitterCount == 0u) {
+        LightGrid[lightSlot] = output;
+        return;
+    }
+
+    uint cellIndex = lightSlot / LightGridLightsPerCell;
+    float3 cellCenter = lightGridCellCenter(cellIndex);
+    float weightSum = 0.0;
+    float selectedTarget = 0.0;
+    for (uint candidate = 0u; candidate < LightGridBuildSamples;
+         ++candidate) {
+        float4 random = sampleStream(
+            uint2(lightSlot & 0xffffu, lightSlot >> 16u), SampleIndex,
+            LightGridBuildStream + candidate);
+        uint emitterIndex = selectEmitter(random.x);
+        float sourceProbability =
+            Emitters[emitterIndex].selectionProbability;
+        float target = lightGridVolumeTarget(emitterIndex, cellCenter);
+        float weight = sourceProbability > 0.0 ?
+            target / sourceProbability : 0.0;
+        weightSum += weight;
+        if (weight > 0.0 && random.y * weightSum < weight) {
+            output.emitterIndex = emitterIndex;
+            selectedTarget = target;
+        }
+    }
+    if (selectedTarget > 0.0) {
+        output.inverseSelectionProbability =
+            weightSum /
+            (float(LightGridBuildSamples) * selectedTarget);
+    }
+    LightGrid[lightSlot] = output;
+}
+
+int lightGridCellForSurface(uint2 pixel, uint sampleIndex,
+                            float3 surfacePosition)
+{
+    if (ReservoirSampleLimit == 0u) {
+        return -1;
+    }
+    float3 jitter = sampleStream(
+        pixel, sampleIndex, LightGridLookupStream).xyz - 0.5;
+    float3 samplingPosition =
+        surfacePosition + jitter * LightGridCellSize;
+    float3 origin = CameraPosition - LightGridExtent * 0.5;
+    int3 cell = int3(floor(
+        (samplingPosition - origin) / LightGridCellSize));
+    if (any(cell < 0) ||
+        any(cell >= int3(LightGridCellsPerAxis,
+                         LightGridCellsPerAxis,
+                         LightGridCellsPerAxis))) {
+        return -1;
+    }
+    return cell.x + (cell.y + cell.z * int(LightGridCellsPerAxis)) *
+        int(LightGridCellsPerAxis);
+}
+
+LightSelection selectEmitterForCell(float selection, int cellIndex)
+{
+    LightSelection result;
+    if (cellIndex >= 0) {
+        uint slot = min(uint(selection * float(LightGridLightsPerCell)),
+                        LightGridLightsPerCell - 1u);
+        LightGridEntry entry = LightGrid[
+            uint(cellIndex) * LightGridLightsPerCell + slot];
+        if (entry.emitterIndex < EmitterCount &&
+            entry.inverseSelectionProbability > 0.0) {
+            result.emitterIndex = entry.emitterIndex;
+            result.inverseProbability =
+                entry.inverseSelectionProbability;
+            return result;
+        }
+    }
+    result.emitterIndex = selectEmitter(selection);
+    result.inverseProbability =
+        1.0 / Emitters[result.emitterIndex].selectionProbability;
+    return result;
+}
+
+EmitterEvaluation evaluateEmitterSample(SurfaceData surface,
+                                        float3 viewDirection,
+                                        EmitterSample lightSample)
+{
+    return evaluateEmitterSampleForFrame(surface, viewDirection, lightSample,
+                                         false);
+}
+
+EmitterEvaluation evaluatePreviousEmitterSample(SurfaceData surface,
+                                                float3 viewDirection,
+                                                EmitterSample lightSample)
+{
+    return evaluateEmitterSampleForFrame(surface, viewDirection, lightSample,
+                                         true);
+}
+
 bool traceEmitterVisibility(SurfaceData surface, EmitterEvaluation evaluation,
                             uint instanceMask)
 {
@@ -1077,40 +1298,141 @@ float3 sampleEmitterLighting(SurfaceData surface, float3 viewDirection,
     return evaluation.contribution / evaluation.sourcePdf;
 }
 
-/*
- * Reads the reservoir the scene motion vector reprojects to, and rejects it
- * unless it describes the same surface. The comparison is against the current
- * surface's *previous* world position, which is exactly what the motion vector
- * is derived from, so geometry that translates between frames still reuses its
- * history instead of being treated as a disocclusion.
- */
-bool loadPreviousReservoir(uint2 pixel, uint2 dimensions, SurfaceData surface,
-                           float3 previousPosition, float2 motion,
-                           out PackedLightReservoir previous)
+bool loadPreviousReservoirAt(int2 previousPixel, uint2 dimensions,
+                             SurfaceData surface,
+                             out PackedLightReservoir previous)
 {
     previous = (PackedLightReservoir)0;
-    if (HistoryValid == 0u || any(abs(motion) > 65500.0)) {
+    if (any(previousPixel < 0) ||
+        any(previousPixel >= int2(dimensions))) {
         return false;
     }
-    float2 reprojected = reprojectHistoryPixel(pixel, motion);
-    if (any(reprojected < 0.0) || any(reprojected >= float2(dimensions))) {
-        return false;
-    }
-    uint2 previousPixel = uint2(reprojected);
-    previous = PreviousReservoirs[previousPixel.y * dimensions.x +
-                                  previousPixel.x];
-    if (previous.sampleCount == 0u || !(previous.unbiasedWeight > 0.0)) {
-        return false;
-    }
-    float viewDepth = max(dot(surface.position - CameraPosition, CameraForward),
-                          RayEpsilon);
-    if (length(previousPosition - previous.surfacePosition) >
-        ReservoirPositionTolerance * viewDepth) {
+    previous = PreviousReservoirs[
+        uint(previousPixel.y) * dimensions.x + uint(previousPixel.x)];
+    return previous.sampleCount > 0u &&
+        previous.surfaceMaterialIndex == surface.materialIndex;
+}
+
+/* The central temporal lookup describes the same moving surface, so compare
+ * against its known previous world position rather than assuming a static
+ * world-space point. */
+bool temporalReservoirMatches(PackedLightReservoir previous,
+                              SurfaceData surface,
+                              float3 previousPosition)
+{
+    float expectedDepth = max(dot(
+        previousPosition - PreviousCameraPosition, PreviousCameraForward),
+        RayEpsilon);
+    float previousDepth = dot(
+        previous.surfacePosition - PreviousCameraPosition,
+        PreviousCameraForward);
+    if (!(previousDepth > RayEpsilon) ||
+        abs(previousDepth - expectedDepth) >
+            ReservoirDepthTolerance * expectedDepth) {
         return false;
     }
     return dot(surface.shadingNormal,
                unpackOctahedralNormal(previous.surfaceNormal)) >=
-        ReservoirNormalTolerance;
+            ReservoirNormalTolerance &&
+        dot(surface.geometricNormal,
+            unpackOctahedralNormal(previous.surfaceGeometricNormal)) >=
+            ReservoirNormalTolerance;
+}
+
+bool loadCurrentReservoirAt(int2 currentPixel, uint2 dimensions,
+                            SurfaceData surface,
+                            out PackedLightReservoir current)
+{
+    current = (PackedLightReservoir)0;
+    if (any(currentPixel < 0) || any(currentPixel >= int2(dimensions))) {
+        return false;
+    }
+    current = CurrentReservoirs[
+        uint(currentPixel.y) * dimensions.x + uint(currentPixel.x)];
+    return current.sampleCount > 0u &&
+        current.surfaceMaterialIndex == surface.materialIndex;
+}
+
+/* A current-frame spatial neighbor is a nearby point rather than the
+ * identical point. Use view depth for scale-independent edge stopping,
+ * together with material and both normal frames to prevent cross-surface light
+ * leaking. */
+bool currentSpatialReservoirMatches(PackedLightReservoir current,
+                                    SurfaceData surface)
+{
+    float expectedDepth = max(dot(
+        surface.position - CameraPosition, CameraForward),
+        RayEpsilon);
+    float neighborDepth = dot(
+        current.surfacePosition - CameraPosition, CameraForward);
+    if (!(neighborDepth > RayEpsilon) ||
+        abs(neighborDepth - expectedDepth) >
+            ReservoirDepthTolerance * expectedDepth) {
+        return false;
+    }
+    return dot(surface.shadingNormal,
+               unpackOctahedralNormal(current.surfaceNormal)) >=
+            ReservoirNormalTolerance &&
+        dot(surface.geometricNormal,
+            unpackOctahedralNormal(current.surfaceGeometricNormal)) >=
+            ReservoirNormalTolerance;
+}
+
+bool findTemporalReservoir(uint2 pixel, uint2 dimensions, uint sampleIndex,
+                           SurfaceData surface, float3 previousPosition,
+                           float2 motion, out int2 previousPixel)
+{
+    previousPixel = -1;
+    if (HistoryValid == 0u || ReservoirSampleLimit == 0u ||
+        any(abs(motion) > 65500.0)) {
+        return false;
+    }
+    float2 reprojected = reprojectHistoryPixel(pixel, motion);
+    int2 center = int2(floor(reprojected));
+    for (uint attempt = 0u; attempt < ReservoirTemporalSearchAttempts;
+         ++attempt) {
+        int2 offset = 0;
+        if (attempt > 0u) {
+            float2 random = sampleStream(
+                pixel, sampleIndex,
+                ReservoirTemporalSearchStream + attempt).xy;
+            offset = int2((random - 0.5) * ReservoirTemporalSearchRadius);
+        }
+        int2 candidatePixel = center + offset;
+        PackedLightReservoir candidate;
+        if (loadPreviousReservoirAt(candidatePixel, dimensions, surface,
+                                    candidate) &&
+            temporalReservoirMatches(candidate, surface, previousPosition)) {
+            previousPixel = candidatePixel;
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Reconstructs the previous owner surface needed by basic bias correction.
+ * Its BSDF inputs are sampled from the immutable material atlas at the exact UV
+ * carried by the reservoir; normals and world position are the values that
+ * actually owned that previous reservoir. */
+SurfaceData reservoirSurface(PackedLightReservoir reservoir)
+{
+    SurfaceData surface = (SurfaceData)0;
+    surface.position = reservoir.surfacePosition;
+    surface.shadingNormal =
+        unpackOctahedralNormal(reservoir.surfaceNormal);
+    surface.geometricNormal =
+        unpackOctahedralNormal(reservoir.surfaceGeometricNormal);
+    surface.textureCoordinate = reservoir.surfaceTextureCoordinate;
+    surface.materialIndex = reservoir.surfaceMaterialIndex;
+    SceneMaterial material = Materials[surface.materialIndex];
+    uint2 texel = materialTexel(material, surface.textureCoordinate);
+    surface.baseColor = saturate(BaseColorAtlas.Load(int3(texel, 0)).rgb);
+    surface.metalness = saturate(MetalnessAtlas.Load(int3(texel, 0)).r);
+    surface.specularFactor = saturate(material.specularFactor);
+    surface.roughness = clamp(
+        RoughnessAtlas.Load(int3(texel, 0)).r, 0.045, 1.0);
+    surface.emitterIndex = InvalidIndex;
+    return surface;
 }
 
 /*
@@ -1118,58 +1440,42 @@ bool loadPreviousReservoir(uint2 pixel, uint2 dimensions, SurfaceData surface,
  * Wyman, Pharr, Shirley, Lefohn, and Jarosz, "Spatiotemporal reservoir resampling
  * for real-time ray tracing with dynamic direct lighting", SIGGRAPH 2020.
  *
- * `CandidateCount` emitter candidates are resampled into one reservoir with no
- * shadow rays (their Algorithm 2), the reprojected previous reservoir is combined
- * into it with weight `targetPdf * W * M` re-evaluated at this surface and
- * normalised by the total sample count (their Algorithm 4), and one shadow ray is
- * traced for whichever sample survives.
- *
- * Re-tracing that ray every frame is what keeps stale visibility out of the
- * result without the per-sample visibility checks the unbiased combination
- * weights would need. The `1 / total M` form is the paper's Algorithm 4 and is
- * biased in the presence of that reuse; the choice is deliberate.
+ * CandidateCount unshadowed emitter candidates are resampled into one reservoir,
+ * then the reprojected previous reservoir is combined with weight
+ * targetPdf * W * M re-evaluated at this surface. The normalization evaluates
+ * the selected sample at both owning surfaces, which is the basic pairwise-MIS
+ * correction required when those targets differ. Current-frame spatial reuse
+ * and final visibility are deliberately deferred to SpatialShade.
  *
  * With `CandidateCount` of one and no usable history this reduces exactly to the
  * single-sample estimator it replaces: the unbiased weight becomes the
  * reciprocal of the source pdf.
  */
-float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
-                               uint sampleIndex,
-                               SurfaceData surface, float3 viewDirection,
-                               float3 previousPosition, float2 motion,
-                               uint instanceMask,
-                               out PackedLightReservoir stored)
+float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
+                              uint sampleIndex,
+                              SurfaceData surface, float3 viewDirection,
+                              float3 previousPosition, float2 motion,
+                              uint instanceMask,
+                              out PackedLightReservoir stored)
 {
     stored = (PackedLightReservoir)0;
+    stored.emitterIndex = InvalidIndex;
     stored.surfacePosition = surface.position;
     stored.surfaceNormal = packOctahedralNormal(surface.shadingNormal);
+    stored.surfaceTextureCoordinate = surface.textureCoordinate;
+    stored.surfaceGeometricNormal =
+        packOctahedralNormal(surface.geometricNormal);
+    stored.surfaceMaterialIndex = surface.materialIndex;
     if (EmitterCount == 0u || CandidateCount == 0u) {
         return 0.0;
     }
 
     EmitterSample selected = (EmitterSample)0;
-    float selectedTarget = 0.0;
     float weightSum = 0.0;
     uint sampleCount = 0u;
+    int lightGridCell = lightGridCellForSurface(
+        pixel, sampleIndex, surface.position);
     for (uint candidate = 0u; candidate < CandidateCount; ++candidate) {
-        /*
-         * The first candidate keeps the blue-noise dimensions this bounce already
-         * reserves for emitter sampling, and the rest come from the hash stream.
-         *
-         * This split is measured, not stylistic. Taking every candidate from the
-         * hash raised the reconstructed image's residual frame-to-frame delta even
-         * though it lowered the path-traced input's variance, and the regression
-         * was already fully present at a single candidate. Screen-space blue noise
-         * is what makes the surviving error cheap for Ray Reconstruction to
-         * filter, so the dimensions the pinned tables actually optimize stay on
-         * the sample most likely to survive resampling. The hash covers the
-         * remaining candidates, which need far more dimensions than the tables
-         * provide and would otherwise reuse the same eight ranking and scrambling
-         * channels through a tile translation.
-         *
-         * The first candidate needs no acceptance random: it is always selected,
-         * because at that point the running weight sum is its own weight.
-         */
         float3 stream;
         float acceptance;
         if (candidate == 0u) {
@@ -1184,80 +1490,145 @@ float3 resampleEmitterLighting(uint2 pixel, uint2 dimensions,
             stream = hashed.xyz;
             acceptance = hashed.w;
         }
+        /* RTXDI stratifies local-light selection across the initial candidate
+         * count. The full set still covers the complete power distribution,
+         * while duplicates and candidate-set clumping are reduced. */
+        stream.x = (stream.x + float(candidate)) / float(CandidateCount);
+        LightSelection lightSelection =
+            selectEmitterForCell(stream.x, lightGridCell);
         EmitterSample candidateSample;
-        candidateSample.emitterIndex = selectEmitter(stream.x);
-        /* Quantized here so the weight a reservoir stores always describes
-         * exactly the sample it stores. */
+        candidateSample.emitterIndex = lightSelection.emitterIndex;
         candidateSample.positionSample = quantizePositionSample(stream.yz);
         candidateSample.valid = true;
         EmitterEvaluation evaluation =
             evaluateEmitterSample(surface, viewDirection, candidateSample);
-        float weight = evaluation.valid && evaluation.sourcePdf > 0.0 ?
-            evaluation.targetPdf / evaluation.sourcePdf : 0.0;
+        float globalProbability = Emitters[
+            candidateSample.emitterIndex].selectionProbability;
+        float conditionalAreaPdf = evaluation.valid &&
+                globalProbability > 0.0 ?
+            evaluation.sourcePdf / globalProbability : 0.0;
+        /* The target remains the existing global light/BSDF MIS integrand.
+         * ReGIR changes only the proposal, and its stored inverse probability
+         * supplies the two-stage RIS correction. */
+        float weight = conditionalAreaPdf > 0.0 ?
+            evaluation.targetPdf * lightSelection.inverseProbability /
+                conditionalAreaPdf : 0.0;
         weightSum += weight;
         sampleCount += 1u;
         if (weight > 0.0 && acceptance * weightSum < weight) {
             selected = candidateSample;
-            selectedTarget = evaluation.targetPdf;
         }
     }
 
-    PackedLightReservoir previous;
-    if (loadPreviousReservoir(pixel, dimensions, surface, previousPosition,
-                              motion, previous)) {
-        EmitterSample previousSample;
-        previousSample.emitterIndex = previous.emitterIndex;
-        previousSample.positionSample =
-            unpackPositionSample(previous.positionSample);
-        previousSample.valid = true;
-        EmitterEvaluation previousEvaluation =
-            evaluateEmitterSample(surface, viewDirection, previousSample);
-        /* Capping the carried sample count keeps the reservoir responsive:
-         * without it a pixel's history would dominate every new candidate and
-         * lighting changes would never take effect. A limit of zero disables
-         * temporal reuse outright, which is the measured default. */
-        uint previousCount = min(previous.sampleCount, ReservoirSampleLimit);
-        float previousWeight = previousEvaluation.valid ?
-            previousEvaluation.targetPdf * previous.unbiasedWeight *
-                float(previousCount) : 0.0;
-        float totalWeight = weightSum + previousWeight;
-        /*
-         * The temporal acceptance test decides whether a pixel keeps its history
-         * or takes a fresh candidate, so it is what determines where stale
-         * samples sit on screen. Drawing it from the hash lets neighbouring
-         * pixels hold their history in clumps, which is the correlated
-         * low-frequency error a denoiser cannot remove. Drawing it from an
-         * optimized blue-noise dimension spreads the switch events across the
-         * screen instead, which is precisely what the sampler exists to do.
-         */
-        float acceptance = sampleBlueNoise(
-            pixel, sampleIndex + ReservoirAcceptanceOffset,
-            PathDimensionsPerBounce * 0u + 2u);
-        if (previousWeight > 0.0 && acceptance * totalWeight < previousWeight) {
-            selected = previousSample;
-            selectedTarget = previousEvaluation.targetPdf;
+    /* RTXDI's initial pass finalizes all local-light candidates into one
+     * current-frame proposal before temporal reuse. M therefore counts history
+     * domains, not how many candidates were tested inside this proposal. This
+     * also keeps CandidateCount from changing the meaning of the history cap. */
+    weightSum /= float(sampleCount);
+    sampleCount = ReservoirInitialSampleCount;
+    /* NVIDIA's initial-visibility option tests only the RIS-selected sample,
+     * then discards its identity and weight while retaining M when occluded.
+     * Visibility inside every candidate weight is a different proposal and
+     * causes unstable selection at shadow boundaries. */
+    EmitterEvaluation initialEvaluation =
+        evaluateEmitterSample(surface, viewDirection, selected);
+    if (!initialEvaluation.valid ||
+        !traceEmitterVisibility(surface, initialEvaluation, instanceMask)) {
+        selected.valid = false;
+        weightSum = 0.0;
+    }
+    uint currentCount = sampleCount;
+    PackedLightReservoir previous = (PackedLightReservoir)0;
+    uint previousCount = 0u;
+    bool reusedPrevious = false;
+    bool selectedPrevious = false;
+    int2 temporalPixel;
+    if (findTemporalReservoir(
+            pixel, dimensions, sampleIndex, surface, previousPosition, motion,
+            temporalPixel) &&
+        loadPreviousReservoirAt(temporalPixel, dimensions, surface,
+                                previous)) {
+        previousCount = min(previous.sampleCount, ReservoirSampleLimit);
+        reusedPrevious = previousCount > 0u;
+        if (reusedPrevious) {
+            EmitterSample previousSample;
+            previousSample.emitterIndex = previous.emitterIndex;
+            previousSample.positionSample =
+                unpackPositionSample(previous.positionSample);
+            previousSample.valid = previous.unbiasedWeight > 0.0 &&
+                previous.emitterIndex < EmitterCount;
+            EmitterEvaluation previousEvaluation =
+                evaluateEmitterSample(surface, viewDirection, previousSample);
+            float previousWeight = previousEvaluation.valid ?
+                previousEvaluation.targetPdf * previous.unbiasedWeight *
+                    float(previousCount) : 0.0;
+            float totalWeight = weightSum + previousWeight;
+            float acceptance = sampleStream(
+                pixel, sampleIndex, ReservoirAcceptanceStream).x;
+            if (previousWeight > 0.0 &&
+                acceptance * totalWeight < previousWeight) {
+                selected = previousSample;
+                selectedPrevious = true;
+            }
+            weightSum = totalWeight;
+            sampleCount += previousCount;
         }
-        weightSum = totalWeight;
-        sampleCount += previousCount;
     }
 
-    float unbiasedWeight = sampleCount > 0u && selectedTarget > 0.0 ?
-        min(weightSum / (float(sampleCount) * selectedTarget),
-            ReservoirMaxWeight) : 0.0;
-    stored.emitterIndex = selected.emitterIndex;
-    stored.positionSample = packPositionSample(selected.positionSample);
-    stored.unbiasedWeight = unbiasedWeight;
     stored.sampleCount = sampleCount;
-    if (!selected.valid || !(unbiasedWeight > 0.0)) {
+    if (!selected.valid) {
         return 0.0;
     }
     EmitterEvaluation finalEvaluation =
         evaluateEmitterSample(surface, viewDirection, selected);
-    if (!finalEvaluation.valid || !(finalEvaluation.targetPdf > 0.0) ||
-        !traceEmitterVisibility(surface, finalEvaluation, instanceMask)) {
+    if (!finalEvaluation.valid || !(finalEvaluation.targetPdf > 0.0)) {
         return 0.0;
     }
-    return finalEvaluation.contribution * unbiasedWeight;
+    float normalizationNumerator = finalEvaluation.targetPdf;
+    float normalizationDenominator =
+        finalEvaluation.targetPdf * float(currentCount);
+    if (reusedPrevious) {
+        SurfaceData previousSurface = reservoirSurface(previous);
+        float3 toPreviousCamera =
+            PreviousCameraPosition - previousSurface.position;
+        float previousTarget = 0.0;
+        if (dot(toPreviousCamera, toPreviousCamera) > 1.0e-8) {
+            EmitterEvaluation evaluationAtPrevious =
+                evaluatePreviousEmitterSample(
+                    previousSurface, normalize(toPreviousCamera), selected);
+            if (evaluationAtPrevious.valid) {
+                previousTarget = evaluationAtPrevious.targetPdf;
+                /* RTXDI's Unbiased/Ultra path disables the temporal visibility
+                 * shortcut: even a sample selected from the previous reservoir
+                 * is tested at that owner with the current acceleration
+                 * structure before it enters the normalization. Trusting the
+                 * stored result is a faster-preset optimization that can retain
+                 * stale visibility across moving geometry. */
+                if (previousTarget > 0.0 &&
+                    !traceEmitterVisibility(previousSurface,
+                                            evaluationAtPrevious,
+                                            instanceMask)) {
+                    previousTarget = 0.0;
+                }
+            }
+        }
+        normalizationDenominator += previousTarget * float(previousCount);
+        if (selectedPrevious) {
+            normalizationNumerator = previousTarget;
+        }
+    }
+    float unbiasedWeight = normalizationNumerator > 0.0 &&
+            normalizationDenominator > 0.0 ?
+        weightSum * normalizationNumerator /
+            (finalEvaluation.targetPdf * normalizationDenominator) : 0.0;
+    if (!(unbiasedWeight > 0.0) || isnan(unbiasedWeight) ||
+        isinf(unbiasedWeight)) {
+        return 0.0;
+    }
+    stored.emitterIndex = selected.emitterIndex;
+    stored.positionSample = packPositionSample(selected.positionSample);
+    stored.unbiasedWeight = unbiasedWeight;
+    return 0.0;
 }
 
 float emitterPdfForHit(SurfaceData surface, float3 previousPosition)
@@ -1480,18 +1851,14 @@ void RayGeneration()
             radiance += throughput * sampleEnvironmentLighting(
                 surface, viewDirection, environmentSample, SceneInstanceMask);
         }
-        if (depth == 0u) {
-            /* The reservoir's first candidate consumes the same emitter
-             * dimensions this bounce already reserves, so every bounce keeps its
-             * fixed dimension layout and no branch shifts the sequence. */
-            PackedLightReservoir sampleReservoir;
-            radiance += throughput * resampleEmitterLighting(
+        if (depth == 0u && sampleOrdinal == 0u) {
+            /* Ordinal zero publishes the temporal reservoir. Its direct-light
+             * contribution is added by SpatialShade after current-frame spatial
+             * reuse; every later SPP ordinal remains an independent estimate. */
+            resampleEmitterTemporal(
                 pixel, dimensions, effectiveSampleIndex, surface, viewDirection,
                 previousSurfacePosition(payload), primaryGuides.motion,
-                SceneInstanceMask, sampleReservoir);
-            if (sampleOrdinal == 0u) {
-                reservoir = sampleReservoir;
-            }
+                SceneInstanceMask, reservoir);
         } else {
             radiance += throughput * sampleEmitterLighting(
                 surface, viewDirection, emitterSelection, emitterSample,
@@ -1577,6 +1944,197 @@ void RayGeneration()
         InterlockedAdd(Diagnostics[4], 1u);
     }
     CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = reservoir;
+}
+
+/*
+ * The second RTXDI-style stage consumes the completed temporal field, reuses
+ * current-frame neighbors, performs basic pairwise-MIS normalization, traces
+ * final visibility, and only then publishes the history reservoir. Keeping
+ * this separate from RayGeneration means every spatial lookup sees this
+ * frame's temporal result instead of a prior-frame approximation.
+ */
+[shader("raygeneration")]
+void SpatialShade()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    uint reservoirIndex = pixel.y * dimensions.x + pixel.x;
+    PackedLightReservoir center = CurrentReservoirs[reservoirIndex];
+    PackedLightReservoir output = center;
+    output.emitterIndex = InvalidIndex;
+    output.positionSample = 0u;
+    output.unbiasedWeight = 0.0;
+    if (center.sampleCount == 0u) {
+        PreviousReservoirs[reservoirIndex] = output;
+        return;
+    }
+
+    SurfaceData centerSurface = reservoirSurface(center);
+    float3 toCamera = CameraPosition - centerSurface.position;
+    if (dot(toCamera, toCamera) <= 1.0e-8) {
+        PreviousReservoirs[reservoirIndex] = output;
+        return;
+    }
+    float3 viewDirection = normalize(toCamera);
+    EmitterSample selected;
+    selected.emitterIndex = center.emitterIndex;
+    selected.positionSample = unpackPositionSample(center.positionSample);
+    selected.valid = center.unbiasedWeight > 0.0 &&
+        center.emitterIndex < EmitterCount;
+    EmitterEvaluation centerEvaluation =
+        evaluateEmitterSample(centerSurface, viewDirection, selected);
+    float weightSum = centerEvaluation.valid ?
+        centerEvaluation.targetPdf * center.unbiasedWeight *
+            float(center.sampleCount) : 0.0;
+    uint totalCount = center.sampleCount;
+    int selectedDomain = -1;
+    int2 neighborPixels[ReservoirSpatialDomainCount];
+    uint neighborCounts[ReservoirSpatialDomainCount];
+    uint neighborDomainCount = 0u;
+    uint attemptCount = ReservoirSampleLimit == 0u ? 0u :
+        (center.sampleCount <= ReservoirInitialSampleCount ?
+            ReservoirDisocclusionSampleCount : ReservoirSpatialSampleCount);
+    uint spatialSampleIndex = SampleIndex * SamplesPerPixel;
+    uint neighborStart = min(uint(sampleStream(
+        pixel, spatialSampleIndex, ReservoirSpatialStream).x *
+        float(ReservoirNeighborOffsetCount)), ReservoirNeighborOffsetMask);
+
+    for (uint attempt = 0u; attempt < attemptCount; ++attempt) {
+        float2 offset = reservoirNeighborOffset(neighborStart + attempt);
+        int2 neighborPixel = int2(pixel) +
+            int2(round(ReservoirSpatialRadius * offset));
+        if (all(neighborPixel == int2(pixel))) {
+            continue;
+        }
+        bool duplicate = false;
+        for (uint neighborIndex = 0u;
+             neighborIndex < neighborDomainCount; ++neighborIndex) {
+            duplicate = duplicate ||
+                all(neighborPixel == neighborPixels[neighborIndex]);
+        }
+        if (duplicate) {
+            continue;
+        }
+
+        PackedLightReservoir neighbor;
+        if (!loadCurrentReservoirAt(neighborPixel, dimensions, centerSurface,
+                                    neighbor) ||
+            !currentSpatialReservoirMatches(neighbor, centerSurface)) {
+            continue;
+        }
+        /* Match RTXDI's default discountNaiveSamples behavior: do not spread a
+         * valid sample that has no temporal history into surrounding pixels. */
+        if (neighbor.unbiasedWeight > 0.0 &&
+            neighbor.emitterIndex < EmitterCount &&
+            neighbor.sampleCount <= ReservoirNaiveSampleThreshold) {
+            continue;
+        }
+        uint neighborCount = neighbor.sampleCount;
+        EmitterSample neighborSample;
+        neighborSample.emitterIndex = neighbor.emitterIndex;
+        neighborSample.positionSample =
+            unpackPositionSample(neighbor.positionSample);
+        neighborSample.valid = neighbor.unbiasedWeight > 0.0 &&
+            neighbor.emitterIndex < EmitterCount;
+        EmitterEvaluation neighborEvaluation =
+            evaluateEmitterSample(centerSurface, viewDirection,
+                                  neighborSample);
+        float neighborWeight = neighborEvaluation.valid ?
+            neighborEvaluation.targetPdf * neighbor.unbiasedWeight *
+                float(neighborCount) : 0.0;
+        float combinedWeight = weightSum + neighborWeight;
+        float acceptance = sampleStream(
+            pixel, spatialSampleIndex,
+            ReservoirSpatialAcceptanceStream + attempt).x;
+        if (neighborWeight > 0.0 &&
+            acceptance * combinedWeight < neighborWeight) {
+            selected = neighborSample;
+            selectedDomain = int(neighborDomainCount);
+        }
+        weightSum = combinedWeight;
+        totalCount += neighborCount;
+        neighborPixels[neighborDomainCount] = neighborPixel;
+        neighborCounts[neighborDomainCount] = neighborCount;
+        neighborDomainCount += 1u;
+    }
+
+    output.sampleCount = totalCount;
+    if (!selected.valid) {
+        PreviousReservoirs[reservoirIndex] = output;
+        return;
+    }
+    EmitterEvaluation finalEvaluation =
+        evaluateEmitterSample(centerSurface, viewDirection, selected);
+    if (!finalEvaluation.valid || !(finalEvaluation.targetPdf > 0.0)) {
+        PreviousReservoirs[reservoirIndex] = output;
+        return;
+    }
+
+    float normalizationNumerator = finalEvaluation.targetPdf;
+    float normalizationDenominator =
+        finalEvaluation.targetPdf * float(center.sampleCount);
+    for (uint neighborIndex = 0u;
+         neighborIndex < neighborDomainCount; ++neighborIndex) {
+        PackedLightReservoir neighbor = CurrentReservoirs[
+            uint(neighborPixels[neighborIndex].y) * dimensions.x +
+            uint(neighborPixels[neighborIndex].x)];
+        SurfaceData neighborSurface = reservoirSurface(neighbor);
+        float3 toNeighborCamera = CameraPosition - neighborSurface.position;
+        float neighborTarget = 0.0;
+        if (dot(toNeighborCamera, toNeighborCamera) > 1.0e-8) {
+            EmitterEvaluation evaluationAtNeighbor = evaluateEmitterSample(
+                neighborSurface, normalize(toNeighborCamera), selected);
+            /* NVIDIA's Unbiased/Ultra spatial mode includes conservative
+             * visibility in the pairwise target. Basic mode assumes every
+             * accepted neighbor can see the selected sample, which leaves
+             * isolated high-weight samples at occlusion boundaries. */
+            if (evaluationAtNeighbor.valid &&
+                traceEmitterVisibility(neighborSurface,
+                                       evaluationAtNeighbor,
+                                       SceneInstanceMask)) {
+                neighborTarget = evaluationAtNeighbor.targetPdf;
+            }
+        }
+        normalizationDenominator +=
+            neighborTarget * float(neighborCounts[neighborIndex]);
+        if (selectedDomain == int(neighborIndex)) {
+            normalizationNumerator = neighborTarget;
+        }
+    }
+    float unbiasedWeight = normalizationNumerator > 0.0 &&
+            normalizationDenominator > 0.0 ?
+        weightSum * normalizationNumerator /
+            (finalEvaluation.targetPdf * normalizationDenominator) : 0.0;
+    if (!(unbiasedWeight > 0.0) || isnan(unbiasedWeight) ||
+        isinf(unbiasedWeight)) {
+        PreviousReservoirs[reservoirIndex] = output;
+        return;
+    }
+
+    output.emitterIndex = selected.emitterIndex;
+    output.positionSample = packPositionSample(selected.positionSample);
+    output.unbiasedWeight = unbiasedWeight;
+    if (!traceEmitterVisibility(centerSurface, finalEvaluation,
+                                SceneInstanceMask)) {
+        output.emitterIndex = InvalidIndex;
+        output.positionSample = 0u;
+        output.unbiasedWeight = 0.0;
+        PreviousReservoirs[reservoirIndex] = output;
+        return;
+    }
+    PreviousReservoirs[reservoirIndex] = output;
+
+    float3 directRadiance = finalEvaluation.contribution * unbiasedWeight;
+    if (any(isnan(directRadiance)) || any(isinf(directRadiance))) {
+        directRadiance = 0.0;
+    }
+    float directLuminance = luminance(directRadiance);
+    if (directLuminance > RadianceClamp) {
+        directRadiance *= RadianceClamp / directLuminance;
+    }
+    float4 noisy = NoisyRadiance[pixel];
+    noisy.rgb += directRadiance / float(SamplesPerPixel);
+    NoisyRadiance[pixel] = noisy;
 }
 
 [shader("anyhit")]

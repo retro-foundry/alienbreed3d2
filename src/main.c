@@ -1565,6 +1565,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 };
                 double early_delta = 0.0;
                 double late_delta = 0.0;
+                uint64_t late_temporal_outliers = UINT64_C(0);
                 unsigned early_count = 0u;
                 unsigned late_count = 0u;
                 unsigned frame_index;
@@ -1612,6 +1613,9 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     if (frame_index + (unsigned)GAME_APP_DXR_STABILITY_WINDOW >=
                         stability_frames) {
                         late_delta += delta;
+                        late_temporal_outliers +=
+                            renderer_last_frame_temporal_outlier_pixels(
+                                app->renderer);
                         ++late_count;
                     }
                 }
@@ -1627,12 +1631,13 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 late_delta /= (double)late_count;
                 fprintf(stdout,
                         "[RENDER] DXR Level %c stability frames=%u early=%.4f "
-                        "late=%.4f ratio=%.4f saturated=%llu\n",
+                        "late=%.4f ratio=%.4f saturated=%llu outliers16=%.1f\n",
                         (char)('A' + level_index), stability_frames,
                         early_delta, late_delta,
                         early_delta > 0.0 ? late_delta / early_delta : 0.0,
                         (unsigned long long)renderer_last_frame_saturated_pixels(
-                            app->renderer));
+                            app->renderer),
+                        (double)late_temporal_outliers / (double)late_count);
             }
             /*
              * Drive the real ShootT -> Plr1_Shot -> draw_PolygonModel sequence.
@@ -1963,14 +1968,18 @@ static int game_app_run_gpu_smoke(GameApp *app)
                      *
                      * Frame timing is deliberately not asserted here. The hidden
                      * smoke reads the whole frame buffer back every frame, which
-                     * costs more than the frame it measures, so the rebuild count is
-                     * the only honest signal this harness has.
+                     * costs more than the frame it measures. Rebuild count remains
+                     * the structural assertion; display delta and the large-change
+                     * tail are reported only for matched moving-camera comparisons.
                      */
                     {
                         enum { GAME_APP_DXR_WALK_FRAMES = 400 };
                         uint64_t walk_baseline;
                         uint64_t walk_rebuilds;
                         unsigned walk_frame = 0u;
+                        unsigned walk_metric_count = 0u;
+                        double walk_delta_sum = 0.0;
+                        double walk_outlier_sum = 0.0;
 
                         /*
                          * Settle back onto the ordinary scene first. The
@@ -2026,6 +2035,17 @@ static int game_app_run_gpu_smoke(GameApp *app)
                                 app->exit_code = 1;
                                 return 0;
                             }
+                            {
+                                const double frame_delta =
+                                    renderer_last_frame_delta(app->renderer);
+                                if (frame_delta >= 0.0) {
+                                    walk_delta_sum += frame_delta;
+                                    walk_outlier_sum += (double)
+                                        renderer_last_frame_temporal_outlier_pixels(
+                                            app->renderer);
+                                    walk_metric_count += 1u;
+                                }
+                            }
                         }
                         (void)game_input_set_raw_key(
                             &app->game.input,
@@ -2062,9 +2082,13 @@ static int game_app_run_gpu_smoke(GameApp *app)
                         }
                         fprintf(stdout,
                                 "[RENDER] DXR Level %c walked and fired %u frames with "
-                                "%llu scene rebuilds\n",
+                                "%llu scene rebuilds, delta=%.4f outliers16=%.1f\n",
                                 (char)('A' + level_index), walk_frame,
-                                (unsigned long long)walk_rebuilds);
+                                (unsigned long long)walk_rebuilds,
+                                walk_metric_count != 0u ?
+                                    walk_delta_sum / (double)walk_metric_count : -1.0,
+                                walk_metric_count != 0u ?
+                                    walk_outlier_sum / (double)walk_metric_count : -1.0);
                     }
             }
             continue;

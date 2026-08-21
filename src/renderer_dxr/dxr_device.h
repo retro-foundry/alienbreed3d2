@@ -48,6 +48,10 @@ public:
     {
         return last_scene_saturated_pixels_;
     }
+    uint64_t last_scene_temporal_outlier_pixels() const
+    {
+        return last_scene_temporal_outlier_pixels_;
+    }
 
     ID3D12Device5 *device() const { return device_.Get(); }
 
@@ -88,6 +92,7 @@ private:
     uint64_t last_scene_rgb_checksum_ = 0;
     double last_scene_frame_delta_ = -1.0;
     uint64_t last_scene_saturated_pixels_ = 0;
+    uint64_t last_scene_temporal_outlier_pixels_ = 0;
     std::vector<uint8_t> previous_readback_rgb_;
     UINT readback_width_ = 0;
     UINT readback_height_ = 0;

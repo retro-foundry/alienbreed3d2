@@ -195,6 +195,14 @@ extern "C" uint64_t renderer_rtx_last_scene_emissive_scale_fold(
         UINT64_C(0);
 }
 
+extern "C" uint64_t renderer_rtx_last_frame_temporal_outlier_pixels(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_temporal_outlier_pixels() :
+        UINT64_C(0);
+}
+
 extern "C" uint64_t renderer_rtx_scene_rebuild_count(
     const RendererRtx *renderer)
 {

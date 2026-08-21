@@ -48,6 +48,39 @@ int main()
         return fail("uniform left the half-open unit interval");
     }
 
+    for (uint32_t candidate = 0u; candidate < 4u; ++candidate) {
+        const float selection = stratified_candidate(0.25f, candidate, 4u);
+        if (!(selection >= 0.0f) || !(selection < 1.0f) ||
+            static_cast<uint32_t>(selection * 4.0f) != candidate) {
+            return fail("initial emitter candidate did not occupy its stratum");
+        }
+    }
+    if (stratified_candidate(0.5f, 0u, 0u) != 0.0f) {
+        return fail("empty candidate stratification was not rejected");
+    }
+
+    double offset_x_sum = 0.0;
+    double offset_y_sum = 0.0;
+    double radius_squared_sum = 0.0;
+    for (uint32_t index = 0u; index < neighbor_offset_count; ++index) {
+        const std::array<float, 2> offset = spatial_neighbor_offset(index);
+        const double radius_squared =
+            static_cast<double>(offset[0]) * offset[0] +
+            static_cast<double>(offset[1]) * offset[1];
+        if (!(radius_squared > 0.0) || !(radius_squared < 1.0)) {
+            return fail("spatial neighbor offset left the unit disk");
+        }
+        offset_x_sum += offset[0];
+        offset_y_sum += offset[1];
+        radius_squared_sum += radius_squared;
+    }
+    const double offset_count = static_cast<double>(neighbor_offset_count);
+    if (std::fabs(offset_x_sum / offset_count) > 0.05 ||
+        std::fabs(offset_y_sum / offset_count) > 0.05 ||
+        std::fabs(radius_squared_sum / offset_count - 0.5) > 1.0e-5) {
+        return fail("spatial neighbor disk is not low-discrepancy");
+    }
+
     /*
      * Uniformity across the candidate dimension for a fixed pixel, which is the
      * axis the resampling loop actually walks.

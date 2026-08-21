@@ -175,7 +175,7 @@ private:
     std::vector<DxrSceneMaterial> materials_;
     std::vector<DxrEmissiveTriangle> emissive_triangles_;
     std::vector<uint32_t> surface_material_indices_;
-    std::vector<float> material_emissive_luminance_;
+    std::vector<float> material_emissive_bound_;
     uint32_t view_weapon_first_material_ = 0u;
     uint32_t view_weapon_material_count_ = 0u;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t>

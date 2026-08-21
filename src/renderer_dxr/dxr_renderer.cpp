@@ -233,6 +233,11 @@ uint64_t DxrRenderer::last_scene_saturated_pixels() const
     return device_ ? device_->last_scene_saturated_pixels() : UINT64_C(0);
 }
 
+uint64_t DxrRenderer::last_scene_temporal_outlier_pixels() const
+{
+    return device_ ? device_->last_scene_temporal_outlier_pixels() : UINT64_C(0);
+}
+
 uint64_t DxrRenderer::last_scene_emissive_scale_fold() const
 {
     return pipeline_ ? pipeline_->scene_emissive_scale_fold() : UINT64_C(0);

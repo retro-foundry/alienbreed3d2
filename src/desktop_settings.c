@@ -267,6 +267,7 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
             return 0;
         }
         settings->ray_tracing.reservoir_sample_limit = (uint32_t)number;
+        settings->ray_tracing.reservoir_sample_limit_set = UINT8_MAX;
         return 1;
     }
     if (desktop_settings_equals_ci(key, "rtx_radiance_clamp")) {

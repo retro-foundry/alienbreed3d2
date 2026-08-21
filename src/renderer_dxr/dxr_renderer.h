@@ -35,6 +35,7 @@ public:
     uint64_t last_scene_rgb_checksum() const;
     double last_scene_frame_delta() const;
     uint64_t last_scene_saturated_pixels() const;
+    uint64_t last_scene_temporal_outlier_pixels() const;
     uint64_t last_scene_emissive_scale_fold() const;
     uint64_t scene_rebuild_count() const;
     size_t last_view_weapon_coverage() const;

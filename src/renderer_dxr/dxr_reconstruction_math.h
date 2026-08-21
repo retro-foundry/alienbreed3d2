@@ -57,6 +57,52 @@ inline Vec3 specular_albedo(Vec3 specular_color, float linear_roughness,
 constexpr float scene_near_plane = 0.05f;
 constexpr float scene_far_plane = 8192.0f;
 
+struct InitialReservoirDomain {
+    float weight_sum;
+    uint32_t sample_count;
+};
+
+/* RTXDI finalizes the candidates generated inside the initial-light pass into
+ * one proposal before temporal reuse. This keeps candidate count as a quality
+ * knob without multiplying the current frame's temporal ownership. */
+inline InitialReservoirDomain collapse_initial_reservoir_domain(
+    float candidate_weight_sum, uint32_t candidate_count)
+{
+    if (candidate_count == 0u || !(candidate_weight_sum >= 0.0f) ||
+        !std::isfinite(candidate_weight_sum)) {
+        return {0.0f, 0u};
+    }
+    return {candidate_weight_sum / static_cast<float>(candidate_count), 1u};
+}
+
+/*
+ * Finalizes a reservoir after resampling across more than one proposal domain.
+ * `selected_target_current` is the selected sample's target function at the
+ * pixel being shaded, `selected_target_source` is the target at the domain that
+ * supplied it, and `target_sum` is the sample-count-weighted sum of that same
+ * selected sample's target over every participating domain. This is the basic
+ * pairwise-MIS correction; using only 1/M is biased once targets differ between
+ * surfaces.
+ */
+inline float finalize_basic_reservoir_weight(float candidate_weight_sum,
+                                             float selected_target_current,
+                                             float selected_target_source,
+                                             float target_sum)
+{
+    if (!(candidate_weight_sum > 0.0f) ||
+        !(selected_target_current > 0.0f) ||
+        !(selected_target_source > 0.0f) || !(target_sum > 0.0f) ||
+        !std::isfinite(candidate_weight_sum) ||
+        !std::isfinite(selected_target_current) ||
+        !std::isfinite(selected_target_source) ||
+        !std::isfinite(target_sum)) {
+        return 0.0f;
+    }
+    const float result = candidate_weight_sum * selected_target_source /
+        (selected_target_current * target_sum);
+    return std::isfinite(result) && result > 0.0f ? result : 0.0f;
+}
+
 struct CameraProjection {
     Vec3 position;
     Vec3 forward;

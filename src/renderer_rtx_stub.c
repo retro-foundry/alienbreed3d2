@@ -117,6 +117,13 @@ uint64_t renderer_rtx_last_scene_emissive_scale_fold(const RendererRtx *renderer
     return UINT64_C(0);
 }
 
+uint64_t renderer_rtx_last_frame_temporal_outlier_pixels(
+    const RendererRtx *renderer)
+{
+    (void)renderer;
+    return UINT64_C(0);
+}
+
 size_t renderer_rtx_last_world_bitmap_coverage(const RendererRtx *renderer)
 {
     (void)renderer;

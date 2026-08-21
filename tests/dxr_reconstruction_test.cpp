@@ -1,7 +1,10 @@
 #include "renderer_dxr/dxr_reconstruction_math.h"
+#include "renderer_dxr/dxr_emitter_history.h"
+#include "renderer_dxr/dxr_light_grid.h"
 
 #include <cmath>
 #include <cstdio>
+#include <vector>
 
 namespace {
 
@@ -29,6 +32,131 @@ int fail(const char *message)
 
 int main()
 {
+    namespace grid = ab3d2::dxr::light_grid;
+    static_assert(grid::cell_count == 4096u);
+    static_assert(grid::entry_count == 2097152u);
+    static_assert(sizeof(grid::Entry) == 8u);
+
+    const grid::Position grid_center = {100.0f, -50.0f, 25.0f};
+    uint32_t center_cell = 0u;
+    if (!grid::world_position_to_cell(grid_center, grid_center, center_cell) ||
+        center_cell != 2184u) {
+        return fail("ReGIR camera-centered cell mapping changed");
+    }
+    const grid::Position mapped_center =
+        grid::cell_center(center_cell, grid_center);
+    uint32_t round_trip_cell = 0u;
+    if (!grid::world_position_to_cell(mapped_center, grid_center,
+                                      round_trip_cell) ||
+        round_trip_cell != center_cell) {
+        return fail("ReGIR cell center did not round-trip through the grid");
+    }
+    const float half_grid = grid::grid_extent * 0.5f;
+    const grid::Position minimum = {
+        grid_center.x - half_grid,
+        grid_center.y - half_grid,
+        grid_center.z - half_grid,
+    };
+    const grid::Position outside_minimum = {
+        minimum.x - 0.01f, minimum.y, minimum.z,
+    };
+    const grid::Position outside_maximum = {
+        grid_center.x + half_grid, grid_center.y, grid_center.z,
+    };
+    uint32_t boundary_cell = 0u;
+    if (!grid::world_position_to_cell(minimum, grid_center, boundary_cell) ||
+        boundary_cell != 0u ||
+        grid::world_position_to_cell(outside_minimum, grid_center,
+                                     boundary_cell) ||
+        grid::world_position_to_cell(outside_maximum, grid_center,
+                                     boundary_cell)) {
+        return fail("ReGIR grid boundary mapping is not half-open");
+    }
+    const float near_target = grid::volume_target(
+        0.25f, 1.0f / 128.0f, grid_center, grid_center);
+    const float far_target = grid::volume_target(
+        0.25f, 1.0f / 128.0f,
+        {grid_center.x + 2048.0f, grid_center.y, grid_center.z}, grid_center);
+    if (!std::isfinite(near_target) || !(near_target > far_target) ||
+        !near(grid::volume_target(0.5f, 1.0f / 128.0f,
+                                 grid_center, grid_center),
+              near_target * 2.0f) ||
+        grid::volume_target(0.0f, 1.0f / 128.0f,
+                            grid_center, grid_center) != 0.0f ||
+        grid::volume_target(0.25f, 0.0f,
+                            grid_center, grid_center) != 0.0f) {
+        return fail("ReGIR volume target is not finite importance sampling");
+    }
+    if (!near(grid::finalize_inverse_selection_probability(8.0f, 2.0f, 4u),
+              1.0f) ||
+        grid::finalize_inverse_selection_probability(8.0f, 0.0f, 4u) != 0.0f ||
+        grid::finalize_inverse_selection_probability(8.0f, 2.0f, 0u) != 0.0f) {
+        return fail("ReGIR RIS inverse-proposal correction changed");
+    }
+
+    struct EmitterIdentity {
+        uint32_t first_vertex;
+        float selection_probability;
+        float inverse_area;
+        float alias_threshold;
+        uint32_t alias_index;
+    };
+    const std::vector<EmitterIdentity> emitter_layout = {
+        {0u, 0.25f, 2.0f, 0.5f, 1u},
+        {3u, 0.75f, 4.0f, 1.0f, 1u},
+    };
+    std::vector<EmitterIdentity> changed_layout = emitter_layout;
+    changed_layout[0].alias_threshold = 0.75f;
+    changed_layout[0].alias_index = 0u;
+    if (!ab3d2::dxr::emitter_history_layout_compatible<EmitterIdentity>(
+            emitter_layout, changed_layout)) {
+        return fail("alias representation incorrectly invalidated emitter history");
+    }
+    changed_layout[1].first_vertex = 6u;
+    if (ab3d2::dxr::emitter_history_layout_compatible<EmitterIdentity>(
+            emitter_layout, changed_layout)) {
+        return fail("emitter identity change retained incompatible history");
+    }
+    changed_layout = emitter_layout;
+    changed_layout[1].selection_probability = 0.5f;
+    if (!ab3d2::dxr::emitter_history_layout_compatible<EmitterIdentity>(
+            emitter_layout, changed_layout)) {
+        return fail("proposal-only change incorrectly invalidated emitter history");
+    }
+    changed_layout[1].inverse_area = 8.0f;
+    if (ab3d2::dxr::emitter_history_layout_compatible<EmitterIdentity>(
+            emitter_layout, changed_layout)) {
+        return fail("emitter area change retained incompatible history");
+    }
+
+    const InitialReservoirDomain one_candidate =
+        collapse_initial_reservoir_domain(8.0f, 1u);
+    const InitialReservoirDomain four_candidates =
+        collapse_initial_reservoir_domain(8.0f, 4u);
+    const InitialReservoirDomain no_candidates =
+        collapse_initial_reservoir_domain(8.0f, 0u);
+    if (!near(one_candidate.weight_sum, 8.0f) ||
+        one_candidate.sample_count != 1u ||
+        !near(four_candidates.weight_sum, 2.0f) ||
+        four_candidates.sample_count != 1u ||
+        no_candidates.weight_sum != 0.0f ||
+        no_candidates.sample_count != 0u) {
+        return fail("initial candidates changed temporal reservoir ownership");
+    }
+
+    if (!near(finalize_basic_reservoir_weight(8.0f, 2.0f, 2.0f, 8.0f),
+              1.0f) ||
+        !near(finalize_basic_reservoir_weight(30.0f, 2.0f, 2.0f, 16.0f),
+              1.875f) ||
+        !near(finalize_basic_reservoir_weight(30.0f, 2.0f, 1.0f, 16.0f),
+              0.9375f) ||
+        !near(finalize_basic_reservoir_weight(50.0f, 2.0f, 3.0f, 28.0f),
+              2.6785714f) ||
+        finalize_basic_reservoir_weight(30.0f, 0.0f, 1.0f, 16.0f) != 0.0f ||
+        finalize_basic_reservoir_weight(30.0f, 2.0f, 0.0f, 16.0f) != 0.0f) {
+        return fail("basic reservoir normalization is not surface-aware");
+    }
+
     const PixelJitter first_jitter = frame_jitter(0u);
     const PixelJitter second_jitter = frame_jitter(1u);
     const PixelJitter last_phase_jitter = frame_jitter(jitter_phase_count - 1u);

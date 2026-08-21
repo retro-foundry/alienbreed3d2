@@ -75,6 +75,11 @@ double renderer_last_frame_delta(const Renderer *renderer);
  * 250, a proxy for radiance outliers that survive tone mapping. */
 uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer);
 
+/* Hidden GPU-smoke count of pixels whose largest component changed by at least
+ * 16 display-code values since the prior frame. This exposes the sparse tail
+ * that moving ReSTIR samples occupy instead of hiding it in a mean delta. */
+uint64_t renderer_last_frame_temporal_outlier_pixels(const Renderer *renderer);
+
 /* Hidden GPU-smoke fold of the per-vertex source Gouraud shade response the
  * ray-traced backend uploaded for the last presented scene, which is what
  * scales authored emission there. It is the only way to observe

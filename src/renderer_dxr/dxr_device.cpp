@@ -450,6 +450,8 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
     const bool comparable = previous_readback_rgb_.size() == pixel_count * 3u;
     std::vector<uint8_t> current_rgb(pixel_count * 3u);
     uint64_t delta_sum = 0u;
+    uint64_t temporal_outlier_pixels = 0u;
+    uint8_t maximum_temporal_delta = 0u;
     const auto *pixels = static_cast<const uint8_t *>(mapped) +
         readback_footprint_.Offset;
     for (UINT y = 0; y < readback_height_; ++y) {
@@ -464,6 +466,7 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
                 pixel[2] >= 250u;
             luminance_sum += pixel[0] * 0.2126 + pixel[1] * 0.7152 +
                 pixel[2] * 0.0722;
+            uint8_t pixel_temporal_delta = 0u;
             for (UINT component = 0; component < 3u; ++component) {
                 maximum_component = std::max(maximum_component, pixel[component]);
                 checksum ^= pixel[component];
@@ -476,7 +479,16 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
                             previous_readback_rgb_[rgb_index + component]);
                     delta_sum += static_cast<uint64_t>(
                         difference < 0 ? -difference : difference);
+                    pixel_temporal_delta = std::max(
+                        pixel_temporal_delta,
+                        static_cast<uint8_t>(
+                            difference < 0 ? -difference : difference));
                 }
+            }
+            if (comparable) {
+                maximum_temporal_delta = std::max(
+                    maximum_temporal_delta, pixel_temporal_delta);
+                temporal_outlier_pixels += pixel_temporal_delta >= 16u;
             }
         }
     }
@@ -504,6 +516,7 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
     scene_readback_->Unmap(0, &no_write);
     last_scene_rgb_checksum_ = nonzero_pixels == 0u ? 0u : checksum;
     last_scene_saturated_pixels_ = saturated_pixels;
+    last_scene_temporal_outlier_pixels_ = temporal_outlier_pixels;
     last_scene_frame_delta_ = comparable && pixel_count != 0u ?
         static_cast<double>(delta_sum) /
             static_cast<double>(pixel_count * 3u) : -1.0;
@@ -516,7 +529,9 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
                     (static_cast<double>(readback_width_) * readback_height_)
                << " max=" << static_cast<unsigned>(maximum_component)
                << " saturated=" << saturated_pixels
-               << " delta=" << last_scene_frame_delta_;
+               << " delta=" << last_scene_frame_delta_
+               << " delta16=" << temporal_outlier_pixels
+               << " deltaMax=" << static_cast<unsigned>(maximum_temporal_delta);
     debug_output(statistics.str());
     return true;
 }
@@ -715,6 +730,7 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         last_scene_rgb_checksum_ = 0;
         last_scene_frame_delta_ = -1.0;
         last_scene_saturated_pixels_ = 0;
+        last_scene_temporal_outlier_pixels_ = 0;
         previous_readback_rgb_.clear();
         const D3D12_RESOURCE_BARRIER to_present = transition_barrier(
             frame.render_target.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -905,6 +921,7 @@ void DxrDevice::shutdown()
     last_scene_rgb_checksum_ = 0;
     last_scene_frame_delta_ = -1.0;
     last_scene_saturated_pixels_ = 0;
+    last_scene_temporal_outlier_pixels_ = 0;
     previous_readback_rgb_.clear();
     previous_readback_rgb_.shrink_to_fit();
     readback_width_ = 0;
