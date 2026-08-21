@@ -62,6 +62,44 @@ struct InitialReservoirDomain {
     uint32_t sample_count;
 };
 
+/* Balance-heuristic proposal used by the heterogeneous direct-light reservoir.
+ * The candidate counts are part of the density: sixteen local, one environment,
+ * and one BRDF sample therefore form a normalized 16:1:1 mixture. A domain can
+ * set an inapplicable density to zero (local lights and the environment occupy
+ * disjoint sample spaces). */
+inline float direct_mixture_pdf(float local_pdf, uint32_t local_samples,
+                                float environment_pdf,
+                                uint32_t environment_samples,
+                                float brdf_pdf, uint32_t brdf_samples)
+{
+    const uint32_t sample_count = local_samples + environment_samples +
+        brdf_samples;
+    if (sample_count == 0u || !(local_pdf >= 0.0f) ||
+        !(environment_pdf >= 0.0f) || !(brdf_pdf >= 0.0f) ||
+        !std::isfinite(local_pdf) || !std::isfinite(environment_pdf) ||
+        !std::isfinite(brdf_pdf)) {
+        return 0.0f;
+    }
+    return (local_pdf * static_cast<float>(local_samples) +
+            environment_pdf * static_cast<float>(environment_samples) +
+            brdf_pdf * static_cast<float>(brdf_samples)) /
+        static_cast<float>(sample_count);
+}
+
+inline float finalize_initial_direct_weight(float candidate_weight_sum,
+                                            uint32_t candidate_count,
+                                            float selected_target)
+{
+    if (!(candidate_weight_sum > 0.0f) || candidate_count == 0u ||
+        !(selected_target > 0.0f) || !std::isfinite(candidate_weight_sum) ||
+        !std::isfinite(selected_target)) {
+        return 0.0f;
+    }
+    const float result = candidate_weight_sum /
+        (static_cast<float>(candidate_count) * selected_target);
+    return std::isfinite(result) && result > 0.0f ? result : 0.0f;
+}
+
 /* RTXDI finalizes the candidates generated inside the initial-light pass into
  * one proposal before temporal reuse. This keeps candidate count as a quality
  * knob without multiplying the current frame's temporal ownership. */

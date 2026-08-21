@@ -198,6 +198,18 @@ uses the project's existing emitter alias table, vertex history, material atlas,
 sample streams, root signature, and renderer-owned dispatch sequence; it is not
 an RTXDI library integration.
 
+After finer temporal noise remained, the current public FullSample Ultra preset
+and `DI/InitialSampling.hlsli` behavior were inspected again on 2026-08-21. They
+showed one BRDF sample and one infinite/environment sample beside the 16 ReGIR
+local samples, plus secondary-surface direct resampling. The project independently
+implemented the corresponding behavior around its analytic sky, existing GGX/
+Lambertian sampler, and project ReGIR entries. The project ReGIR table cannot
+evaluate the reverse per-cell PDF of an arbitrary BRDF-discovered mesh emitter,
+so that overlap is rejected instead of substituting the unrelated global PDF;
+BRDF/environment overlap retains an exact analytic density. The balance-mixture
+equations and heterogeneous sample encoding are project code;
+no NVIDIA source text, packed layout, bridge code, or shader resource was copied.
+
 The comparison also showed that NVIDIA's Medium and Ultra quality paths feed
 ReSTIR from spatially informed ReGIR proposals. The official RTXDI ReGIR host
 configuration, regular-grid coordinate contract, presampling contract, local
@@ -226,6 +238,13 @@ pinned Streamline v2.12.0 `ProgrammingGuideDLSS_RR.md`; both the HLSL and the
 independent CPU check cite that exact source. No Streamline header, library,
 plugin, sample shader, or binary is included, linked, loaded, or staged by this
 ID-independent guide slice.
+
+The same pinned guide's required-resource list and specular-hit-distance section
+were rechecked after residual temporal noise. They list specular hit distance as
+the alternative to specular motion vectors and do not list diffuse hit distance
+as a DLSS-RR input. The project therefore stopped tagging its stochastic diffuse
+diagnostic and independently replaced the stochastic/reprojected specular guide
+with a deterministic primary-surface mirror-direction distance query.
 
 ## Streamline DLSS Ray Reconstruction integration
 
@@ -291,10 +310,9 @@ and is rejected by CMake if altered. The retained and staged licence is
 
 The HLSL lookup and renderer package loader are project-authored adaptations.
 Each bounce owns eight fixed dimensions: two for environment sampling, three
-for emitter selection/position, and three for BSDF lobe/direction. The actual
-first secondary ray now supplies the specular hit-distance guide when the
-primary BSDF event is glossy; the former independent guide dimensions were
-removed because they described a different reflection from the noisy radiance.
+for emitter selection/position, and three for BSDF lobe/direction. Specular hit
+distance is now supplied by a deterministic mirror-direction query from the
+primary surface, independently of the stochastic continuation dimensions.
 This contract was checked against NVIDIA's public Apache-2.0
 `nvpro-samples/vk_denoise_dlssrr` `primary_rgen.slang`; the project implementation
 was written independently and no sample code was copied. The supplied tables

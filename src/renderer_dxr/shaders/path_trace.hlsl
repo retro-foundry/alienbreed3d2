@@ -1,6 +1,10 @@
 static const float Pi = 3.14159265358979323846;
 static const float RayEpsilon = 0.05;
 static const uint InvalidIndex = 0xffffffffu;
+/* Heterogeneous direct-light reservoirs use the index below for the analytic
+ * environment. All real emitter indices are compact and strictly below
+ * EmitterCount, so the value cannot alias source-authored geometry. */
+static const uint EnvironmentLightIndex = 0xfffffffeu;
 static const uint SceneInstanceMask = 0x01u;
 static const uint WorldSurfacePrimitive = 0u;
 static const uint ViewWeaponPrimitive = 1u;
@@ -211,7 +215,6 @@ static const uint PathDimensionsPerBounce = 8u;
  * that only ever moves towards a real measurement. This filters a guide, not
  * radiance: the path-traced estimate in NoisyRadiance is untouched.
  */
-static const float SpecularHitDistanceBlend = 0.2;
 /*
  * Radiance the source's authored zone lighting contributes as ambience, in
  * multiples of the outgoing radiance a surface has when the source rasterizer
@@ -279,6 +282,11 @@ static const uint ReservoirTemporalSearchStream = 0x10000u;
 static const uint ReservoirSpatialStream = 0x10100u;
 static const uint ReservoirAcceptanceStream = 0x10200u;
 static const uint ReservoirSpatialAcceptanceStream = 0x10300u;
+static const uint ReservoirEnvironmentStream = 0x10400u;
+static const uint ReservoirBrdfStream = 0x10500u;
+static const uint SecondaryDirectStream = 0x10600u;
+static const uint SecondaryLocalSampleCount = 2u;
+static const uint SecondaryEnvironmentSampleCount = 1u;
 /*
  * Regular-grid ReGIR dimensions mirrored by dxr_light_grid.h. The grid is
  * rebuilt around CameraPosition before the primary dispatch whenever ReSTIR is
@@ -802,27 +810,6 @@ float2 reprojectHistoryPixel(uint2 pixel, float2 motion)
         float2(JitterX - PreviousJitterX, JitterY - PreviousJitterY);
 }
 
-/*
- * Point-samples the previous frame's specular hit-distance guide at the pixel the
- * scene motion vector reprojects to. Nearest sampling is deliberate: a bilinear
- * tap would blend hit distances across depth discontinuities.
- */
-bool loadSpecularHitDistanceHistory(uint2 pixel, float2 motion,
-                                    uint2 dimensions,
-                                    out float hitDistance)
-{
-    hitDistance = 0.0;
-    if (HistoryValid == 0u || any(abs(motion) > 65500.0)) {
-        return false;
-    }
-    float2 previous = reprojectHistoryPixel(pixel, motion);
-    if (any(previous < 0.0) || any(previous >= float2(dimensions))) {
-        return false;
-    }
-    hitDistance = SpecularHitDistanceHistory[uint2(previous)];
-    return hitDistance > 0.0;
-}
-
 float3 fresnelSchlick(float cosine, float3 reflectance)
 {
     float factor = pow(1.0 - saturate(cosine), 5.0);
@@ -969,26 +956,6 @@ bool traceVisibility(float3 origin, float3 direction, float maximumDistance,
     return payload.visible != 0u;
 }
 
-float3 sampleEnvironmentLighting(SurfaceData surface, float3 viewDirection,
-                                 float2 sampleValue, uint instanceMask)
-{
-    float3 lightDirection = cosineHemisphere(surface.shadingNormal,
-                                              sampleValue);
-    float normalLight = saturate(dot(surface.shadingNormal, lightDirection));
-    float lightPdf = normalLight / Pi;
-    if (lightPdf <= 0.0 ||
-        dot(surface.geometricNormal, lightDirection) <= 0.0 ||
-        !traceVisibility(surface.position +
-                             surface.geometricNormal * RayEpsilon,
-                         lightDirection, SceneFarPlane, instanceMask)) {
-        return 0.0;
-    }
-    BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
-    float weight = powerHeuristic(lightPdf, bsdf.pdf);
-    return bsdf.value * environmentRadiance(lightDirection) *
-        (normalLight * weight / lightPdf);
-}
-
 /*
  * Walker alias selection from one uniform: the scaled uniform's integer part
  * picks the bucket and its fraction decides between the bucket's own index and
@@ -1003,25 +970,27 @@ uint selectEmitter(float selection)
         Emitters[bucket].aliasIndex;
 }
 
-/* An emitter sample's full identity: which triangle, and the two canonical
- * randoms that place the point on it. Both survive reuse at another pixel. */
+/* A direct-light sample's full identity. Local emitters store a triangle index
+ * and packed canonical area-sampling randoms. The analytic environment stores
+ * EnvironmentLightIndex and a packed world-space direction. Both forms are
+ * independent of the receiving pixel and therefore survive temporal/spatial
+ * reuse without reconstructing the generating ray. */
 struct EmitterSample
 {
     uint emitterIndex;
-    float2 positionSample;
+    uint positionSample;
     bool valid;
 };
 
 struct EmitterEvaluation
 {
-    /* The unshadowed, MIS-weighted integrand in solid-angle measure. Folding the
-     * power heuristic into the value, and therefore into the target function, is
-     * what keeps resampling and multiple importance sampling compatible: the
-     * reservoir estimates the light strategy's MIS-weighted share of the
-     * integral, and the BSDF strategy independently estimates its own. */
+    /* The unshadowed physical integrand in solid-angle measure. Local,
+     * environment, and BRDF strategies are combined in their balance-heuristic
+     * source density before this luminance target enters reservoir streaming. */
     float3 contribution;
     float targetPdf;
     float sourcePdf;
+    float brdfPdf;
     float3 lightDirection;
     float lightDistance;
     bool valid;
@@ -1036,6 +1005,7 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
     evaluation.contribution = 0.0;
     evaluation.targetPdf = 0.0;
     evaluation.sourcePdf = 0.0;
+    evaluation.brdfPdf = 0.0;
     evaluation.lightDirection = 0.0;
     evaluation.lightDistance = 0.0;
     evaluation.valid = false;
@@ -1055,8 +1025,9 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
         second = Vertices[emitter.firstVertex + 1u];
         third = Vertices[emitter.firstVertex + 2u];
     }
-    float root = sqrt(lightSample.positionSample.x);
-    float secondRandom = lightSample.positionSample.y;
+    float2 positionSample = unpackPositionSample(lightSample.positionSample);
+    float root = sqrt(positionSample.x);
+    float secondRandom = positionSample.y;
     float3 barycentrics = float3(1.0 - root,
                                 root * (1.0 - secondRandom),
                                 root * secondRandom);
@@ -1097,15 +1068,71 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
         EmissiveAtlas.Load(int3(lightTexel, 0)).rgb *
         lightMaterial.emissiveFactor * lightEmissiveScale;
     BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
-    float misWeight = powerHeuristic(lightPdf, bsdf.pdf);
     evaluation.contribution =
-        bsdf.value * emittedRadiance * (normalLight * misWeight);
+        bsdf.value * emittedRadiance * normalLight;
     evaluation.targetPdf = luminance(evaluation.contribution);
     evaluation.sourcePdf = lightPdf;
+    evaluation.brdfPdf = bsdf.pdf;
     evaluation.lightDirection = lightDirection;
     evaluation.lightDistance = distance;
     evaluation.valid = true;
     return evaluation;
+}
+
+EmitterEvaluation evaluateEnvironmentSample(SurfaceData surface,
+                                             float3 viewDirection,
+                                             EmitterSample lightSample)
+{
+    EmitterEvaluation evaluation;
+    evaluation.contribution = 0.0;
+    evaluation.targetPdf = 0.0;
+    evaluation.sourcePdf = 0.0;
+    evaluation.brdfPdf = 0.0;
+    evaluation.lightDirection = 0.0;
+    evaluation.lightDistance = SceneFarPlane;
+    evaluation.valid = false;
+    if (!lightSample.valid ||
+        lightSample.emitterIndex != EnvironmentLightIndex) {
+        return evaluation;
+    }
+    float3 lightDirection = unpackOctahedralNormal(lightSample.positionSample);
+    float normalLight = saturate(dot(surface.shadingNormal, lightDirection));
+    if (normalLight <= 0.0 ||
+        dot(surface.geometricNormal, lightDirection) <= 0.0) {
+        return evaluation;
+    }
+    BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
+    if (!(bsdf.pdf > 0.0)) {
+        return evaluation;
+    }
+    evaluation.contribution = bsdf.value * environmentRadiance(lightDirection) *
+        normalLight;
+    evaluation.targetPdf = luminance(evaluation.contribution);
+    /* The project analytic sky is sampled by a cosine-hemisphere environment
+     * strategy. Unlike a lat-long map it has no texel distribution to
+     * presample, so this is its exact solid-angle proposal density. */
+    evaluation.sourcePdf = normalLight / Pi;
+    evaluation.brdfPdf = bsdf.pdf;
+    evaluation.lightDirection = lightDirection;
+    evaluation.valid = true;
+    return evaluation;
+}
+
+bool directSampleIndexValid(uint lightIndex)
+{
+    return lightIndex < EmitterCount || lightIndex == EnvironmentLightIndex;
+}
+
+EmitterEvaluation evaluateDirectSampleForFrame(SurfaceData surface,
+                                                float3 viewDirection,
+                                                EmitterSample lightSample,
+                                                bool previousFrame)
+{
+    if (lightSample.emitterIndex == EnvironmentLightIndex) {
+        return evaluateEnvironmentSample(surface, viewDirection, lightSample);
+    }
+    return evaluateEmitterSampleForFrame(surface, viewDirection, lightSample,
+                                         previousFrame);
 }
 
 struct LightSelection
@@ -1262,6 +1289,22 @@ EmitterEvaluation evaluatePreviousEmitterSample(SurfaceData surface,
                                          true);
 }
 
+EmitterEvaluation evaluateDirectSample(SurfaceData surface,
+                                       float3 viewDirection,
+                                       EmitterSample lightSample)
+{
+    return evaluateDirectSampleForFrame(surface, viewDirection, lightSample,
+                                        false);
+}
+
+EmitterEvaluation evaluatePreviousDirectSample(SurfaceData surface,
+                                               float3 viewDirection,
+                                               EmitterSample lightSample)
+{
+    return evaluateDirectSampleForFrame(surface, viewDirection, lightSample,
+                                        true);
+}
+
 bool traceEmitterVisibility(SurfaceData surface, EmitterEvaluation evaluation,
                             uint instanceMask)
 {
@@ -1272,30 +1315,141 @@ bool traceEmitterVisibility(SurfaceData surface, EmitterEvaluation evaluation,
                            instanceMask);
 }
 
-/*
- * One-sample emitter lighting, still used at secondary hits where the throughput
- * has already attenuated the variance and no reservoir is carried. With the
- * MIS weight folded into `contribution`, dividing by the source pdf reproduces
- * the estimator this replaced.
- */
-float3 sampleEmitterLighting(SurfaceData surface, float3 viewDirection,
-                             float selection, float2 positionSample,
-                             uint instanceMask)
+bool traceDirectVisibility(SurfaceData surface, EmitterEvaluation evaluation,
+                           uint instanceMask)
 {
-    if (EmitterCount == 0u) {
+    return traceVisibility(surface.position +
+                               surface.geometricNormal * RayEpsilon,
+                           evaluation.lightDirection,
+                           evaluation.lightDistance - RayEpsilon,
+                           instanceMask);
+}
+
+EmitterSample environmentDirectSample(SurfaceData surface, float2 random);
+EmitterSample traceBrdfDirectSample(SurfaceData surface,
+                                    float3 viewDirection,
+                                    float chooseSample,
+                                    float2 directionSample,
+                                    out float sampledBrdfPdf);
+float directInitialMixturePdf(EmitterSample sample,
+                              EmitterEvaluation evaluation,
+                              float localStrategyWeight,
+                              float environmentStrategyWeight,
+                              float brdfStrategyWeight,
+                              float localProposalPdf);
+void streamDirectInitialCandidate(EmitterSample candidate,
+                                  EmitterEvaluation evaluation,
+                                  float mixturePdf, float acceptance,
+                                  inout EmitterSample selected,
+                                  inout float weightSum);
+
+/* Secondary surfaces do not own a screen-space history buffer. They instead
+ * reuse the camera-centered ReGIR entries shared by every path in a world-space
+ * cell, resample two local candidates plus one analytic-environment candidate,
+ * plus an independent BRDF candidate over the environment domain, and trace
+ * visibility only for the survivor. The continuation ray then carries indirect
+ * transport without counting that direct domain again. */
+float3 sampleSecondaryDirectLighting(uint2 pixel, uint sampleIndex, uint depth,
+                                     SurfaceData surface,
+                                     float3 viewDirection,
+                                     uint instanceMask)
+{
+    uint localSampleCount = EmitterCount > 0u ?
+        SecondaryLocalSampleCount : 0u;
+    const uint brdfSampleCount = 1u;
+    uint totalSampleCount = localSampleCount +
+        SecondaryEnvironmentSampleCount + brdfSampleCount;
+    float inverseTotalSampleCount = 1.0 / float(totalSampleCount);
+    float localStrategyWeight =
+        float(localSampleCount) * inverseTotalSampleCount;
+    float environmentStrategyWeight =
+        float(SecondaryEnvironmentSampleCount) * inverseTotalSampleCount;
+    float brdfStrategyWeight =
+        float(brdfSampleCount) * inverseTotalSampleCount;
+    int lightGridCell = lightGridCellForSurface(
+        pixel, sampleIndex + depth * 131u, surface.position);
+    EmitterSample selected = (EmitterSample)0;
+    selected.emitterIndex = InvalidIndex;
+    selected.positionSample = 0u;
+    selected.valid = false;
+    float weightSum = 0.0;
+
+    for (uint candidate = 0u; candidate < localSampleCount; ++candidate) {
+        float4 random = sampleStream(
+            pixel, sampleIndex,
+            SecondaryDirectStream + depth * 16u + candidate);
+        float selection = (random.x + float(candidate)) /
+            float(localSampleCount);
+        LightSelection lightSelection = selectEmitterForCell(
+            selection, lightGridCell);
+        EmitterSample candidateSample;
+        candidateSample.emitterIndex = lightSelection.emitterIndex;
+        candidateSample.positionSample = packPositionSample(random.yz);
+        candidateSample.valid = true;
+        EmitterEvaluation evaluation = evaluateDirectSample(
+            surface, viewDirection, candidateSample);
+        float globalProbability = Emitters[
+            candidateSample.emitterIndex].selectionProbability;
+        float conditionalAreaPdf = evaluation.valid &&
+                globalProbability > 0.0 ?
+            evaluation.sourcePdf / globalProbability : 0.0;
+        float localProposalPdf = conditionalAreaPdf > 0.0 &&
+                lightSelection.inverseProbability > 0.0 ?
+            conditionalAreaPdf / lightSelection.inverseProbability : 0.0;
+        float mixturePdf = directInitialMixturePdf(
+            candidateSample, evaluation, localStrategyWeight,
+            environmentStrategyWeight, brdfStrategyWeight,
+            localProposalPdf);
+        streamDirectInitialCandidate(candidateSample, evaluation, mixturePdf,
+                                     random.w, selected, weightSum);
+    }
+
+    float4 environmentRandom = sampleStream(
+        pixel, sampleIndex,
+        SecondaryDirectStream + depth * 16u +
+            SecondaryLocalSampleCount);
+    EmitterSample environmentSample = environmentDirectSample(
+        surface, environmentRandom.xy);
+    EmitterEvaluation environmentEvaluation = evaluateDirectSample(
+        surface, viewDirection, environmentSample);
+    float environmentMixturePdf = directInitialMixturePdf(
+        environmentSample, environmentEvaluation, localStrategyWeight,
+        environmentStrategyWeight, brdfStrategyWeight, 0.0);
+    streamDirectInitialCandidate(
+        environmentSample, environmentEvaluation, environmentMixturePdf,
+        environmentRandom.z, selected, weightSum);
+
+    float4 brdfRandom = sampleStream(
+        pixel, sampleIndex,
+        SecondaryDirectStream + depth * 16u +
+            SecondaryLocalSampleCount + SecondaryEnvironmentSampleCount);
+    float sampledBrdfPdf;
+    EmitterSample brdfSample = traceBrdfDirectSample(
+        surface, viewDirection, brdfRandom.x, brdfRandom.yz,
+        sampledBrdfPdf);
+    EmitterEvaluation brdfEvaluation = evaluateDirectSample(
+        surface, viewDirection, brdfSample);
+    float brdfMixturePdf = sampledBrdfPdf > 0.0 ?
+        directInitialMixturePdf(
+            brdfSample, brdfEvaluation, localStrategyWeight,
+            environmentStrategyWeight, brdfStrategyWeight, 0.0) : 0.0;
+    streamDirectInitialCandidate(
+        brdfSample, brdfEvaluation, brdfMixturePdf, brdfRandom.w,
+        selected, weightSum);
+
+    if (!selected.valid) {
         return 0.0;
     }
-    EmitterSample lightSample;
-    lightSample.emitterIndex = selectEmitter(selection);
-    lightSample.positionSample = positionSample;
-    lightSample.valid = true;
-    EmitterEvaluation evaluation =
-        evaluateEmitterSample(surface, viewDirection, lightSample);
-    if (!evaluation.valid || !(evaluation.targetPdf > 0.0) ||
-        !traceEmitterVisibility(surface, evaluation, instanceMask)) {
+    EmitterEvaluation selectedEvaluation = evaluateDirectSample(
+        surface, viewDirection, selected);
+    if (!selectedEvaluation.valid ||
+        !(selectedEvaluation.targetPdf > 0.0) ||
+        !traceDirectVisibility(surface, selectedEvaluation, instanceMask)) {
         return 0.0;
     }
-    return evaluation.contribution / evaluation.sourcePdf;
+    float inversePdf = weightSum /
+        (float(totalSampleCount) * selectedEvaluation.targetPdf);
+    return selectedEvaluation.contribution * inversePdf;
 }
 
 bool loadPreviousReservoirAt(int2 previousPixel, uint2 dimensions,
@@ -1435,28 +1589,108 @@ SurfaceData reservoirSurface(PackedLightReservoir reservoir)
     return surface;
 }
 
+EmitterSample environmentDirectSample(SurfaceData surface, float2 random)
+{
+    EmitterSample sample;
+    sample.emitterIndex = EnvironmentLightIndex;
+    sample.positionSample = packOctahedralNormal(
+        cosineHemisphere(surface.shadingNormal, random));
+    sample.valid = true;
+    return sample;
+}
+
+EmitterSample traceBrdfDirectSample(SurfaceData surface,
+                                    float3 viewDirection,
+                                    float chooseSample,
+                                    float2 directionSample,
+                                    out float sampledBrdfPdf)
+{
+    EmitterSample sample;
+    sample.emitterIndex = InvalidIndex;
+    sample.positionSample = 0u;
+    sample.valid = false;
+    sampledBrdfPdf = 0.0;
+    float3 lightDirection;
+    BsdfEvaluation bsdf;
+    bool sampledSpecular;
+    if (!sampleBsdf(surface, viewDirection, chooseSample, directionSample,
+                    lightDirection, bsdf, sampledSpecular)) {
+        return sample;
+    }
+    sampledBrdfPdf = bsdf.pdf;
+    RayDesc ray;
+    ray.Origin = surface.position + surface.geometricNormal * RayEpsilon;
+    ray.Direction = lightDirection;
+    ray.TMin = RayEpsilon;
+    ray.TMax = SceneFarPlane;
+    SegmentTraversal segment = traceSegment(ray);
+    if (segment.payload.hit == 0u) {
+        sample.emitterIndex = EnvironmentLightIndex;
+        sample.positionSample = packOctahedralNormal(lightDirection);
+        sample.valid = true;
+        return sample;
+    }
+    /* Mesh emitters stay in the ReGIR strategy. Evaluating the probability of
+     * an arbitrary BRDF-discovered emitter would require a reverse lookup
+     * through the stochastic per-cell table; substituting the global light PDF
+     * is a different proposal and creates rare oversized MIS weights. The
+     * analytic environment has an exact PDF and can safely overlap BRDF. */
+    return sample;
+}
+
+float directInitialMixturePdf(EmitterSample sample,
+                              EmitterEvaluation evaluation,
+                              float localStrategyWeight,
+                              float environmentStrategyWeight,
+                              float brdfStrategyWeight,
+                              float localProposalPdf)
+{
+    bool environmentSample =
+        sample.emitterIndex == EnvironmentLightIndex;
+    float lightPdf = environmentSample ?
+        environmentStrategyWeight * evaluation.sourcePdf :
+        localStrategyWeight * localProposalPdf;
+    float brdfPdf = environmentSample ? evaluation.brdfPdf : 0.0;
+    return lightPdf + brdfStrategyWeight * brdfPdf;
+}
+
+void streamDirectInitialCandidate(EmitterSample candidate,
+                                  EmitterEvaluation evaluation,
+                                  float mixturePdf, float acceptance,
+                                  inout EmitterSample selected,
+                                  inout float weightSum)
+{
+    float weight = candidate.valid && evaluation.valid &&
+            evaluation.targetPdf > 0.0 && mixturePdf > 0.0 ?
+        evaluation.targetPdf / mixturePdf : 0.0;
+    weightSum += weight;
+    if (weight > 0.0 && acceptance * weightSum < weight) {
+        selected = candidate;
+    }
+}
+
 /*
  * Reservoir-resampled direct lighting for the primary hit, from Bitterli,
  * Wyman, Pharr, Shirley, Lefohn, and Jarosz, "Spatiotemporal reservoir resampling
  * for real-time ray tracing with dynamic direct lighting", SIGGRAPH 2020.
  *
- * CandidateCount unshadowed emitter candidates are resampled into one reservoir,
- * then the reprojected previous reservoir is combined with weight
+ * CandidateCount unshadowed local candidates, one analytic-environment
+ * candidate, and one environment-overlap BRDF candidate are resampled into one
+ * reservoir, then the reprojected previous reservoir is combined with weight
  * targetPdf * W * M re-evaluated at this surface. The normalization evaluates
  * the selected sample at both owning surfaces, which is the basic pairwise-MIS
  * correction required when those targets differ. Current-frame spatial reuse
  * and final visibility are deliberately deferred to SpatialShade.
  *
- * With `CandidateCount` of one and no usable history this reduces exactly to the
- * single-sample estimator it replaces: the unbiased weight becomes the
- * reciprocal of the source pdf.
+ * With no usable history this is a fresh balance-heuristic mixed estimator;
+ * temporal reuse changes its effective sample count rather than its integral.
  */
-float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
-                              uint sampleIndex,
-                              SurfaceData surface, float3 viewDirection,
-                              float3 previousPosition, float2 motion,
-                              uint instanceMask,
-                              out PackedLightReservoir stored)
+float3 resampleDirectTemporal(uint2 pixel, uint2 dimensions,
+                             uint sampleIndex,
+                             SurfaceData surface, float3 viewDirection,
+                             float3 previousPosition, float2 motion,
+                             uint instanceMask, bool enableTemporalReuse,
+                             out PackedLightReservoir stored)
 {
     stored = (PackedLightReservoir)0;
     stored.emitterIndex = InvalidIndex;
@@ -1466,16 +1700,30 @@ float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
     stored.surfaceGeometricNormal =
         packOctahedralNormal(surface.geometricNormal);
     stored.surfaceMaterialIndex = surface.materialIndex;
-    if (EmitterCount == 0u || CandidateCount == 0u) {
+    if (CandidateCount == 0u) {
         return 0.0;
     }
 
     EmitterSample selected = (EmitterSample)0;
+    selected.emitterIndex = InvalidIndex;
+    selected.positionSample = 0u;
+    selected.valid = false;
     float weightSum = 0.0;
-    uint sampleCount = 0u;
+    uint localSampleCount = EmitterCount > 0u ? CandidateCount : 0u;
+    const uint environmentSampleCount = 1u;
+    const uint brdfSampleCount = 1u;
+    uint initialSampleCount = localSampleCount + environmentSampleCount +
+        brdfSampleCount;
+    float inverseInitialSampleCount = 1.0 / float(initialSampleCount);
+    float localStrategyWeight =
+        float(localSampleCount) * inverseInitialSampleCount;
+    float environmentStrategyWeight =
+        float(environmentSampleCount) * inverseInitialSampleCount;
+    float brdfStrategyWeight =
+        float(brdfSampleCount) * inverseInitialSampleCount;
     int lightGridCell = lightGridCellForSurface(
         pixel, sampleIndex, surface.position);
-    for (uint candidate = 0u; candidate < CandidateCount; ++candidate) {
+    for (uint candidate = 0u; candidate < localSampleCount; ++candidate) {
         float3 stream;
         float acceptance;
         if (candidate == 0u) {
@@ -1498,42 +1746,73 @@ float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
             selectEmitterForCell(stream.x, lightGridCell);
         EmitterSample candidateSample;
         candidateSample.emitterIndex = lightSelection.emitterIndex;
-        candidateSample.positionSample = quantizePositionSample(stream.yz);
+        candidateSample.positionSample = packPositionSample(stream.yz);
         candidateSample.valid = true;
         EmitterEvaluation evaluation =
-            evaluateEmitterSample(surface, viewDirection, candidateSample);
+            evaluateDirectSample(surface, viewDirection, candidateSample);
         float globalProbability = Emitters[
             candidateSample.emitterIndex].selectionProbability;
         float conditionalAreaPdf = evaluation.valid &&
                 globalProbability > 0.0 ?
             evaluation.sourcePdf / globalProbability : 0.0;
-        /* The target remains the existing global light/BSDF MIS integrand.
-         * ReGIR changes only the proposal, and its stored inverse probability
-         * supplies the two-stage RIS correction. */
-        float weight = conditionalAreaPdf > 0.0 ?
-            evaluation.targetPdf * lightSelection.inverseProbability /
-                conditionalAreaPdf : 0.0;
-        weightSum += weight;
-        sampleCount += 1u;
-        if (weight > 0.0 && acceptance * weightSum < weight) {
-            selected = candidateSample;
-        }
+        float localProposalPdf = conditionalAreaPdf > 0.0 &&
+                lightSelection.inverseProbability > 0.0 ?
+            conditionalAreaPdf / lightSelection.inverseProbability : 0.0;
+        float mixturePdf = directInitialMixturePdf(
+            candidateSample, evaluation, localStrategyWeight,
+            environmentStrategyWeight, brdfStrategyWeight,
+            localProposalPdf);
+        streamDirectInitialCandidate(candidateSample, evaluation, mixturePdf,
+                                     acceptance, selected, weightSum);
     }
 
-    /* RTXDI's initial pass finalizes all local-light candidates into one
+    /* NVIDIA's higher-quality initial pass places the infinite/environment and
+     * BRDF strategies in the same reservoir as local lights. The project sky
+     * is analytic rather than a texture, so its one environment candidate is
+     * sampled directly in solid angle and stores a reusable world direction. */
+    float4 environmentRandom = sampleStream(
+        pixel, sampleIndex, ReservoirEnvironmentStream);
+    EmitterSample environmentSample = environmentDirectSample(
+        surface, environmentRandom.xy);
+    EmitterEvaluation environmentEvaluation = evaluateDirectSample(
+        surface, viewDirection, environmentSample);
+    float environmentMixturePdf = directInitialMixturePdf(
+        environmentSample, environmentEvaluation, localStrategyWeight,
+        environmentStrategyWeight, brdfStrategyWeight, 0.0);
+    streamDirectInitialCandidate(
+        environmentSample, environmentEvaluation, environmentMixturePdf,
+        environmentRandom.z, selected, weightSum);
+
+    float4 brdfRandom = sampleStream(
+        pixel, sampleIndex, ReservoirBrdfStream);
+    float sampledBrdfPdf;
+    EmitterSample brdfSample = traceBrdfDirectSample(
+        surface, viewDirection, brdfRandom.x, brdfRandom.yz,
+        sampledBrdfPdf);
+    EmitterEvaluation brdfEvaluation = evaluateDirectSample(
+        surface, viewDirection, brdfSample);
+    float brdfMixturePdf = sampledBrdfPdf > 0.0 ?
+        directInitialMixturePdf(
+            brdfSample, brdfEvaluation, localStrategyWeight,
+            environmentStrategyWeight, brdfStrategyWeight, 0.0) : 0.0;
+    streamDirectInitialCandidate(
+        brdfSample, brdfEvaluation, brdfMixturePdf, brdfRandom.w,
+        selected, weightSum);
+
+    /* RTXDI's initial pass finalizes all direct-light candidates into one
      * current-frame proposal before temporal reuse. M therefore counts history
      * domains, not how many candidates were tested inside this proposal. This
      * also keeps CandidateCount from changing the meaning of the history cap. */
-    weightSum /= float(sampleCount);
-    sampleCount = ReservoirInitialSampleCount;
+    weightSum *= inverseInitialSampleCount;
+    uint sampleCount = ReservoirInitialSampleCount;
     /* NVIDIA's initial-visibility option tests only the RIS-selected sample,
      * then discards its identity and weight while retaining M when occluded.
      * Visibility inside every candidate weight is a different proposal and
      * causes unstable selection at shadow boundaries. */
     EmitterEvaluation initialEvaluation =
-        evaluateEmitterSample(surface, viewDirection, selected);
+        evaluateDirectSample(surface, viewDirection, selected);
     if (!initialEvaluation.valid ||
-        !traceEmitterVisibility(surface, initialEvaluation, instanceMask)) {
+        !traceDirectVisibility(surface, initialEvaluation, instanceMask)) {
         selected.valid = false;
         weightSum = 0.0;
     }
@@ -1543,7 +1822,7 @@ float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
     bool reusedPrevious = false;
     bool selectedPrevious = false;
     int2 temporalPixel;
-    if (findTemporalReservoir(
+    if (enableTemporalReuse && findTemporalReservoir(
             pixel, dimensions, sampleIndex, surface, previousPosition, motion,
             temporalPixel) &&
         loadPreviousReservoirAt(temporalPixel, dimensions, surface,
@@ -1553,12 +1832,11 @@ float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
         if (reusedPrevious) {
             EmitterSample previousSample;
             previousSample.emitterIndex = previous.emitterIndex;
-            previousSample.positionSample =
-                unpackPositionSample(previous.positionSample);
+            previousSample.positionSample = previous.positionSample;
             previousSample.valid = previous.unbiasedWeight > 0.0 &&
-                previous.emitterIndex < EmitterCount;
+                directSampleIndexValid(previous.emitterIndex);
             EmitterEvaluation previousEvaluation =
-                evaluateEmitterSample(surface, viewDirection, previousSample);
+                evaluateDirectSample(surface, viewDirection, previousSample);
             float previousWeight = previousEvaluation.valid ?
                 previousEvaluation.targetPdf * previous.unbiasedWeight *
                     float(previousCount) : 0.0;
@@ -1580,7 +1858,7 @@ float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
         return 0.0;
     }
     EmitterEvaluation finalEvaluation =
-        evaluateEmitterSample(surface, viewDirection, selected);
+        evaluateDirectSample(surface, viewDirection, selected);
     if (!finalEvaluation.valid || !(finalEvaluation.targetPdf > 0.0)) {
         return 0.0;
     }
@@ -1594,7 +1872,7 @@ float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
         float previousTarget = 0.0;
         if (dot(toPreviousCamera, toPreviousCamera) > 1.0e-8) {
             EmitterEvaluation evaluationAtPrevious =
-                evaluatePreviousEmitterSample(
+                evaluatePreviousDirectSample(
                     previousSurface, normalize(toPreviousCamera), selected);
             if (evaluationAtPrevious.valid) {
                 previousTarget = evaluationAtPrevious.targetPdf;
@@ -1605,9 +1883,9 @@ float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
                  * stored result is a faster-preset optimization that can retain
                  * stale visibility across moving geometry. */
                 if (previousTarget > 0.0 &&
-                    !traceEmitterVisibility(previousSurface,
-                                            evaluationAtPrevious,
-                                            instanceMask)) {
+                    !traceDirectVisibility(previousSurface,
+                                           evaluationAtPrevious,
+                                           instanceMask)) {
                     previousTarget = 0.0;
                 }
             }
@@ -1626,29 +1904,10 @@ float3 resampleEmitterTemporal(uint2 pixel, uint2 dimensions,
         return 0.0;
     }
     stored.emitterIndex = selected.emitterIndex;
-    stored.positionSample = packPositionSample(selected.positionSample);
+    stored.positionSample = selected.positionSample;
     stored.unbiasedWeight = unbiasedWeight;
-    return 0.0;
-}
-
-float emitterPdfForHit(SurfaceData surface, float3 previousPosition)
-{
-    if (surface.emitterIndex == InvalidIndex ||
-        surface.emitterIndex >= EmitterCount) {
-        return 0.0;
-    }
-    EmissiveTriangle emitter = Emitters[surface.emitterIndex];
-    float3 difference = surface.position - previousPosition;
-    float distanceSquared = dot(difference, difference);
-    float3 direction = normalize(difference);
-    uint firstVertex = emitter.firstVertex;
-    float3 lightNormal = normalize(cross(
-        Vertices[firstVertex + 1u].position - Vertices[firstVertex].position,
-        Vertices[firstVertex + 2u].position - Vertices[firstVertex].position));
-    float lightCosine = abs(dot(lightNormal, -direction));
-    return lightCosine > 1.0e-6 ?
-        emitter.selectionProbability * emitter.inverseArea *
-            distanceSquared / lightCosine : 0.0;
+    return enableTemporalReuse ? 0.0 :
+        finalEvaluation.contribution * unbiasedWeight;
 }
 
 void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
@@ -1677,9 +1936,23 @@ void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
 struct PrimaryGuides
 {
     float2 motion;
-    float historyHitDistance;
-    bool historyHitDistanceValid;
 };
+
+float primarySpecularHitDistance(SurfaceData surface, float3 viewDirection)
+{
+    float3 reflectionDirection = reflect(
+        -viewDirection, surface.shadingNormal);
+    if (dot(surface.geometricNormal, reflectionDirection) <= 0.0) {
+        return 0.0;
+    }
+    RayDesc ray;
+    ray.Origin = surface.position + surface.geometricNormal * RayEpsilon;
+    ray.Direction = reflectionDirection;
+    ray.TMin = RayEpsilon;
+    ray.TMax = SceneFarPlane;
+    SegmentTraversal segment = traceSegment(ray);
+    return segment.payload.hit != 0u ? segment.distance : SceneFarPlane;
+}
 
 PrimaryGuides writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
                                  SurfaceData surface, float3 viewDirection,
@@ -1698,10 +1971,12 @@ PrimaryGuides writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
                                       CameraForward));
     guides.motion = surfaceMotion(payload, surface, float2(dimensions));
     SceneMotion[pixel] = guides.motion;
-    guides.historyHitDistanceValid = loadSpecularHitDistanceHistory(
-        pixel, guides.motion, dimensions, guides.historyHitDistance);
-    SpecularHitDistance[pixel] =
-        guides.historyHitDistanceValid ? guides.historyHitDistance : 0.0;
+    /* DLSS-RR asks for the world-space distance of a specular ray whose origin
+     * lies on the primary surface. A deterministic mirror-direction query is a
+     * stable geometric guide; using the path's randomly selected lobe made the
+     * tagged resource alternate between stale history and a new sample. */
+    SpecularHitDistance[pixel] = primarySpecularHitDistance(
+        surface, viewDirection);
     DiffuseHitDistance[pixel] = 0.0;
     return guides;
 }
@@ -1760,14 +2035,9 @@ void RayGeneration()
     uint effectiveSampleIndex = SampleIndex * SamplesPerPixel + sampleOrdinal;
     float3 radiance = 0.0;
     float3 throughput = 1.0;
-    float previousBsdfPdf = 0.0;
-    float3 previousPosition = 0.0;
-    float3 previousNormal = 0.0;
     bool firstBounceSpecular = false;
     PrimaryGuides primaryGuides;
     primaryGuides.motion = InvalidMotion.xx;
-    primaryGuides.historyHitDistance = 0.0;
-    primaryGuides.historyHitDistanceValid = false;
     RayDesc ray = primaryRay;
 
     for (uint depth = 0u; depth < MaximumDepth; ++depth) {
@@ -1784,18 +2054,6 @@ void RayGeneration()
             segmentDistance = segment.distance;
             radiance += throughput * segment.additiveRadiance;
         }
-        if (depth == 1u && firstBounceSpecular && sampleOrdinal == 0u) {
-            /* A specular ray that escapes the scene reflects something
-             * effectively infinitely far away, which is the far plane rather
-             * than a zero distance at the shading point. */
-            float sampledHitDistance =
-                payload.hit != 0u ? segmentDistance : SceneFarPlane;
-            SpecularHitDistance[pixel] =
-                primaryGuides.historyHitDistanceValid ?
-                lerp(primaryGuides.historyHitDistance, sampledHitDistance,
-                     SpecularHitDistanceBlend) :
-                sampledHitDistance;
-        }
         if (depth == 1u && !firstBounceSpecular && sampleOrdinal == 0u) {
             float sampledHitDistance =
                 payload.hit != 0u ? segmentDistance : SceneFarPlane;
@@ -1806,13 +2064,14 @@ void RayGeneration()
                 writeMissGuides(pixel, unjitteredDirection,
                                 float2(dimensions));
             }
-            float weight = 1.0;
-            if (depth == 1u) {
-                float lightPdf =
-                    saturate(dot(previousNormal, ray.Direction)) / Pi;
-                weight = powerHeuristic(previousBsdfPdf, lightPdf);
+            /* Every preceding surface estimates its local/environment direct
+             * lighting with a BRDF-overlap candidate for the environment.
+             * The continuation ray carries only indirect transport, so an
+             * environment hit here must not be counted a second time. */
+            if (depth > 0u) {
+                break;
             }
-            radiance += throughput * environmentRadiance(ray.Direction) * weight;
+            radiance += throughput * environmentRadiance(ray.Direction);
             break;
         }
 
@@ -1822,11 +2081,8 @@ void RayGeneration()
             primaryGuides = writeSurfaceGuides(pixel, payload, surface,
                                               viewDirection, dimensions);
         }
-        if (any(surface.emission > 0.0)) {
-            float weight = depth == 0u ? 1.0 : powerHeuristic(
-                previousBsdfPdf,
-                emitterPdfForHit(surface, previousPosition));
-            radiance += throughput * surface.emission * weight;
+        if (any(surface.emission > 0.0) && depth == 0u) {
+            radiance += throughput * surface.emission;
         }
         /*
          * The authored zone lighting enters only here, on a bounce, so a
@@ -1839,29 +2095,28 @@ void RayGeneration()
             radiance += throughput * authoredAmbientRadiance(surface);
         }
         uint sampleDimension = depth * PathDimensionsPerBounce;
-        float2 environmentSample = float2(
-            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 0u),
-            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 1u));
-        float emitterSelection =
-            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 2u);
-        float2 emitterSample = float2(
-            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 3u),
-            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 4u));
         if (depth == 0u) {
-            radiance += throughput * sampleEnvironmentLighting(
-                surface, viewDirection, environmentSample, SceneInstanceMask);
-        }
-        if (depth == 0u && sampleOrdinal == 0u) {
-            /* Ordinal zero publishes the temporal reservoir. Its direct-light
-             * contribution is added by SpatialShade after current-frame spatial
-             * reuse; every later SPP ordinal remains an independent estimate. */
-            resampleEmitterTemporal(
-                pixel, dimensions, effectiveSampleIndex, surface, viewDirection,
-                previousSurfacePosition(payload), primaryGuides.motion,
-                SceneInstanceMask, reservoir);
+            /* Ordinal zero publishes the temporal reservoir and defers its
+             * contribution to SpatialShade. Later SPP ordinals use the same
+             * heterogeneous local/environment initial estimator and exact
+             * environment/BRDF overlap, but do
+             * not overwrite or reuse the pixel's one history chain. */
+            if (sampleOrdinal == 0u) {
+                resampleDirectTemporal(
+                    pixel, dimensions, effectiveSampleIndex, surface,
+                    viewDirection, previousSurfacePosition(payload),
+                    primaryGuides.motion, SceneInstanceMask, true, reservoir);
+            } else {
+                PackedLightReservoir freshReservoir;
+                radiance += throughput * resampleDirectTemporal(
+                    pixel, dimensions, effectiveSampleIndex, surface,
+                    viewDirection, previousSurfacePosition(payload),
+                    primaryGuides.motion, SceneInstanceMask, false,
+                    freshReservoir);
+            }
         } else {
-            radiance += throughput * sampleEmitterLighting(
-                surface, viewDirection, emitterSelection, emitterSample,
+            radiance += throughput * sampleSecondaryDirectLighting(
+                pixel, effectiveSampleIndex, depth, surface, viewDirection,
                 SceneInstanceMask);
         }
 
@@ -1889,9 +2144,6 @@ void RayGeneration()
             any(isnan(throughput)) || any(isinf(throughput))) {
             break;
         }
-        previousBsdfPdf = bsdf.pdf;
-        previousPosition = surface.position;
-        previousNormal = surface.shadingNormal;
         ray.Origin = surface.position +
             surface.geometricNormal * RayEpsilon;
         ray.Direction = bounceDirection;
@@ -1978,11 +2230,11 @@ void SpatialShade()
     float3 viewDirection = normalize(toCamera);
     EmitterSample selected;
     selected.emitterIndex = center.emitterIndex;
-    selected.positionSample = unpackPositionSample(center.positionSample);
+    selected.positionSample = center.positionSample;
     selected.valid = center.unbiasedWeight > 0.0 &&
-        center.emitterIndex < EmitterCount;
+        directSampleIndexValid(center.emitterIndex);
     EmitterEvaluation centerEvaluation =
-        evaluateEmitterSample(centerSurface, viewDirection, selected);
+        evaluateDirectSample(centerSurface, viewDirection, selected);
     float weightSum = centerEvaluation.valid ?
         centerEvaluation.targetPdf * center.unbiasedWeight *
             float(center.sampleCount) : 0.0;
@@ -2025,20 +2277,19 @@ void SpatialShade()
         /* Match RTXDI's default discountNaiveSamples behavior: do not spread a
          * valid sample that has no temporal history into surrounding pixels. */
         if (neighbor.unbiasedWeight > 0.0 &&
-            neighbor.emitterIndex < EmitterCount &&
+            directSampleIndexValid(neighbor.emitterIndex) &&
             neighbor.sampleCount <= ReservoirNaiveSampleThreshold) {
             continue;
         }
         uint neighborCount = neighbor.sampleCount;
         EmitterSample neighborSample;
         neighborSample.emitterIndex = neighbor.emitterIndex;
-        neighborSample.positionSample =
-            unpackPositionSample(neighbor.positionSample);
+        neighborSample.positionSample = neighbor.positionSample;
         neighborSample.valid = neighbor.unbiasedWeight > 0.0 &&
-            neighbor.emitterIndex < EmitterCount;
+            directSampleIndexValid(neighbor.emitterIndex);
         EmitterEvaluation neighborEvaluation =
-            evaluateEmitterSample(centerSurface, viewDirection,
-                                  neighborSample);
+            evaluateDirectSample(centerSurface, viewDirection,
+                                 neighborSample);
         float neighborWeight = neighborEvaluation.valid ?
             neighborEvaluation.targetPdf * neighbor.unbiasedWeight *
                 float(neighborCount) : 0.0;
@@ -2064,7 +2315,7 @@ void SpatialShade()
         return;
     }
     EmitterEvaluation finalEvaluation =
-        evaluateEmitterSample(centerSurface, viewDirection, selected);
+        evaluateDirectSample(centerSurface, viewDirection, selected);
     if (!finalEvaluation.valid || !(finalEvaluation.targetPdf > 0.0)) {
         PreviousReservoirs[reservoirIndex] = output;
         return;
@@ -2082,16 +2333,16 @@ void SpatialShade()
         float3 toNeighborCamera = CameraPosition - neighborSurface.position;
         float neighborTarget = 0.0;
         if (dot(toNeighborCamera, toNeighborCamera) > 1.0e-8) {
-            EmitterEvaluation evaluationAtNeighbor = evaluateEmitterSample(
+            EmitterEvaluation evaluationAtNeighbor = evaluateDirectSample(
                 neighborSurface, normalize(toNeighborCamera), selected);
             /* NVIDIA's Unbiased/Ultra spatial mode includes conservative
              * visibility in the pairwise target. Basic mode assumes every
              * accepted neighbor can see the selected sample, which leaves
              * isolated high-weight samples at occlusion boundaries. */
             if (evaluationAtNeighbor.valid &&
-                traceEmitterVisibility(neighborSurface,
-                                       evaluationAtNeighbor,
-                                       SceneInstanceMask)) {
+                traceDirectVisibility(neighborSurface,
+                                      evaluationAtNeighbor,
+                                      SceneInstanceMask)) {
                 neighborTarget = evaluationAtNeighbor.targetPdf;
             }
         }
@@ -2112,10 +2363,10 @@ void SpatialShade()
     }
 
     output.emitterIndex = selected.emitterIndex;
-    output.positionSample = packPositionSample(selected.positionSample);
+    output.positionSample = selected.positionSample;
     output.unbiasedWeight = unbiasedWeight;
-    if (!traceEmitterVisibility(centerSurface, finalEvaluation,
-                                SceneInstanceMask)) {
+    if (!traceDirectVisibility(centerSurface, finalEvaluation,
+                               SceneInstanceMask)) {
         output.emitterIndex = InvalidIndex;
         output.positionSample = 0u;
         output.unbiasedWeight = 0.0;

@@ -144,6 +144,19 @@ int main()
         return fail("initial candidates changed temporal reservoir ownership");
     }
 
+    if (!near(direct_mixture_pdf(0.25f, 16u, 0.0f, 1u, 0.0f, 1u),
+              4.0f / 18.0f) ||
+        !near(direct_mixture_pdf(0.0f, 16u, 0.125f, 1u, 0.5f, 1u),
+              0.625f / 18.0f) ||
+        !near(direct_mixture_pdf(0.25f, 2u, 0.0f, 1u, 0.0f, 1u),
+              0.5f / 4.0f) ||
+        direct_mixture_pdf(1.0f, 0u, 1.0f, 0u, 1.0f, 0u) != 0.0f ||
+        !near(finalize_initial_direct_weight(12.0f, 4u, 2.0f), 1.5f) ||
+        finalize_initial_direct_weight(12.0f, 0u, 2.0f) != 0.0f ||
+        finalize_initial_direct_weight(12.0f, 4u, 0.0f) != 0.0f) {
+        return fail("heterogeneous direct-light mixture normalization changed");
+    }
+
     if (!near(finalize_basic_reservoir_weight(8.0f, 2.0f, 2.0f, 8.0f),
               1.0f) ||
         !near(finalize_basic_reservoir_weight(30.0f, 2.0f, 2.0f, 16.0f),

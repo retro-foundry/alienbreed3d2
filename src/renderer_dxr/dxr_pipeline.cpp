@@ -97,15 +97,14 @@ constexpr std::array<const wchar_t *,
  *
  * The corrected filter-free ReGIR/ReSTIR path passed its moving-camera visual
  * acceptance check at the NVIDIA Ultra-like 16/20 configuration. Keep the exact
- * single-sample estimator available through an explicit zero history limit.
+ * fresh heterogeneous estimator available through an explicit zero history
+ * limit, which disables temporal/spatial reuse without removing its initial
+ * local/environment/BRDF strategies.
  *
  * `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` override both, and a
  * limit of zero disables spatiotemporal reuse to recover the single-sample
  * estimator.
  */
-constexpr uint32_t reservoir_candidate_count = 16u;
-constexpr uint32_t reservoir_sample_limit = 20u;
-
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
 constexpr UINT shader_table_size = shader_record_size * 6u;
 constexpr float pi = 3.14159265358979323846f;
@@ -447,10 +446,12 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                                        std::string &error)
 {
     candidate_count_ = options.light_candidates != 0u ?
-        options.light_candidates : reservoir_candidate_count;
+        options.light_candidates :
+            RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES;
     reservoir_sample_limit_ = (options.reservoir_sample_limit_set != 0u ||
                                options.reservoir_sample_limit != 0u) ?
-        options.reservoir_sample_limit : reservoir_sample_limit;
+        options.reservoir_sample_limit :
+            RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT;
     if (options.samples_per_pixel != 0u) {
         spp_ = options.samples_per_pixel;
     }
@@ -1517,8 +1518,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             reconstruction_resource(DxrReconstructionBuffer::scene_motion),
             reconstruction_resource(
                 DxrReconstructionBuffer::specular_hit_distance),
-            reconstruction_resource(
-                DxrReconstructionBuffer::diffuse_hit_distance),
         };
         if (!streamline->evaluate(command_list, frame_number, current_camera,
                                   previous_camera, current_jitter,

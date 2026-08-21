@@ -88,7 +88,8 @@ default, so the shipped template lists them commented out with their defaults:
   `65536` control the direct-lighting reservoir. The defaults are `16` and `20`,
   the accepted filter-free ReGIR/ReSTIR configuration matching the NVIDIA Ultra
   sample's initial and temporal counts. An explicit reservoir limit of zero
-  recovers the exact single-sample diagnostic estimator; and
+  disables temporal/spatial reuse while retaining the heterogeneous fresh
+  local/environment estimator and the exact environment/BRDF overlap; and
 - `rtx_radiance_clamp=200`, `rtx_exposure=1`, and `rtx_ndf_trim=0.9` are the
   per-sample luminance ceiling, the linear multiplier applied before tone
   mapping, and the GGX visible-normal sampling trim.
@@ -535,9 +536,9 @@ result to the three-frame flip-discard swap chain; there is no project-authored
 temporal accumulation or denoiser. The same dispatch writes separate
 diffuse/specular albedo, world shading normal, linear roughness, linear depth,
 dense scene motion, and specular-hit-distance resources in the formats recorded
-by the implementation plan. Specular hit distance comes from the actual first
-secondary path segment when the primary BSDF sample selects the glossy lobe,
-so the reflection guide and noisy radiance no longer use unrelated directions.
+by the implementation plan. Specular hit distance is a deterministic
+mirror-direction distance query from the primary surface, as required by the
+pinned Streamline guide; a miss reports the far-plane distance.
 A renderer-neutral history epoch resets camera and
 geometry history across level/quickload discontinuities; topology-stable world
 motion uses the previous vertex positions at the current hit barycentrics.
@@ -601,24 +602,38 @@ They default to 16 and 20. A positive limit
 enables staged temporal and current-frame spatial reuse with material/depth/
 normal validation, stratified initial selection, selected-only initial
 visibility, fixed low-discrepancy neighbor offsets, naive-neighbor discounting,
-and ray-traced bias correction. Before initial sampling, a camera-centered
+and ray-traced bias correction. One analytic-environment candidate and one
+independent BRDF candidate join the configured local candidates in the same
+balance-heuristic reservoir. The BRDF strategy overlaps the analytic environment,
+whose reverse PDF is exact; BRDF rays that hit a mesh emitter are rejected because
+the stochastic ReGIR table cannot provide that arbitrary emitter's reverse
+per-cell PDF. Mesh emitters remain completely and unbiasedly covered by the local
+strategy. Before initial sampling, a camera-centered
 16-by-16-by-16 ReGIR grid presamples 512 corrected light entries per cell from
 the complete global emitter alias table. Its project-owned volume target uses
 triangle area, a conservative emitted-radiance bound, and spatial solid angle;
 surfaces outside the grid retain the complete global proposal. The filter-free
 positive-history path uses four spatial neighbors and 16 disocclusion attempts,
 matching NVIDIA's Ultra structure. `16 / 20` passed the moving-camera visual
-acceptance check and is the production configuration; `4 / 128` mixes a low
-candidate count with a much longer history than NVIDIA's presets and is no
-longer recommended. An explicit zero history limit retains the exact
-single-sample diagnostic. Section 11 of
+check for the former local-emitter-only stage and the completed heterogeneous
+signal was accepted in motion on 2026-08-21, so it remains the production default;
+`4 / 128` mixes a low candidate count with a much longer history than NVIDIA's
+presets and is no longer recommended. An explicit zero history limit retains
+the history-off diagnostic. Secondary path vertices reuse two local samples
+from their shared ReGIR cell, plus one environment and one environment-overlap
+BRDF sample, before
+selected-only visibility instead of returning to the former global one-sample
+emitter path. Section 11 of
 `DXR_RAY_RECONSTRUCTION_PLAN.md` records
 why measurements from the former biased temporal approximation cannot be used to
 tune the corrected implementation.
 
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
 `normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`, or
-`specular-hit-distance-history` to present one reconstruction input directly. `AB3D2_DXR_DEBUG_RANGE` sets the positive
+`specular-hit-distance-history` to present one reconstruction input directly.
+Diffuse hit distance remains a diagnostic view but is not tagged to DLSS-RR;
+Streamline 2.12 specifies specular hit distance as the optional reflection-motion
+guide. `AB3D2_DXR_DEBUG_RANGE` sets the positive
 linear visualization range for depth, motion magnitude, and hit distance.
 Invalid motion/history pixels are magenta; surface/background guide alpha and
 the raw values retain the documented shader sentinels rather than this display

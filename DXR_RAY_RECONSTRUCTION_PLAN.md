@@ -110,18 +110,16 @@ transform, deterministic sample sequence, PDF mass, and finite throughput.
 The former linearly seeded xorshift stream has been replaced with the pinned
 256-spp Heitz et al. Owen-scrambled Sobol sampler. Eight explicit dimensions
 per bounce remove branch-dependent sample consumption, and translated optimized
-tiles pad later dimension groups. The specular hit-distance guide now records
-the actual first secondary ray when the sampled primary event is glossy instead
-of tracing an independently sampled guide ray. Each completed 256-sample block applies
+tiles pad later dimension groups. The specular hit-distance guide now traces a
+deterministic mirror direction from the primary surface every frame; a miss
+reports the far-plane distance. Each completed 256-sample block applies
 a deterministic tile translation so the reference package does not repeat the
 same aligned screen-space pattern every 256 presented frames.
 The visible Level A capture has also been checked through the hidden readback
 path. Phase 8 now allocates and writes the seven required RR guide resources at
 the primary hit. Diffuse/specular albedo, world shading normal, perceptual
-roughness, linear view depth, dense scene motion, and stochastic GGX specular
-hit distance use the formats in the frame contract below. The hit-distance
-sample is coupled to the glossy radiance path rather than an unrelated random
-direction. A renderer-owned
+roughness, linear view depth, dense scene motion, and deterministic specular
+hit distance use the formats in the frame contract below. A renderer-owned
 history retains the previous camera basis, per-frame Halton jitter, dimensions,
 history epoch, and a GPU copy of the previous vertices; motion is
 `previousPixel - currentPixel` in pixel units. `SceneFrame.history_epoch`
@@ -157,8 +155,11 @@ surface-aware ray-traced bias correction, validated emitter history, temporal
 neighbor search, and staged current-frame spatial/disocclusion reuse. The symptom-level weight clamp and
 boiling filter were removed. The corrected `16 / 20` path passed its interactive
 moving-camera visual check on 2026-08-21 and is now the production default.
-`AB3D2_DXR_RESERVOIR_LIMIT=0` remains the exact single-sample diagnostic; read
-section 11 before tuning the estimator.
+Finer temporal noise reported later led to the heterogeneous completion in
+section 11c, which the user accepted in motion on 2026-08-21. The accepted
+`16 / 20` pair is the renderer-wide production default.
+`AB3D2_DXR_RESERVOIR_LIMIT=0` remains the history-off diagnostic; read section
+11 before tuning the estimator.
 
 ### Current dependency gate
 
@@ -597,7 +598,7 @@ Start with separate, inspectable guide textures rather than packing normal/rough
 | Specular hit distance | `R32_FLOAT` | RR input | `kBufferTypeSpecularHitDistance` | World-space distance from the primary surface ray origin to its specular-ray hit; documented miss value |
 | Exposure | `R32_FLOAT`, 1x1 | 1x1 | `kBufferTypeExposure` if required by the pinned integration | Explicit exposure shared by RR and tone mapping |
 
-Use specular hit distance for the first complete integration, not specular motion vectors. The path tracer already knows the first specular ray origin and hit position, so this avoids a second virtual-reflection motion pipeline. Supply the exact additional world/view camera matrices named by the pinned `sl_dlss_d.h`. Once baseline quality is validated, specular motion vectors may be evaluated as a measured alternative, never as two simultaneously ambiguous inputs.
+Use specular hit distance for the first complete integration, not specular motion vectors. Trace a deterministic mirror direction from the primary surface and report its world-space distance (or the far plane on a miss), avoiding a separate virtual-reflection motion pipeline. Supply the exact additional world/view camera matrices named by the pinned `sl_dlss_d.h`. Once baseline quality is validated, specular motion vectors may be evaluated as a measured alternative, never as two simultaneously ambiguous inputs.
 
 The initial formats intentionally favor observability and correctness over bandwidth. Optimize formats only after debug captures prove ranges, signs, spaces, and quantization are unchanged.
 
@@ -890,13 +891,12 @@ metric is reported rather than bounded until each stage has a recorded baseline.
   the nearest representable distance and inverted every sky silhouette.
   `reconstruction::scene_near_plane` and `scene_far_plane` are now the single
   source of truth, mirrored in the shader as `SceneFarPlane`.
-- The specular hit-distance guide is a reprojected running estimate blended
-  towards each stochastic measurement by `SpecularHitDistanceBlend`, published
-  into `specular_hit_distance_history` by a copy after `DispatchRays`. Writing
-  zero on the frames whose primary lobe choice went diffuse made Ray
-  Reconstruction resize its specular filter footprint per pixel per frame. A
-  specular ray that escapes now reports the far plane rather than zero. This
-  filters a guide, not radiance.
+- The initial specular hit-distance guide was a reprojected running estimate
+  blended towards a stochastic path-lobe measurement. The completed guide now
+  traces a deterministic mirror direction from the primary surface every frame;
+  a miss reports the far plane. Streamline 2.12 does not list diffuse hit
+  distance as a DLSS-RR input, so that stochastic diagnostic is no longer
+  tagged. These changes stabilize geometry guides, not radiance.
 - No radiance clamp was added. A firefly clamp is biased and would be a visual
   workaround for the estimator defects 11b and 11c remove; the saturated-pixel
   count exists to measure whether outliers actually survive.
@@ -929,8 +929,8 @@ address. The raw path without Ray Reconstruction measures 29.65 with a ratio of
 - Measured neutral for stability, which is the correct expectation: it changes
   the cost and the resolution of selection, not the variance.
 
-#### 11c. Correct spatiotemporal ReSTIR direct lighting — implemented and
-visually accepted
+#### 11c. Correct spatiotemporal ReSTIR direct lighting — heterogeneous signal
+implemented, measured, and visually accepted
 
 The first temporal reservoir was not equivalent to the NVIDIA samples the user
 was comparing against. It always finalized reuse with `1 / total M`, retained a
@@ -944,10 +944,13 @@ been removed rather than retained as symptom-level fixes.
 The clean-room implementation now has the correctness pieces that comparison
 identified:
 
-- The 48-byte double-buffered reservoir carries the selected emitter sample,
+- The 48-byte double-buffered reservoir carries the selected direct-light sample,
   finalized inverse-PDF weight, history-domain count, and its owning surface's world
   position, shading and geometric normals, material index, and exact UV. Those
   fields reconstruct the prior BSDF domain without adding another G-buffer.
+  A local sample stores its emitter and canonical triangle coordinates; an
+  analytic-environment sample uses a reserved light identity and stores its
+  packed world-space direction in the same sample word.
 - A geometry-only scene update invalidates renderer history if compact emitter
   slots stop naming the same triangle or if that triangle's area PDF changes.
   A proposal-probability change alone remains compatible because each reservoir
@@ -995,12 +998,24 @@ identified:
   still participates in the next basic normalization. There is no reservoir
   weight clamp, radiance average, blur, or boiling-filter pass.
 
-The environment/BSDF strategies remain separate MIS estimators, as before; this
-reservoir covers authored area emitters only. On 2026-08-21 a second explicit
-comparison identified the remaining architectural mismatch: NVIDIA's Medium and
-Ultra sample presets feed initial ReSTIR DI from a camera-centered ReGIR
-proposal, while this renderer still drew every candidate directly from one
-global alias table. The project now builds a regular 16-by-16-by-16 world grid
+The first accepted revision still kept environment and BRDF strategies outside
+the reservoir and covered authored area emitters only. Residual temporal grain
+reported after that acceptance exposed this as a signal-coverage gap rather
+than a reason to extend history. The primary initial pass now streams one
+cosine-hemisphere analytic-environment candidate and one independently traced
+BRDF candidate beside the configured local candidates. A BRDF miss stores its
+world-space environment direction. A BRDF ray that reaches a mesh emitter is
+rejected: the stochastic ReGIR table does not expose the reverse per-cell PDF
+for an arbitrary discovered emitter, and substituting the global alias-table
+PDF created rare oversized weights. Mesh emitters remain completely covered by
+the local strategy. The environment strategies use an exact balance-heuristic
+mixture PDF, and the ordinary continuation ray no longer double-counts those
+direct paths.
+
+On 2026-08-21 a second explicit comparison had also identified another
+architectural mismatch: NVIDIA's Medium and Ultra sample presets feed initial
+ReSTIR DI from a camera-centered ReGIR proposal. The project builds a regular
+16-by-16-by-16 world grid
 before the primary dispatch. Each cell holds 512 independent RIS entries; each
 entry resamples eight candidates from the complete global alias table and stores
 the selected emitter plus its inverse proposal probability. A UAV barrier makes
@@ -1011,11 +1026,28 @@ global distribution.
 The project-owned volume target contains the physical quantities a spatial
 light proposal needs without importing NVIDIA code or data: conservative emitted
 luminance, triangle solid angle, and an RMS receiver-volume distance. The RIS
-correction changes only which candidate is proposed; the reservoir target stays
-the existing global light/BSDF MIS integrand, so emitter-hit MIS remains
-complementary and moving the camera or grid cannot change the estimated
-integral. There is no light cap, reservoir-weight ceiling, boiling filter, or
-post-shading blur in this path.
+correction changes only which local candidate is proposed. Local and analytic-
+environment strategies share the physical unshadowed direct integrand; the
+environment also has the exact count-weighted BRDF-overlap density. Moving the
+camera or grid therefore cannot change the estimated integral. There is no light
+cap, reservoir-weight ceiling,
+boiling filter, or post-shading blur in this path.
+
+Secondary vertices do not allocate another pair of full-resolution history
+reservoirs. Each instead draws two local candidates from the camera-centered
+ReGIR cell shared in world space, one analytic-environment candidate, and one
+BRDF candidate that safely overlaps environment misses. RIS selects one sample before visibility,
+and the continuation ray carries indirect transport only. This closes the
+former one-global-emitter-sample and binary environment-hit paths at later
+bounces without adding roughly two more screen-sized 48-byte buffers.
+
+The pinned Streamline 2.12 DLSS-RR guide lists specular hit distance, not
+`kBufferTypeDiffuseHitDistance`, as the alternative to specular motion vectors.
+The integration no longer tags its stochastic diffuse diagnostic. Specular hit
+distance is now a deterministic mirror-direction query from the primary
+surface instead of alternating between a stochastic lobe sample and reprojected
+history. These are guide corrections only; no radiance is accumulated or
+filtered by them.
 
 The same comparison showed that `4 / 128` was not a coherent NVIDIA quality
 preset. The filter-free Ultra structure uses 16 initial local-light samples,
@@ -1065,9 +1097,22 @@ grid/stage, confirming that the NVIDIA-like count/history combination is the
 better setting. On 2026-08-21 the user then performed the required interactive
 moving-camera check at `rtx_light_candidates=16` and
 `rtx_reservoir_limit=20` and reported that it looked good in motion. That closes
-the brown-dot swimming acceptance gate without a weight clamp, boiling filter,
-radiance average, or blur. `16 / 20` is consequently the production default;
-an explicit zero history limit retains the exact single-sample diagnostic.
+the original brown-dot swimming artifact without a weight clamp, boiling filter,
+radiance average, or blur. A later report of finer temporal noise triggered the
+heterogeneous primary/secondary completion above. Its first integrated `16 / 20`
+96-frame run measured `5.1552` early, `1.7047` late, and `19701.0` large-change
+pixels; the moving sequence measured `11.8601` and `172607.6`. That exposed a
+wrong reverse-PDF substitution when a BRDF ray discovered a ReGIR mesh emitter.
+Restricting that overlap to the analytically evaluable environment improved the
+same measures to `5.0604`, `1.5685`, `18059.5`, `11.7100`, and `169291.6`.
+Reprojected and deterministic specular hit-distance guides differed by only
+`0.0024` in the late metric; the deterministic guide was marginally better and
+matches the pinned Streamline contract directly. Reducing the history limit to
+eight worsened the frozen and moving measures (`1.6693` late and `11.9937`
+moving), so `16 / 20` remains the production default rather than extending or
+shortening history. The user then reported the completed signal looked much
+better in motion and accepted `16 / 20` as the renderer-wide defaults. An
+explicit zero history limit retains the history-off diagnostic.
 
 #### 11d. Historical biased temporal approximation and measurements
 
@@ -1240,8 +1285,9 @@ than the mechanism.
 A 2026-08-21 visual check found that raising SPP still swam after the history
 overwrite and jitter reprojection fixes. That check exercised the biased
 temporal estimator documented in 11d and is superseded by the accepted 11c
-implementation. The environment term remains a one-sample binary-visibility
-estimate per path at every bounce.
+local-emitter implementation. The later heterogeneous 11c implementation also
+removes the independent one-sample environment term from primary and secondary
+surfaces; it still requires visual revalidation.
 
 The all-level smoke's stability numbers should not be turned into a regression
 threshold until the near-black levels are understood, because a level that renders
@@ -1251,8 +1297,6 @@ nothing passes any stability bound trivially.
 
 - ReSTIR GI for the indirect channel. Direct-light ReSTIR is now accepted, but
   indirect reuse remains a separate future feature rather than part of this fix.
-- `kBufferTypeDiffuseHitDistance`, and confirming whether tagging
-  `kBufferTypeLinearDepth` with no `kBufferTypeDepth` is supported.
 - Dropping the forced `ePresetD` on every quality level.
 
 ## Test matrix
@@ -1365,6 +1409,7 @@ The renderer is ready for normal use only when all of these are true:
 - Static BLAS compaction, bindless layout, sampler choice, and bounce-count/performance presets: measure after correctness; none may become a visual workaround.
 - Additional spatial passes beyond the one current-frame pass in 11c: measure the
   accepted implementation before paying for more ray-traced neighbor domains.
-- ReSTIR GI: deferred indefinitely until direct-light ReSTIR is accepted.
+- ReSTIR GI: deferred until the completed direct-light signal passes its new
+  moving-camera validation.
 
 This plan intentionally leaves no compatibility path to the removed renderer. If a required behavior is missing, extend the clean renderer and its API-neutral `SceneFrame` evidence rather than reviving old code or data.

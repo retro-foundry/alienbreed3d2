@@ -62,11 +62,10 @@ world_light_tessellation=4
 
 # Emitter candidates the direct-lighting reservoir draws per pixel, 1 through
 # 1024, and the cap on the history a reservoir carries, 0 through 65536. A zero
-# limit disables temporal reuse. The single-sample pair below measured the best
-# temporal stability against the hidden smoke, because its error is
-# high-frequency and that is what Ray Reconstruction filters best.
-#rtx_light_candidates=1
-#rtx_reservoir_limit=0
+# limit explicitly disables temporal/spatial reuse for diagnosis. Defaults 16
+# and 20: the accepted filter-free ReGIR/ReSTIR configuration.
+#rtx_light_candidates=16
+#rtx_reservoir_limit=20
 
 # Ceiling on one sample's luminance, which bounds fireflies. Default 200.
 #rtx_radiance_clamp=200

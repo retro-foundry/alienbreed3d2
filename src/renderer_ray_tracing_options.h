@@ -25,6 +25,13 @@ typedef enum {
     RENDERER_RAY_RECONSTRUCTION_OFF
 } RendererRayReconstructionMode;
 
+/* Accepted ReGIR/ReSTIR production defaults. Keep explicit zero available only
+ * through reservoir_sample_limit_set for the history-off diagnostic. */
+enum {
+    RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES = 16,
+    RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT = 20
+};
+
 typedef struct {
     /*
      * Fresh path-traced samples per pixel per frame. This is the direct

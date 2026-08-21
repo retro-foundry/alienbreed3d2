@@ -24,7 +24,6 @@ struct DxrStreamlineResources {
     ID3D12Resource *linear_depth = nullptr;
     ID3D12Resource *scene_motion = nullptr;
     ID3D12Resource *specular_hit_distance = nullptr;
-    ID3D12Resource *diffuse_hit_distance = nullptr;
 };
 
 class DxrStreamline final {

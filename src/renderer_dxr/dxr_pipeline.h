@@ -167,8 +167,10 @@ private:
     UINT render_height_ = 0;
     UINT present_width_ = 0;
     UINT present_height_ = 0;
-    uint32_t candidate_count_ = 0;
-    uint32_t reservoir_sample_limit_ = 0;
+    uint32_t candidate_count_ =
+        RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES;
+    uint32_t reservoir_sample_limit_ =
+        RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT;
     float radiance_clamp_ = 200.0f;
     float exposure_ = 1.0f;
     float ndf_trim_ = 0.9f;

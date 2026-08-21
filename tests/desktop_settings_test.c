@@ -138,6 +138,11 @@ int main(void)
      * the renderer reads as "keep your own default", so an INI that mentions
      * none of them must leave the whole block zeroed.
      */
+    if (RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES != 16 ||
+        RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT != 20) {
+        fprintf(stderr, "ReGIR/ReSTIR production defaults changed\n");
+        return 1;
+    }
     desktop_settings_default(&settings);
     if (settings.ray_tracing.samples_per_pixel != 0u ||
         settings.ray_tracing.maximum_bounces != 0u ||
