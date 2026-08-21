@@ -880,9 +880,9 @@ std::string DxrDevice::device_removed_report(const char *operation, HRESULT resu
     return report.str();
 }
 
-void DxrDevice::shutdown()
+void DxrDevice::shutdown(bool flush_queue)
 {
-    if (command_queue_ && fence_ && fence_event_) {
+    if (flush_queue && command_queue_ && fence_ && fence_event_) {
         std::string flush_error;
         if (!flush(flush_error)) {
             debug_output("shutdown flush failed: " + flush_error);

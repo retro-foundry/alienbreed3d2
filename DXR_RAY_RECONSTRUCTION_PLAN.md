@@ -837,7 +837,9 @@ incomplete.
   all required Phase 8 guides, matrices/constants, options, frame token, and
   viewport, restores presentation command-list state after evaluation, and frees
   resources across resize/shutdown. `AB3D2_DXR_RR_MODE=off` is the raw-noise
-  diagnostic path.
+  diagnostic path. Interactive shutdown hides the window immediately, makes the
+  GPU idle before releasing Streamline resources, and tears the already-idle D3D
+  device down without a second proxy-queue signal after `slShutdown`.
 - Add pinned SDK detection, licence staging, secure plugin load, feature checks, optimal fixed resolution, options, tags, constants, and evaluation.
 - Restore command-list state after evaluation and validate with NVIDIA/PIX tooling.
 - Add an RR-off raw-noise mode for diagnosis only, not a shipping denoiser fallback.

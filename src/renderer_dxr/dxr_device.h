@@ -32,7 +32,9 @@ public:
     bool render(DxrPipeline &pipeline, const SceneFrame &frame,
                 const RenderView &view, std::string &error);
     bool flush(std::string &error);
-    void shutdown();
+    /* flush_queue is false only when the owner has already made the queue idle
+     * before shutting down Streamline's proxy layer. */
+    void shutdown(bool flush_queue = true);
     bool presentation_size(int &width, int &height) const;
     uint64_t last_scene_rgb_checksum() const { return last_scene_rgb_checksum_; }
     /*

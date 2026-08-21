@@ -553,6 +553,9 @@ and HUD/text overlays remain outstanding.
 
 Empty/non-world frames retain the diagnostic triangle. Resize,
 minimize/restore, fences, DRED reporting, and orderly shutdown remain covered.
+DXR shutdown hides the SDL window before its synchronous teardown, flushes the
+GPU once while Streamline's proxy is live, and does not signal that proxy queue
+again after `slShutdown`.
 Use `ab3d2_renderer_rtx_foundation_test` for the hidden multi-thousand-frame
 lifecycle check and run the game-content check with:
 

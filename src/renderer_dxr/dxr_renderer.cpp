@@ -37,6 +37,12 @@ DxrRenderer::DxrRenderer() = default;
 
 DxrRenderer::~DxrRenderer()
 {
+    /* Stop presenting an apparently hung window while the synchronous GPU and
+     * Streamline teardown completes. The SDL window remains alive until the
+     * device no longer owns its HWND. */
+    if (window_) {
+        SDL_HideWindow(window_);
+    }
     if (device_) {
         std::string flush_error;
         if (!device_->flush(flush_error)) {
@@ -61,7 +67,10 @@ DxrRenderer::~DxrRenderer()
     }
 #endif
     if (device_) {
-        device_->shutdown();
+        /* The queue was made idle before Streamline resources and the proxy
+         * runtime were released. Signaling the proxy queue after slShutdown is
+         * redundant and can leave application teardown waiting indefinitely. */
+        device_->shutdown(false);
         device_.reset();
     }
     if (window_) {
