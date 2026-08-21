@@ -733,6 +733,19 @@ float2 environmentMotion(float3 direction, float2 dimensions)
 }
 
 /*
+ * Scene motion is jitter-free for Streamline, but renderer-owned history is a
+ * pixel-addressed copy of the previous jittered frame. The current primary ray
+ * passes through `pixel + 0.5 + current jitter`; adding the motion reaches the
+ * previous projection, and removing the previous jitter converts that
+ * projection back to the previous buffer's pixel grid.
+ */
+float2 reprojectHistoryPixel(uint2 pixel, float2 motion)
+{
+    return float2(pixel) + 0.5 + motion +
+        float2(JitterX - PreviousJitterX, JitterY - PreviousJitterY);
+}
+
+/*
  * Point-samples the previous frame's specular hit-distance guide at the pixel the
  * scene motion vector reprojects to. Nearest sampling is deliberate: a bilinear
  * tap would blend hit distances across depth discontinuities.
@@ -745,7 +758,7 @@ bool loadSpecularHitDistanceHistory(uint2 pixel, float2 motion,
     if (HistoryValid == 0u || any(abs(motion) > 65500.0)) {
         return false;
     }
-    float2 previous = float2(pixel) + 0.5 + motion;
+    float2 previous = reprojectHistoryPixel(pixel, motion);
     if (any(previous < 0.0) || any(previous >= float2(dimensions))) {
         return false;
     }
@@ -1079,7 +1092,7 @@ bool loadPreviousReservoir(uint2 pixel, uint2 dimensions, SurfaceData surface,
     if (HistoryValid == 0u || any(abs(motion) > 65500.0)) {
         return false;
     }
-    float2 reprojected = float2(pixel) + 0.5 + motion;
+    float2 reprojected = reprojectHistoryPixel(pixel, motion);
     if (any(reprojected < 0.0) || any(reprojected >= float2(dimensions))) {
         return false;
     }
@@ -1361,6 +1374,13 @@ void RayGeneration()
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
     bool primaryViewWeaponHit = primaryPrimitive == ViewWeaponPrimitive;
 
+    /*
+     * A pixel owns one temporal reservoir, not one per SPP sample. Ordinal zero
+     * advances that chain using the primary guides; later ordinals deliberately
+     * remain fresh independent estimates. Do not let their historyless
+     * reservoirs overwrite the temporal result when SamplesPerPixel is above
+     * one.
+     */
     PackedLightReservoir reservoir = (PackedLightReservoir)0;
     float3 accumulatedRadiance = 0.0;
 
@@ -1464,10 +1484,14 @@ void RayGeneration()
             /* The reservoir's first candidate consumes the same emitter
              * dimensions this bounce already reserves, so every bounce keeps its
              * fixed dimension layout and no branch shifts the sequence. */
+            PackedLightReservoir sampleReservoir;
             radiance += throughput * resampleEmitterLighting(
                 pixel, dimensions, effectiveSampleIndex, surface, viewDirection,
                 previousSurfacePosition(payload), primaryGuides.motion,
-                SceneInstanceMask, reservoir);
+                SceneInstanceMask, sampleReservoir);
+            if (sampleOrdinal == 0u) {
+                reservoir = sampleReservoir;
+            }
         } else {
             radiance += throughput * sampleEmitterLighting(
                 surface, viewDirection, emitterSelection, emitterSample,

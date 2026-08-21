@@ -149,6 +149,32 @@ inline PixelPosition scene_motion(const CameraProjection &current_camera,
             current.valid && previous.valid};
 }
 
+/*
+ * Reproject a current reservoir/guide pixel into a previous jittered buffer.
+ * `scene_motion` is deliberately jitter-free because that is the convention
+ * consumed by Streamline. Renderer-owned history has to add the current jitter
+ * and remove the previous jitter itself: primary rays pass through
+ * `pixel + 0.5 + current_jitter`, while the matching previous buffer sample is
+ * addressed relative to `previous_jitter`.
+ */
+inline PixelPosition reproject_history_pixel(uint32_t pixel_x, uint32_t pixel_y,
+                                             PixelPosition motion,
+                                             PixelJitter current_jitter,
+                                             PixelJitter previous_jitter,
+                                             uint32_t width, uint32_t height)
+{
+    if (!motion.valid || width == 0u || height == 0u) {
+        return {0.0f, 0.0f, false};
+    }
+    const float x = static_cast<float>(pixel_x) + 0.5f + motion.x +
+        current_jitter.x - previous_jitter.x;
+    const float y = static_cast<float>(pixel_y) + 0.5f + motion.y +
+        current_jitter.y - previous_jitter.y;
+    return {x, y, std::isfinite(x) && std::isfinite(y) && x >= 0.0f &&
+            y >= 0.0f && x < static_cast<float>(width) &&
+            y < static_cast<float>(height)};
+}
+
 }  // namespace ab3d2::dxr::reconstruction
 
 #endif

@@ -954,6 +954,28 @@ first.
   resource-state transition, and a UAV barrier after `DispatchRays` orders this
   frame's writes before the next frame's reads.
 
+The 2026-08-21 follow-up found two correctness defects behind the reported
+positive-history artifacts and the failure of higher SPP to improve the visible
+swimming:
+
+- Renderer-owned reservoir and specular-hit-distance history used the
+  jitter-free Streamline motion vector directly as a previous-buffer address.
+  They now add the current jitter and subtract the previous jitter before the
+  point sample. Streamline still receives the original jitter-free motion with
+  `motionVectorsJittered=false`; only the renderer's private pixel history is
+  corrected. `tests/dxr_reconstruction_test.cpp` pins a phase change that must
+  cross into the adjacent previous pixel.
+- With more than one path sample, only sample ordinal zero had valid primary
+  motion and could advance the temporal reservoir, but every later historyless
+  ordinal overwrote the stored result. Ordinal zero now exclusively publishes
+  the pixel's one temporal reservoir; later ordinals remain independent fresh
+  lighting/path estimates and contribute only to the per-frame radiance
+  average.
+
+These are correctness fixes, not evidence that the earlier stability conclusion
+has reversed. A complete moving-camera visual check and matched post-fix SPP /
+reservoir sweep are still required before recording new quality numbers.
+
 **The measurements do not support the premise.** With a frozen Level A camera and
 DLSS-RR active, mean absolute per-component frame-to-frame difference over the
 final four frames of a 192-frame sweep:
@@ -1045,13 +1067,14 @@ saturated levels are the two worst, yet Level O plateaus at 0.7251 with no
 saturated pixels at all, so blown-out highlights are an aggravating factor rather
 than the mechanism.
 
-The untested lever is sample count against error character: more *independent*
-blue-noise samples per pixel per frame lower the error's magnitude without
-correlating neighbours, which is the one combination none of these measurements
-cover. Outlier magnitude and exposure are the other untouched candidate, which is
-where 11a deliberately declined to intervene on the grounds that resampling would
-remove the root cause; it did not. The environment term also remains a one-sample
-binary-visibility estimate against a bright analytic sky at every bounce.
+The previously untested lever was sample count against error character: more
+*independent* blue-noise samples per pixel per frame should lower the error's
+magnitude without correlating neighbours. A 2026-08-21 visual check found that
+raising SPP still swam, but that check exercised the broken history overwrite and
+jitter reprojection described in 11c. It must be repeated after those corrections
+before attributing the result to the estimator or Ray Reconstruction. Outlier
+magnitude and exposure are the other untouched candidate. The environment term
+also remains a one-sample binary-visibility estimate per path at every bounce.
 
 The all-level smoke's stability numbers should not be turned into a regression
 threshold until the near-black levels are understood, because a level that renders
