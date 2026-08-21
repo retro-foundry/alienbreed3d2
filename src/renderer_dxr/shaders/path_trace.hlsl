@@ -195,7 +195,6 @@ cbuffer FrameConstants : register(b0)
     uint CandidateCount;
     uint ReservoirSampleLimit;
     float RadianceClamp;
-    float NdfTrim;
     uint SamplesPerPixel;
 };
 
@@ -411,6 +410,20 @@ float2 unpackPositionSample(uint packed)
 float2 quantizePositionSample(float2 positionSample)
 {
     return unpackPositionSample(packPositionSample(positionSample));
+}
+
+/*
+ * DXR triangle attributes contain the weights of vertices one and two. Invert
+ * the square-root uniform-triangle mapping used by evaluateEmitterSample so a
+ * BRDF ray that lands on an emitter can enter the light reservoir as the exact
+ * same canonical area sample as a light-proposal candidate.
+ */
+float2 positionSampleFromBarycentrics(float2 barycentrics)
+{
+    float root = saturate(barycentrics.x + barycentrics.y);
+    float secondRandom = root > 1.0e-8 ?
+        saturate(barycentrics.y / root) : 0.0;
+    return float2(root * root, secondRandom);
 }
 
 uint blueNoiseByte(uint byteOffset)
@@ -839,12 +852,13 @@ float smithG1(float normalDirection, float alpha)
             1.0e-8);
 }
 
-float specularProbability(float3 diffuseReflectance, float3 f0)
+float specularProbability(float3 diffuseReflectance, float3 f0,
+                          float normalView)
 {
     float diffuseWeight = luminance(diffuseReflectance);
-    float specularWeight = luminance(f0);
-    return clamp(specularWeight /
-                 max(diffuseWeight + specularWeight, 1.0e-5), 0.05, 0.95);
+    float specularWeight = luminance(fresnelSchlick(normalView, f0));
+    float weightSum = diffuseWeight + specularWeight;
+    return weightSum > 1.0e-7 ? specularWeight / weightSum : 0.0;
 }
 
 BsdfEvaluation evaluateBsdf(SurfaceData surface, float3 viewDirection,
@@ -871,10 +885,11 @@ BsdfEvaluation evaluateBsdf(SurfaceData surface, float3 viewDirection,
         max(4.0 * normalView * normalLight, 1.0e-7);
     float3 diffuseReflectance = surface.baseColor * (1.0 - surface.metalness);
     float3 diffuse = (1.0 - fresnel) * diffuseReflectance / Pi;
-    float chooseSpecular = specularProbability(diffuseReflectance, f0);
+    float chooseSpecular = specularProbability(
+        diffuseReflectance, f0, normalView);
     float diffusePdf = normalLight / Pi;
     float specularPdf = distribution * viewMasking /
-        max(4.0 * normalView * NdfTrim, 1.0e-7);
+        max(4.0 * normalView, 1.0e-7);
     result.value = diffuse + specular;
     result.pdf = lerp(diffusePdf, specularPdf, chooseSpecular);
     return result;
@@ -891,7 +906,7 @@ float3 sampleGgxVisibleNormal(float3 viewDirection, float alpha,
         float3(-stretchedView.y, stretchedView.x, 0.0) / sqrt(lensSquared) :
         float3(1.0, 0.0, 0.0);
     float3 secondTangent = cross(stretchedView, firstTangent);
-    float radius = sqrt(sampleValue.x * NdfTrim);
+    float radius = sqrt(sampleValue.x);
     float angle = 2.0 * Pi * sampleValue.y;
     float first = radius * cos(angle);
     float second = radius * sin(angle);
@@ -912,7 +927,9 @@ bool sampleBsdf(SurfaceData surface, float3 viewDirection,
 {
     float3 diffuseReflectance = surface.baseColor * (1.0 - surface.metalness);
     float3 f0 = surfaceF0(surface);
-    float chooseSpecular = specularProbability(diffuseReflectance, f0);
+    float normalView = saturate(dot(surface.shadingNormal, viewDirection));
+    float chooseSpecular = specularProbability(
+        diffuseReflectance, f0, normalView);
     sampledSpecular = chooseSample < chooseSpecular;
     if (sampledSpecular) {
         float3 tangent;
@@ -1346,7 +1363,8 @@ void streamDirectInitialCandidate(EmitterSample candidate,
 /* Secondary surfaces do not own a screen-space history buffer. They instead
  * reuse the camera-centered ReGIR entries shared by every path in a world-space
  * cell, resample two local candidates plus one analytic-environment candidate,
- * plus an independent BRDF candidate over the environment domain, and trace
+ * plus an independent BRDF candidate over mesh-light and environment domains,
+ * and trace
  * visibility only for the survivor. The continuation ray then carries indirect
  * transport without counting that direct domain again. */
 float3 sampleSecondaryDirectLighting(uint2 pixel, uint sampleIndex, uint depth,
@@ -1429,10 +1447,14 @@ float3 sampleSecondaryDirectLighting(uint2 pixel, uint sampleIndex, uint depth,
         sampledBrdfPdf);
     EmitterEvaluation brdfEvaluation = evaluateDirectSample(
         surface, viewDirection, brdfSample);
+    float brdfLocalProposalPdf = brdfEvaluation.valid &&
+            brdfSample.emitterIndex < EmitterCount ?
+        brdfEvaluation.sourcePdf : 0.0;
     float brdfMixturePdf = sampledBrdfPdf > 0.0 ?
         directInitialMixturePdf(
             brdfSample, brdfEvaluation, localStrategyWeight,
-            environmentStrategyWeight, brdfStrategyWeight, 0.0) : 0.0;
+            environmentStrategyWeight, brdfStrategyWeight,
+            brdfLocalProposalPdf) : 0.0;
     streamDirectInitialCandidate(
         brdfSample, brdfEvaluation, brdfMixturePdf, brdfRandom.w,
         selected, weightSum);
@@ -1630,11 +1652,14 @@ EmitterSample traceBrdfDirectSample(SurfaceData surface,
         sample.valid = true;
         return sample;
     }
-    /* Mesh emitters stay in the ReGIR strategy. Evaluating the probability of
-     * an arbitrary BRDF-discovered emitter would require a reverse lookup
-     * through the stochastic per-cell table; substituting the global light PDF
-     * is a different proposal and creates rare oversized MIS weights. The
-     * analytic environment has an exact PDF and can safely overlap BRDF. */
+    uint hitEmitterIndex = Vertices[
+        segment.payload.primitiveIndex * 3u].emitterIndex;
+    if (hitEmitterIndex < EmitterCount) {
+        sample.emitterIndex = hitEmitterIndex;
+        sample.positionSample = packPositionSample(
+            positionSampleFromBarycentrics(segment.payload.barycentrics));
+        sample.valid = true;
+    }
     return sample;
 }
 
@@ -1650,7 +1675,7 @@ float directInitialMixturePdf(EmitterSample sample,
     float lightPdf = environmentSample ?
         environmentStrategyWeight * evaluation.sourcePdf :
         localStrategyWeight * localProposalPdf;
-    float brdfPdf = environmentSample ? evaluation.brdfPdf : 0.0;
+    float brdfPdf = evaluation.brdfPdf;
     return lightPdf + brdfStrategyWeight * brdfPdf;
 }
 
@@ -1675,7 +1700,7 @@ void streamDirectInitialCandidate(EmitterSample candidate,
  * for real-time ray tracing with dynamic direct lighting", SIGGRAPH 2020.
  *
  * CandidateCount unshadowed local candidates, one analytic-environment
- * candidate, and one environment-overlap BRDF candidate are resampled into one
+ * candidate, and one mesh/environment BRDF candidate are resampled into one
  * reservoir, then the reprojected previous reservoir is combined with weight
  * targetPdf * W * M re-evaluated at this surface. The normalization evaluates
  * the selected sample at both owning surfaces, which is the basic pairwise-MIS
@@ -1791,10 +1816,14 @@ float3 resampleDirectTemporal(uint2 pixel, uint2 dimensions,
         sampledBrdfPdf);
     EmitterEvaluation brdfEvaluation = evaluateDirectSample(
         surface, viewDirection, brdfSample);
+    float brdfLocalProposalPdf = brdfEvaluation.valid &&
+            brdfSample.emitterIndex < EmitterCount ?
+        brdfEvaluation.sourcePdf : 0.0;
     float brdfMixturePdf = sampledBrdfPdf > 0.0 ?
         directInitialMixturePdf(
             brdfSample, brdfEvaluation, localStrategyWeight,
-            environmentStrategyWeight, brdfStrategyWeight, 0.0) : 0.0;
+            environmentStrategyWeight, brdfStrategyWeight,
+            brdfLocalProposalPdf) : 0.0;
     streamDirectInitialCandidate(
         brdfSample, brdfEvaluation, brdfMixturePdf, brdfRandom.w,
         selected, weightSum);

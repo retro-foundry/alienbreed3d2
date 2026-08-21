@@ -138,7 +138,6 @@ struct FrameConstants {
     uint32_t candidate_count;
     uint32_t reservoir_sample_limit;
     float radiance_clamp;
-    float ndf_trim;
     uint32_t samples_per_pixel;
 };
 
@@ -148,7 +147,7 @@ struct FrameConstants {
  * tables uses all 64 available DWORDs. Move the constants to a constant-buffer
  * view rather than trimming them if another binding is needed.
  */
-static_assert(sizeof(FrameConstants) == 44u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 43u * sizeof(uint32_t));
 
 struct PresentConstants {
     uint32_t debug_view;
@@ -464,9 +463,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.exposure > 0.0f) {
         exposure_ = options.exposure;
     }
-    if (options.ndf_trim > 0.0f) {
-        ndf_trim_ = options.ndf_trim;
-    }
     struct Override {
         const char *name;
         uint32_t minimum;
@@ -514,21 +510,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     {
         char value[64] = {};
         const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_NDF_TRIM", value,
-            static_cast<DWORD>(sizeof(value)));
-        if (length > 0u && length < sizeof(value)) {
-            char *end = nullptr;
-            errno = 0;
-            const double parsed = std::strtod(value, &end);
-            if (errno == 0 && end != value && *end == '\0' &&
-                parsed >= 0.1 && parsed <= 1.0) {
-                ndf_trim_ = static_cast<float>(parsed);
-            }
-        }
-    }
-    {
-        char value[64] = {};
-        const DWORD length = GetEnvironmentVariableA(
             "AB3D2_DXR_SPP", value,
             static_cast<DWORD>(sizeof(value)));
         if (length > 0u && length < sizeof(value)) {
@@ -569,9 +550,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  std::to_string(maximum_depth_) + " candidates=" +
                  std::to_string(candidate_count_) + " reservoir limit=" +
                  std::to_string(reservoir_sample_limit_) + " radiance clamp=" +
-                 std::to_string(radiance_clamp_) + " exposure=" +
-                 std::to_string(exposure_) + " NDF trim=" +
-                 std::to_string(ndf_trim_));
+                  std::to_string(radiance_clamp_) + " exposure=" +
+                  std::to_string(exposure_));
     return true;
 }
 
@@ -1376,7 +1356,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.candidate_count = candidate_count_;
     constants.reservoir_sample_limit = reservoir_sample_limit_;
     constants.radiance_clamp = radiance_clamp_;
-    constants.ndf_trim = ndf_trim_;
     constants.samples_per_pixel = spp_;
     if (targets_recreated) {
         const std::array<D3D12_RESOURCE_BARRIER, 3> reservoir_states = {

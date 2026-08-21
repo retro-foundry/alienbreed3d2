@@ -59,8 +59,6 @@ typedef struct {
     float radiance_clamp;
     /* Linear multiplier applied before tone mapping. */
     float exposure;
-    /* GGX visible-normal sampling trim. */
-    float ndf_trim;
     /* DLSS Ray Reconstruction mode, which also sets the path-traced
      * resolution the reconstruction upscales from. */
     RendererRayReconstructionMode reconstruction;

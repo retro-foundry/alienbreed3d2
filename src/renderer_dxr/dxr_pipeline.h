@@ -106,7 +106,6 @@ public:
         options.reservoir_sample_limit_set = UINT8_MAX;
         options.radiance_clamp = radiance_clamp_;
         options.exposure = exposure_;
-        options.ndf_trim = ndf_trim_;
     }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
@@ -173,7 +172,6 @@ private:
         RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT;
     float radiance_clamp_ = 200.0f;
     float exposure_ = 1.0f;
-    float ndf_trim_ = 0.9f;
     uint32_t spp_ = 1u;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
     uint32_t maximum_depth_ = 3u;

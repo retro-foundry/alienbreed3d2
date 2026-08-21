@@ -89,7 +89,6 @@ int main(void)
     requested.reservoir_sample_limit = 24u;
     requested.radiance_clamp = 150.0f;
     requested.exposure = 1.5f;
-    requested.ndf_trim = 0.8f;
     requested.reconstruction = RENDERER_RAY_RECONSTRUCTION_BALANCED;
 
     RendererRtx *renderer = renderer_rtx_create(
@@ -105,8 +104,7 @@ int main(void)
         applied.light_candidates != requested.light_candidates ||
         applied.reservoir_sample_limit != requested.reservoir_sample_limit ||
         applied.radiance_clamp != requested.radiance_clamp ||
-        applied.exposure != requested.exposure ||
-        applied.ndf_trim != requested.ndf_trim) {
+        applied.exposure != requested.exposure) {
         fprintf(stderr,
                 "DXR ray-tracing settings did not reach the renderer "
                 "(spp %u bounces %u candidates %u limit %u)\n",

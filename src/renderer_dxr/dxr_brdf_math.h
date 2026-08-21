@@ -105,19 +105,19 @@ inline float luminance(Vec3 color)
     return dot(color, {0.2126f, 0.7152f, 0.0722f});
 }
 
-inline float specular_probability(const Material &material)
-{
-    const float diffuse_weight = luminance(diffuse_reflectance(material));
-    const float specular_weight = luminance(f0(material));
-    return std::clamp(specular_weight /
-                          std::max(diffuse_weight + specular_weight, 1.0e-5f),
-                      0.05f, 0.95f);
-}
-
 inline Vec3 fresnel_schlick(float cosine, Vec3 reflectance)
 {
     const float factor = std::pow(1.0f - std::clamp(cosine, 0.0f, 1.0f), 5.0f);
     return reflectance + (Vec3{1.0f, 1.0f, 1.0f} - reflectance) * factor;
+}
+
+inline float specular_probability(const Material &material, float normal_view)
+{
+    const float diffuse_weight = luminance(diffuse_reflectance(material));
+    const float specular_weight = luminance(
+        fresnel_schlick(normal_view, f0(material)));
+    const float weight_sum = diffuse_weight + specular_weight;
+    return weight_sum > 1.0e-7f ? specular_weight / weight_sum : 0.0f;
 }
 
 inline float ggx_distribution(float normal_half, float alpha)
@@ -165,7 +165,7 @@ inline Evaluation evaluate(const Material &material, Vec3 normal,
     const float diffuse_pdf = normal_light / pi;
     const float specular_pdf = distribution * view_masking /
         std::max(4.0f * normal_view, 1.0e-7f);
-    const float choose_specular = specular_probability(material);
+    const float choose_specular = specular_probability(material, normal_view);
     result.value = diffuse + specular;
     result.pdf = diffuse_pdf * (1.0f - choose_specular) +
         specular_pdf * choose_specular;
@@ -225,7 +225,8 @@ inline bool sample(const Material &material, Vec3 view_direction,
                    uint32_t &seed, Vec3 &light_direction,
                    Evaluation &evaluation, bool &selected_specular)
 {
-    selected_specular = random_unit(seed) < specular_probability(material);
+    selected_specular = random_unit(seed) <
+        specular_probability(material, std::max(view_direction.z, 0.0f));
     if (selected_specular) {
         const float alpha = material.roughness * material.roughness;
         const Vec3 half_vector =

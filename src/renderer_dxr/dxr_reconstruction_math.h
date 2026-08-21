@@ -62,6 +62,29 @@ struct InitialReservoirDomain {
     uint32_t sample_count;
 };
 
+struct TrianglePositionSample {
+    float first;
+    float second;
+};
+
+/* Inverse of the square-root uniform-triangle map used by the ray shader.
+ * `second_weight` and `third_weight` are DXR's two triangle attributes. */
+inline TrianglePositionSample position_sample_from_barycentrics(
+    float second_weight, float third_weight)
+{
+    const float root = std::clamp(second_weight + third_weight, 0.0f, 1.0f);
+    const float second = root > 1.0e-8f ?
+        std::clamp(third_weight / root, 0.0f, 1.0f) : 0.0f;
+    return {root * root, second};
+}
+
+inline Vec3 barycentrics_from_position_sample(TrianglePositionSample sample)
+{
+    const float root = std::sqrt(std::clamp(sample.first, 0.0f, 1.0f));
+    const float second = std::clamp(sample.second, 0.0f, 1.0f);
+    return {1.0f - root, root * (1.0f - second), root * second};
+}
+
 /* Balance-heuristic proposal used by the heterogeneous direct-light reservoir.
  * The candidate counts are part of the density: sixteen local, one environment,
  * and one BRDF sample therefore form a normalized 16:1:1 mixture. A domain can

@@ -1006,13 +1006,22 @@ reported after that acceptance exposed this as a signal-coverage gap rather
 than a reason to extend history. The primary initial pass now streams one
 cosine-hemisphere analytic-environment candidate and one independently traced
 BRDF candidate beside the configured local candidates. A BRDF miss stores its
-world-space environment direction. A BRDF ray that reaches a mesh emitter is
-rejected: the stochastic ReGIR table does not expose the reverse per-cell PDF
-for an arbitrary discovered emitter, and substituting the global alias-table
-PDF created rare oversized weights. Mesh emitters remain completely covered by
-the local strategy. The environment strategies use an exact balance-heuristic
-mixture PDF, and the ordinary continuation ray no longer double-counts those
-direct paths.
+world-space environment direction. A BRDF hit on an emissive triangle converts
+the DXR hit barycentrics back to the same canonical uniform-area sample stored
+by light candidates, so narrow GGX highlights can discover mesh lights directly.
+Following NVIDIA's current application bridge and initial-sampling contract,
+that discovered sample evaluates the complete global light proposal as its
+complementary light-strategy density; a candidate actually drawn from ReGIR
+continues to use its corrected per-cell density. Both mesh and environment
+domains therefore include the BRDF density in the initial MIS mixture, and the
+ordinary continuation ray no longer double-counts those direct paths.
+
+The same sample comparison corrected the BRDF proposal itself. Lobe selection
+now derives the specular share from view-dependent Schlick Fresnel instead of a
+clamped F0-only weight, and GGX sampling uses the complete visible-normal
+distribution with the matching full-support PDF. The former `rtx_ndf_trim`
+control was removed: truncating an indirect continuation proposal removed valid
+transport paths and its evaluator did not test the truncated support.
 
 On 2026-08-21 a second explicit comparison had also identified another
 architectural mismatch: NVIDIA's Medium and Ultra sample presets feed initial
@@ -1038,7 +1047,8 @@ boiling filter, or post-shading blur in this path.
 Secondary vertices do not allocate another pair of full-resolution history
 reservoirs. Each instead draws two local candidates from the camera-centered
 ReGIR cell shared in world space, one analytic-environment candidate, and one
-BRDF candidate that safely overlaps environment misses. RIS selects one sample before visibility,
+BRDF candidate that overlaps mesh-emitter hits and environment misses. RIS
+selects one sample before visibility,
 and the continuation ray carries indirect transport only. This closes the
 former one-global-emitter-sample and binary environment-hit paths at later
 bounces without adding roughly two more screen-sized 48-byte buffers.
@@ -1107,6 +1117,19 @@ pixels; the moving sequence measured `11.8601` and `172607.6`. That exposed a
 wrong reverse-PDF substitution when a BRDF ray discovered a ReGIR mesh emitter.
 Restricting that overlap to the analytically evaluable environment improved the
 same measures to `5.0604`, `1.5685`, `18059.5`, `11.7100`, and `169291.6`.
+Those measurements are historical: the later source-level comparison found
+that the failed version had not reproduced NVIDIA's complete BRDF-hit mapping,
+global complementary light density, and full-support/view-dependent BRDF
+proposal together. The corrected implementation above must be judged by a new
+matched run rather than those incomplete-overlap numbers.
+The resulting Streamline-enabled 96-frame Level A run measured `5.1863` early,
+`1.6687` late, and `19282.2` large-change pixels; the moving sequence measured
+`11.8781` and `173011.9`. It therefore converges strongly (`0.3218` late/early)
+but retains a 6.4% higher late delta than the incomplete environment-only BRDF
+overlap's `1.5685`. That is not grounds to remove valid mesh-light specular
+paths again. It separates the remaining issue: direct glossy sampling now
+matches the inspected DI structure, while multi-bounce glossy continuation is
+still a fresh unreused path and requires the deferred ReSTIR PT stage.
 Reprojected and deterministic specular hit-distance guides differed by only
 `0.0024` in the late metric; the deterministic guide was marginally better and
 matches the pinned Streamline contract directly. Reducing the history limit to
@@ -1297,8 +1320,10 @@ nothing passes any stability bound trivially.
 
 #### 11f. Deferred
 
-- ReSTIR GI for the indirect channel. Direct-light ReSTIR is now accepted, but
-  indirect reuse remains a separate future feature rather than part of this fix.
+- ReSTIR PT for indirect glossy transport. NVIDIA's inspected FullSample defaults
+  its indirect mode to `ReStirPT`; ReSTIR GI resamples indirect diffuse radiance
+  and is not the corresponding solution for a reflection that remains noisy when
+  `rtx_max_bounces` is above one. Direct-light ReSTIR is separate from this path.
 - Dropping the forced `ePresetD` on every quality level.
 
 ## Test matrix
@@ -1411,7 +1436,8 @@ The renderer is ready for normal use only when all of these are true:
 - Static BLAS compaction, bindless layout, sampler choice, and bounce-count/performance presets: measure after correctness; none may become a visual workaround.
 - Additional spatial passes beyond the one current-frame pass in 11c: measure the
   accepted implementation before paying for more ray-traced neighbor domains.
-- ReSTIR GI: deferred until the completed direct-light signal passes its new
-  moving-camera validation.
+- ReSTIR PT for indirect glossy transport: deferred until the completed
+  direct-light signal passes its new moving-camera validation. ReSTIR GI's
+  diffuse-secondary representation is not a substitute for that specular path.
 
 This plan intentionally leaves no compatibility path to the removed renderer. If a required behavior is missing, extend the clean renderer and its API-neutral `SceneFrame` evidence rather than reviving old code or data.

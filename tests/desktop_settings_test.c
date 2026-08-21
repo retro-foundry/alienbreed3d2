@@ -151,7 +151,6 @@ int main(void)
         settings.ray_tracing.reservoir_sample_limit_set != 0u ||
         settings.ray_tracing.radiance_clamp != 0.0f ||
         settings.ray_tracing.exposure != 0.0f ||
-        settings.ray_tracing.ndf_trim != 0.0f ||
         settings.ray_tracing.reconstruction !=
             RENDERER_RAY_RECONSTRUCTION_DEFAULT) {
         fprintf(stderr, "ray-tracing settings did not default to the renderer's own\n");
@@ -165,7 +164,6 @@ int main(void)
             "rtx_reservoir_limit=32\n"
             "rtx_radiance_clamp=50.5\n"
             "rtx_exposure=1.25\n"
-            "rtx_ndf_trim=0.75\n"
             "rtx_ray_reconstruction=performance\n";
 
         desktop_settings_default(&settings);
@@ -180,8 +178,6 @@ int main(void)
             settings.ray_tracing.radiance_clamp > 50.6f ||
             settings.ray_tracing.exposure < 1.24f ||
             settings.ray_tracing.exposure > 1.26f ||
-            settings.ray_tracing.ndf_trim < 0.74f ||
-            settings.ray_tracing.ndf_trim > 0.76f ||
             settings.ray_tracing.reconstruction !=
                 RENDERER_RAY_RECONSTRUCTION_PERFORMANCE) {
             fprintf(stderr, "ray-tracing settings were not applied: %s\n", error);
@@ -201,8 +197,6 @@ int main(void)
             "rtx_light_candidates=0\n",
             "rtx_radiance_clamp=0\n",
             "rtx_exposure=0\n",
-            "rtx_ndf_trim=0\n",
-            "rtx_ndf_trim=1.5\n",
             "rtx_ray_reconstruction=fastest\n",
         };
         size_t index;

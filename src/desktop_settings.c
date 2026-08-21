@@ -290,17 +290,6 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         }
         return 1;
     }
-    if (desktop_settings_equals_ci(key, "rtx_ndf_trim")) {
-        if (!desktop_settings_parse_positive_float(value, 1.0,
-                                                  &settings->ray_tracing.ndf_trim) ||
-            settings->ray_tracing.ndf_trim < 0.1f) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_ndf_trim must be 0.1 through 1",
-                           line_number);
-            return 0;
-        }
-        return 1;
-    }
     if (desktop_settings_equals_ci(key, "rtx_ray_reconstruction")) {
         if (desktop_settings_equals_ci(value, "quality")) {
             settings->ray_tracing.reconstruction = RENDERER_RAY_RECONSTRUCTION_QUALITY;

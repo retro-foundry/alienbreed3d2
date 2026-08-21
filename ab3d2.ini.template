@@ -74,4 +74,3 @@ world_light_tessellation=4
 #rtx_exposure=1
 
 # GGX visible-normal sampling trim, 0.1 through 1. Default 0.9.
-#rtx_ndf_trim=0.9

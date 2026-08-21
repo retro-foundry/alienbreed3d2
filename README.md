@@ -89,13 +89,14 @@ default, so the shipped template lists them commented out with their defaults:
   the accepted filter-free ReGIR/ReSTIR configuration matching the NVIDIA Ultra
   sample's initial and temporal counts. An explicit reservoir limit of zero
   disables temporal/spatial reuse while retaining the heterogeneous fresh
-  local/environment estimator and the exact environment/BRDF overlap; and
-- `rtx_radiance_clamp=200`, `rtx_exposure=1`, and `rtx_ndf_trim=0.9` are the
-  per-sample luminance ceiling, the linear multiplier applied before tone
-  mapping, and the GGX visible-normal sampling trim.
+  local/environment estimator and the BRDF overlap; and
+- `rtx_radiance_clamp=200` and `rtx_exposure=1` are the per-sample luminance
+  ceiling and the linear multiplier applied before tone mapping. GGX sampling
+  always uses the complete visible-normal distribution so its sampling support
+  and evaluated PDF remain identical.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_CANDIDATES`, `AB3D2_DXR_RESERVOIR_LIMIT`,
-`AB3D2_DXR_RADIANCE_CLAMP`, `AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, and
+`AB3D2_DXR_RADIANCE_CLAMP`, `AB3D2_DXR_EXPOSURE`, and
 `AB3D2_DXR_RR_MODE` still override the file for one run, which is how a setting
 gets swept without editing it. The hidden `--gpu-smoke` path deliberately reads
 no `ab3d2.ini` at all, so its measurements stay independent of the host's
@@ -607,11 +608,12 @@ normal validation, stratified initial selection, selected-only initial
 visibility, fixed low-discrepancy neighbor offsets, naive-neighbor discounting,
 and ray-traced bias correction. One analytic-environment candidate and one
 independent BRDF candidate join the configured local candidates in the same
-balance-heuristic reservoir. The BRDF strategy overlaps the analytic environment,
-whose reverse PDF is exact; BRDF rays that hit a mesh emitter are rejected because
-the stochastic ReGIR table cannot provide that arbitrary emitter's reverse
-per-cell PDF. Mesh emitters remain completely and unbiasedly covered by the local
-strategy. Before initial sampling, a camera-centered
+  balance-heuristic reservoir. A BRDF ray resolves both environment misses and
+  emissive-triangle hits into the same reusable light-sample representation used
+  by the light proposal. As in NVIDIA's sample, a discovered triangle evaluates
+  the complete global light proposal for its complementary MIS density; ordinary
+  ReGIR candidates retain their corrected per-cell density. Before initial
+  sampling, a camera-centered
 16-by-16-by-16 ReGIR grid presamples 512 corrected light entries per cell from
 the complete global emitter alias table. Its project-owned volume target uses
 triangle area, a conservative emitted-radiance bound, and spatial solid angle;
@@ -623,8 +625,7 @@ signal was accepted in motion on 2026-08-21, so it remains the production defaul
 `4 / 128` mixes a low candidate count with a much longer history than NVIDIA's
 presets and is no longer recommended. An explicit zero history limit retains
 the history-off diagnostic. Secondary path vertices reuse two local samples
-from their shared ReGIR cell, plus one environment and one environment-overlap
-BRDF sample, before
+  from their shared ReGIR cell, plus one environment and one BRDF sample, before
 selected-only visibility instead of returning to the former global one-sample
 emitter path. Section 11 of
 `DXR_RAY_RECONSTRUCTION_PLAN.md` records

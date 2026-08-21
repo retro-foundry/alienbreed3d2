@@ -94,6 +94,19 @@ int main()
         return fail("ReGIR RIS inverse-proposal correction changed");
     }
 
+    const Vec3 original_barycentrics = {0.2f, 0.3f, 0.5f};
+    const TrianglePositionSample recovered_position_sample =
+        position_sample_from_barycentrics(original_barycentrics.y,
+                                          original_barycentrics.z);
+    const Vec3 recovered_barycentrics =
+        barycentrics_from_position_sample(recovered_position_sample);
+    const Vec3 first_vertex_barycentrics = barycentrics_from_position_sample(
+        position_sample_from_barycentrics(0.0f, 0.0f));
+    if (!near(recovered_barycentrics, original_barycentrics) ||
+        !near(first_vertex_barycentrics, {1.0f, 0.0f, 0.0f})) {
+        return fail("BRDF emitter hit did not preserve its canonical area sample");
+    }
+
     struct EmitterIdentity {
         uint32_t first_vertex;
         float selection_probability;
@@ -146,6 +159,8 @@ int main()
 
     if (!near(direct_mixture_pdf(0.25f, 16u, 0.0f, 1u, 0.0f, 1u),
               4.0f / 18.0f) ||
+        !near(direct_mixture_pdf(0.25f, 16u, 0.0f, 1u, 0.5f, 1u),
+              4.5f / 18.0f) ||
         !near(direct_mixture_pdf(0.0f, 16u, 0.125f, 1u, 0.5f, 1u),
               0.625f / 18.0f) ||
         !near(direct_mixture_pdf(0.25f, 2u, 0.0f, 1u, 0.0f, 1u),

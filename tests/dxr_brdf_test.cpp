@@ -40,9 +40,14 @@ int main()
         !near(f0(source_vector), {0.014f, 0.014f, 0.014f})) {
         return fail("metallic-roughness reflectance equations disagree");
     }
-    if (!(specular_probability(dielectric) >= 0.05f &&
-          specular_probability(dielectric) <= 0.95f &&
-          specular_probability(metal) > specular_probability(dielectric))) {
+    const float normal_dielectric_probability =
+        specular_probability(dielectric, 1.0f);
+    const float grazing_dielectric_probability =
+        specular_probability(dielectric, 0.1f);
+    if (!(normal_dielectric_probability > 0.0f &&
+          normal_dielectric_probability < 1.0f &&
+          grazing_dielectric_probability > normal_dielectric_probability &&
+          near(specular_probability(metal, 1.0f), 1.0f))) {
         return fail("lobe selection probability is invalid");
     }
 
@@ -94,7 +99,8 @@ int main()
     }
     const float observed_specular =
         static_cast<float>(selected_specular_count) / sample_count;
-    if (!near(observed_specular, specular_probability(dielectric), 0.005f) ||
+    if (!near(observed_specular,
+              specular_probability(dielectric, view.z), 0.005f) ||
         accepted_count < sample_count * 9u / 10u) {
         return fail("lobe sampler frequency or acceptance is invalid");
     }

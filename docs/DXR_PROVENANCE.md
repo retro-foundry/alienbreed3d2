@@ -198,17 +198,35 @@ uses the project's existing emitter alias table, vertex history, material atlas,
 sample streams, root signature, and renderer-owned dispatch sequence; it is not
 an RTXDI library integration.
 
-After finer temporal noise remained, the current public FullSample Ultra preset
-and `DI/InitialSampling.hlsli` behavior were inspected again on 2026-08-21. They
-showed one BRDF sample and one infinite/environment sample beside the 16 ReGIR
-local samples, plus secondary-surface direct resampling. The project independently
-implemented the corresponding behavior around its analytic sky, existing GGX/
-Lambertian sampler, and project ReGIR entries. The project ReGIR table cannot
-evaluate the reverse per-cell PDF of an arbitrary BRDF-discovered mesh emitter,
-so that overlap is rejected instead of substituting the unrelated global PDF;
-BRDF/environment overlap retains an exact analytic density. The balance-mixture
-equations and heterogeneous sample encoding are project code;
-no NVIDIA source text, packed layout, bridge code, or shader resource was copied.
+After finer temporal noise remained, the public FullSample and runtime were
+inspected again on 2026-08-21 at RTXDI commit
+`1b55517b74b7c9c54eda44be138f75a97f1fee60` and RTXDI-Library commit
+`d28e20f11c6bdd5a1cca273cfbad5e8493e4ba05`. The behavioral files were
+`Samples/MinimalSample/Shaders/Render.hlsl`, FullSample's
+`LightingPasses/DI/GenerateInitialSamples.hlsl`,
+`RtxdiApplicationBridge/RAB_Surface.hlsli`,
+`RtxdiApplicationBridge/RAB_LightSampling.hlsli`, `UserInterface.cpp`, and the
+runtime's `DI/InitialSampling.hlsli`. They showed one BRDF sample beside the
+ReGIR and environment proposals, conversion of a BRDF ray's emissive-triangle
+hit into the light's canonical sample, evaluation of the complete global light
+proposal for that discovered triangle's complementary MIS density, and a
+view-dependent Fresnel lobe probability with full-support GGX VNDF sampling.
+
+The project independently implemented those contracts around its analytic sky,
+existing GGX/Lambertian sampler, project emitter identities, and ReGIR entries.
+Candidates actually drawn from ReGIR retain their stored corrected per-cell
+density; BRDF-discovered mesh samples use the complete global emitter density,
+matching the inspected application-bridge contract. The inverse barycentric
+mapping, balance-mixture equations, and heterogeneous sample encoding are
+project code. The former NDF-tail control was removed rather than tuned because
+it excluded valid indirect transport and did not evaluate its restricted
+support. No NVIDIA source text, packed layout, bridge code, shader resource,
+header, library, binary, or data was copied, linked, or staged.
+
+The same FullSample revision defaults `UIData::indirectLightingMode` to
+`IndirectLightingMode::ReStirPT`. That is recorded as the architectural reference
+for any remaining glossy noise carried by continuation rays; this direct-light
+change does not claim to implement ReSTIR PT or to reuse indirect paths.
 
 The comparison also showed that NVIDIA's Medium and Ultra quality paths feed
 ReSTIR from spatially informed ReGIR proposals. The official RTXDI ReGIR host
