@@ -67,6 +67,12 @@ class Q2RtxMaterialTests(unittest.TestCase):
             [(100, 110, 96, 150), (120, 130, 140, 160)],
         )
 
+    def test_world_channel_scaling_is_shared_with_native_export(self):
+        source = Image.new("RGBA", (5, 3), (1, 2, 3, 255))
+        target = (8, 8)
+        self.assertEqual(q2rtx.resize_world_channel(source, target).size, target)
+        self.assertEqual(q2rtx.crop_to_aspect(source, target).size, (3, 3))
+
     def test_material_file_keeps_proven_emissive_strengths(self):
         sources = q2rtx.load_material_sources()
         with tempfile.TemporaryDirectory() as directory:

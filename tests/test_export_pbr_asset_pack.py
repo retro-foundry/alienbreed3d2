@@ -1,3 +1,4 @@
+import json
 import sys
 import unittest
 from collections import Counter
@@ -93,6 +94,31 @@ class PbrAssetExporterTest(unittest.TestCase):
             (184, 184, 184),
         )
 
+        authored_spec = json.loads(
+            (ROOT / "data" / "renderer_dxr" / "material_sources.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        hullmetal = next(
+            entry
+            for entry in authored_spec["materials"]
+            if entry["name"] == "hullmetal"
+        )
+        authored_channels = exporter.authored_sheet_channels(
+            ROOT / "textures_pbr", hullmetal
+        )
+        self.assertEqual(
+            {image.size for image in authored_channels.values()}, {(754, 374)}
+        )
+        world_channels = exporter.resize_world_channels(
+            authored_channels, tuple(hullmetal["source_texture_size"])
+        )
+        self.assertEqual(
+            {image.size for image in world_channels.values()}, {(1032, 512)}
+        )
+        self.assertGreaterEqual(
+            world_channels["normal"].getchannel("B").getextrema()[0], 96
+        )
 
 if __name__ == "__main__":
     unittest.main()

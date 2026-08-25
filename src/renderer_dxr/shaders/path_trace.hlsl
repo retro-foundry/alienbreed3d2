@@ -524,6 +524,46 @@ uint2 materialTexel(SceneMaterial material, float2 textureCoordinate)
             uint2(material.width - 1u, material.height - 1u));
 }
 
+struct MaterialSampleFootprint
+{
+    uint2 texel00;
+    uint2 texel10;
+    uint2 texel01;
+    uint2 texel11;
+    float2 blend;
+};
+
+MaterialSampleFootprint materialSampleFootprint(
+    SceneMaterial material, float2 textureCoordinate)
+{
+    float2 dimensions = float2(material.width, material.height);
+    float2 position = frac(textureCoordinate) * dimensions - 0.5;
+    int2 lower = int2(floor(position));
+    int2 size = int2(material.width, material.height);
+    int2 lowerWrapped = (lower + size) % size;
+    int2 upperWrapped = (lower + 1 + size) % size;
+    uint2 origin = uint2(material.atlasX, material.atlasY);
+    MaterialSampleFootprint footprint;
+    footprint.texel00 = origin + uint2(lowerWrapped.x, lowerWrapped.y);
+    footprint.texel10 = origin + uint2(upperWrapped.x, lowerWrapped.y);
+    footprint.texel01 = origin + uint2(lowerWrapped.x, upperWrapped.y);
+    footprint.texel11 = origin + uint2(upperWrapped.x, upperWrapped.y);
+    footprint.blend = frac(position);
+    return footprint;
+}
+
+float4 sampleMaterialAtlas(Texture2D<float4> atlas,
+                           MaterialSampleFootprint footprint)
+{
+    float4 upper = lerp(atlas.Load(int3(footprint.texel00, 0)),
+                        atlas.Load(int3(footprint.texel10, 0)),
+                        footprint.blend.x);
+    float4 lower = lerp(atlas.Load(int3(footprint.texel01, 0)),
+                        atlas.Load(int3(footprint.texel11, 0)),
+                        footprint.blend.x);
+    return lerp(upper, lower, footprint.blend.y);
+}
+
 void triangleFrame(uint firstVertex, float3 incomingDirection,
                    out float3 geometricNormal, out float3 tangent,
                    out float3 bitangent)
@@ -582,9 +622,12 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     triangleFrame(firstVertex, incomingDirection, surface.geometricNormal,
                   tangent, bitangent);
     SceneMaterial material = Materials[surface.materialIndex];
-    uint2 texel = materialTexel(material, surface.textureCoordinate);
-    surface.baseColor = saturate(BaseColorAtlas.Load(int3(texel, 0)).rgb);
-    float3 tangentNormal = NormalAtlas.Load(int3(texel, 0)).xyz * 2.0 - 1.0;
+    MaterialSampleFootprint footprint =
+        materialSampleFootprint(material, surface.textureCoordinate);
+    surface.baseColor = saturate(
+        sampleMaterialAtlas(BaseColorAtlas, footprint).rgb);
+    float3 tangentNormal =
+        sampleMaterialAtlas(NormalAtlas, footprint).xyz * 2.0 - 1.0;
     tangentNormal.xy *= material.normalStrength;
     tangentNormal = normalize(float3(tangentNormal.xy,
                                      max(tangentNormal.z, 1.0e-4)));
@@ -593,15 +636,15 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     if (dot(surface.shadingNormal, surface.geometricNormal) <= 0.0) {
         surface.shadingNormal = surface.geometricNormal;
     }
-    surface.metalness =
-        saturate(MetalnessAtlas.Load(int3(texel, 0)).r);
+    surface.metalness = saturate(
+        sampleMaterialAtlas(MetalnessAtlas, footprint).r);
     surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
-        RoughnessAtlas.Load(int3(texel, 0)).r, 0.045, 1.0);
+        sampleMaterialAtlas(RoughnessAtlas, footprint).r, 0.045, 1.0);
     surface.authoredShade = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
-    surface.emission = EmissiveAtlas.Load(int3(texel, 0)).rgb *
+    surface.emission = sampleMaterialAtlas(EmissiveAtlas, footprint).rgb *
         material.emissiveFactor * surface.authoredShade;
     return surface;
 }
@@ -1060,12 +1103,13 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
         return evaluation;
     }
     SceneMaterial lightMaterial = Materials[first.materialIndex];
-    uint2 lightTexel = materialTexel(lightMaterial, lightUv);
+    MaterialSampleFootprint lightFootprint =
+        materialSampleFootprint(lightMaterial, lightUv);
     float lightEmissiveScale = first.emissiveScale * barycentrics.x +
         second.emissiveScale * barycentrics.y +
         third.emissiveScale * barycentrics.z;
     float3 emittedRadiance =
-        EmissiveAtlas.Load(int3(lightTexel, 0)).rgb *
+        sampleMaterialAtlas(EmissiveAtlas, lightFootprint).rgb *
         lightMaterial.emissiveFactor * lightEmissiveScale;
     BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
     evaluation.contribution =
@@ -1565,7 +1609,7 @@ bool findTemporalReservoir(uint2 pixel, uint2 dimensions, uint sampleIndex,
 }
 
 /* Reconstructs the previous owner surface needed by basic bias correction.
- * Its BSDF inputs are sampled from the immutable material atlas at the exact UV
+ * Its BSDF inputs are filtered from the immutable material atlas at the UV
  * carried by the reservoir; normals and world position are the values that
  * actually owned that previous reservoir. */
 SurfaceData reservoirSurface(PackedLightReservoir reservoir)
@@ -1579,12 +1623,15 @@ SurfaceData reservoirSurface(PackedLightReservoir reservoir)
     surface.textureCoordinate = reservoir.surfaceTextureCoordinate;
     surface.materialIndex = reservoir.surfaceMaterialIndex;
     SceneMaterial material = Materials[surface.materialIndex];
-    uint2 texel = materialTexel(material, surface.textureCoordinate);
-    surface.baseColor = saturate(BaseColorAtlas.Load(int3(texel, 0)).rgb);
-    surface.metalness = saturate(MetalnessAtlas.Load(int3(texel, 0)).r);
+    MaterialSampleFootprint footprint =
+        materialSampleFootprint(material, surface.textureCoordinate);
+    surface.baseColor = saturate(
+        sampleMaterialAtlas(BaseColorAtlas, footprint).rgb);
+    surface.metalness = saturate(
+        sampleMaterialAtlas(MetalnessAtlas, footprint).r);
     surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
-        RoughnessAtlas.Load(int3(texel, 0)).r, 0.045, 1.0);
+        sampleMaterialAtlas(RoughnessAtlas, footprint).r, 0.045, 1.0);
     surface.emitterIndex = InvalidIndex;
     return surface;
 }

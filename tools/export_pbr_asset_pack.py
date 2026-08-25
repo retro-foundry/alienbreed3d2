@@ -27,6 +27,7 @@ except ImportError as error:  # pragma: no cover - build-host diagnostic
     ) from error
 
 import build_dxr_materials as sheet_tools
+from world_material_images import WORLD_TEXTURE_SCALE, resize_world_channels
 
 
 CHANNELS = ("base_color", "normal", "metalness", "roughness", "emissive")
@@ -680,6 +681,7 @@ class PackWriter:
             "schema_version": 5,
             "generator": "tools/export_pbr_asset_pack.py",
             "description": "Category-sorted, zip-ready AB3D2 artist PBR texture package",
+            "world_texture_scale": WORLD_TEXTURE_SCALE,
             "channels": list(CHANNELS),
             "un_authored_channel_defaults": {
                 "normal": [128, 128, 255],
@@ -811,6 +813,12 @@ def build_pack(
         authored = authored_entries.get(wall_name)
         base = wall_image(wall_path, palette)
         channels = authored_sheet_channels(authored_dir, authored) if authored else default_channels(base)
+        source_texture_size = (
+            tuple(authored["source_texture_size"])
+            if authored and "source_texture_size" in authored
+            else base.size
+        )
+        channels = resize_world_channels(channels, source_texture_size)
         emissive_factor = (
             list(authored.get("emissive_factor", [0.0, 0.0, 0.0])) if authored else [0.0, 0.0, 0.0]
         )
@@ -830,6 +838,7 @@ def build_pack(
                 "files": [wall_path.relative_to(media_root).as_posix()],
                 "sha256": [sha256(wall_path.read_bytes())],
                 "authored_sheet": str(authored["sheet"]) if authored else None,
+                "source_texture_size": list(source_texture_size),
             },
             generated_channels=[] if authored else ["normal", "metalness", "roughness", "emissive"],
             tags=["world"],
@@ -861,6 +870,7 @@ def build_pack(
             ).convert("RGBA")
             emissive_factor = list(source_floor_entry["emissive_factor"])
             generated = ["normal", "metalness", "roughness"]
+        channels = resize_world_channels(channels, base.size)
         writer.add(
             f"floor_{tile_offset:04x}",
             "floor",
@@ -876,6 +886,7 @@ def build_pack(
                 "sha256": [sha256(floor_data), sha256(floor_remap)],
                 "tile_offset": tile_offset,
                 "authored_sheet": str(authored["sheet"]) if authored else None,
+                "source_texture_size": list(base.size),
             },
             generated_channels=generated,
             tags=["world", "floor_ceiling_water"],

@@ -32,6 +32,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
     def test_artist_directory_is_complete_sorted_and_zip_ready(self) -> None:
         materials = self.spec["materials"]
         self.assertEqual(self.spec["schema_version"], 5)
+        self.assertEqual(self.spec["world_texture_scale"], 4)
         self.assertEqual(len(materials), 978)
         self.assertEqual(
             Counter(material["class"] for material in materials),
@@ -110,6 +111,17 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             with Image.open(ASSET_DIR / sample["channels"][channel]) as opened:
                 self.assertEqual({pixel[:3] for pixel in opened.convert("RGBA").getdata()}, {rgb})
         self.assertEqual(sample["specular_factor"], 0.35)
+
+        for material in materials:
+            if material["class"] not in ("wall", "floor"):
+                continue
+            source_width, source_height = material["source"]["source_texture_size"]
+            self.assertEqual(
+                (material["width"], material["height"]),
+                (source_width * 4, source_height * 4),
+            )
+            with Image.open(ASSET_DIR / material["channels"]["normal"]) as normal:
+                self.assertGreaterEqual(normal.convert("RGB").getchannel("B").getextrema()[0], 96)
 
     def test_runtime_package_embeds_exact_pngs_for_demand_loading(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

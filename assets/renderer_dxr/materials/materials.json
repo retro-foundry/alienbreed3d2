@@ -19100,7 +19100,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0000",
       "normal_space": "linear_tangent",
@@ -19116,6 +19116,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 0
       },
       "specular_factor": 1.0,
@@ -19124,7 +19128,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19154,7 +19158,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0001",
       "normal_space": "linear_tangent",
@@ -19170,6 +19174,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 1
       },
       "specular_factor": 1.0,
@@ -19178,7 +19186,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19208,7 +19216,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0002",
       "normal_space": "linear_tangent",
@@ -19224,6 +19232,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 2
       },
       "specular_factor": 1.0,
@@ -19232,7 +19244,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19262,7 +19274,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0003",
       "normal_space": "linear_tangent",
@@ -19278,6 +19290,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 3
       },
       "specular_factor": 1.0,
@@ -19286,7 +19302,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19316,7 +19332,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0100",
       "normal_space": "linear_tangent",
@@ -19332,6 +19348,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 256
       },
       "specular_factor": 1.0,
@@ -19340,7 +19360,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19369,7 +19389,7 @@
         "metalness",
         "roughness"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0101",
       "normal_space": "linear_tangent",
@@ -19385,6 +19405,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 257
       },
       "specular_factor": 1.0,
@@ -19393,7 +19417,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19423,7 +19447,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0102",
       "normal_space": "linear_tangent",
@@ -19439,6 +19463,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 258
       },
       "specular_factor": 1.0,
@@ -19447,7 +19475,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19477,7 +19505,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0103",
       "normal_space": "linear_tangent",
@@ -19493,6 +19521,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 259
       },
       "specular_factor": 1.0,
@@ -19501,7 +19533,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19531,7 +19563,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0200",
       "normal_space": "linear_tangent",
@@ -19547,6 +19579,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 512
       },
       "specular_factor": 1.0,
@@ -19555,7 +19591,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19580,7 +19616,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 567,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0201",
       "normal_space": "linear_tangent",
@@ -19596,6 +19632,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 513
       },
       "specular_factor": 1.0,
@@ -19604,7 +19644,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 586
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19634,7 +19674,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0202",
       "normal_space": "linear_tangent",
@@ -19650,6 +19690,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 514
       },
       "specular_factor": 1.0,
@@ -19658,7 +19702,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19688,7 +19732,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0203",
       "normal_space": "linear_tangent",
@@ -19704,6 +19748,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 515
       },
       "specular_factor": 1.0,
@@ -19712,7 +19760,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19742,7 +19790,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0300",
       "normal_space": "linear_tangent",
@@ -19758,6 +19806,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 768
       },
       "specular_factor": 1.0,
@@ -19766,7 +19818,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19796,7 +19848,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0301",
       "normal_space": "linear_tangent",
@@ -19812,6 +19864,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 769
       },
       "specular_factor": 1.0,
@@ -19820,7 +19876,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19850,7 +19906,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0302",
       "normal_space": "linear_tangent",
@@ -19866,6 +19922,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 770
       },
       "specular_factor": 1.0,
@@ -19874,7 +19934,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19904,7 +19964,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0303",
       "normal_space": "linear_tangent",
@@ -19920,6 +19980,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 771
       },
       "specular_factor": 1.0,
@@ -19928,7 +19992,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -19958,7 +20022,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0400",
       "normal_space": "linear_tangent",
@@ -19974,6 +20038,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 1024
       },
       "specular_factor": 1.0,
@@ -19982,7 +20050,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -20012,7 +20080,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0401",
       "normal_space": "linear_tangent",
@@ -20028,6 +20096,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 1025
       },
       "specular_factor": 1.0,
@@ -20036,7 +20108,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -20066,7 +20138,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0402",
       "normal_space": "linear_tangent",
@@ -20082,6 +20154,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 1026
       },
       "specular_factor": 1.0,
@@ -20090,7 +20166,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -20120,7 +20196,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 64,
+      "height": 256,
       "metalness_space": "linear",
       "name": "floor_0403",
       "normal_space": "linear_tangent",
@@ -20136,6 +20212,10 @@
           "346c8ba3db04f4aa04ddf3e9150c968410d8cc39d7cb3dd24cfa1fee4ab82212",
           "09a4db5f45d1d2d89b6a20d177a51d1d2f757b9c1a0a6dfc8ef6dc4ec6917fe8"
         ],
+        "source_texture_size": [
+          64,
+          64
+        ],
         "tile_offset": 1027
       },
       "specular_factor": 1.0,
@@ -20144,7 +20224,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 64
+      "width": 256
     },
     {
       "alpha_cutoff": 0.5,
@@ -37056,7 +37136,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 128,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_00_stonewall",
       "normal_space": "linear_tangent",
@@ -37076,7 +37156,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 96
+      "width": 384
     },
     {
       "alpha_cutoff": 0.5,
@@ -37101,7 +37181,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 419,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_01_brownpipes",
       "normal_space": "linear_tangent",
@@ -37121,7 +37201,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 812
+      "width": 1032
     },
     {
       "alpha_cutoff": 0.5,
@@ -37146,7 +37226,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 434,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_02_hullmetal",
       "normal_space": "linear_tangent",
@@ -37166,7 +37246,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 754
+      "width": 1032
     },
     {
       "alpha_cutoff": 0.5,
@@ -37191,7 +37271,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 439,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_03_technotritile",
       "normal_space": "linear_tangent",
@@ -37211,7 +37291,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 742
+      "width": 1032
     },
     {
       "alpha_cutoff": 0.5,
@@ -37236,7 +37316,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 509,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_04_brownspeakers",
       "normal_space": "linear_tangent",
@@ -37256,7 +37336,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 701
+      "width": 516
     },
     {
       "alpha_cutoff": 0.5,
@@ -37281,7 +37361,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 516,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_05_chevrondoor",
       "normal_space": "linear_tangent",
@@ -37301,7 +37381,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 663
+      "width": 516
     },
     {
       "alpha_cutoff": 0.5,
@@ -37326,7 +37406,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 467,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_06_technolights",
       "normal_space": "linear_tangent",
@@ -37346,7 +37426,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 734
+      "width": 1032
     },
     {
       "alpha_cutoff": 0.5,
@@ -37371,7 +37451,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 562,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_07_redhullmetal",
       "normal_space": "linear_tangent",
@@ -37391,7 +37471,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 596
+      "width": 516
     },
     {
       "alpha_cutoff": 0.5,
@@ -37416,7 +37496,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 400,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_08_alienredwall",
       "normal_space": "linear_tangent",
@@ -37436,7 +37516,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 861
+      "width": 1032
     },
     {
       "alpha_cutoff": 0.5,
@@ -37461,7 +37541,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 184,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_09_gieger",
       "normal_space": "linear_tangent",
@@ -37481,7 +37561,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 1723
+      "width": 2568
     },
     {
       "alpha_cutoff": 0.5,
@@ -37506,7 +37586,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 378,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_10_rocky",
       "normal_space": "linear_tangent",
@@ -37526,7 +37606,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 860
+      "width": 2052
     },
     {
       "alpha_cutoff": 0.5,
@@ -37551,7 +37631,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 191,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_11_steampunk",
       "normal_space": "linear_tangent",
@@ -37571,7 +37651,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 1752
+      "width": 2052
     },
     {
       "alpha_cutoff": 0.5,
@@ -37601,7 +37681,7 @@
         "roughness",
         "emissive"
       ],
-      "height": 32,
+      "height": 128,
       "metalness_space": "linear",
       "name": "wall_12_brownstonestep",
       "normal_space": "linear_tangent",
@@ -37621,7 +37701,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 129
+      "width": 516
     },
     {
       "alpha_cutoff": 0.5,
@@ -37643,7 +37723,7 @@
       ],
       "emissive_space": "srgb",
       "generated_channels": [],
-      "height": 412,
+      "height": 512,
       "metalness_space": "linear",
       "name": "wall_archive_brownwithyellowstripes",
       "normal_space": "linear_tangent",
@@ -37663,7 +37743,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 807
+      "width": 1032
     },
     {
       "alpha_cutoff": 0.5,
@@ -57828,5 +57908,6 @@
       255,
       255
     ]
-  }
+  },
+  "world_texture_scale": 4
 }

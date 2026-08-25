@@ -27,6 +27,19 @@ from typing import Iterable, Sequence
 
 from PIL import Image
 
+try:
+    from world_material_images import (
+        clamp_world_normal_blue,
+        crop_to_aspect,
+        resize_world_channel,
+    )
+except ModuleNotFoundError:  # imported as tools.build_q2rtx by unit tests
+    from tools.world_material_images import (
+        clamp_world_normal_blue,
+        crop_to_aspect,
+        resize_world_channel,
+    )
+
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 MEDIA_ROOT = PROJECT_ROOT / "amiga" / "media"
@@ -185,25 +198,10 @@ def read_wal_size(path: pathlib.Path) -> tuple[int, int]:
     return width, height
 
 
-def crop_to_aspect(image: Image.Image, aspect: float) -> Image.Image:
-    width, height = image.size
-    current = width / max(height, 1)
-    if abs(current - aspect) < 0.001:
-        return image
-    if current > aspect:
-        new_width = max(1, round(height * aspect))
-        left = max(0, (width - new_width) // 2)
-        return image.crop((left, 0, left + new_width, height))
-    new_height = max(1, round(width / aspect))
-    top = max(0, (height - new_height) // 2)
-    return image.crop((0, top, width, top + new_height))
-
-
 def load_scaled_channel(path: pathlib.Path, target_size: tuple[int, int]) -> Image.Image:
     with Image.open(path) as source:
         image = source.convert("RGBA")
-    aspect = target_size[0] / max(target_size[1], 1)
-    return crop_to_aspect(image, aspect).resize(target_size, Image.Resampling.LANCZOS)
+    return resize_world_channel(image, target_size)
 
 
 def pack_base(albedo: Image.Image, roughness: Image.Image) -> Image.Image:
@@ -212,8 +210,7 @@ def pack_base(albedo: Image.Image, roughness: Image.Image) -> Image.Image:
 
 
 def pack_normal(normal: Image.Image, metalness: Image.Image) -> Image.Image:
-    red, green, blue, _alpha = normal.convert("RGBA").split()
-    blue = blue.point(lambda value: max(96, value))
+    red, green, blue, _alpha = clamp_world_normal_blue(normal).split()
     return Image.merge("RGBA", (red, green, blue, metalness.convert("L")))
 
 
