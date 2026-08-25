@@ -20,7 +20,7 @@ It auto-handles:
 
 ```powershell
 python tools/ab3d_levels_to_quake.py \
-  --levels-root media/demolevels \
+  --levels-root amiga/media/demolevels \
   --out-dir build/quake2_maps \
   --extract-textures \
   --q2-root build/quake2_assets \
@@ -35,9 +35,9 @@ Extracted Quake 2 textures are written to:
 - `build/quake2_assets/baseq2/pics/colormap.pcx`
 - `build/quake2_assets/ab3d2_textures.wad` as a WAD2 preview/export
 
-Wall texture decoding now uses the AB3D2 `.256wad` files from `media/wallinc` plus the game palette at `media/includes/256pal`. The first 2048 bytes of each wall file are the 32-level palette remap table, and the remaining data is unpacked as vertical strips of three 5-bit texels per 16-bit word.
+Wall texture decoding now uses the AB3D2 `.256wad` files from `amiga/media/wallinc` plus the game palette at `amiga/media/includes/256pal`. The first 2048 bytes of each wall file are the 32-level palette remap table, and the remaining data is unpacked as vertical strips of three 5-bit texels per 16-bit word.
 
-Floor and roof texture decoding uses the AB3D2 floor atlas at `media/includes/floortile` plus the floor remap table at `media/includes/newtexturemaps.pal`. Graph flat records select atlas offsets which are exported as materials named like `ab3d2/floor_0001` and `ab3d2/floor_0201`. The converter reads both lower and upper graph streams for each zone, then matches flat and wall records to the relevant room span by height, so zones that contain one room above another export both volumes.
+Floor and roof texture decoding uses the AB3D2 floor atlas at `amiga/media/includes/floortile` plus the floor remap table at `amiga/media/includes/newtexturemaps.pal`. Graph flat records select atlas offsets which are exported as materials named like `ab3d2/floor_0001` and `ab3d2/floor_0201`. The converter reads both lower and upper graph streams for each zone, then matches flat and wall records to the relevant room span by height, so zones that contain one room above another export both volumes.
 
 Backdrop/open-sky areas remain sealed for Quake. Their ceiling caps use `--sky-texture` (default `sky`), and shell-mode output adds an outer sky-textured hull by default so ericw-tools/qbsp does not report leaks through AB3D2's sky voids. `--no-seal-skybox` disables only that outer hull for raw geometry inspection.
 
@@ -47,7 +47,7 @@ Lighting export reads `ZoneT_Brightness_w`, `ZoneT_UpperBrightness_w`, the per-z
 
 ```powershell
 python tools/ab3d_levels_to_quake.py \
-  --levels-root media/demolevels \
+  --levels-root amiga/media/demolevels \
   --out-dir build/quake2_maps \
   --match LEVEL_A \
   --verbose
@@ -100,11 +100,21 @@ python tools/ab3d_levels_to_quake.py \
 
 ## Optional BSP Compilation
 
+For the complete Q2RTX conversion, material build, pinned compiler pipeline,
+IBSP validation, installation, and launch smoke test, run:
+
+```powershell
+python tools/build_q2rtx.py --install --smoke-test --launch --level level_a
+```
+
+The lower-level converter command below remains useful for editor-only `.map`
+output or when deliberately testing another Quake compiler.
+
 If you have a Quake 2 BSP compiler on PATH:
 
 ```powershell
 python tools/ab3d_levels_to_quake.py \
-  --levels-root media/demolevels \
+  --levels-root amiga/media/demolevels \
   --out-dir build/quake2_maps \
   --compile-bsp
 ```
@@ -113,7 +123,7 @@ Or pass an explicit compiler path:
 
 ```powershell
 python tools/ab3d_levels_to_quake.py \
-  --levels-root media/demolevels \
+  --levels-root amiga/media/demolevels \
   --out-dir build/quake2_maps \
   --compile-bsp \
   --qbsp "C:/tools/qbsp3.exe"

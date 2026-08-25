@@ -43,6 +43,16 @@ def prism(poly, role="floor", z0=0.0, z1=8.0, texture="ab3d2/floor_0001"):
     )
 
 
+class ProjectPathTests(unittest.TestCase):
+    def test_default_media_root_tracks_the_amiga_source_tree(self):
+        self.assertEqual(
+            ab3d.AB3D2_MEDIA_ROOT,
+            SCRIPT.resolve().parents[1] / "amiga" / "media",
+        )
+        self.assertTrue((ab3d.AB3D2_MEDIA_ROOT / "demolevels").is_dir())
+        self.assertTrue((ab3d.AB3D2_MEDIA_ROOT / "wallinc").is_dir())
+
+
 def header(num_zones=1):
     return ab3d.LevelHeader(
         variant="ab3d2",

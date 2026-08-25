@@ -30,16 +30,16 @@ The default output also emits Quake `light` entities from AB3D2 zone brightness 
 It also extracts AB3D2 wall textures from:
 
 ```text
-media/wallinc/*.256wad
-media/includes/256pal
+amiga/media/wallinc/*.256wad
+amiga/media/includes/256pal
 ```
 
 and floor/roof textures from:
 
 ```text
-media/includes/floortile
-media/includes/newtexturemaps.pal
-media/includes/256pal
+amiga/media/includes/floortile
+amiga/media/includes/newtexturemaps.pal
+amiga/media/includes/256pal
 ```
 
 and writes Quake 2 WAL textures under:
@@ -122,17 +122,30 @@ If no compiler is provided or found on `PATH`, keep using the generated `.map` f
 
 ### Q2RTX / Quake 2 BSP Notes
 
-Use ericw-tools 2.0 alpha/dev builds for Q2RTX installs. The older ericw-tools 0.18.x stable release writes Quake 1 BSP files by default; Q2RTX rejects those with `unknown file format`.
-
-For Q2RTX, compile with ericw `qbsp -q2rtx`, then run ericw `vis` and `light` with the same target:
+Use the complete Q2RTX pipeline from the repository root:
 
 ```powershell
-build\bin\qbsp.exe -q2rtx -basedir build\q2rtx_ericw build\q2rtx_ericw\maps\level_a.map build\q2rtx_ericw\maps\level_a.bsp
-build\bin\vis.exe -q2rtx -basedir build\q2rtx_ericw build\q2rtx_ericw\maps\level_a.bsp
-build\bin\light.exe -q2rtx -basedir build\q2rtx_ericw build\q2rtx_ericw\maps\level_a.bsp
+python tools\build_q2rtx.py --install --smoke-test --launch --level level_a
 ```
 
-The `-basedir` directory must look like a Quake 2 `baseq2` tree, including `maps\`, `textures\ab3d2\`, `textures\sky.wal`, and `pics\colormap.pcx`, so the tools can read WAL metadata and surface/content flags. `qbsp -q2rtx` writes normal Quake 2 `IBSP` version 38 files and avoids the invalid edge data seen from `q2tools-220` on these converted maps. If `-q2rtx` gives trouble, try `-q2bsp`; do not use `q2tools-220` for final Q2RTX builds unless its output has been checked for out-of-range edge vertex indices.
+This command:
+
+- converts the original AB3D2 Level A--P pairs into editable Quake 2 `.map` files;
+- extracts all 34 source wall/floor textures as Quake 2 WAL files;
+- repacks the committed renderer-native material catalog into Q2RTX base, normal, roughness, metalness, and explicit emissive TGAs;
+- downloads the pinned Windows ericw-tools `2.0.0-alpha11` archive and rejects it unless its SHA-256 is `4e5ea11be2194a1c4acac6d6da9d5b5b9f65324fda2d67efa0731d1fd8e0745f`;
+- runs `qbsp`, `vis`, and `light` with `-q2rtx` on all 16 maps;
+- rejects BSPs that are not Quake II `IBSP` version 38 or contain invalid lump, vertex, edge, surfedge, face, worldspawn, or player-start data;
+- installs the runtime files into the detected local Steam Q2RTX `baseq2` tree;
+- loads the selected map, waits until the player enters it, closes the smoke-test process, and launches the playable window.
+
+The clean generated package and its file-hash manifest are written under:
+
+```text
+build/q2rtx
+```
+
+Use `--q2rtx-root <path>` for a non-Steam runtime or `--ericw-tools <path>` for an already installed alpha/dev compiler trio. `--lighting none` is the default because Q2RTX consumes the two source-proven emissive materials directly. `--lighting zone` and `--lighting points` deliberately add the converter's optional classic light entities.
 
 The Q2RTX install target used for local testing is:
 
@@ -140,41 +153,22 @@ The Q2RTX install target used for local testing is:
 C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2
 ```
 
-Install compiled BSPs under `baseq2\maps\` and generated WAL textures under `baseq2\textures\ab3d2\`. The compiler/runtime also needs the generated `pics\colormap.pcx`.
+The pipeline installs compiled BSPs and map materials under `baseq2\maps\`, generated WAL textures under `baseq2\textures\ab3d2\`, packed PBR textures under `baseq2\overrides\ab3d2\`, and the generated palette and global material file. It does not copy either proprietary Quake II game data or Q2RTX media into this repository.
 
 ## Q2RTX PBR Textures
 
-The current Q2RTX PBR workflow uses the hand-authored source sheets in:
+The source sheets in `textures_pbr` are compiled into the committed renderer-native catalog in:
 
 ```text
-textures_pbr
+assets/renderer_dxr/materials
 ```
 
-The old OpenAI/Image2 API generation path has been removed. Do not regenerate albedo through the API; use the sheet albedo as the high-resolution base texture and only rebuild the packed Q2RTX outputs from those committed source sheets.
+`tools/build_q2rtx.py` consumes the exact catalog bindings and channels. This covers all 20 floor slots and all 14 extracted wall textures, including source-decoded color with explicit neutral channels where no authored PBR sheet exists. It does not synthesize normals or infer materials during Q2RTX packaging.
 
-Build the packed texture package from the repository root:
+Q2RTX receives roughness in base-texture alpha and metalness in normal-texture alpha. The only emitters are the two already proven by the project material catalog:
 
-```powershell
-python tools\build_q2rtx_pbr_from_sheets.py
-```
-
-The builder cuts each sheet into albedo, normal, metalness, and roughness panels. Panel bounds come from the full-coverage normal and roughness maps and are shared with their matching albedo and metalness maps; this preserves intentionally black texels and keeps captions/gutters out of every channel. It then centre-crops every channel to the original WAL aspect ratio and writes integer-scale replacements under:
-
-```text
-q2rtx_pbr/baseq2
-```
-
-Q2RTX expects roughness packed into the base texture alpha channel and metalness packed into the normal texture alpha channel. The generated package writes those packed TGAs, inspection roughness/metalness maps, emissive maps for known light textures, and material files that bind the runtime textures to the existing `ab3d2/name` map texture paths.
-
-Install the generated PBR package into the local Q2RTX `baseq2` tree:
-
-```powershell
-Copy-Item q2rtx_pbr\baseq2\overrides\ab3d2\*.tga "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\overrides\ab3d2" -Force
-Copy-Item q2rtx_pbr\baseq2\overrides\*.tga "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\overrides" -Force
-Copy-Item q2rtx_pbr\baseq2\textures\ab3d2\*.tga "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\textures\ab3d2" -Force
-Copy-Item q2rtx_pbr\baseq2\materials\ab3d2_pbr.mat "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\materials" -Force
-Copy-Item q2rtx_pbr\baseq2\maps\level_*.mat "C:\Program Files (x86)\Steam\steamapps\common\Quake II RTX\baseq2\maps" -Force
-```
+- `ab3d2/technolights`: factor `900`, matching the converter's `SURF_LIGHT` value;
+- `ab3d2/floor_0101`: factor `200`, decoded from the source bright palette row.
 
 Restart Q2RTX after replacing `.mat` or `.tga` files so material definitions and overrides are reloaded.
 
@@ -203,10 +197,10 @@ Those Quake 1 BSPs are for Q1RTX-style engines only. Do not copy them into Q2RTX
 ## Tests
 
 ```powershell
-python -m unittest tools.test_ab3d_levels_to_quake
+python -m unittest tools.test_ab3d_levels_to_quake tests.test_build_q2rtx
 ```
 
-The tests cover geometry merging, lower/upper room spans, sky-open ceilings, mitered wall overlaps, texture preservation, and lighting table export.
+The tests cover geometry merging, lower/upper room spans, sky-open ceilings, mitered wall overlaps, texture preservation, lighting table export, the complete 34-material binding, the two exact emitters, Q2RTX alpha-channel packing, compiler metadata WALs, and invalid BSP edge rejection.
 
 ## Generated Files
 

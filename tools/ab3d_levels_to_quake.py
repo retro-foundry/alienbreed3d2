@@ -30,6 +30,10 @@ import time
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+AB3D2_MEDIA_ROOT = PROJECT_ROOT / "amiga" / "media"
+
+
 # ---------------------------------------------------------------------------
 # =SB= decompression (ported from Alien-Breed-3D-I src/sb_decompress.c)
 # ---------------------------------------------------------------------------
@@ -4005,7 +4009,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--levels-root",
         type=pathlib.Path,
-        default=pathlib.Path("media/demolevels"),
+        default=AB3D2_MEDIA_ROOT / "demolevels",
         help="Root directory to search for level folders containing twolev.bin and twolev.graph.bin",
     )
     parser.add_argument(
@@ -4102,25 +4106,25 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--texture-source",
         type=pathlib.Path,
-        default=pathlib.Path("media/wallinc"),
+        default=AB3D2_MEDIA_ROOT / "wallinc",
         help="Directory containing AB3D wall texture .wad/.256wad files",
     )
     parser.add_argument(
         "--texture-palette",
         type=pathlib.Path,
-        default=pathlib.Path("media/includes/256pal"),
+        default=AB3D2_MEDIA_ROOT / "includes" / "256pal",
         help="AB3D2 256-colour palette used when decoding .256wad textures",
     )
     parser.add_argument(
         "--floor-source",
         type=pathlib.Path,
-        default=pathlib.Path("media/includes/floortile"),
+        default=AB3D2_MEDIA_ROOT / "includes" / "floortile",
         help="AB3D2 global floor texture atlas",
     )
     parser.add_argument(
         "--floor-remap",
         type=pathlib.Path,
-        default=pathlib.Path("media/includes/newtexturemaps.pal"),
+        default=AB3D2_MEDIA_ROOT / "includes" / "newtexturemaps.pal",
         help="AB3D2 floor palette/remap table",
     )
     parser.add_argument(
