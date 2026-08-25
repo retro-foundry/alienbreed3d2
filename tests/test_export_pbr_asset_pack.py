@@ -108,10 +108,10 @@ class PbrAssetExporterTest(unittest.TestCase):
             ROOT / "textures_pbr", hullmetal
         )
         self.assertEqual(
-            {image.size for image in authored_channels.values()}, {(754, 374)}
+            {image.size for image in authored_channels.values()}, {(754, 434)}
         )
         world_channels = exporter.resize_world_channels(
-            authored_channels, tuple(hullmetal["source_texture_size"])
+            authored_channels, exporter.WALL_DIMENSIONS["hullmetal"]
         )
         self.assertEqual(
             {image.size for image in world_channels.values()}, {(1032, 512)}

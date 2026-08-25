@@ -37149,6 +37149,10 @@
         ],
         "sha256": [
           "11ea0a108d2f395b0b59d2a6a9e133e2d2878089c982d7ad8a86751aa49fb598"
+        ],
+        "source_texture_size": [
+          96,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37194,6 +37198,10 @@
         ],
         "sha256": [
           "e2656f9825ea7918376c90cecb1281ade11172306afea379264a99bc8f703b3f"
+        ],
+        "source_texture_size": [
+          258,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37239,6 +37247,10 @@
         ],
         "sha256": [
           "866c8d91fa20912aae78428f477663d2436d838a6716e54c087a01b84edea0e1"
+        ],
+        "source_texture_size": [
+          258,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37284,6 +37296,10 @@
         ],
         "sha256": [
           "d879c1b26c11fbf1c3905c60713d8f2cf89084ddf1cd925f976e4c5829ceb8d8"
+        ],
+        "source_texture_size": [
+          258,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37329,6 +37345,10 @@
         ],
         "sha256": [
           "591fe90a3cfba348974a010f2a2368797776d72e8ba21f728a7c2981119b1c87"
+        ],
+        "source_texture_size": [
+          129,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37374,6 +37394,10 @@
         ],
         "sha256": [
           "19ec4571a990b31d9282a601b40635f318fe7e87c53f62c64932737950c1440b"
+        ],
+        "source_texture_size": [
+          129,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37419,6 +37443,10 @@
         ],
         "sha256": [
           "6a112e22265cd3ef8a89523b470016de7452048869519bc37e39efc1fb5a14c5"
+        ],
+        "source_texture_size": [
+          258,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37464,6 +37492,10 @@
         ],
         "sha256": [
           "f83d22fe1d1090565122b9825b06d11fd55d5a9b5ffd2068c557cd2b2e54c13a"
+        ],
+        "source_texture_size": [
+          129,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37509,6 +37541,10 @@
         ],
         "sha256": [
           "5df8ceba34f59fc22abc6cbf999f4c4a3abe9ff57e5b534b58f2ed3f94e46918"
+        ],
+        "source_texture_size": [
+          258,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37554,6 +37590,10 @@
         ],
         "sha256": [
           "0e3e752103f86e7b5b3635289afb7dfae5ceab2b1d342cc3389b40c6ef1b582c"
+        ],
+        "source_texture_size": [
+          642,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37599,6 +37639,10 @@
         ],
         "sha256": [
           "2b864c50ce0d943603177dc689660c674bc8351864dcfab338fbe3d36421905c"
+        ],
+        "source_texture_size": [
+          513,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37644,6 +37688,10 @@
         ],
         "sha256": [
           "3a859e666789c574eed3f6de41b24b6e87ab7d6c3f49f95590729337ab715de6"
+        ],
+        "source_texture_size": [
+          513,
+          128
         ]
       },
       "specular_factor": 1.0,
@@ -37694,6 +37742,10 @@
         ],
         "sha256": [
           "a3e0004ddd3701201891468357ee994cb6f5afc9950c21c2c10aa2c8ad373d7a"
+        ],
+        "source_texture_size": [
+          129,
+          32
         ]
       },
       "specular_factor": 1.0,
@@ -37736,6 +37788,10 @@
         ],
         "sha256": [
           "452e306aa8c96ee77f4c352bc2047427f04be11b8b6790ba1122560712aa8758"
+        ],
+        "source_texture_size": [
+          258,
+          128
         ]
       },
       "specular_factor": 1.0,

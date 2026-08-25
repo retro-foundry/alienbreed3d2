@@ -46,7 +46,7 @@ class Q2RtxMaterialTests(unittest.TestCase):
             for name, source in q2rtx.load_material_sources().items()
             if source.emissive_factor > 0.0
         }
-        self.assertEqual(emitters, {"floor_0101": 200.0, "technolights": 900.0})
+        self.assertEqual(emitters, {"floor_0101": 200.0, "technolights": 200.0})
 
     def test_q2rtx_channels_pack_roughness_and_metalness_into_alpha(self):
         albedo = Image.new("RGBA", (2, 1))
@@ -81,7 +81,7 @@ class Q2RtxMaterialTests(unittest.TestCase):
             text = path.read_text(encoding="ascii")
 
         self.assertIn("textures/ab3d2/technolights:", text)
-        self.assertIn("emissive_factor 900", text)
+        self.assertEqual(text.count("emissive_factor 200"), 2)
         self.assertIn("textures/ab3d2/floor_0101:", text)
         self.assertIn("emissive_factor 200", text)
         self.assertNotIn("textures/ab3d2/brownspeakers_light.tga", text)

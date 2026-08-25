@@ -528,11 +528,27 @@ explicit emissive map and unit factor. `materials.json` records class,
 dimensions, source provenance, exact world/vector/bitmap binding, alpha mode,
 color spaces, generated-channel list, and non-color source assets.
 
+Authored wall panels are center-cropped to the authoritative source wall's
+pixel aspect before all five channels are resized together to four times that
+source extent. Floors are similarly exported at 256 by 256 for each 64-by-64
+source tile. The source dimensions come from the AB3D2 wall assets and are
+recorded in the manifest rather than inferred from a generated renderer
+package. A shared image helper applies the Lanczos crop, resize, and encoded
+normal-Z floor used by the Q2 package. Tests require every world output to be
+exactly four times its declared source dimensions.
+
+Native shading uses a manual repeat-aware four-tap filter for every PBR channel.
+All four loads stay inside the material's packed atlas rectangle, including at
+UV seams, so filtering cannot leak a neighboring material. Alpha-test coverage
+retains its exact point lookup. The current atlas still contains one mip level;
+distance-aware mip selection requires a separately validated ray-footprint or
+ray-cone design and is not claimed by this material-input parity checkpoint.
+
 `tools/compile_pbr_asset_pack.py` rejects missing, extra, malformed, renamed,
 or wrong-sized PNGs and private/absolute provenance paths, hashes files and
 decoded pixels, and embeds the exact compressed PNG bytes in one indexed runtime
 package. It must not invoke the old Q2RTX package builder or inherit its channel
-packing and naming. The C++ library parses metadata for all 973 identities, then
+packing and naming. The C++ library parses metadata for all 978 identities, then
 decodes only the five PNGs for a material when the live world or companion first
 resolves that binding. World and companion compilation require a matching
 binding; there is no runtime texture synthesis or decoded-source fallback.

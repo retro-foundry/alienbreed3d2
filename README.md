@@ -513,10 +513,19 @@ any acceleration structure, so it never resets the temporal history.
 The complete editable texture handoff is
 `assets/renderer_dxr/materials/`: one zip-ready root with `walls`, `floors`,
 `weapons`, `vector_models`, `enemies`, `billboards`, `effects`, `environment`,
-and `ui` directories. They contain 973 material identities and five PNG maps
-per material (4,865 PNGs total), alongside root-level `materials.json` and the
+and `ui` directories. They contain 978 material identities and five PNG maps
+per material (4,890 PNGs total), alongside root-level `materials.json` and the
 artist README. Each category is flat. Unauthored PBR channels are committed
-generated maps for artists to replace. Weapon and vector-model regions retain
+generated maps for artists to replace. Authored wall-sheet panels are
+center-cropped to the pixel aspect of their authoritative AB3D2 wall texture
+before all five channels are resized together to four times that source extent.
+Floors likewise use 256-by-256 replacements for their 64-by-64 source tiles.
+The shared conversion applies the encoded normal-Z floor used by the Q2 package,
+and the native shader performs repeat-aware four-tap filtering inside each
+packed atlas rectangle. This keeps base-color, tangent-normal, metalness, and
+roughness features in the same normalized UV domain as the source wall without
+compressing extra sheet canvas into it or bleeding from an adjacent material.
+Weapon and vector-model regions retain
 their source albedo and use roughness 184/255 (the nearest PNG value to 0.72),
 metalness 0, and editable `specular_factor` 0.35, matching the proven material
 settings from the user-directed renderer comparison. Other unauthored maps use

@@ -718,8 +718,11 @@ Keep each edited channel at the dimensions recorded in `materials.json`. Channel
 listed in `generated_channels` are generated defaults awaiting artwork. Weapon
 and vector-model materials use roughness 184/255 (the nearest PNG encoding of
 0.72), metalness 0, and `specular_factor` 0.35 to preserve the proven source-
-vector material response; other unauthored channels use the neutral defaults
-listed in the manifest. The
+vector material response. World channels are centre-cropped and Lanczos-resized
+to four times the authoritative AB3D2 source extent, with the same encoded
+normal-Z floor used by the Q2 package. Native DXR filters those maps within each
+atlas rectangle. Other unauthored channels use the neutral defaults listed in
+the manifest. The
 build validates and embeds the exact PNG bytes in the runtime package; the game
 decodes only materials required by the live scene. `materials.json` records the
 source asset and renderer binding for every material.
