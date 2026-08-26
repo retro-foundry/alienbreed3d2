@@ -271,6 +271,7 @@ typedef struct {
     int frame_initialized;
     int gpu_smoke;
     int gpu_smoke_all_levels;
+    int gpu_smoke_saved_game;
     int exit_code;
 } GameApp;
 
@@ -386,6 +387,9 @@ static int game_app_parse_arguments(GameApp *app, int argc, char **argv)
             if (strcmp(argv[argument_index + 1], "all") == 0) {
                 app->selected_level_index = 0u;
                 app->gpu_smoke_all_levels = 1;
+            } else if (strcmp(argv[argument_index + 1], "save") == 0) {
+                app->selected_level_index = 0u;
+                app->gpu_smoke_saved_game = 1;
             } else if (!level_index_from_argument(argv[argument_index + 1],
                                                   &app->selected_level_index)) {
                 return 0;
@@ -519,7 +523,7 @@ static int game_app_init(GameApp *app, int argc, char **argv)
 
     if (!app || !game_app_parse_arguments(app, argc, argv)) {
         fprintf(stderr,
-                "usage: %s [--data-root <directory>] [--level <A-P>] [--gpu-smoke <A-P|all>] "
+                "usage: %s [--data-root <directory>] [--level <A-P>] [--gpu-smoke <A-P|all|save>] "
                 "[--world-light-tessellation <1|2|4|8>] [--renderer <opengl|rtx>] "
                 "[--skip-intro <0|1>]\n",
                 argv[0]);
@@ -545,12 +549,12 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         return 0;
     }
     app->game_initialized = 1;
-    if (!app->gpu_smoke &&
+    if ((!app->gpu_smoke || app->gpu_smoke_saved_game) &&
         !game_app_load_desktop_settings(app, error, sizeof(error))) {
         fprintf(stderr, "[SETTINGS] %s\n", error);
         return 0;
     }
-    if (!app->gpu_smoke) {
+    if (!app->gpu_smoke || app->gpu_smoke_saved_game) {
         game_bootstrap_apply_desktop_settings(&app->game, &app->desktop_settings);
         if (app->selected_level_from_command_line == 0u) {
             app->selected_level_index = app->desktop_settings.start_level_index;
@@ -632,7 +636,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         fprintf(stderr, "[GAME] %s\n", error);
         return 0;
     }
-    if (!app->gpu_smoke && app->desktop_settings.load_autosave != 0u) {
+    if (app->gpu_smoke_saved_game ||
+        (!app->gpu_smoke && app->desktop_settings.load_autosave != 0u)) {
         /* Alien Breed 3D I control_loop.c's Continue/autosave route restores
          * the complete runtime and enters play without level flavour text. */
         if (!game_quicksave_load(&app->game, app->data_root, app->quicksave_path,
@@ -1495,6 +1500,41 @@ static int game_app_run_gpu_smoke(GameApp *app)
     RendererBackend smoke_backend = app->has_renderer_backend_from_command_line != 0u ?
         app->renderer_backend_from_command_line :
         app->desktop_settings.renderer_backend;
+
+    if (app->gpu_smoke_saved_game) {
+        enum { GAME_APP_SAVED_GPU_SMOKE_FRAMES = 32 };
+        uint64_t checksum = UINT64_C(0);
+        double delta = -1.0;
+
+        for (unsigned frame_index = 0u;
+             frame_index < GAME_APP_SAVED_GPU_SMOKE_FRAMES; ++frame_index) {
+            scene_frame_begin(&app->frame);
+            app->frame.history_epoch = app->scene_history_epoch;
+            if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+                !renderer_present(app->renderer, &app->frame, &app->view,
+                                  error, sizeof(error))) {
+                fprintf(stderr,
+                        "[RENDER] saved-state GPU frame %u failed for Level %c: %s\n",
+                        frame_index,
+                        (char)('A' + app->game.active_level_index), error);
+                app->exit_code = 1;
+                return 0;
+            }
+            checksum = renderer_last_frame_rgb_checksum(app->renderer);
+            delta = renderer_last_frame_delta(app->renderer);
+        }
+        fprintf(stdout,
+                "[RENDER] saved-state Level %c frozen frames=%u checksum=%016llx "
+                "delta=%.4f saturated=%llu outliers16=%llu\n",
+                (char)('A' + app->game.active_level_index),
+                (unsigned)GAME_APP_SAVED_GPU_SMOKE_FRAMES,
+                (unsigned long long)checksum, delta,
+                (unsigned long long)renderer_last_frame_saturated_pixels(
+                    app->renderer),
+                (unsigned long long)renderer_last_frame_temporal_outlier_pixels(
+                    app->renderer));
+        return 1;
+    }
 
     for (uint16_t level_index = first_level; level_index <= last_level; ++level_index) {
         SceneCommand source_effect_camera;
@@ -2431,7 +2471,9 @@ int main(int argc, char **argv)
     if (app->gpu_smoke) {
         if (game_app_run_gpu_smoke(app) && app->exit_code == 0) {
             fprintf(stdout, "[RENDER] hidden GPU smoke passed for %s\n",
-                    app->gpu_smoke_all_levels != 0 ? "Levels A-P" : "the selected level");
+                    app->gpu_smoke_saved_game != 0 ? "the saved state" :
+                    app->gpu_smoke_all_levels != 0 ? "Levels A-P" :
+                    "the selected level");
         }
         int exit_code = app->exit_code;
         game_app_shutdown(app);
