@@ -37114,7 +37114,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 0
+        "source_asset_id": 0,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_00_stonewall_base_color.png",
@@ -37168,7 +37169,64 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 1
+        "source_asset_id": 0,
+        "v_period": 64
+      },
+      "channels": {
+        "base_color": "walls/wall_00_stonewall_v64_base_color.png",
+        "emissive": "walls/wall_00_stonewall_v64_emissive.png",
+        "metalness": "walls/wall_00_stonewall_v64_metalness.png",
+        "normal": "walls/wall_00_stonewall_v64_normal.png",
+        "roughness": "walls/wall_00_stonewall_v64_roughness.png"
+      },
+      "class": "wall",
+      "emissive_factor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "emissive_space": "srgb",
+      "generated_channels": [
+        "normal",
+        "metalness",
+        "roughness",
+        "emissive"
+      ],
+      "height": 256,
+      "metalness_space": "linear",
+      "name": "wall_00_stonewall_v64",
+      "normal_space": "linear_tangent",
+      "normal_strength": 1.0,
+      "roughness_space": "linear",
+      "source": {
+        "authored_sheet": null,
+        "files": [
+          "wallinc/stonewall.256wad"
+        ],
+        "sha256": [
+          "11ea0a108d2f395b0b59d2a6a9e133e2d2878089c982d7ad8a86751aa49fb598"
+        ],
+        "source_texture_size": [
+          195,
+          64
+        ]
+      },
+      "specular_factor": 1.0,
+      "tags": [
+        "packed_wall_variant",
+        "world"
+      ],
+      "two_sided": false,
+      "width": 780
+    },
+    {
+      "alpha_cutoff": 0.5,
+      "alpha_mode": "opaque",
+      "base_color_space": "srgb",
+      "binding": {
+        "kind": "shared_wall",
+        "source_asset_id": 1,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_01_brownpipes_base_color.png",
@@ -37217,7 +37275,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 2
+        "source_asset_id": 2,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_02_hullmetal_base_color.png",
@@ -37266,7 +37325,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 3
+        "source_asset_id": 3,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_03_technotritile_base_color.png",
@@ -37315,7 +37375,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 4
+        "source_asset_id": 4,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_04_brownspeakers_base_color.png",
@@ -37364,7 +37425,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 5
+        "source_asset_id": 5,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_05_chevrondoor_base_color.png",
@@ -37413,7 +37475,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 6
+        "source_asset_id": 6,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_06_technolights_base_color.png",
@@ -37462,7 +37525,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 7
+        "source_asset_id": 7,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_07_redhullmetal_base_color.png",
@@ -37511,7 +37575,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 8
+        "source_asset_id": 8,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_08_alienredwall_base_color.png",
@@ -37560,7 +37625,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 9
+        "source_asset_id": 9,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_09_gieger_base_color.png",
@@ -37609,7 +37675,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 10
+        "source_asset_id": 10,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_10_rocky_base_color.png",
@@ -37658,7 +37725,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 11
+        "source_asset_id": 11,
+        "v_period": 128
       },
       "channels": {
         "base_color": "walls/wall_11_steampunk_base_color.png",
@@ -37707,7 +37775,8 @@
       "base_color_space": "srgb",
       "binding": {
         "kind": "shared_wall",
-        "source_asset_id": 12
+        "source_asset_id": 12,
+        "v_period": 32
       },
       "channels": {
         "base_color": "walls/wall_12_brownstonestep_base_color.png",
@@ -57924,7 +57993,7 @@
       "sha256": "9d29f7f7e28d68a3fafb125741cf2b1e88a9ab6a4f085d058d51b39d4fb56c8d"
     }
   ],
-  "schema_version": 5,
+  "schema_version": 6,
   "source_vector_material_defaults": {
     "metalness": [
       0,

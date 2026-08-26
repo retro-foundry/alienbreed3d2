@@ -31,13 +31,13 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
 
     def test_artist_directory_is_complete_sorted_and_zip_ready(self) -> None:
         materials = self.spec["materials"]
-        self.assertEqual(self.spec["schema_version"], 5)
+        self.assertEqual(self.spec["schema_version"], 6)
         self.assertEqual(self.spec["world_texture_scale"], 4)
-        self.assertEqual(len(materials), 978)
+        self.assertEqual(len(materials), 979)
         self.assertEqual(
             Counter(material["class"] for material in materials),
             {
-                "wall": 14,
+                "wall": 15,
                 "floor": 20,
                 "weapon": 341,
                 "vector_model": 284,
@@ -53,7 +53,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             for material in materials
             for channel in CHANNELS
         }
-        self.assertEqual(len(expected_pngs), 4_890)
+        self.assertEqual(len(expected_pngs), 4_895)
         self.assertEqual(
             {
                 path.relative_to(ASSET_DIR).as_posix()
@@ -132,15 +132,15 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             magic, version, count, channels, record_size = RUNTIME_HEADER.unpack_from(runtime)
             self.assertEqual(magic, RUNTIME_MAGIC)
             self.assertEqual(version, RUNTIME_VERSION)
-            self.assertEqual(count, 978)
+            self.assertEqual(count, 979)
             self.assertEqual(channels, len(CHANNELS))
             self.assertEqual(record_size, RUNTIME_RECORD.size)
             table_size = RUNTIME_HEADER.size + count * record_size
             self.assertGreater(len(runtime), table_size)
             self.assertTrue(manifest["runtime_package"]["contains_pixels"])
             self.assertEqual(manifest["runtime_package"]["pixel_encoding"], "png")
-            self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR6")
-            self.assertEqual(manifest["schema_version"], 6)
+            self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR7")
+            self.assertEqual(manifest["schema_version"], 7)
             self.assertEqual(len(list(output.rglob("*.png"))), 0)
             self.assertEqual(
                 {path.name for path in output.iterdir()},

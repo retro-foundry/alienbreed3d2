@@ -28,6 +28,9 @@ struct SceneVertex
     uint materialIndex;
     uint emitterIndex;
     uint primitive;
+    /* Packed 16-bit image-texel XY pairs; zero extent selects the full image. */
+    uint textureWindowOrigin;
+    uint textureWindowExtent;
     /*
      * The source Gouraud shade response at this vertex, one being the brightest
      * source row. It scales authored emission, and on world geometry it is also
@@ -96,6 +99,8 @@ struct PackedLightReservoir
     float2 surfaceTextureCoordinate;
     uint surfaceGeometricNormal;
     uint surfaceMaterialIndex;
+    uint surfaceTextureWindowOrigin;
+    uint surfaceTextureWindowExtent;
 };
 
 struct SurfacePayload
@@ -128,6 +133,8 @@ struct SurfaceData
     uint materialIndex;
     uint emitterIndex;
     uint primitive;
+    uint textureWindowOrigin;
+    uint textureWindowExtent;
 };
 
 struct BsdfEvaluation
@@ -516,12 +523,34 @@ float3 cosineHemisphere(float3 normal, float2 sampleValue)
                      normal * sqrt(max(0.0, 1.0 - first)));
 }
 
-uint2 materialTexel(SceneMaterial material, float2 textureCoordinate)
+struct MaterialTextureWindow
 {
+    uint2 origin;
+    uint2 extent;
+};
+
+MaterialTextureWindow materialTextureWindow(SceneMaterial material,
+                                             uint packedOrigin,
+                                             uint packedExtent)
+{
+    MaterialTextureWindow window;
+    window.origin = uint2(packedOrigin & 0xffffu, packedOrigin >> 16u);
+    window.extent = uint2(packedExtent & 0xffffu, packedExtent >> 16u);
+    if (window.extent.x == 0u || window.extent.y == 0u) {
+        window.origin = 0u;
+        window.extent = uint2(material.width, material.height);
+    }
+    return window;
+}
+
+uint2 materialTexel(SceneMaterial material, float2 textureCoordinate,
+                    uint packedWindowOrigin, uint packedWindowExtent)
+{
+    MaterialTextureWindow window = materialTextureWindow(
+        material, packedWindowOrigin, packedWindowExtent);
     float2 wrapped = frac(textureCoordinate);
-    return uint2(material.atlasX, material.atlasY) +
-        min(uint2(wrapped * float2(material.width, material.height)),
-            uint2(material.width - 1u, material.height - 1u));
+    return uint2(material.atlasX, material.atlasY) + window.origin +
+        min(uint2(wrapped * float2(window.extent)), window.extent - 1u);
 }
 
 struct MaterialSampleFootprint
@@ -534,15 +563,18 @@ struct MaterialSampleFootprint
 };
 
 MaterialSampleFootprint materialSampleFootprint(
-    SceneMaterial material, float2 textureCoordinate)
+    SceneMaterial material, float2 textureCoordinate,
+    uint packedWindowOrigin, uint packedWindowExtent)
 {
-    float2 dimensions = float2(material.width, material.height);
+    MaterialTextureWindow window = materialTextureWindow(
+        material, packedWindowOrigin, packedWindowExtent);
+    float2 dimensions = float2(window.extent);
     float2 position = frac(textureCoordinate) * dimensions - 0.5;
     int2 lower = int2(floor(position));
-    int2 size = int2(material.width, material.height);
+    int2 size = int2(window.extent);
     int2 lowerWrapped = (lower + size) % size;
     int2 upperWrapped = (lower + 1 + size) % size;
-    uint2 origin = uint2(material.atlasX, material.atlasY);
+    uint2 origin = uint2(material.atlasX, material.atlasY) + window.origin;
     MaterialSampleFootprint footprint;
     footprint.texel00 = origin + uint2(lowerWrapped.x, lowerWrapped.y);
     footprint.texel10 = origin + uint2(upperWrapped.x, lowerWrapped.y);
@@ -617,13 +649,17 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     surface.materialIndex = first.materialIndex;
     surface.emitterIndex = first.emitterIndex;
     surface.primitive = first.primitive;
+    surface.textureWindowOrigin = first.textureWindowOrigin;
+    surface.textureWindowExtent = first.textureWindowExtent;
     float3 tangent;
     float3 bitangent;
     triangleFrame(firstVertex, incomingDirection, surface.geometricNormal,
                   tangent, bitangent);
     SceneMaterial material = Materials[surface.materialIndex];
     MaterialSampleFootprint footprint =
-        materialSampleFootprint(material, surface.textureCoordinate);
+        materialSampleFootprint(material, surface.textureCoordinate,
+                                surface.textureWindowOrigin,
+                                surface.textureWindowExtent);
     surface.baseColor = saturate(
         sampleMaterialAtlas(BaseColorAtlas, footprint).rgb);
     float3 tangentNormal =
@@ -1104,7 +1140,9 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
     }
     SceneMaterial lightMaterial = Materials[first.materialIndex];
     MaterialSampleFootprint lightFootprint =
-        materialSampleFootprint(lightMaterial, lightUv);
+        materialSampleFootprint(lightMaterial, lightUv,
+                                first.textureWindowOrigin,
+                                first.textureWindowExtent);
     float lightEmissiveScale = first.emissiveScale * barycentrics.x +
         second.emissiveScale * barycentrics.y +
         third.emissiveScale * barycentrics.z;
@@ -1622,9 +1660,13 @@ SurfaceData reservoirSurface(PackedLightReservoir reservoir)
         unpackOctahedralNormal(reservoir.surfaceGeometricNormal);
     surface.textureCoordinate = reservoir.surfaceTextureCoordinate;
     surface.materialIndex = reservoir.surfaceMaterialIndex;
+    surface.textureWindowOrigin = reservoir.surfaceTextureWindowOrigin;
+    surface.textureWindowExtent = reservoir.surfaceTextureWindowExtent;
     SceneMaterial material = Materials[surface.materialIndex];
     MaterialSampleFootprint footprint =
-        materialSampleFootprint(material, surface.textureCoordinate);
+        materialSampleFootprint(material, surface.textureCoordinate,
+                                surface.textureWindowOrigin,
+                                surface.textureWindowExtent);
     surface.baseColor = saturate(
         sampleMaterialAtlas(BaseColorAtlas, footprint).rgb);
     surface.metalness = saturate(
@@ -1747,6 +1789,8 @@ float3 resampleDirectTemporal(uint2 pixel, uint2 dimensions,
     stored.surfaceGeometricNormal =
         packOctahedralNormal(surface.geometricNormal);
     stored.surfaceMaterialIndex = surface.materialIndex;
+    stored.surfaceTextureWindowOrigin = surface.textureWindowOrigin;
+    stored.surfaceTextureWindowExtent = surface.textureWindowExtent;
     if (CandidateCount == 0u) {
         return 0.0;
     }
@@ -2277,7 +2321,9 @@ void AnyHit(inout SurfacePayload payload,
     /* Artist-authored billboard/vector cutouts use the material manifest's
      * mask threshold. Opaque world BLAS skip this shader. */
     if (BaseColorAtlas.Load(int3(
-            materialTexel(material, textureCoordinate), 0)).a < 0.5) {
+            materialTexel(material, textureCoordinate,
+                          first.textureWindowOrigin,
+                          first.textureWindowExtent), 0)).a < 0.5) {
         IgnoreHit();
     }
 }

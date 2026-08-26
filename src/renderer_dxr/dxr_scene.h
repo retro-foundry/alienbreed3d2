@@ -40,6 +40,15 @@ struct DxrSceneVertex {
     uint32_t emitter_index;
     uint32_t primitive;
     /*
+     * Packed 16-bit XY pairs in PBR-atlas image texels. Walls carry the exact
+     * source subwindow selected by hireswall.s:Draw_Wall: word +10 supplies
+     * the U origin and bytes +18/+16 supply the U/V repeat masks. A zero
+     * extent explicitly means the complete material image for flats, sprites,
+     * vectors, and the view weapon.
+     */
+    uint32_t texture_window_origin;
+    uint32_t texture_window_extent;
+    /*
      * The source Gouraud shade response for this vertex, scaling the material's
      * authored emission. `hires.s:goursides` selects a flat's shade row from its
      * CurrentPointBrights word, so a zone whose points carry an
@@ -55,7 +64,7 @@ struct DxrSceneVertex {
     float emissive_scale;
 };
 
-static_assert(sizeof(DxrSceneVertex) == 36u);
+static_assert(sizeof(DxrSceneVertex) == 44u);
 
 struct DxrSceneMaterial {
     uint32_t atlas_x;

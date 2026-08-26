@@ -50,6 +50,7 @@ public:
     bool load_from_executable(std::string &error);
 
     bool resolve(SceneMaterialSource source, uint32_t source_asset_id,
+                 uint32_t texture_v_period,
                  const DxrMaterialDefinition *&definition,
                  std::string &error);
     bool resolve_vector(
@@ -88,7 +89,8 @@ private:
     std::vector<std::array<ChannelPayload,
                            static_cast<size_t>(DxrMaterialChannel::count)>>
         payloads_;
-    std::map<std::pair<SceneMaterialSource, uint32_t>, size_t> bindings_;
+    std::map<std::tuple<SceneMaterialSource, uint32_t, uint32_t>, size_t>
+        bindings_;
     std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
                         uint8_t, uint8_t, uint8_t>, size_t> vector_bindings_;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, size_t>

@@ -16,8 +16,8 @@ namespace ab3d2::dxr {
 
 namespace {
 
-constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '6', 0};
-constexpr uint32_t runtime_version = 6u;
+constexpr uint8_t runtime_magic[8] = {'A', 'B', '3', 'P', 'B', 'R', '7', 0};
+constexpr uint32_t runtime_version = 7u;
 constexpr uint32_t runtime_source_none = 0u;
 constexpr uint32_t runtime_source_shared_wall = 1u;
 constexpr uint32_t runtime_source_shared_floor = 2u;
@@ -313,12 +313,13 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
         const size_t definition_index = definitions_.size();
         if (source_kind == runtime_source_shared_wall ||
             source_kind == runtime_source_shared_floor) {
-            if (detail0 != 0u || detail1 != 0u ||
+            if (detail1 != 0u ||
                 (flags & runtime_flag_vector_glare) != 0u ||
                 (source_kind == runtime_source_shared_wall &&
-                 material_class != runtime_class_wall) ||
+                 (material_class != runtime_class_wall || detail0 == 0u ||
+                  detail0 > UINT16_MAX)) ||
                 (source_kind == runtime_source_shared_floor &&
-                 material_class != runtime_class_floor)) {
+                 (material_class != runtime_class_floor || detail0 != 0u))) {
                 error = "DXR PBR world material contains unexpected binding detail";
                 return false;
             }
@@ -327,7 +328,8 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
                 SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE;
             definition.source_asset_id = source_asset_id;
             if (!bindings_.emplace(
-                    std::make_pair(definition.source, source_asset_id),
+                    std::make_tuple(definition.source, source_asset_id,
+                                    detail0),
                     definition_index).second) {
                 error = "DXR PBR material catalog contains a duplicate world binding";
                 return false;
@@ -474,14 +476,17 @@ bool DxrMaterialLibrary::resolve_index(
 
 bool DxrMaterialLibrary::resolve(
     SceneMaterialSource source, uint32_t source_asset_id,
+    uint32_t texture_v_period,
     const DxrMaterialDefinition *&definition, std::string &error)
 {
-    const auto found = bindings_.find(std::make_pair(source, source_asset_id));
+    const auto found = bindings_.find(
+        std::make_tuple(source, source_asset_id, texture_v_period));
     if (found == bindings_.end()) {
         std::ostringstream message;
         message << "DXR PBR binding is missing for world material: source="
                 << static_cast<unsigned>(source)
-                << " asset=" << source_asset_id;
+                << " asset=" << source_asset_id
+                << " v_period=" << texture_v_period;
         error = message.str();
         definition = nullptr;
         return false;

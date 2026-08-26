@@ -72,6 +72,12 @@ class PbrAssetExporterTest(unittest.TestCase):
             media.require("wallinc/stonewall.256wad"), palette
         )
         self.assertEqual(wall.size, (96, 128))
+        stone_variant = exporter.wall_image(
+            media.require("wallinc/stonewall.256wad"), palette, (195, 64)
+        )
+        # The record-selected 64-high interpretation supplies Level G's
+        # authoritative Draw_Wall U window 64..127 from the same packed WAD.
+        self.assertEqual(stone_variant.size, (195, 64))
         floor = exporter.floor_image(
             media.require("includes/floortile").read_bytes(),
             media.require("includes/newtexturemaps.pal").read_bytes(),

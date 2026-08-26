@@ -189,7 +189,7 @@ int main(void)
     moving_surface.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
     moving_surface.geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_WALL;
     moving_surface.geometry.texture_window.u_period = 64u;
-    moving_surface.geometry.texture_window.v_period = 64u;
+    moving_surface.geometry.texture_window.v_period = 128u;
     SceneCommand moving_commands[2] = {0};
     moving_commands[0].type = SCENE_COMMAND_CAMERA;
     moving_commands[1].type = SCENE_COMMAND_GEOMETRY_INSTANCE;
@@ -224,6 +224,23 @@ int main(void)
         }
 #endif
         previous_scene_checksum = scene_checksum;
+    }
+    const uint64_t first_texture_window_checksum = previous_scene_checksum;
+    moving_surface.geometry.texture_window.u_offset = 32u;
+    if (!present_scene_frame(renderer, &moving_frame, &view, error,
+                             sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+    previous_scene_checksum =
+        renderer_rtx_last_frame_rgb_checksum(renderer);
+    if (previous_scene_checksum == first_texture_window_checksum) {
+        fprintf(stderr,
+                "DXR wall sampling ignored the source texture U window\n");
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
     }
     for (size_t vertex = 0; vertex < 3u; ++vertex) {
         moving_vertices[vertex].position.y += 32;

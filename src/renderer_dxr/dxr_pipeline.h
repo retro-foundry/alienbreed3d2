@@ -35,9 +35,11 @@ struct DxrLightReservoir {
     float surface_texture_coordinate[2];
     uint32_t surface_geometric_normal;
     uint32_t surface_material_index;
+    uint32_t surface_texture_window_origin;
+    uint32_t surface_texture_window_extent;
 };
 
-static_assert(sizeof(DxrLightReservoir) == 48u);
+static_assert(sizeof(DxrLightReservoir) == 56u);
 
 enum class DxrReconstructionBuffer : size_t {
     noisy_radiance,

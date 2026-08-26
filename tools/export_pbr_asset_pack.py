@@ -59,6 +59,12 @@ WALL_DIMENSIONS = {
     "technolights": (258, 128),
     "technotritile": (258, 128),
 }
+# A wall record's height mask/shift chooses the packed-strip stride; the same
+# WAD can therefore have more than one authoritative two-dimensional view.
+# Level G uses stonewall at 64 high, while Levels C/I use its 128-high view.
+WALL_VARIANT_DIMENSIONS = {
+    "stonewall": ((195, 64),),
+}
 GLFT_SIZE = 86268
 OBJECT_COUNT = 30
 OBJECT_FRAME_COUNT = 32
@@ -238,17 +244,19 @@ def display_palette(path: Path) -> list[tuple[int, int, int, int]]:
 
 
 def wall_image(
-    path: Path, palette: list[tuple[int, int, int, int]]
+    path: Path,
+    palette: list[tuple[int, int, int, int]],
+    dimensions: tuple[int, int] | None = None,
 ) -> Image.Image:
     data = path.read_bytes()
     key = slug(path.stem)
     if key not in WALL_DIMENSIONS or len(data) < 2050:
         raise ValueError(f"source wall texture has no validated extent: {path}")
-    width, height = WALL_DIMENSIONS[key]
+    width, height = dimensions or WALL_DIMENSIONS[key]
     required = 2048 + ((width + 2) // 3) * height * 2
-    # Some retained WADs carry an unused partial/final packed strip after the
-    # extent selected by GLFT_WallHeights.  The source renderer never indexes
-    # it; accept at most one such strip while decoding the validated extent.
+    # Some retained WAD views leave an unused partial/final packed strip. The
+    # source renderer never indexes it; accept at most one such strip while
+    # decoding the validated record-selected extent.
     if len(data) < required or len(data) > required + height * 2 + 2:
         raise ValueError(
             f"source wall texture size disagrees with {width}x{height}: {path}"
@@ -678,7 +686,7 @@ class PackWriter:
 
     def finish(self, non_color_assets: list[dict[str, object]]) -> None:
         manifest = {
-            "schema_version": 5,
+            "schema_version": 6,
             "generator": "tools/export_pbr_asset_pack.py",
             "description": "Category-sorted, zip-ready AB3D2 artist PBR texture package",
             "world_texture_scale": WORLD_TEXTURE_SCALE,
@@ -721,7 +729,9 @@ and vector-model materials use roughness 184/255 (the nearest PNG encoding of
 vector material response. World channels are centre-cropped and Lanczos-resized
 to four times the authoritative AB3D2 source extent, with the same encoded
 normal-Z floor used by the Q2 package. Native DXR filters those maps within each
-atlas rectangle. Other unauthored channels use the neutral defaults listed in
+source wall window. A wall binding's `v_period` selects the exact packed-WAD
+interpretation used by its Draw_Wall record. Other unauthored channels use the
+neutral defaults listed in
 the manifest. The
 build validates and embeds the exact PNG bytes in the runtime package; the game
 decodes only materials required by the live scene. `materials.json` records the
@@ -826,7 +836,11 @@ def build_pack(
             list(authored.get("emissive_factor", [0.0, 0.0, 0.0])) if authored else [0.0, 0.0, 0.0]
         )
         binding = (
-            {"kind": "shared_wall", "source_asset_id": wall_slots[wall_name]}
+            {
+                "kind": "shared_wall",
+                "source_asset_id": wall_slots[wall_name],
+                "v_period": source_texture_size[1],
+            }
             if wall_name in wall_slots
             else None
         )
@@ -846,6 +860,49 @@ def build_pack(
             generated_channels=[] if authored else ["normal", "metalness", "roughness", "emissive"],
             tags=["world"],
         )
+        for variant_width, variant_height in WALL_VARIANT_DIMENSIONS.get(
+            wall_name, ()
+        ):
+            if authored:
+                raise ValueError(
+                    f"authored PBR wall needs an explicit packed-layout variant: {wall_name}"
+                )
+            variant_size = (variant_width, variant_height)
+            variant_base = wall_image(wall_path, palette, variant_size)
+            variant_channels = resize_world_channels(
+                default_channels(variant_base), variant_size
+            )
+            variant_name = (
+                f"wall_{wall_slots[wall_name]:02d}_{wall_name}_v{variant_height}"
+                if wall_name in wall_slots
+                else f"wall_archive_{wall_name}_v{variant_height}"
+            )
+            variant_binding = (
+                {
+                    "kind": "shared_wall",
+                    "source_asset_id": wall_slots[wall_name],
+                    "v_period": variant_height,
+                }
+                if wall_name in wall_slots
+                else None
+            )
+            writer.add(
+                variant_name,
+                "wall",
+                variant_channels,
+                alpha_mode="opaque",
+                binding=variant_binding,
+                source={
+                    "files": [wall_path.relative_to(media_root).as_posix()],
+                    "sha256": [sha256(wall_path.read_bytes())],
+                    "authored_sheet": None,
+                    "source_texture_size": list(variant_size),
+                },
+                generated_channels=[
+                    "normal", "metalness", "roughness", "emissive"
+                ],
+                tags=["world", "packed_wall_variant"],
+            )
 
     floor_path = media.resolve_volume(field(link, layout.floor_filename, 64))
     floor_data = floor_path.read_bytes()

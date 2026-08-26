@@ -21,8 +21,8 @@ except ImportError as error:  # pragma: no cover - build-host diagnostic
 
 
 CHANNELS = ("base_color", "normal", "metalness", "roughness", "emissive")
-RUNTIME_MAGIC = b"AB3PBR6\0"
-RUNTIME_VERSION = 6
+RUNTIME_MAGIC = b"AB3PBR7\0"
+RUNTIME_VERSION = 7
 RUNTIME_SOURCE_NONE = 0
 RUNTIME_SOURCE_SHARED_WALL = 1
 RUNTIME_SOURCE_SHARED_FLOOR = 2
@@ -96,9 +96,12 @@ def validate_binding(binding: object, name: str) -> tuple[int, int, int, int]:
     if not isinstance(asset_id, int) or not 0 <= asset_id <= 0xFFFFFFFF:
         raise ValueError(f"PBR material {name} has an invalid source asset ID")
     if kind == "shared_wall":
-        if set(binding) != {"kind", "source_asset_id"}:
+        if set(binding) != {"kind", "source_asset_id", "v_period"}:
             raise ValueError(f"PBR wall binding {name} has unexpected fields")
-        return RUNTIME_SOURCE_SHARED_WALL, asset_id, 0, 0
+        v_period = binding.get("v_period")
+        if not isinstance(v_period, int) or not 1 <= v_period <= 0xFFFF:
+            raise ValueError(f"PBR wall binding {name} has an invalid V period")
+        return RUNTIME_SOURCE_SHARED_WALL, asset_id, v_period, 0
     if kind == "shared_floor":
         if set(binding) != {"kind", "source_asset_id"}:
             raise ValueError(f"PBR floor binding {name} has unexpected fields")
@@ -151,8 +154,8 @@ def validate_source_metadata(material: dict, name: str) -> None:
 
 def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    if not isinstance(spec, dict) or spec.get("schema_version") != 5:
-        raise ValueError("PBR artist manifest must use schema_version 5")
+    if not isinstance(spec, dict) or spec.get("schema_version") != 6:
+        raise ValueError("PBR artist manifest must use schema_version 6")
     materials = spec.get("materials")
     if not isinstance(materials, list) or not materials:
         raise ValueError("PBR artist manifest contains no materials")
@@ -355,13 +358,13 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     if unexpected:
         raise ValueError(f"PBR runtime output contains stale/unexpected files: {unexpected}")
     manifest = {
-        "schema_version": 6,
+        "schema_version": 7,
         "generator": "tools/compile_pbr_asset_pack.py",
         "source_manifest_sha256": sha256(spec_path.read_bytes()),
         "materials": output_materials,
         "runtime_package": {
             "file": runtime_path.name,
-            "format": "AB3PBR6",
+            "format": "AB3PBR7",
             "sha256": sha256(runtime),
             "contains_pixels": True,
             "pixel_encoding": "png",

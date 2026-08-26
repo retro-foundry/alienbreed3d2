@@ -16,7 +16,7 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "material package load failed: %s\n", error.c_str());
         return 1;
     }
-    if (library.size() != 978u) {
+    if (library.size() != 979u) {
         std::fprintf(stderr, "material package exposed unexpected bindings\n");
         return 1;
     }
@@ -25,14 +25,22 @@ int main(int argc, char **argv)
         return 1;
     }
     const ab3d2::dxr::DxrMaterialDefinition *stone = nullptr;
-    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 0u,
+    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 0u, 128u,
                          stone, error) ||
         !stone || stone->name != "wall_00_stonewall") {
         std::fprintf(stderr, "source wall zero PBR binding is incomplete\n");
         return 1;
     }
+    const ab3d2::dxr::DxrMaterialDefinition *stone_64 = nullptr;
+    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 0u, 64u,
+                         stone_64, error) ||
+        !stone_64 || stone_64->name != "wall_00_stonewall_v64" ||
+        stone_64->width != 780u || stone_64->height != 256u) {
+        std::fprintf(stderr, "source wall packed-layout variant is incomplete\n");
+        return 1;
+    }
     const ab3d2::dxr::DxrMaterialDefinition *lights = nullptr;
-    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 6u,
+    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 6u, 128u,
                          lights, error) ||
         !lights || lights->width == 0u || lights->height == 0u ||
         lights->name != "wall_06_technolights" ||
@@ -67,9 +75,9 @@ int main(int argc, char **argv)
     }
     const ab3d2::dxr::DxrMaterialDefinition *floor_light = nullptr;
     const ab3d2::dxr::DxrMaterialDefinition *floor_pbr = nullptr;
-    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0101u,
+    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0101u, 0u,
                          floor_light, error) ||
-        !library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0201u,
+        !library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0201u, 0u,
                          floor_pbr, error) ||
         !floor_light || !floor_pbr ||
         std::fabs(floor_light->emissive_factor[0] - 200.0f) > 0.0001f ||
@@ -80,6 +88,7 @@ int main(int argc, char **argv)
     for (uint32_t asset : {3u, 4u}) {
         const ab3d2::dxr::DxrMaterialDefinition *material = nullptr;
         if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, asset,
+                             128u,
                              material, error) ||
             !material || material->emissive_factor[0] != 0.0f) {
             std::fprintf(stderr, "non-light wall material retained emission\n");
@@ -122,7 +131,7 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "enemy/effect bitmap PBR bindings are incomplete\n");
         return 1;
     }
-    if (library.resident_size() != 10u) {
+    if (library.resident_size() != 11u) {
         std::fprintf(stderr, "material package decoded unused PNGs\n");
         return 1;
     }
@@ -149,7 +158,7 @@ int main(int argc, char **argv)
         return 1;
     }
     const size_t resident_size = library.resident_size();
-    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 6u,
+    if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 6u, 128u,
                          lights, error) ||
         library.resident_size() != resident_size) {
         std::fprintf(stderr, "resident material was decoded more than once\n");

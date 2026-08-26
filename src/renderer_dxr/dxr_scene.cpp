@@ -148,9 +148,10 @@ uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
 struct MaterialKey {
     SceneMaterialSource source;
     uint32_t source_asset_id;
+    uint32_t texture_v_period;
 
     auto tie() const {
-        return std::tie(source, source_asset_id);
+        return std::tie(source, source_asset_id, texture_v_period);
     }
     bool operator<(const MaterialKey &other) const { return tie() < other.tie(); }
 };
@@ -775,9 +776,64 @@ float source_gouraud_emissive_scale(SceneGeometryPrimitive primitive,
 
 bool append_geometry_vertices(const SceneGeometry &geometry,
                               uint32_t material_index,
+                              uint32_t material_width,
+                              uint32_t material_height,
                               std::vector<DxrSceneVertex> &vertices,
                               std::string &error)
 {
+    /*
+     * tools/world_material_images.py expands every authoritative world texel
+     * to a 4x4 PBR block. Keep the source Draw_Wall window integer-aligned in
+     * that image so filtering can wrap inside the selected packed-WAD strip.
+     */
+    constexpr uint32_t world_texture_scale = 4u;
+    uint32_t texture_window_origin = 0u;
+    uint32_t texture_window_extent = 0u;
+    if (geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
+        const uint32_t origin_x =
+            static_cast<uint32_t>(geometry.texture_window.u_offset) *
+            world_texture_scale;
+        const uint32_t extent_x =
+            static_cast<uint32_t>(geometry.texture_window.u_period) *
+            world_texture_scale;
+        const uint32_t extent_y =
+            static_cast<uint32_t>(geometry.texture_window.v_period) *
+            world_texture_scale;
+        if (extent_x == 0u || extent_y == 0u) {
+            error = "DXR wall geometry has no source texture window";
+            return false;
+        }
+        if (origin_x > UINT16_MAX || extent_x > UINT16_MAX ||
+            extent_y > UINT16_MAX) {
+            error = "DXR wall PBR texture window exceeds its packed vertex range";
+            return false;
+        }
+        if (origin_x > material_width || extent_x > material_width - origin_x ||
+            extent_y != material_height) {
+            std::ostringstream report;
+            report << "DXR wall PBR texture window does not match its material image"
+                   << " (record=" << geometry.source_record_id
+                   << " source=" << geometry.texture_window.u_offset << ","
+                   << geometry.texture_window.u_period << "x"
+                   << geometry.texture_window.v_period
+                   << " PBR=" << material_width << "x" << material_height;
+            if (geometry.vertices && geometry.vertex_count != 0u) {
+                report << " U=";
+                for (uint32_t vertex_index = 0;
+                     vertex_index < geometry.vertex_count; ++vertex_index) {
+                    if (vertex_index != 0u) {
+                        report << ",";
+                    }
+                    report << geometry.vertices[vertex_index].texture_u;
+                }
+            }
+            report << ")";
+            error = report.str();
+            return false;
+        }
+        texture_window_origin = origin_x;
+        texture_window_extent = extent_x | (extent_y << 16u);
+    }
     uint32_t *indices = nullptr;
     uint32_t index_count = 0;
     char triangulation_error[512] = {};
@@ -814,6 +870,8 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
         vertex.material_index = material_index;
         vertex.emitter_index = UINT32_MAX;
         vertex.primitive = static_cast<uint32_t>(DxrScenePrimitive::world);
+        vertex.texture_window_origin = texture_window_origin;
+        vertex.texture_window_extent = texture_window_extent;
         vertex.emissive_scale = source_gouraud_emissive_scale(
             geometry.primitive, source.source_light_level);
         vertices.push_back(vertex);
@@ -1118,15 +1176,20 @@ bool DxrScene::compile(const SceneFrame &frame,
             const SceneMeshSurface &surface = mesh.surfaces[surface_index];
             const SceneGeometry &geometry = surface.geometry;
             const DxrMaterialDefinition *surface_pbr = nullptr;
+            const uint32_t texture_v_period =
+                geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL ?
+                geometry.texture_window.v_period : 0u;
             if (!material_library_.resolve(
                     surface.material.source,
                     surface.material.source_asset_id,
+                    texture_v_period,
                     surface_pbr, error)) {
                 return false;
             }
             MaterialKey key = {
                 surface.material.source,
                 surface.material.source_asset_id,
+                texture_v_period,
             };
             uint32_t material_index;
             auto found = material_indices.find(key);
@@ -1150,13 +1213,16 @@ bool DxrScene::compile(const SceneFrame &frame,
                 std::ostringstream report;
                 report << "DXR PBR PNG material: " << pbr->name
                        << " source=" << static_cast<unsigned>(key.source)
-                       << " asset=" << key.source_asset_id;
+                       << " asset=" << key.source_asset_id
+                       << " v_period=" << key.texture_v_period;
                 debug_output(report.str());
             } else {
                 material_index = found->second;
             }
             compiled_surface_material_indices.push_back(material_index);
             if (!append_geometry_vertices(geometry, material_index,
+                                          surface_pbr->width,
+                                          surface_pbr->height,
                                           compiled_vertices, error)) {
                 return false;
             }
@@ -1663,9 +1729,17 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
             updated_vertices.reserve(previous.vertex_count);
             for (uint32_t surface_index = 0;
                  surface_index < mesh.surface_count; ++surface_index) {
+                const uint32_t material_index = surface_material_indices_[
+                    surface_cursor + surface_index];
+                if (material_index >= materials_.size()) {
+                    error = "DXR geometry-only update references an invalid material";
+                    return false;
+                }
                 if (!append_geometry_vertices(
                         mesh.surfaces[surface_index].geometry,
-                        surface_material_indices_[surface_cursor + surface_index],
+                        material_index,
+                        materials_[material_index].width,
+                        materials_[material_index].height,
                         updated_vertices, error)) {
                     return false;
                 }
