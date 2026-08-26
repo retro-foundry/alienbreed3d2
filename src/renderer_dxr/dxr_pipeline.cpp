@@ -129,6 +129,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_filter_indirect_1,
     shader_record_filter_indirect_2,
     shader_record_filter_indirect_3,
+    shader_record_resolve_indirect_filtered,
     shader_record_reconstruct_indirect,
     shader_record_calculate_automatic_exposure,
     shader_record_surface_miss,
@@ -174,6 +175,7 @@ struct FrameConstants {
     float ndf_trim;
     uint32_t samples_per_pixel;
     float exposure_delta_seconds;
+    uint32_t indirect_reconstruction_mode;
 };
 
 /*
@@ -182,7 +184,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 45u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 46u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -463,6 +465,37 @@ bool DxrPipeline::configure_debug_view(std::string &error)
     if (debug_view_ != 0u) {
         debug_output(std::string("DXR reconstruction debug view: ") +
                      names[debug_view_]);
+    }
+
+    constexpr std::array<const char *, 7> indirect_mode_names = {
+        "full", "temporal", "raw", "regional", "deflicker", "wavelet1",
+        "wavelet2"};
+    char reconstruction_value[64] = {};
+    const DWORD reconstruction_length = GetEnvironmentVariableA(
+        "AB3D2_DXR_INDIRECT_RECONSTRUCTION", reconstruction_value,
+        static_cast<DWORD>(sizeof(reconstruction_value)));
+    if (reconstruction_length >= sizeof(reconstruction_value)) {
+        error = "AB3D2_DXR_INDIRECT_RECONSTRUCTION exceeds 63 bytes";
+        return false;
+    }
+    indirect_reconstruction_mode_ = static_cast<uint32_t>(
+        indirect_reconstruction::Mode::full);
+    if (reconstruction_length != 0u) {
+        const auto found = std::find_if(
+            indirect_mode_names.begin(), indirect_mode_names.end(),
+            [&reconstruction_value](const char *name) {
+                return std::strcmp(reconstruction_value, name) == 0;
+            });
+        if (found == indirect_mode_names.end()) {
+            error = "AB3D2_DXR_INDIRECT_RECONSTRUCTION must be full, "
+                    "temporal, raw, regional, deflicker, wavelet1, or "
+                    "wavelet2";
+            return false;
+        }
+        indirect_reconstruction_mode_ = static_cast<uint32_t>(
+            found - indirect_mode_names.begin());
+        debug_output(std::string("DXR indirect reconstruction mode: ") +
+                     indirect_mode_names[indirect_reconstruction_mode_]);
     }
     return true;
 }
@@ -769,6 +802,8 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t filter_indirect_1[] = L"FilterIndirect1";
     static constexpr wchar_t filter_indirect_2[] = L"FilterIndirect2";
     static constexpr wchar_t filter_indirect_3[] = L"FilterIndirect3";
+    static constexpr wchar_t resolve_indirect_filtered[] =
+        L"ResolveIndirectFiltered";
     static constexpr wchar_t reconstruct_indirect[] = L"ReconstructIndirect";
     static constexpr wchar_t calculate_automatic_exposure[] =
         L"CalculateAutomaticExposure";
@@ -777,7 +812,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t closest_hit[] = L"ClosestHit";
     static constexpr wchar_t any_hit[] = L"AnyHit";
     static constexpr wchar_t hit_group_name[] = L"HitGroup";
-    std::array<D3D12_EXPORT_DESC, 23> exports = {};
+    std::array<D3D12_EXPORT_DESC, 24> exports = {};
     exports[0].Name = build_light_grid;
     exports[1].Name = ray_generation;
     exports[2].Name = spatial_shade;
@@ -795,12 +830,13 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     exports[14].Name = filter_indirect_1;
     exports[15].Name = filter_indirect_2;
     exports[16].Name = filter_indirect_3;
-    exports[17].Name = reconstruct_indirect;
-    exports[18].Name = calculate_automatic_exposure;
-    exports[19].Name = surface_miss;
-    exports[20].Name = shadow_miss;
-    exports[21].Name = closest_hit;
-    exports[22].Name = any_hit;
+    exports[17].Name = resolve_indirect_filtered;
+    exports[18].Name = reconstruct_indirect;
+    exports[19].Name = calculate_automatic_exposure;
+    exports[20].Name = surface_miss;
+    exports[21].Name = shadow_miss;
+    exports[22].Name = closest_hit;
+    exports[23].Name = any_hit;
     D3D12_DXIL_LIBRARY_DESC library_description = {};
     library_description.DXILLibrary = {library.data(), library.size()};
     library_description.NumExports = static_cast<UINT>(exports.size());
@@ -813,7 +849,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     D3D12_RAYTRACING_SHADER_CONFIG shader_configuration = {};
     shader_configuration.MaxPayloadSizeInBytes = 20u;
     shader_configuration.MaxAttributeSizeInBytes = 8u;
-    std::array<const wchar_t *, 22> configured_exports = {
+    std::array<const wchar_t *, 23> configured_exports = {
         build_light_grid, ray_generation, spatial_shade,
         build_indirect_gradient,
         filter_indirect_gradient_0, filter_indirect_gradient_1,
@@ -822,7 +858,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
         filter_indirect_gradient_6, temporal_indirect,
         filter_indirect_0, deflicker_indirect,
         filter_indirect_1, filter_indirect_2,
-        filter_indirect_3, reconstruct_indirect,
+        filter_indirect_3, resolve_indirect_filtered, reconstruct_indirect,
         calculate_automatic_exposure, surface_miss, shadow_miss,
         hit_group_name};
     D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION shader_association = {};
@@ -896,6 +932,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
         properties->GetShaderIdentifier(filter_indirect_1),
         properties->GetShaderIdentifier(filter_indirect_2),
         properties->GetShaderIdentifier(filter_indirect_3),
+        properties->GetShaderIdentifier(resolve_indirect_filtered),
         properties->GetShaderIdentifier(reconstruct_indirect),
         properties->GetShaderIdentifier(calculate_automatic_exposure),
         properties->GetShaderIdentifier(surface_miss),
@@ -1724,6 +1761,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.exposure_delta_seconds =
         std::isfinite(exposure_delta_seconds) && exposure_delta_seconds > 0.0f ?
         exposure_delta_seconds : 0.0f;
+    constants.indirect_reconstruction_mode = indirect_reconstruction_mode_;
     const UINT64 frame_constant_offset = frame_constant_stride * frame_slot;
     void *mapped_frame_constants = nullptr;
     const D3D12_RANGE no_read = {0, 0};
@@ -1850,83 +1888,128 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     const UINT indirect_low_height = (render_height +
         indirect_reconstruction::downsample_factor - 1u) /
         indirect_reconstruction::downsample_factor;
-    dispatch.Width = indirect_low_width;
-    dispatch.Height = indirect_low_height;
-    dispatch.RayGenerationShaderRecord = {
-        table + shader_record_size * shader_record_build_indirect_gradient,
-        shader_record_size};
-    command_list->DispatchRays(&dispatch);
-    D3D12_RESOURCE_BARRIER gradient_ready =
-        uav_barrier(indirect_gradients_[0].Get());
-    command_list->ResourceBarrier(1, &gradient_ready);
-    for (UINT gradient_pass = 0u;
-         gradient_pass < indirect_reconstruction::gradient_filter_steps.size();
-         ++gradient_pass) {
+    const bool use_temporal_reconstruction =
+        indirect_reconstruction_mode_ != static_cast<uint32_t>(
+            indirect_reconstruction::Mode::raw);
+    const auto indirect_mode = static_cast<indirect_reconstruction::Mode>(
+        indirect_reconstruction_mode_);
+    const bool use_regional_reconstruction =
+        indirect_mode != indirect_reconstruction::Mode::temporal &&
+        indirect_mode != indirect_reconstruction::Mode::raw;
+    const bool use_deflicker =
+        indirect_mode == indirect_reconstruction::Mode::full ||
+        indirect_mode == indirect_reconstruction::Mode::deflicker ||
+        indirect_mode == indirect_reconstruction::Mode::wavelet1 ||
+        indirect_mode == indirect_reconstruction::Mode::wavelet2;
+    const UINT wavelet_pass_count =
+        indirect_mode == indirect_reconstruction::Mode::full ? 3u :
+        indirect_mode == indirect_reconstruction::Mode::wavelet1 ? 1u :
+        indirect_mode == indirect_reconstruction::Mode::wavelet2 ? 2u : 0u;
+    if (use_temporal_reconstruction) {
+        dispatch.Width = indirect_low_width;
+        dispatch.Height = indirect_low_height;
         dispatch.RayGenerationShaderRecord = {
-            table + shader_record_size *
-                (shader_record_filter_indirect_gradient_0 + gradient_pass),
+            table + shader_record_size * shader_record_build_indirect_gradient,
             shader_record_size};
         command_list->DispatchRays(&dispatch);
-        const size_t output_slot = 1u - (gradient_pass & 1u);
-        gradient_ready = uav_barrier(
-            indirect_gradients_[output_slot].Get());
+        D3D12_RESOURCE_BARRIER gradient_ready =
+            uav_barrier(indirect_gradients_[0].Get());
         command_list->ResourceBarrier(1, &gradient_ready);
+        for (UINT gradient_pass = 0u;
+             gradient_pass <
+                 indirect_reconstruction::gradient_filter_steps.size();
+             ++gradient_pass) {
+            dispatch.RayGenerationShaderRecord = {
+                table + shader_record_size *
+                    (shader_record_filter_indirect_gradient_0 + gradient_pass),
+                shader_record_size};
+            command_list->DispatchRays(&dispatch);
+            const size_t output_slot = 1u - (gradient_pass & 1u);
+            gradient_ready = uav_barrier(
+                indirect_gradients_[output_slot].Get());
+            command_list->ResourceBarrier(1, &gradient_ready);
+        }
+
+        dispatch.Width = render_width;
+        dispatch.Height = render_height;
+        dispatch.RayGenerationShaderRecord = {
+            table + shader_record_size * shader_record_temporal_indirect,
+            shader_record_size};
+        command_list->DispatchRays(&dispatch);
+        const size_t indirect_history_slot = sample_index & 1u;
+        const D3D12_RESOURCE_BARRIER temporal_indirect_ready =
+            uav_barrier(indirect_histories_[indirect_history_slot].Get());
+        command_list->ResourceBarrier(1, &temporal_indirect_ready);
     }
 
-    dispatch.Width = render_width;
-    dispatch.Height = render_height;
-    dispatch.RayGenerationShaderRecord = {
-        table + shader_record_size * shader_record_temporal_indirect,
-        shader_record_size};
-    command_list->DispatchRays(&dispatch);
-    const size_t indirect_history_slot = sample_index & 1u;
-    const D3D12_RESOURCE_BARRIER temporal_indirect_ready =
-        uav_barrier(indirect_histories_[indirect_history_slot].Get());
-    command_list->ResourceBarrier(1, &temporal_indirect_ready);
-
-    /* Integrate gradient-responsive temporal incident radiance into
-     * guide-compatible 3x3 regions, deflicker that one-third-resolution image,
-     * then run its three wavelet stages before bilateral reconstruction. */
-    ID3D12Resource *const indirect_filter_outputs[] = {
-        indirect_radiance_.Get(), indirect_radiance_.Get(),
-        indirect_filtered_.Get(), indirect_radiance_.Get()};
-    ID3D12Resource *const indirect_chroma_outputs[] = {
-        indirect_chroma_.Get(), indirect_chroma_.Get(),
-        indirect_chroma_filtered_.Get(), indirect_chroma_.Get()};
-    dispatch.Width = indirect_low_width;
-    dispatch.Height = indirect_low_height;
-    dispatch.RayGenerationShaderRecord = {
-        table + shader_record_size * shader_record_filter_indirect_0,
-        shader_record_size};
-    command_list->DispatchRays(&dispatch);
-    D3D12_RESOURCE_BARRIER filter_ready[] = {
-        uav_barrier(indirect_filter_outputs[0]),
-        uav_barrier(indirect_chroma_outputs[0]),
-    };
-    command_list->ResourceBarrier(
-        static_cast<UINT>(std::size(filter_ready)), filter_ready);
-
-    dispatch.RayGenerationShaderRecord = {
-        table + shader_record_size * shader_record_deflicker_indirect,
-        shader_record_size};
-    command_list->DispatchRays(&dispatch);
-    const D3D12_RESOURCE_BARRIER deflicker_ready[] = {
-        uav_barrier(indirect_filtered_.Get()),
-        uav_barrier(indirect_chroma_filtered_.Get()),
-    };
-    command_list->ResourceBarrier(
-        static_cast<UINT>(std::size(deflicker_ready)), deflicker_ready);
-
-    for (UINT filter_pass = 1u; filter_pass < 4u; ++filter_pass) {
+    if (use_regional_reconstruction) {
+        /* Integrate gradient-responsive temporal incident radiance into
+         * guide-compatible 3x3 regions, deflicker that one-third-resolution
+         * image, then run its three wavelet stages before bilateral
+         * reconstruction. */
+        ID3D12Resource *const indirect_filter_outputs[] = {
+            indirect_radiance_.Get(), indirect_radiance_.Get(),
+            indirect_filtered_.Get(), indirect_radiance_.Get()};
+        ID3D12Resource *const indirect_chroma_outputs[] = {
+            indirect_chroma_.Get(), indirect_chroma_.Get(),
+            indirect_chroma_filtered_.Get(), indirect_chroma_.Get()};
+        dispatch.Width = indirect_low_width;
+        dispatch.Height = indirect_low_height;
         dispatch.RayGenerationShaderRecord = {
-            table + shader_record_size *
-                (shader_record_filter_indirect_1 + filter_pass - 1u),
+            table + shader_record_size * shader_record_filter_indirect_0,
             shader_record_size};
         command_list->DispatchRays(&dispatch);
-        filter_ready[0] = uav_barrier(indirect_filter_outputs[filter_pass]);
-        filter_ready[1] = uav_barrier(indirect_chroma_outputs[filter_pass]);
+        D3D12_RESOURCE_BARRIER filter_ready[] = {
+            uav_barrier(indirect_filter_outputs[0]),
+            uav_barrier(indirect_chroma_outputs[0]),
+        };
         command_list->ResourceBarrier(
             static_cast<UINT>(std::size(filter_ready)), filter_ready);
+
+        if (use_deflicker) {
+            dispatch.RayGenerationShaderRecord = {
+                table + shader_record_size * shader_record_deflicker_indirect,
+                shader_record_size};
+            command_list->DispatchRays(&dispatch);
+            const D3D12_RESOURCE_BARRIER deflicker_ready[] = {
+                uav_barrier(indirect_filtered_.Get()),
+                uav_barrier(indirect_chroma_filtered_.Get()),
+            };
+            command_list->ResourceBarrier(
+                static_cast<UINT>(std::size(deflicker_ready)),
+                deflicker_ready);
+
+            for (UINT filter_pass = 1u;
+                 filter_pass <= wavelet_pass_count; ++filter_pass) {
+                dispatch.RayGenerationShaderRecord = {
+                    table + shader_record_size *
+                        (shader_record_filter_indirect_1 + filter_pass - 1u),
+                    shader_record_size};
+                command_list->DispatchRays(&dispatch);
+                filter_ready[0] =
+                    uav_barrier(indirect_filter_outputs[filter_pass]);
+                filter_ready[1] =
+                    uav_barrier(indirect_chroma_outputs[filter_pass]);
+                command_list->ResourceBarrier(
+                    static_cast<UINT>(std::size(filter_ready)), filter_ready);
+            }
+        }
+        const bool final_signal_is_filtered =
+            indirect_mode == indirect_reconstruction::Mode::deflicker ||
+            indirect_mode == indirect_reconstruction::Mode::wavelet2;
+        if (final_signal_is_filtered) {
+            dispatch.RayGenerationShaderRecord = {
+                table + shader_record_size *
+                    shader_record_resolve_indirect_filtered,
+                shader_record_size};
+            command_list->DispatchRays(&dispatch);
+            const D3D12_RESOURCE_BARRIER resolved_ready[] = {
+                uav_barrier(indirect_radiance_.Get()),
+                uav_barrier(indirect_chroma_.Get()),
+            };
+            command_list->ResourceBarrier(
+                static_cast<UINT>(std::size(resolved_ready)), resolved_ready);
+        }
     }
     dispatch.Width = render_width;
     dispatch.Height = render_height;

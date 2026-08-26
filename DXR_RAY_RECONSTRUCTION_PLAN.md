@@ -703,6 +703,22 @@ the former `0.0938` run. This is reconstruction of the explicitly separated
 diffuse-indirect signal, not a filter on the fresh direct/specular input
 supplied to DLSS Ray Reconstruction.
 
+A matched 2026-08-26 reduction experiment then kept the same single final
+DLSS-RR evaluation while stopping the LF path at explicit stage boundaries.
+The 32-frame saved Level A indirect-view results were `1.6991` for raw,
+`0.1181` for temporal-only, `0.1408` after regional integration, `0.1012` after
+deflicker, `0.0780` after one guided wavelet, `0.0537` after two, and `0.0347`
+after all three. Raw appeared stable after RR only because nearly all corridor
+fill disappeared; temporal-only and one-wavelet captures retained visible
+speckles or blotches. Two wavelets came closest, but the isolated LF still
+showed blotches and its moving Level A comparison was marginally worse than the
+full path: late delta `0.3548` versus `0.3504`, saturation `76463` versus
+`76213`, and walked-frame delta `16.0135` versus `16.0068`. No useful GPU-time
+reduction separated the two results. The complete regional deflicker and all
+three guided wavelets therefore remain the production path. The startup-only
+`AB3D2_DXR_INDIRECT_RECONSTRUCTION` diagnostic preserves every measured stage
+boundary without adding a second RR pass.
+
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
 1. Dispatch one camera ray per input-resolution pixel per frame with a deterministic frame-varying subpixel jitter supplied by the same jitter generator used in Streamline constants.

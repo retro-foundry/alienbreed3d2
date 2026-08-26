@@ -8,6 +8,16 @@
 
 namespace ab3d2::dxr::indirect_reconstruction {
 
+enum class Mode : uint32_t {
+    full = 0u,
+    temporal = 1u,
+    raw = 2u,
+    regional = 3u,
+    deflicker = 4u,
+    wavelet1 = 5u,
+    wavelet2 = 6u,
+};
+
 /*
  * Project-owned low-frequency diffuse reconstruction constants mirrored by
  * shaders/path_trace.hlsl. Temporal incident radiance is integrated over

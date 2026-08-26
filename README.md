@@ -685,6 +685,15 @@ dormant. Section 11 of `DXR_RAY_RECONSTRUCTION_PLAN.md` preserves the former
 reservoir experiments as historical evidence rather than a description of the
 active path.
 
+`AB3D2_DXR_INDIRECT_RECONSTRUCTION` selects a diagnostic LF stage boundary at
+startup. `full` is the production default. `temporal` retains only four-tap
+history and gradient anti-lag, while `raw` also disables temporal accumulation.
+`regional`, `deflicker`, `wavelet1`, and `wavelet2` stop after the named
+one-third-resolution stage; the ordinary `full` mode includes all three guided
+wavelet passes. Every mode remodulates the resulting incident signal and sends
+the same combined noisy HDR frame through the one final DLSS-RR evaluation.
+This is an A/B facility, not a second Ray Reconstruction invocation.
+
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
 `normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`,
 `diffuse-hit-distance`, `specular-hit-distance-history`, or `indirect` to

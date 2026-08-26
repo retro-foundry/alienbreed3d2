@@ -38,6 +38,13 @@ int main()
     namespace indirect = ab3d2::dxr::indirect_reconstruction;
     namespace grid = ab3d2::dxr::light_grid;
     static_assert(indirect::downsample_factor == 3 &&
+                  static_cast<uint32_t>(indirect::Mode::full) == 0u &&
+                  static_cast<uint32_t>(indirect::Mode::temporal) == 1u &&
+                  static_cast<uint32_t>(indirect::Mode::raw) == 2u &&
+                  static_cast<uint32_t>(indirect::Mode::regional) == 3u &&
+                  static_cast<uint32_t>(indirect::Mode::deflicker) == 4u &&
+                  static_cast<uint32_t>(indirect::Mode::wavelet1) == 5u &&
+                  static_cast<uint32_t>(indirect::Mode::wavelet2) == 6u &&
                   indirect::filter_steps[0] == 1 &&
                   indirect::filter_steps[1] == 2 &&
                   indirect::filter_steps[2] == 4 &&

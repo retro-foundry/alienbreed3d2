@@ -244,6 +244,7 @@ cbuffer FrameConstants : register(b0)
     float NdfTrim;
     uint SamplesPerPixel;
     float ExposureDeltaSeconds;
+    uint IndirectReconstructionMode;
 };
 
 static const uint BlueNoiseSampleCount = 256u;
@@ -337,6 +338,13 @@ static const float IndirectTemporalAntilagHistoryPower = 10.0;
 static const float IndirectTemporalMinimumCurrentWeight = 0.01;
 static const float IndirectGradientConfirmationRate = 0.25;
 static const float IndirectGradientConfirmationThreshold = 0.4;
+static const uint IndirectReconstructionFull = 0u;
+static const uint IndirectReconstructionTemporal = 1u;
+static const uint IndirectReconstructionRaw = 2u;
+static const uint IndirectReconstructionRegional = 3u;
+static const uint IndirectReconstructionDeflicker = 4u;
+static const uint IndirectReconstructionWavelet1 = 5u;
+static const uint IndirectReconstructionWavelet2 = 6u;
 static const float IndirectShBasisL0 = 0.282095;
 static const float IndirectShBasisL1 = 0.488603;
 static const float IndirectShIrradianceL0 = 0.886226;
@@ -3013,6 +3021,21 @@ void FilterIndirect3()
     filterIndirect(3u, IndirectFilterStep3);
 }
 
+/* Even reduced-stage experiments finish in the B ping-pong resources. Resolve
+ * their low-resolution signal before ReconstructIndirect overwrites B with its
+ * full-resolution RGB diagnostic output. */
+[shader("raygeneration")]
+void ResolveIndirectFiltered()
+{
+    uint2 lowPixel = DispatchRaysIndex().xy;
+    uint2 lowDimensions = indirectLowDimensions(indirectFullDimensions());
+    if (any(lowPixel >= lowDimensions)) {
+        return;
+    }
+    storeIndirectLow(
+        lowPixel, false, loadIndirectLow(int2(lowPixel), true));
+}
+
 /* Sparse indirect diffuse lighting remains in a dedicated low-frequency
  * channel before final composition. This project-owned pass remodulates the
  * filtered incident signal at the primary receiver and leaves direct lighting
@@ -3036,47 +3059,59 @@ void ReconstructIndirect()
         return;
     }
     float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
-    float3 centerPosition = primaryWorldPosition(
-        pixel, dimensions, centerHistory.depth);
-    float2 lowPosition = (float2(pixel) + 0.5) /
-        float(IndirectDownsampleFactor) - 0.5;
-    int2 lowBase = int2(floor(lowPosition));
-    float2 lowFraction = frac(lowPosition);
-    uint2 lowDimensions = indirectLowDimensions(dimensions);
-    IndirectSignal incidentSum = emptyIndirectSignal();
-    float weightSum = 0.0;
-    for (int offsetY = 0; offsetY <= 1; ++offsetY) {
-        for (int offsetX = 0; offsetX <= 1; ++offsetX) {
-            int2 sampleLow = lowBase + int2(offsetX, offsetY);
-            if (any(sampleLow < 0) ||
-                any(sampleLow >= int2(lowDimensions))) {
-                continue;
-            }
-            float2 bilinearAxis = float2(
-                offsetX == 0 ? 1.0 - lowFraction.x : lowFraction.x,
-                offsetY == 0 ? 1.0 - lowFraction.y : lowFraction.y);
-            uint2 sampleAnchor = indirectLowAnchor(
-                uint2(sampleLow), dimensions);
-            float weight = bilinearAxis.x * bilinearAxis.y *
-                indirectLowSpatialWeight(
-                    int2(sampleAnchor), dimensions, currentSlot,
-                    centerHistory.depth, centerNormal, centerPosition);
-            IndirectSignal sampleValue = loadIndirectLow(sampleLow, false);
-            if (weight <= 0.0) {
-                continue;
-            }
-            incidentSum.luminanceSH += sampleValue.luminanceSH * weight;
-            incidentSum.chroma += sampleValue.chroma * weight;
-            weightSum += weight;
-        }
-    }
     IndirectSignal filteredSignal;
-    if (weightSum > 0.0) {
-        filteredSignal = scaleIndirectSignal(
-            incidentSum, 1.0 / weightSum);
-    } else {
+    if (IndirectReconstructionMode == IndirectReconstructionTemporal ||
+        IndirectReconstructionMode == IndirectReconstructionRaw) {
+        /* The temporal experiment bypasses every regional stage but retains
+         * the accumulated full-resolution directional signal. Raw bypasses
+         * temporal dispatch as well, so this same record is the current
+         * frame's untouched one-sample signal. */
         filteredSignal.luminanceSH = centerHistory.luminanceSH;
         filteredSignal.chroma = centerHistory.chroma;
+    } else {
+        float3 centerPosition = primaryWorldPosition(
+            pixel, dimensions, centerHistory.depth);
+        float2 lowPosition = (float2(pixel) + 0.5) /
+            float(IndirectDownsampleFactor) - 0.5;
+        int2 lowBase = int2(floor(lowPosition));
+        float2 lowFraction = frac(lowPosition);
+        uint2 lowDimensions = indirectLowDimensions(dimensions);
+        IndirectSignal incidentSum = emptyIndirectSignal();
+        float weightSum = 0.0;
+        for (int offsetY = 0; offsetY <= 1; ++offsetY) {
+            for (int offsetX = 0; offsetX <= 1; ++offsetX) {
+                int2 sampleLow = lowBase + int2(offsetX, offsetY);
+                if (any(sampleLow < 0) ||
+                    any(sampleLow >= int2(lowDimensions))) {
+                    continue;
+                }
+                float2 bilinearAxis = float2(
+                    offsetX == 0 ? 1.0 - lowFraction.x : lowFraction.x,
+                    offsetY == 0 ? 1.0 - lowFraction.y : lowFraction.y);
+                uint2 sampleAnchor = indirectLowAnchor(
+                    uint2(sampleLow), dimensions);
+                float weight = bilinearAxis.x * bilinearAxis.y *
+                    indirectLowSpatialWeight(
+                        int2(sampleAnchor), dimensions, currentSlot,
+                        centerHistory.depth, centerNormal, centerPosition);
+                IndirectSignal sampleValue = loadIndirectLow(
+                    sampleLow, false);
+                if (weight <= 0.0) {
+                    continue;
+                }
+                incidentSum.luminanceSH +=
+                    sampleValue.luminanceSH * weight;
+                incidentSum.chroma += sampleValue.chroma * weight;
+                weightSum += weight;
+            }
+        }
+        if (weightSum > 0.0) {
+            filteredSignal = scaleIndirectSignal(
+                incidentSum, 1.0 / weightSum);
+        } else {
+            filteredSignal.luminanceSH = centerHistory.luminanceSH;
+            filteredSignal.chroma = centerHistory.chroma;
+        }
     }
     float3 filteredIncident = projectIndirectSignal(
         filteredSignal, centerNormal);
