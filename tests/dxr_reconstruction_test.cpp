@@ -1,5 +1,7 @@
 #include "renderer_dxr/dxr_reconstruction_math.h"
+#include "renderer_dxr/dxr_auto_exposure.h"
 #include "renderer_dxr/dxr_emitter_history.h"
+#include "renderer_dxr/dxr_indirect_reconstruction.h"
 #include "renderer_dxr/dxr_light_grid.h"
 
 #include <cmath>
@@ -32,7 +34,35 @@ int fail(const char *message)
 
 int main()
 {
+    namespace exposure = ab3d2::dxr::auto_exposure;
+    namespace indirect = ab3d2::dxr::indirect_reconstruction;
     namespace grid = ab3d2::dxr::light_grid;
+    static_assert(indirect::filter_steps[0] == 1 &&
+                  indirect::filter_steps[1] == 3 &&
+                  indirect::filter_steps[2] == 6 &&
+                  indirect::filter_steps[3] == 12 &&
+                  indirect::filter_reach == 22 &&
+                  indirect::continuation_radial_power == 0.4f);
+    if (!near(exposure::target(std::log(0.18f) * 8.0f, 8u), 1.0f) ||
+        exposure::target(std::log(0.0001f), 1u) !=
+            exposure::maximum_exposure ||
+        exposure::target(0.0f, 0u) != 1.0f ||
+        !near(exposure::adapt(1.0f, 101.0f, true), 6.0f) ||
+        exposure::adapt(1.0f, 101.0f, false) != 101.0f ||
+        !near(exposure::tone_map_luminance(0.0f), 0.0f) ||
+        !near(exposure::tone_map_luminance(
+                  exposure::tone_minimum_luminance), 1.0f / 128.0f) ||
+        !near(exposure::tone_map_luminance(
+                  exposure::tone_white_point), 1.0f)) {
+        return fail("automatic exposure contract changed");
+    }
+    if (!near(indirect::guide_weight(100.0f, 100.0f, 1.0f), 1.0f) ||
+        !near(indirect::guide_weight(100.0f, 105.0f, 0.75f), 0.125f) ||
+        indirect::guide_weight(100.0f, 110.0f, 1.0f) > 1.0e-5f ||
+        indirect::guide_weight(100.0f, 100.0f, 0.5f) != 0.0f ||
+        indirect::guide_weight(0.0f, 100.0f, 1.0f) != 0.0f) {
+        return fail("low-frequency indirect guide weighting changed");
+    }
     static_assert(grid::cell_count == 4096u);
     static_assert(grid::entry_count == 2097152u);
     static_assert(sizeof(grid::Entry) == 8u);

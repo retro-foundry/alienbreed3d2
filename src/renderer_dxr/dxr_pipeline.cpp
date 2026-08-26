@@ -2,6 +2,7 @@
 
 #include "dxr_blue_noise.h"
 #include "dxr_debug.h"
+#include "dxr_indirect_reconstruction.h"
 #include "scene_geometry_compile.h"
 #if defined(AB3D2_ENABLE_STREAMLINE)
 #include "dxr_streamline.h"
@@ -41,9 +42,15 @@ enum DescriptorIndex : UINT {
     roughness_atlas = 14,
     emissive_atlas = 15,
     reconstruction_srv_start = 16,
-    diagnostics_uav = 26,
-    light_grid_uav = 27,
-    descriptor_count = 28,
+    indirect_radiance_srv = 26,
+    automatic_exposure_srv = 27,
+    diagnostics_uav = 28,
+    light_grid_uav = 29,
+    indirect_radiance_uav = 30,
+    indirect_history_uav_start = 31,
+    indirect_filtered_uav = 33,
+    automatic_exposure_uav = 34,
+    descriptor_count = 35,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -92,21 +99,16 @@ constexpr std::array<const wchar_t *,
     };
 
 /*
- * Emitter candidates resampled per primary hit, and the maximum history-domain
- * count accepted from each reused previous-frame reservoir.
- *
- * The corrected filter-free ReGIR/ReSTIR path passed its moving-camera visual
- * acceptance check at the NVIDIA Ultra-like 16/20 configuration. Keep the exact
- * fresh heterogeneous estimator available through an explicit zero history
- * limit, which disables temporal/spatial reuse without removing its initial
- * local/environment/BRDF strategies.
+ * Fresh polygon-light candidates per surface vertex and the maximum number of
+ * frames accumulated by low-frequency indirect reconstruction. Direct-light
+ * reservoirs remain current-frame only; the history cap belongs to the
+ * demodulated indirect channel.
  *
  * `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` override both, and a
- * limit of zero disables spatiotemporal reuse to recover the single-sample
- * estimator.
+ * limit of zero disables only indirect temporal accumulation.
  */
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
-constexpr UINT shader_table_size = shader_record_size * 6u;
+constexpr UINT shader_table_size = shader_record_size * 13u;
 constexpr float pi = 3.14159265358979323846f;
 constexpr float source_fullscreen_depth_scale =
     4.0f * (32767.0f / 65536.0f) * (85.0f / 256.0f) * (927.0f / 1024.0f);
@@ -366,7 +368,7 @@ bool DxrPipeline::load_shader(const wchar_t *filename,
 bool DxrPipeline::configure_debug_view(std::string &error)
 {
     constexpr std::array<const char *,
-                         static_cast<size_t>(DxrReconstructionBuffer::count)>
+                         static_cast<size_t>(DxrReconstructionBuffer::count) + 1u>
         names = {
             "noisy",
             "diffuse-albedo",
@@ -376,7 +378,9 @@ bool DxrPipeline::configure_debug_view(std::string &error)
             "depth",
             "motion",
             "specular-hit-distance",
+            "diffuse-hit-distance",
             "specular-hit-distance-history",
+            "indirect",
         };
     char value[64] = {};
     const DWORD length = GetEnvironmentVariableA(
@@ -394,8 +398,8 @@ bool DxrPipeline::configure_debug_view(std::string &error)
         if (found == names.end()) {
             error = "AB3D2_DXR_DEBUG_VIEW must be noisy, diffuse-albedo, "
                     "specular-albedo, normal, roughness, depth, motion, "
-                    "specular-hit-distance, or "
-                    "specular-hit-distance-history";
+                    "specular-hit-distance, diffuse-hit-distance, "
+                    "specular-hit-distance-history, or indirect";
             return false;
         }
         debug_view_ = static_cast<uint32_t>(found - names.begin());
@@ -432,15 +436,16 @@ bool DxrPipeline::configure_debug_view(std::string &error)
 
 /*
  * Applies ab3d2.ini's ray-tracing settings over the tuned defaults, then lets
- * the environment override either, so the candidate count and the history cap
- * can still be swept against the `--gpu-smoke` stability metric without editing
- * a file. A larger cap gives each prior-frame reservoir more influence and a
- * longer effective history; the corrected estimator applies surface-aware
- * ray-traced bias correction, then current-frame spatial/disocclusion reuse.
+ * the environment override either, so candidate count and indirect history can
+ * be swept against `--gpu-smoke` without editing a file. A larger history cap
+ * lengthens the running average of demodulated diffuse incident radiance. The
+ * subsequent depth/normal-guided spatial reconstruction is independent of the
+ * cap and still runs when it is zero.
  *
  * A zero in the ordinary options means "keep the default", which is what an
  * absent INI key leaves behind. The history-limit set flag preserves zero as an
- * explicit request to disable reuse while letting an absent key select 20.
+ * explicit request for current-frame indirect samples while letting an absent
+ * key select 20.
  */
 bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                                        std::string &error)
@@ -473,9 +478,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         uint32_t limit;
         uint32_t *target;
     };
-    /* A reservoir limit of zero is a meaningful diagnostic setting rather than an
-     * error: it gives every historical sample no weight, which isolates the
-     * resampling from the temporal reuse. */
+    /* A history limit of zero is a meaningful diagnostic setting rather than an
+     * error: it disables only indirect temporal accumulation. */
     const std::array<Override, 2> overrides = {
         Override{"AB3D2_DXR_CANDIDATES", 1u, 1024u, &candidate_count_},
         Override{"AB3D2_DXR_RESERVOIR_LIMIT", 0u, 65536u,
@@ -610,7 +614,7 @@ bool DxrPipeline::create_present_pipeline(
     D3D12_DESCRIPTOR_RANGE range = {};
     range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     range.NumDescriptors =
-        static_cast<UINT>(DxrReconstructionBuffer::count);
+        static_cast<UINT>(DxrReconstructionBuffer::count) + 2u;
     range.BaseShaderRegister = 0;
     std::array<D3D12_ROOT_PARAMETER, 2> parameters = {};
     parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -663,7 +667,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
     ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[3].NumDescriptors = 1;
+    ranges[3].NumDescriptors = 6;
     ranges[3].BaseShaderRegister = 13;
     std::array<D3D12_ROOT_PARAMETER, 13> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
@@ -711,19 +715,34 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t build_light_grid[] = L"BuildLightGrid";
     static constexpr wchar_t ray_generation[] = L"RayGeneration";
     static constexpr wchar_t spatial_shade[] = L"SpatialShade";
+    static constexpr wchar_t temporal_indirect[] = L"TemporalIndirect";
+    static constexpr wchar_t filter_indirect_0[] = L"FilterIndirect0";
+    static constexpr wchar_t filter_indirect_1[] = L"FilterIndirect1";
+    static constexpr wchar_t filter_indirect_2[] = L"FilterIndirect2";
+    static constexpr wchar_t filter_indirect_3[] = L"FilterIndirect3";
+    static constexpr wchar_t reconstruct_indirect[] = L"ReconstructIndirect";
+    static constexpr wchar_t calculate_automatic_exposure[] =
+        L"CalculateAutomaticExposure";
     static constexpr wchar_t surface_miss[] = L"SurfaceMiss";
     static constexpr wchar_t shadow_miss[] = L"ShadowMiss";
     static constexpr wchar_t closest_hit[] = L"ClosestHit";
     static constexpr wchar_t any_hit[] = L"AnyHit";
     static constexpr wchar_t hit_group_name[] = L"HitGroup";
-    std::array<D3D12_EXPORT_DESC, 7> exports = {};
+    std::array<D3D12_EXPORT_DESC, 14> exports = {};
     exports[0].Name = build_light_grid;
     exports[1].Name = ray_generation;
     exports[2].Name = spatial_shade;
-    exports[3].Name = surface_miss;
-    exports[4].Name = shadow_miss;
-    exports[5].Name = closest_hit;
-    exports[6].Name = any_hit;
+    exports[3].Name = temporal_indirect;
+    exports[4].Name = filter_indirect_0;
+    exports[5].Name = filter_indirect_1;
+    exports[6].Name = filter_indirect_2;
+    exports[7].Name = filter_indirect_3;
+    exports[8].Name = reconstruct_indirect;
+    exports[9].Name = calculate_automatic_exposure;
+    exports[10].Name = surface_miss;
+    exports[11].Name = shadow_miss;
+    exports[12].Name = closest_hit;
+    exports[13].Name = any_hit;
     D3D12_DXIL_LIBRARY_DESC library_description = {};
     library_description.DXILLibrary = {library.data(), library.size()};
     library_description.NumExports = static_cast<UINT>(exports.size());
@@ -736,8 +755,11 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     D3D12_RAYTRACING_SHADER_CONFIG shader_configuration = {};
     shader_configuration.MaxPayloadSizeInBytes = 20u;
     shader_configuration.MaxAttributeSizeInBytes = 8u;
-    std::array<const wchar_t *, 6> configured_exports = {
-        build_light_grid, ray_generation, spatial_shade, surface_miss, shadow_miss,
+    std::array<const wchar_t *, 13> configured_exports = {
+        build_light_grid, ray_generation, spatial_shade, temporal_indirect,
+        filter_indirect_0, filter_indirect_1, filter_indirect_2,
+        filter_indirect_3, reconstruct_indirect,
+        calculate_automatic_exposure, surface_miss, shadow_miss,
         hit_group_name};
     D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION shader_association = {};
     shader_association.NumExports = static_cast<UINT>(configured_exports.size());
@@ -796,11 +818,18 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
         properties->GetShaderIdentifier(build_light_grid),
         properties->GetShaderIdentifier(ray_generation),
         properties->GetShaderIdentifier(spatial_shade),
+        properties->GetShaderIdentifier(temporal_indirect),
+        properties->GetShaderIdentifier(filter_indirect_0),
+        properties->GetShaderIdentifier(filter_indirect_1),
+        properties->GetShaderIdentifier(filter_indirect_2),
+        properties->GetShaderIdentifier(filter_indirect_3),
+        properties->GetShaderIdentifier(reconstruct_indirect),
+        properties->GetShaderIdentifier(calculate_automatic_exposure),
         properties->GetShaderIdentifier(surface_miss),
         properties->GetShaderIdentifier(shadow_miss),
         properties->GetShaderIdentifier(hit_group_name),
     };
-    for (UINT index = 0; index < 6u; ++index) {
+    for (UINT index = 0; index < 13u; ++index) {
         if (!identifiers[index]) {
             shader_table_->Unmap(0, nullptr);
             error = "DXR state object did not expose every shader identifier";
@@ -1095,7 +1124,10 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
                                                  std::string &error)
 {
     recreated = false;
-    if (reconstruction_targets_[0] && render_width_ == width &&
+    if (reconstruction_targets_[0] && indirect_radiance_ &&
+        indirect_filtered_ && automatic_exposure_ &&
+        indirect_histories_[0] && indirect_histories_[1] &&
+        render_width_ == width &&
         render_height_ == height && present_width_ == present_width &&
         present_height_ == present_height &&
         (streamline_output_.Get() != nullptr) == create_streamline_output) {
@@ -1108,6 +1140,12 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         reservoir.Reset();
     }
     temporal_reservoirs_.Reset();
+    indirect_radiance_.Reset();
+    indirect_filtered_.Reset();
+    automatic_exposure_.Reset();
+    for (auto &history : indirect_histories_) {
+        history.Reset();
+    }
     streamline_output_.Reset();
     render_width_ = 0;
     render_height_ = 0;
@@ -1152,6 +1190,117 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         device->CreateShaderResourceView(
             reconstruction_targets_[index].Get(), &srv,
             cpu_descriptor(reconstruction_srv_start + static_cast<UINT>(index)));
+    }
+    description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    {
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&indirect_radiance_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(indirect radiance)",
+                result);
+            return false;
+        }
+        indirect_radiance_->SetName(
+            L"AB3D2 Raw Low-Frequency Indirect Incident Radiance");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = description.Format;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(
+            indirect_radiance_.Get(), nullptr, &uav,
+            cpu_descriptor(indirect_radiance_uav));
+    }
+    {
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&indirect_filtered_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(filtered indirect)",
+                result);
+            return false;
+        }
+        indirect_filtered_->SetName(
+            L"AB3D2 Filtered Low-Frequency Indirect Incident Radiance");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = description.Format;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(
+            indirect_filtered_.Get(), nullptr, &uav,
+            cpu_descriptor(indirect_filtered_uav));
+        srv.Format = description.Format;
+        device->CreateShaderResourceView(
+            indirect_filtered_.Get(), &srv,
+            cpu_descriptor(indirect_radiance_srv));
+    }
+    {
+        const UINT64 pixel_count = static_cast<UINT64>(width) * height;
+        D3D12_RESOURCE_DESC history_description = buffer_description(
+            pixel_count * sizeof(indirect_reconstruction::HistoryPixel));
+        history_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        for (size_t index = 0; index < indirect_histories_.size(); ++index) {
+            const HRESULT result = device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &history_description,
+                D3D12_RESOURCE_STATE_COMMON, nullptr,
+                IID_PPV_ARGS(&indirect_histories_[index]));
+            if (FAILED(result)) {
+                error = hresult_error(
+                    "ID3D12Device::CreateCommittedResource(indirect history)",
+                    result);
+                return false;
+            }
+            indirect_histories_[index]->SetName(index == 0u ?
+                L"AB3D2 Low-Frequency Indirect History A" :
+                L"AB3D2 Low-Frequency Indirect History B");
+            D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+            uav.Format = DXGI_FORMAT_UNKNOWN;
+            uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+            uav.Buffer.NumElements = static_cast<UINT>(pixel_count);
+            uav.Buffer.StructureByteStride =
+                sizeof(indirect_reconstruction::HistoryPixel);
+            device->CreateUnorderedAccessView(
+                indirect_histories_[index].Get(), nullptr, &uav,
+                cpu_descriptor(indirect_history_uav_start +
+                               static_cast<UINT>(index)));
+        }
+    }
+    {
+        D3D12_RESOURCE_DESC exposure_description = buffer_description(
+            sizeof(float));
+        exposure_description.Flags =
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &exposure_description,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
+            IID_PPV_ARGS(&automatic_exposure_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(automatic exposure)",
+                result);
+            return false;
+        }
+        automatic_exposure_->SetName(L"AB3D2 Adapted Automatic Exposure");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_UNKNOWN;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        uav.Buffer.NumElements = 1u;
+        uav.Buffer.StructureByteStride = sizeof(float);
+        device->CreateUnorderedAccessView(
+            automatic_exposure_.Get(), nullptr, &uav,
+            cpu_descriptor(automatic_exposure_uav));
+        D3D12_SHADER_RESOURCE_VIEW_DESC exposure_srv = {};
+        exposure_srv.Format = DXGI_FORMAT_UNKNOWN;
+        exposure_srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        exposure_srv.Shader4ComponentMapping =
+            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        exposure_srv.Buffer.NumElements = 1u;
+        exposure_srv.Buffer.StructureByteStride = sizeof(float);
+        device->CreateShaderResourceView(
+            automatic_exposure_.Get(), &exposure_srv,
+            cpu_descriptor(automatic_exposure_srv));
     }
     if (create_streamline_output) {
         description.Width = present_width;
@@ -1382,7 +1531,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.ndf_trim = ndf_trim_;
     constants.samples_per_pixel = spp_;
     if (targets_recreated) {
-        const std::array<D3D12_RESOURCE_BARRIER, 3> reservoir_states = {
+        const std::array<D3D12_RESOURCE_BARRIER, 6> history_states = {
             transition(light_reservoirs_[0].Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
@@ -1392,10 +1541,19 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             transition(temporal_reservoirs_.Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition(indirect_histories_[0].Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition(indirect_histories_[1].Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition(automatic_exposure_.Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
         };
         command_list->ResourceBarrier(
-            static_cast<UINT>(reservoir_states.size()),
-            reservoir_states.data());
+            static_cast<UINT>(history_states.size()),
+            history_states.data());
     }
 
     ID3D12DescriptorHeap *heaps[] = {descriptor_heap_.Get()};
@@ -1428,9 +1586,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};
     dispatch.RayGenerationShaderRecord = {table, shader_record_size};
-    dispatch.MissShaderTable = {table + shader_record_size * 3u,
+    dispatch.MissShaderTable = {table + shader_record_size * 10u,
                                 shader_record_size * 2u, shader_record_size};
-    dispatch.HitGroupTable = {table + shader_record_size * 5u, shader_record_size,
+    dispatch.HitGroupTable = {table + shader_record_size * 12u, shader_record_size,
                               shader_record_size};
     if (maximum_depth_ >= 2u && scene_.emitter_count() > 0u) {
         /* The indirect vertex needs the same local-light proposal property as
@@ -1454,6 +1612,49 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     dispatch.Height = render_height;
     dispatch.Depth = 1;
     command_list->DispatchRays(&dispatch);
+    const D3D12_RESOURCE_BARRIER indirect_input_ready[] = {
+        uav_barrier(indirect_radiance_.Get()),
+        uav_barrier(reconstruction_resource(
+            DxrReconstructionBuffer::diffuse_albedo)),
+        uav_barrier(reconstruction_resource(
+            DxrReconstructionBuffer::shading_normal)),
+        uav_barrier(reconstruction_resource(
+            DxrReconstructionBuffer::linear_depth)),
+    };
+    command_list->ResourceBarrier(
+        static_cast<UINT>(std::size(indirect_input_ready)),
+        indirect_input_ready);
+    dispatch.RayGenerationShaderRecord = {
+        table + shader_record_size * 3u, shader_record_size};
+    command_list->DispatchRays(&dispatch);
+    const size_t indirect_history_slot = sample_index & 1u;
+    const D3D12_RESOURCE_BARRIER temporal_indirect_ready =
+        uav_barrier(indirect_histories_[indirect_history_slot].Get());
+    command_list->ResourceBarrier(1, &temporal_indirect_ready);
+    ID3D12Resource *const indirect_filter_outputs[] = {
+        indirect_radiance_.Get(), indirect_filtered_.Get(),
+        indirect_radiance_.Get(), indirect_filtered_.Get()};
+    for (UINT filter_pass = 0u; filter_pass < 4u; ++filter_pass) {
+        dispatch.RayGenerationShaderRecord = {
+            table + shader_record_size * (4u + filter_pass),
+            shader_record_size};
+        command_list->DispatchRays(&dispatch);
+        const D3D12_RESOURCE_BARRIER filter_ready =
+            uav_barrier(indirect_filter_outputs[filter_pass]);
+        command_list->ResourceBarrier(1, &filter_ready);
+    }
+    dispatch.RayGenerationShaderRecord = {
+        table + shader_record_size * 8u, shader_record_size};
+    command_list->DispatchRays(&dispatch);
+    const D3D12_RESOURCE_BARRIER indirect_output_ready = uav_barrier(
+        reconstruction_resource(DxrReconstructionBuffer::noisy_radiance));
+    command_list->ResourceBarrier(1, &indirect_output_ready);
+    dispatch.RayGenerationShaderRecord = {
+        table + shader_record_size * 9u, shader_record_size};
+    command_list->DispatchRays(&dispatch);
+    const D3D12_RESOURCE_BARRIER automatic_exposure_ready =
+        uav_barrier(automatic_exposure_.Get());
+    command_list->ResourceBarrier(1, &automatic_exposure_ready);
     if (!record_diagnostics_end(command_list, error)) {
         return false;
     }
@@ -1529,12 +1730,20 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     const bool present_streamline_output =
         streamline_active && !debug_view_requested_;
     ID3D12Resource *present_resource = present_streamline_output ?
-        streamline_output_.Get() : reconstruction_targets_[debug_view_].Get();
+        streamline_output_.Get() :
+        (debug_view_ == static_cast<uint32_t>(DxrReconstructionBuffer::count) ?
+            indirect_filtered_.Get() : reconstruction_targets_[debug_view_].Get());
     const D3D12_RESOURCE_BARRIER to_present_shader = transition(
         present_resource,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    command_list->ResourceBarrier(1, &to_present_shader);
+    const D3D12_RESOURCE_BARRIER exposure_to_present_shader = transition(
+        automatic_exposure_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    const D3D12_RESOURCE_BARRIER present_inputs[] = {
+        to_present_shader, exposure_to_present_shader};
+    command_list->ResourceBarrier(
+        static_cast<UINT>(std::size(present_inputs)), present_inputs);
     const D3D12_VIEWPORT viewport = {
         0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height),
         0.0f, 1.0f};
@@ -1558,11 +1767,16 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         1, sizeof(present_constants) / sizeof(uint32_t), &present_constants, 0);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->DrawInstanced(3, 1, 0, 0);
-    const D3D12_RESOURCE_BARRIER to_next_sample = transition(
-        present_resource,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    command_list->ResourceBarrier(1, &to_next_sample);
+    const D3D12_RESOURCE_BARRIER to_next_sample[] = {
+        transition(present_resource,
+                   D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+        transition(automatic_exposure_.Get(),
+                   D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+    };
+    command_list->ResourceBarrier(
+        static_cast<UINT>(std::size(to_next_sample)), to_next_sample);
     history_.pending_camera = current_camera;
     history_.pending_jitter = current_jitter;
     history_.pending_history_epoch = frame.history_epoch;

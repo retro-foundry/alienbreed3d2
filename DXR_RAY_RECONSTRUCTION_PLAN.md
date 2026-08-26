@@ -599,11 +599,27 @@ second estimator is
 `primary diffuse throughput * indirect Lambert BRDF * Le * cos / lightPdf`.
 Only these direct and one-bounce diffuse polygon-light terms execute:
 environment lighting, GGX/specular transport, authored zone ambient, a third
-surface hit, and temporal/spatial reservoirs remain dormant. ReGIR supplies
-only the current-frame indirect proposal. Fresh RIS
+surface hit, and screen-space ReSTIR reservoirs remain dormant. ReGIR supplies
+only the current-frame indirect light proposal. Fresh RIS
 uses the unbiased `weightSum / (candidateCount * selectedTarget)` normalization
 and is not reused across frames or pixels. Source
 additive layers are visible and non-occluding but are not area-light candidates.
+
+The sparse second-vertex result now has a dedicated low-frequency diffuse
+reconstruction path. The continuation and indirect-light evaluation use the
+second hit's geometric normal, and the continuation distribution deliberately
+covers more grazing directions than an ordinary cosine sample. The path tracer
+stores incident indirect radiance without the primary albedo, reprojects it
+through dense scene motion, rejects history on depth/normal disagreement, and
+maintains a bounded running average. Four project-owned 3x3 depth/normal-guided
+passes at step widths 1, 3, 6, and 12 give the signal a 22-pixel reach before
+primary albedo is restored and direct radiance is added. This reconstructs the
+existing one-bounce polygon-light transport; it neither invents ambient light
+nor implements ReSTIR GI. A sparse 32-by-18 log-luminance measurement supplies
+bounded automatic exposure. A luminance-preserving curve then maps scene
+luminance `0.0002` through `10` into seven display stops, with `rtx_exposure`
+retained as an explicit multiplicative bias. The constants and guide rejection
+rules have CPU regression coverage.
 
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
@@ -1341,8 +1357,9 @@ nothing passes any stability bound trivially.
 
 #### 11f. Deferred
 
-- ReSTIR GI for the indirect channel. Direct-light ReSTIR is now accepted, but
-  indirect reuse remains a separate future feature rather than part of this fix.
+- ReSTIR GI for the indirect channel. The bounded temporal average and wide
+  guided reconstruction above reduce variance but do not resample path vertices
+  or reservoirs, so ReSTIR GI remains a separate future feature.
 - Dropping the forced `ePresetD` on every quality level.
 
 ## Test matrix
@@ -1367,6 +1384,10 @@ nothing passes any stability bound trivially.
 ### Native GPU tests
 
 - ID-independent debug-layer-clean diagnostic create/render/resize/minimize/restore/shutdown loops, including a multi-thousand-frame run.
+- `--gpu-smoke save` restores the executable-local save and adjacent desktop
+  settings, freezes that exact scene/camera, and presents 32 frames. This is the
+  acceptance view for corridor-fill changes; it replaces the former synthetic
+  single-wall inspection without modifying the user's save.
 - The dedicated foundation test does not require game content. The RTX
   all-level smoke separately renders each world/entity frame twice. An isolated
   pass may correctly return black when that view sees no authored source or

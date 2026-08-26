@@ -89,19 +89,23 @@ default, so the shipped template lists them commented out with their defaults:
   visibility, and the unbiased reservoir normalization preserves brightness.
   The primary vertex uses the complete emitter alias table. The indirect
   vertex uses a fresh camera-centred ReGIR cell proposal, matching Q2RTX's
-  essential local-light-list behavior without carrying screen-space history.
-  `rtx_reservoir_limit=0` through `65536` remains accepted but inactive because
-  no temporal/spatial reservoir runs in this stage; and
+  essential local-light-list behavior. `rtx_reservoir_limit=0` through `65536`
+  caps the running history of the separate low-frequency indirect channel; zero
+  keeps only the current frame while its depth/normal-guided spatial filter
+  remains active; and
 - `rtx_radiance_clamp=200` bounds each combined diffuse sample before SPP averaging.
   `rtx_ndf_trim=0.9` remains inactive because no GGX lobe executes, while
-  `rtx_exposure=1` scales the HDR result before tone mapping.
+  `rtx_exposure=1` is a bias multiplied by the renderer's automatic exposure
+  before tone mapping.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_CANDIDATES`, `AB3D2_DXR_RESERVOIR_LIMIT`,
 `AB3D2_DXR_RADIANCE_CLAMP`, `AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, and
 `AB3D2_DXR_RR_MODE` still override the file for one run, which is how a setting
-gets swept without editing it. The hidden `--gpu-smoke` path deliberately reads
-no `ab3d2.ini` at all, so its measurements stay independent of the host's
-configuration.
+gets swept without editing it. The ordinary hidden `--gpu-smoke` path
+deliberately reads no `ab3d2.ini`, so its measurements stay independent of the
+host's configuration. `--gpu-smoke save` is the exception: it restores the
+executable-local `savegame.bin`, applies the adjacent configuration, freezes the
+saved camera and scene, and presents 32 frames for exact visual comparisons.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
 port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
@@ -562,12 +566,15 @@ diluting them among every emissive triangle in the level. Both use metal-free
 diffuse reflectance and the emitter's exact area-to-solid-angle PDF and unbiased
 RIS normalization. SPP repeats and averages the complete estimate. There is no
 environment lighting, GGX/specular transport, authored zone ambient, third
-surface hit, or temporal/spatial ReSTIR reuse. The ReGIR grid is a fresh
-proposal only. Misses are black unless the primary segment crosses a
+surface hit, or screen-space ReSTIR reservoir reuse. The indirect incident
+radiance is demodulated from primary albedo, reprojected with depth and normal
+validation, accumulated up to `rtx_reservoir_limit`, and reconstructed by four
+wide depth/normal-guided passes before the primary albedo is restored. This is a
+dedicated low-frequency diffuse channel rather than ReSTIR GI. The ReGIR grid
+remains a fresh light proposal only. Misses are black unless the primary segment crosses a
 non-occluding authored additive layer. A full-screen pass tone maps the HDR
-result to the three-frame
-flip-discard swap chain; there is no project-authored temporal accumulation or
-denoiser. The same primary dispatch writes separate
+result using sparse log-average automatic exposure before writing the
+three-frame flip-discard swap chain. The same primary dispatch writes separate
 diffuse/specular albedo, world shading normal, linear roughness, linear depth,
 dense scene motion, and specular-hit-distance resources in the formats recorded
 by the implementation plan. Specular guides remain zero; the first sampled
@@ -596,6 +603,7 @@ lifecycle check and run the game-content check with:
 
 ```powershell
 .\build\dxr\Debug\ab3d2.exe --gpu-smoke all --renderer rtx
+.\build\streamline\Release\ab3d2.exe --gpu-smoke save --renderer rtx
 ```
 
 The RTX smoke renders each Level A--P frame twice. A starting view with no
@@ -614,10 +622,14 @@ set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
 smoke to save the latest presented frame. Weapon, bitmap-entity, and
 vector-entity coverage come from a GPU UAV. Transient projectile, HUD, and text
 coverage are not claimed at this milestone.
-The ACES presentation pass uses exposure `1` by default, keeping ordinary
-traced lighting above 8-bit display quantization. Set `AB3D2_DXR_EXPOSURE` to a
-finite value from `0.001` through `100` for diagnostic exposure sweeps. The
-CTest all-level invocation uses the production default without an override.
+Presentation measures a sparse log-average luminance, adapts exposure over
+time, and maps the supported scene interval from `0.0002` through `10` into a
+seven-stop display interval. This is what keeps indirect corridor fill visible
+beside a directly visible emissive room. The configured exposure remains `1`
+by default and is multiplied into the automatic value as a bias. Set
+`AB3D2_DXR_EXPOSURE` to a finite value from `0.001` through `100` for diagnostic
+exposure sweeps. The CTest all-level invocation uses the production default
+without an override.
 
 The RTX smoke then freezes the camera, view, and scene frame and presents
 `AB3D2_DXR_STABILITY_FRAMES` frames (default 24, range 4--4096), reporting the
@@ -635,43 +647,29 @@ at least 16 alongside the scene-rebuild count. These moving values are compariso
 metrics rather than pass/fail thresholds. The sequence guards both the firing
 hitch and the associated reconstruction-history quality drop.
 
-`AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` set the emitter
-candidates resampled per primary hit and the maximum history-domain count
-accepted from each reused previous-frame reservoir. Initial candidates collapse
-to one temporal proposal, so increasing candidates does not shorten that history.
-They default to 16 and 20. A positive limit
-enables staged temporal and current-frame spatial reuse with material/depth/
-normal validation, stratified initial selection, selected-only initial
-visibility, fixed low-discrepancy neighbor offsets, naive-neighbor discounting,
-and ray-traced bias correction. One analytic-environment candidate and one
-independent BRDF candidate join the configured local candidates in the same
-balance-heuristic reservoir. The BRDF strategy overlaps the analytic environment,
-whose reverse PDF is exact; BRDF rays that hit a mesh emitter are rejected because
-the stochastic ReGIR table cannot provide that arbitrary emitter's reverse
-per-cell PDF. Mesh emitters remain completely and unbiasedly covered by the local
-strategy. Before initial sampling, a camera-centered
-16-by-16-by-16 ReGIR grid presamples 512 corrected light entries per cell from
-the complete global emitter alias table. Its project-owned volume target uses
-triangle area, a conservative emitted-radiance bound, and spatial solid angle;
-surfaces outside the grid retain the complete global proposal. The filter-free
-positive-history path uses four spatial neighbors and 16 disocclusion attempts,
-matching NVIDIA's Ultra structure. `16 / 20` passed the moving-camera visual
-check for the former local-emitter-only stage and the completed heterogeneous
-signal was accepted in motion on 2026-08-21, so it remains the production default;
-`4 / 128` mixes a low candidate count with a much longer history than NVIDIA's
-presets and is no longer recommended. An explicit zero history limit retains
-the history-off diagnostic. Secondary path vertices reuse two local samples
-from their shared ReGIR cell, plus one environment and one environment-overlap
-BRDF sample, before
-selected-only visibility instead of returning to the former global one-sample
-emitter path. Section 11 of
-`DXR_RAY_RECONSTRUCTION_PLAN.md` records
-why measurements from the former biased temporal approximation cannot be used to
-tune the corrected implementation.
+`AB3D2_DXR_CANDIDATES` sets the fresh polygon-light candidates tested at each
+surface vertex. A camera-centred 16-by-16-by-16 ReGIR grid presamples 512
+corrected light entries per cell from the complete global emitter alias table;
+surfaces outside the grid retain the global proposal. Direct polygon-light NEE
+is current-frame only. At a diffuse continuation hit, the renderer performs the
+same local polygon-light proposal and stores demodulated incident radiance in a
+separate low-frequency channel.
+
+`AB3D2_DXR_RESERVOIR_LIMIT` retains its public name for configuration
+compatibility but now caps the number of validated temporal samples in that
+indirect channel. It defaults to `20`; zero disables temporal accumulation but
+still performs the four depth/normal-guided spatial passes with full-resolution
+steps `1`, `3`, `6`, and `12`. The filtered incident radiance is remodulated by
+the primary diffuse albedo only when it is recombined with direct lighting.
+Screen-space direct-light temporal/spatial reservoirs and `SpatialShade` remain
+dormant. Section 11 of `DXR_RAY_RECONSTRUCTION_PLAN.md` preserves the former
+reservoir experiments as historical evidence rather than a description of the
+active path.
 
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
-`normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`, or
-`specular-hit-distance-history` to present one reconstruction input directly.
+`normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`,
+`diffuse-hit-distance`, `specular-hit-distance-history`, or `indirect` to
+present one reconstruction input directly.
 Diffuse hit distance remains a diagnostic view but is not tagged to DLSS-RR;
 Streamline 2.12 specifies specular hit distance as the optional reflection-motion
 guide. `AB3D2_DXR_DEBUG_RANGE` sets the positive

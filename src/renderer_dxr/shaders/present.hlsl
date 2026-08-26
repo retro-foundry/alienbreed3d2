@@ -6,7 +6,10 @@ Texture2D<float4> LinearRoughness : register(t4);
 Texture2D<float4> LinearDepth : register(t5);
 Texture2D<float4> SceneMotion : register(t6);
 Texture2D<float4> SpecularHitDistance : register(t7);
-Texture2D<float4> SpecularHitDistanceHistory : register(t8);
+Texture2D<float4> DiffuseHitDistance : register(t8);
+Texture2D<float4> SpecularHitDistanceHistory : register(t9);
+Texture2D<float4> IndirectRadiance : register(t10);
+StructuredBuffer<float> AutomaticExposure : register(t11);
 
 cbuffer PresentConstants : register(b0)
 {
@@ -18,6 +21,10 @@ cbuffer PresentConstants : register(b0)
     uint TargetHeight;
     float Exposure;
 };
+
+static const float ToneMinimumLuminance = 0.0002;
+static const float ToneWhitePoint = 10.0;
+static const float ToneDynamicRangeStops = 7.0;
 
 struct PixelInput
 {
@@ -97,13 +104,37 @@ float4 ps_main(PixelInput input) : SV_Target
         return float4(saturate(distance / ScalarRange).xxx, 1.0);
     }
     if (DebugView == 8u) {
+        float distance = DiffuseHitDistance.Load(int3(pixel, 0)).r;
+        return float4(saturate(distance / ScalarRange).xxx, 1.0);
+    }
+    if (DebugView == 9u) {
         float distance = SpecularHitDistanceHistory.Load(int3(pixel, 0)).r;
         return float4(saturate(distance / ScalarRange).xxx, 1.0);
     }
+    if (DebugView == 10u) {
+        return float4(displayLinear(
+            IndirectRadiance.Load(int3(pixel, 0)).rgb), 1.0);
+    }
     float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
-    float3 exposed = hdr * Exposure;
-    /* Krzysztof Narkowicz ACES filmic approximation. */
-    float3 mapped = saturate((exposed * (2.51 * exposed + 0.03)) /
-                             (exposed * (2.43 * exposed + 0.59) + 0.14));
+    float3 exposed = hdr * Exposure * AutomaticExposure[0];
+    float exposedLuminance = dot(exposed, float3(0.2126, 0.7152, 0.0722));
+    float displayFloor = exp2(-ToneDynamicRangeStops);
+    float mappedLuminance = 0.0;
+    if (exposedLuminance > 0.0) {
+        if (exposedLuminance < ToneMinimumLuminance) {
+            mappedLuminance = displayFloor * exposedLuminance /
+                ToneMinimumLuminance;
+        } else {
+            float sceneStops = log2(
+                ToneWhitePoint / ToneMinimumLuminance);
+            float position = saturate(log2(
+                exposedLuminance / ToneMinimumLuminance) / sceneStops);
+            mappedLuminance = exp2(
+                -ToneDynamicRangeStops * (1.0 - position));
+        }
+    }
+    float3 mapped = exposedLuminance > 0.0 ?
+        exposed * (mappedLuminance / exposedLuminance) : 0.0;
+    mapped = saturate(mapped);
     return float4(linearToSrgb(mapped), 1.0);
 }

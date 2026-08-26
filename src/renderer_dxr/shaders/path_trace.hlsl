@@ -76,6 +76,15 @@ struct LightGridEntry
     float inverseSelectionProbability;
 };
 
+struct IndirectHistoryPixel
+{
+    float3 incidentRadiance;
+    float depth;
+    uint normal;
+    uint sampleCount;
+    float2 padding;
+};
+
 struct LightSelection
 {
     uint emitterIndex;
@@ -185,6 +194,12 @@ RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
  * smoke reads this after the dispatch; it is never used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
+/* Raw demodulated second-vertex diffuse lighting. ReconstructIndirect filters
+ * it as a low-frequency signal, then remodulates with the primary albedo. */
+RWTexture2D<float4> IndirectRadiance : register(u14);
+RWStructuredBuffer<IndirectHistoryPixel> IndirectHistories[2] : register(u15);
+RWTexture2D<float4> IndirectFiltered : register(u17);
+RWStructuredBuffer<float> AutomaticExposure : register(u18);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -297,6 +312,19 @@ static const uint ReservoirNeighborOffsetMask =
 static const float ReservoirSpatialRadius = 32.0;
 static const float ReservoirDepthTolerance = 0.1;
 static const float ReservoirNormalTolerance = 0.5;
+static const float IndirectContinuationRadialPower = 0.4;
+static const int IndirectFilterStep0 = 1;
+static const int IndirectFilterStep1 = 3;
+static const int IndirectFilterStep2 = 6;
+static const int IndirectFilterStep3 = 12;
+static const uint ExposureSampleColumns = 32u;
+static const uint ExposureSampleRows = 18u;
+static const float ExposureMinimumLuminance = 0.001;
+static const float ExposureMaximumLuminance = 16.0;
+static const float ExposureMiddleGrey = 0.18;
+static const float ExposureMinimum = 0.25;
+static const float ExposureMaximum = 128.0;
+static const float ExposureAdaptationWeight = 0.05;
 static const uint ReservoirTemporalSearchStream = 0x10000u;
 static const uint ReservoirSpatialStream = 0x10100u;
 static const uint ReservoirAcceptanceStream = 0x10200u;
@@ -555,6 +583,23 @@ MaterialTextureWindow materialTextureWindow(SceneMaterial material,
         window.extent = uint2(material.width, material.height);
     }
     return window;
+}
+
+/* Dedicated low-frequency diffuse continuation. A geometric-normal basis
+ * prevents texture normals from steering room-scale GI into local bumps. The
+ * slightly broader radial distribution improves directional coverage of a
+ * one-ray signal, matching the sampling property used by Q2RTX's LF path. */
+float3 lowFrequencyDiffuseHemisphere(float3 geometricNormal,
+                                     float2 sampleValue)
+{
+    float radius = pow(sampleValue.x, IndirectContinuationRadialPower);
+    float angle = 2.0 * Pi * sampleValue.y;
+    float3 tangent;
+    float3 bitangent;
+    coordinateSystem(geometricNormal, tangent, bitangent);
+    return normalize(tangent * (radius * cos(angle)) +
+                     bitangent * (radius * sin(angle)) +
+                     geometricNormal * sqrt(max(0.0, 1.0 - radius * radius)));
 }
 
 uint2 materialTexel(SceneMaterial material, float2 textureCoordinate,
@@ -2220,6 +2265,7 @@ void RayGeneration()
     uint primaryPrimitive = primaryPayload.hit != 0u ?
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
     float3 resolvedRadiance = primarySegment.additiveRadiance;
+    float3 resolvedIndirectIncident = 0.0;
     if (primaryPayload.hit == 0u) {
         writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
     } else {
@@ -2235,17 +2281,19 @@ void RayGeneration()
         if (EmitterCount > 0u &&
             luminance(primaryThroughput) > 1.0e-6) {
             uint sampleCount = max(SamplesPerPixel, 1u);
-            float3 diffuseRadiance = 0.0;
+            float3 directRadiance = 0.0;
+            float3 indirectIncident = 0.0;
             for (uint sampleOrdinal = 0u; sampleOrdinal < sampleCount;
                  ++sampleOrdinal) {
                 uint effectiveSampleIndex =
                     SampleIndex * sampleCount + sampleOrdinal;
-                float3 sampleRadiance = sampleDiffusePolygonLight(
+                float3 sampleDirect = sampleDiffusePolygonLight(
                     pixel, effectiveSampleIndex,
                     DiffusePrimaryPolygonStream, false, surface);
+                float3 sampleIndirectIncident = 0.0;
                 if (MaximumDepth >= 2u) {
-                    float3 bounceDirection = cosineHemisphere(
-                        surface.shadingNormal,
+                    float3 bounceDirection = lowFrequencyDiffuseHemisphere(
+                        surface.geometricNormal,
                         float2(sampleBlueNoise(
                                    pixel, effectiveSampleIndex, 6u),
                                sampleBlueNoise(
@@ -2267,28 +2315,44 @@ void RayGeneration()
                         if (bounceSegment.payload.hit != 0u) {
                             SurfaceData indirectSurface = loadSurface(
                                 bounceSegment.payload, bounceRay.Direction);
-                            sampleRadiance += primaryThroughput *
+                            /* Q2RTX's low-frequency NEE uses the secondary
+                             * geometric normal for both sampling and diffuse
+                             * response. Normal maps remain primary guides and
+                             * do not steer room-scale transport. */
+                            indirectSurface.shadingNormal =
+                                indirectSurface.geometricNormal;
+                            sampleIndirectIncident =
                                 sampleDiffusePolygonLight(
-                                    pixel, effectiveSampleIndex,
-                                    DiffuseIndirectPolygonStream,
-                                    true, indirectSurface);
+                                pixel, effectiveSampleIndex,
+                                DiffuseIndirectPolygonStream,
+                                true, indirectSurface);
                         }
                     }
                 }
-                if (any(isnan(sampleRadiance)) ||
-                    any(isinf(sampleRadiance))) {
+                float3 sampleRadiance = sampleDirect +
+                    primaryThroughput * sampleIndirectIncident;
+                if (any(isnan(sampleRadiance)) || any(isinf(sampleRadiance)) ||
+                    any(isnan(sampleIndirectIncident)) ||
+                    any(isinf(sampleIndirectIncident))) {
                     continue;
                 }
                 float sampleLuminance = luminance(sampleRadiance);
                 if (RadianceClamp > 0.0 && sampleLuminance > RadianceClamp) {
-                    sampleRadiance *= RadianceClamp / sampleLuminance;
+                    float scale = RadianceClamp / sampleLuminance;
+                    sampleDirect *= scale;
+                    sampleIndirectIncident *= scale;
                 }
-                diffuseRadiance += sampleRadiance;
+                directRadiance += sampleDirect;
+                indirectIncident += sampleIndirectIncident;
             }
-            resolvedRadiance += diffuseRadiance / float(sampleCount);
+            resolvedRadiance += directRadiance / float(sampleCount);
+            resolvedIndirectIncident =
+                indirectIncident / float(sampleCount);
         }
     }
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
+    IndirectRadiance[pixel] = float4(resolvedIndirectIncident,
+        primaryPayload.hit != 0u ? 1.0 : 0.0);
     if (primaryPrimitive == ViewWeaponPrimitive) {
         uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
         InterlockedAdd(Diagnostics[0], 1u);
@@ -2310,6 +2374,296 @@ void RayGeneration()
     PackedLightReservoir emptyReservoir = (PackedLightReservoir)0;
     emptyReservoir.emitterIndex = InvalidIndex;
     CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = emptyReservoir;
+}
+
+float indirectDepthWeight(float centerDepth, float sampleDepth)
+{
+    if (!(centerDepth > 0.0) || !(sampleDepth > 0.0)) {
+        return 0.0;
+    }
+    float relativeDifference = abs(sampleDepth - centerDepth) /
+        max(centerDepth, 1.0);
+    return saturate(1.0 - relativeDifference / ReservoirDepthTolerance);
+}
+
+float indirectNormalWeight(float normalDot)
+{
+    float accepted = saturate(
+        (normalDot - ReservoirNormalTolerance) /
+        (1.0 - ReservoirNormalTolerance));
+    return accepted * accepted;
+}
+
+float3 primaryWorldPosition(uint2 pixel, uint2 dimensions, float depth)
+{
+    float2 screen = (float2(pixel) + 0.5) / float2(dimensions);
+    float2 ndc = float2(screen.x * 2.0 - 1.0,
+                        1.0 - screen.y * 2.0);
+    float3 direction = normalize(CameraForward +
+        CameraRight * (ndc.x * Aspect * TanHalfFovY) +
+        CameraUp * (ndc.y * TanHalfFovY));
+    float projected = max(dot(direction, CameraForward), 1.0e-6);
+    return CameraPosition + direction * (depth / projected);
+}
+
+/* Temporal stage for the dedicated indirect channel. Zero-valued Monte Carlo
+ * samples are valid and enter the running mean; only a guide mismatch rejects
+ * history. The configured reservoir limit is reused solely as this bounded
+ * history length while screen-space ReSTIR remains disabled. */
+[shader("raygeneration")]
+void TemporalIndirect()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    uint historyIndex = pixel.y * dimensions.x + pixel.x;
+    uint currentSlot = SampleIndex & 1u;
+    uint previousSlot = 1u - currentSlot;
+    float4 albedo = DiffuseAlbedo[pixel];
+    IndirectHistoryPixel current = (IndirectHistoryPixel)0;
+    if (albedo.a <= 0.0) {
+        IndirectHistories[currentSlot][historyIndex] = current;
+        return;
+    }
+    float currentDepth = LinearDepth[pixel];
+    float3 currentNormal = normalize(ShadingNormal[pixel].xyz);
+    current.incidentRadiance = max(IndirectRadiance[pixel].rgb, 0.0);
+    current.depth = currentDepth;
+    current.normal = packOctahedralNormal(currentNormal);
+    current.sampleCount = 1u;
+
+    float2 motion = SceneMotion[pixel];
+    int2 previousPixel = int2(round(float2(pixel) + motion));
+    bool historyAddressValid = HistoryValid != 0u &&
+        ReservoirSampleLimit > 0u &&
+        all(abs(motion) < InvalidMotion) &&
+        all(previousPixel >= 0) &&
+        all(previousPixel < int2(dimensions));
+    if (historyAddressValid) {
+        uint previousIndex = uint(previousPixel.y) * dimensions.x +
+            uint(previousPixel.x);
+        IndirectHistoryPixel previous =
+            IndirectHistories[previousSlot][previousIndex];
+        float3 worldPosition = primaryWorldPosition(
+            pixel, dimensions, currentDepth);
+        float expectedPreviousDepth = dot(
+            worldPosition - PreviousCameraPosition,
+            PreviousCameraForward);
+        float guideWeight = indirectDepthWeight(
+            expectedPreviousDepth, previous.depth) *
+            indirectNormalWeight(dot(
+                currentNormal, unpackOctahedralNormal(previous.normal)));
+        if (previous.sampleCount > 0u && guideWeight > 0.0) {
+            uint historyCount = min(previous.sampleCount,
+                                    ReservoirSampleLimit);
+            uint combinedCount = min(historyCount + 1u,
+                                     ReservoirSampleLimit);
+            float currentWeight = 1.0 / float(max(combinedCount, 1u));
+            current.incidentRadiance = lerp(
+                previous.incidentRadiance,
+                current.incidentRadiance, currentWeight);
+            current.sampleCount = combinedCount;
+        }
+    }
+    IndirectHistories[currentSlot][historyIndex] = current;
+}
+
+float indirectSpatialWeight(uint2 centerPixel, int2 samplePixel,
+                            uint2 dimensions, float centerDepth,
+                            float3 centerNormal, float3 centerPosition)
+{
+    if (any(samplePixel < 0) || any(samplePixel >= int2(dimensions)) ||
+        DiffuseAlbedo[samplePixel].a <= 0.0) {
+        return 0.0;
+    }
+    float sampleDepth = LinearDepth[samplePixel];
+    float3 sampleNormal = normalize(ShadingNormal[samplePixel].xyz);
+    float normalWeight = indirectNormalWeight(
+        dot(centerNormal, sampleNormal));
+    if (normalWeight <= 0.0) {
+        return 0.0;
+    }
+    float3 samplePosition = primaryWorldPosition(
+        uint2(samplePixel), dimensions, sampleDepth);
+    float planeDistance = abs(dot(
+        samplePosition - centerPosition, centerNormal));
+    float planeTolerance = max(centerDepth * 0.02, 1.0);
+    float planeWeight = saturate(1.0 - planeDistance / planeTolerance);
+    return planeWeight * normalWeight;
+}
+
+/* One sparse, guide-aware 3x3 stage of the project-owned low-frequency
+ * reconstruction. Pass zero reads the temporally accumulated history; later
+ * passes ping-pong full-resolution incident radiance with expanding steps.
+ * Zero-valued history remains a valid Monte Carlo sample and participates in
+ * the average instead of biasing the result toward rare successful paths. */
+void filterIndirect(uint passIndex, int step)
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    float4 centerAlbedo = DiffuseAlbedo[pixel];
+    bool outputFiltered = (passIndex & 1u) != 0u;
+    if (centerAlbedo.a <= 0.0) {
+        if (outputFiltered) {
+            IndirectFiltered[pixel] = 0.0;
+        } else {
+            IndirectRadiance[pixel] = 0.0;
+        }
+        return;
+    }
+    float centerDepth = LinearDepth[pixel];
+    float3 centerNormal = normalize(ShadingNormal[pixel].xyz);
+    float3 centerPosition = primaryWorldPosition(
+        pixel, dimensions, centerDepth);
+    uint currentSlot = SampleIndex & 1u;
+    float3 incidentSum = 0.0;
+    float weightSum = 0.0;
+    for (int offsetY = -1; offsetY <= 1; ++offsetY) {
+        for (int offsetX = -1; offsetX <= 1; ++offsetX) {
+            int2 samplePixel = int2(pixel) +
+                int2(offsetX, offsetY) * step;
+            float weight = indirectSpatialWeight(
+                pixel, samplePixel, dimensions, centerDepth,
+                centerNormal, centerPosition);
+            if (weight <= 0.0) {
+                continue;
+            }
+            float3 incident;
+            if (passIndex == 0u) {
+                uint sampleIndex = uint(samplePixel.y) * dimensions.x +
+                    uint(samplePixel.x);
+                IndirectHistoryPixel history =
+                    IndirectHistories[currentSlot][sampleIndex];
+                if (history.sampleCount == 0u) {
+                    continue;
+                }
+                incident = history.incidentRadiance;
+            } else if (outputFiltered) {
+                float4 source = IndirectRadiance[samplePixel];
+                if (source.a <= 0.0) {
+                    continue;
+                }
+                incident = source.rgb;
+            } else {
+                float4 source = IndirectFiltered[samplePixel];
+                if (source.a <= 0.0) {
+                    continue;
+                }
+                incident = source.rgb;
+            }
+            incidentSum += incident * weight;
+            weightSum += weight;
+        }
+    }
+    float3 filteredIncident = weightSum > 0.0 ?
+        incidentSum / weightSum : 0.0;
+    float4 output = float4(filteredIncident, weightSum > 0.0 ? 1.0 : 0.0);
+    if (outputFiltered) {
+        IndirectFiltered[pixel] = output;
+    } else {
+        IndirectRadiance[pixel] = output;
+    }
+}
+
+[shader("raygeneration")]
+void FilterIndirect0()
+{
+    filterIndirect(0u, IndirectFilterStep0);
+}
+
+[shader("raygeneration")]
+void FilterIndirect1()
+{
+    filterIndirect(1u, IndirectFilterStep1);
+}
+
+[shader("raygeneration")]
+void FilterIndirect2()
+{
+    filterIndirect(2u, IndirectFilterStep2);
+}
+
+[shader("raygeneration")]
+void FilterIndirect3()
+{
+    filterIndirect(3u, IndirectFilterStep3);
+}
+
+/* Q2RTX keeps sparse indirect diffuse lighting in a dedicated low-frequency
+ * channel before final composition. This clean-room pass remodulates the broad
+ * filtered incident signal at the primary receiver and leaves direct lighting
+ * and visible emission untouched. DLSS-RR still owns final reconstruction. */
+[shader("raygeneration")]
+void ReconstructIndirect()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    float4 centerAlbedo = DiffuseAlbedo[pixel];
+    if (centerAlbedo.a <= 0.0) {
+        return;
+    }
+    float3 filteredIncident = IndirectFiltered[pixel].rgb;
+    float3 reconstructed = filteredIncident * centerAlbedo.rgb;
+    if (any(isnan(reconstructed)) || any(isinf(reconstructed))) {
+        reconstructed = 0.0;
+    }
+    float reconstructedLuminance = luminance(reconstructed);
+    if (RadianceClamp > 0.0 &&
+        reconstructedLuminance > RadianceClamp) {
+        reconstructed *= RadianceClamp / reconstructedLuminance;
+    }
+    float4 noisy = NoisyRadiance[pixel];
+    noisy.rgb += reconstructed;
+    NoisyRadiance[pixel] = noisy;
+}
+
+/* A fixed exposure cannot show both AB3D2's authored light panels and the
+ * indirect energy they carry into an otherwise black corridor. Q2RTX solves
+ * the same display problem with histogram adaptation. This clean-room stage
+ * uses a bounded sparse log average instead: one thread samples a regular grid
+ * of primary surfaces, rejects the background, caps fireflies, and persists a
+ * slowly adapted scalar for the presentation pass. */
+[shader("raygeneration")]
+void CalculateAutomaticExposure()
+{
+    if (any(DispatchRaysIndex().xy != 0u)) {
+        return;
+    }
+    uint2 dimensions = uint2(
+        max(DispatchRaysDimensions().x, 1u),
+        max(DispatchRaysDimensions().y, 1u));
+    float logLuminanceSum = 0.0;
+    uint surfaceSampleCount = 0u;
+    for (uint sampleY = 0u; sampleY < ExposureSampleRows; ++sampleY) {
+        for (uint sampleX = 0u; sampleX < ExposureSampleColumns; ++sampleX) {
+            uint2 samplePixel = min(
+                uint2((sampleX * 2u + 1u) * dimensions.x /
+                          (ExposureSampleColumns * 2u),
+                      (sampleY * 2u + 1u) * dimensions.y /
+                          (ExposureSampleRows * 2u)),
+                dimensions - 1u);
+            if (DiffuseAlbedo[samplePixel].a <= 0.0) {
+                continue;
+            }
+            float sampleLuminance = clamp(
+                luminance(max(NoisyRadiance[samplePixel].rgb, 0.0)),
+                ExposureMinimumLuminance, ExposureMaximumLuminance);
+            logLuminanceSum += log(sampleLuminance);
+            ++surfaceSampleCount;
+        }
+    }
+    float targetExposure = 1.0;
+    if (surfaceSampleCount > 0u) {
+        float averageLuminance = exp(
+            logLuminanceSum / float(surfaceSampleCount));
+        targetExposure = clamp(
+            ExposureMiddleGrey / max(averageLuminance,
+                                     ExposureMinimumLuminance),
+            ExposureMinimum, ExposureMaximum);
+    }
+    float previousExposure = AutomaticExposure[0];
+    AutomaticExposure[0] = HistoryValid != 0u &&
+            isfinite(previousExposure) && previousExposure > 0.0 ?
+        lerp(previousExposure, targetExposure,
+             ExposureAdaptationWeight) : targetExposure;
 }
 
 /*
