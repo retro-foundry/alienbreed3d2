@@ -87,8 +87,11 @@ default, so the shipped template lists them commented out with their defaults:
 - `rtx_light_candidates=1` through `1024` controls fresh RIS at both diffuse
   vertices. Candidates are evaluated without shadow rays, one survivor traces
   visibility, and the unbiased reservoir normalization preserves brightness.
+  The primary vertex uses the complete emitter alias table. The indirect
+  vertex uses a fresh camera-centred ReGIR cell proposal, matching Q2RTX's
+  essential local-light-list behavior without carrying screen-space history.
   `rtx_reservoir_limit=0` through `65536` remains accepted but inactive because
-  no temporal/spatial reservoir or light-grid dispatch runs in this stage; and
+  no temporal/spatial reservoir runs in this stage; and
 - `rtx_radiance_clamp=200` bounds each combined diffuse sample before SPP averaging.
   `rtx_ndf_trim=0.9` remains inactive because no GGX lobe executes, while
   `rtx_exposure=1` scales the HDR result before tone mapping.
@@ -549,17 +552,19 @@ The current staged renderer keeps one pixel-centred camera ray with zero
 frame-varying subpixel jitter. Base colour is written as a reconstruction guide,
 not added to HDR as fake self-emission. The image shows directly visible
 authored emission and diffuse polygon-light transport. At the primary hit the
-shader draws `rtx_light_candidates` samples from the authored-emitter alias
-distribution, streams them through fresh RIS, and traces visibility only for
+shader draws `rtx_light_candidates` samples from the complete authored-emitter
+alias distribution, streams them through fresh RIS, and traces visibility only for
 the survivor, providing the directly lit diffuse baseline. It then takes one
-cosine-weighted continuation and evaluates the same fresh polygon RIS at that
-indirect hit, providing the requested corridor transport. Both use metal-free
+cosine-weighted continuation and evaluates fresh polygon RIS from the
+camera-centred world-space light-grid cell containing that indirect hit. This
+keeps Level A's starting-room emitters in the second-vertex proposal instead of
+diluting them among every emissive triangle in the level. Both use metal-free
 diffuse reflectance and the emitter's exact area-to-solid-angle PDF and unbiased
 RIS normalization. SPP repeats and averages the complete estimate. There is no
 environment lighting, GGX/specular transport, authored zone ambient, third
-surface hit, or ReSTIR/ReGIR reuse. Misses are black unless the primary segment
-crosses a non-occluding authored additive layer. Light-grid and temporal/spatial
-reservoir dispatches remain skipped. A full-screen pass tone maps the HDR
+surface hit, or temporal/spatial ReSTIR reuse. The ReGIR grid is a fresh
+proposal only. Misses are black unless the primary segment crosses a
+non-occluding authored additive layer. A full-screen pass tone maps the HDR
 result to the three-frame
 flip-discard swap chain; there is no project-authored temporal accumulation or
 denoiser. The same primary dispatch writes separate

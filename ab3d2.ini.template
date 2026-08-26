@@ -60,10 +60,10 @@ world_light_tessellation=4
 # performance 8.5 ms. Default quality.
 #rtx_ray_reconstruction=quality
 
-# Emitter candidates the direct-lighting reservoir draws per pixel, 1 through
-# 1024, and the cap on the history a reservoir carries, 0 through 65536. A zero
-# limit explicitly disables temporal/spatial reuse for diagnosis. Defaults 16
-# and 20: the accepted filter-free ReGIR/ReSTIR configuration.
+# Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
+# primary vertex uses the complete alias table; the indirect vertex uses a
+# camera-centred local ReGIR proposal. The retained reservoir limit is inactive
+# while temporal/spatial screen-space reuse is disabled. Defaults 16 and 20.
 #rtx_light_candidates=16
 #rtx_reservoir_limit=20
 

@@ -1432,9 +1432,22 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                 shader_record_size * 2u, shader_record_size};
     dispatch.HitGroupTable = {table + shader_record_size * 5u, shader_record_size,
                               shader_record_size};
-    /* The diffuse pass samples the global emitter alias table directly at its
-     * primary and one indirect vertex. BuildLightGrid and SpatialShade stay
-     * dormant: no light reservoir is built, reused, or shaded. */
+    if (maximum_depth_ >= 2u && scene_.emitter_count() > 0u) {
+        /* The indirect vertex needs the same local-light proposal property as
+         * Q2RTX's cluster light list. Reuse the renderer-owned world-space
+         * ReGIR table only as a fresh proposal: no screen-space reservoir is
+         * published or reused by this stripped diffuse estimator. */
+        dispatch.Width = light_grid::cell_count;
+        dispatch.Height = light_grid::lights_per_cell;
+        dispatch.Depth = 1u;
+        command_list->DispatchRays(&dispatch);
+        const D3D12_RESOURCE_BARRIER light_grid_ready =
+            uav_barrier(light_grid_.Get());
+        command_list->ResourceBarrier(1, &light_grid_ready);
+    }
+    /* Primary polygon NEE keeps the complete global proposal; the indirect
+     * vertex draws from the grid built above. SpatialShade remains dormant:
+     * no temporal or neighboring screen-space reservoir is shaded. */
     dispatch.RayGenerationShaderRecord = {
         table + shader_record_size, shader_record_size};
     dispatch.Width = render_width;

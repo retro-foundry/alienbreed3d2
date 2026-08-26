@@ -93,6 +93,12 @@ int main()
         grid::finalize_inverse_selection_probability(8.0f, 2.0f, 0u) != 0.0f) {
         return fail("ReGIR RIS inverse-proposal correction changed");
     }
+    if (!near(grid::local_solid_angle_pdf(0.25f, 0.125f, 2.0f), 1.0f) ||
+        !near(grid::local_solid_angle_pdf(0.25f, 0.125f, 8.0f), 0.25f) ||
+        grid::local_solid_angle_pdf(0.25f, 0.0f, 2.0f) != 0.0f ||
+        grid::local_solid_angle_pdf(0.25f, 0.125f, 0.0f) != 0.0f) {
+        return fail("ReGIR local polygon-light PDF correction changed");
+    }
 
     struct EmitterIdentity {
         uint32_t first_vertex;

@@ -76,6 +76,18 @@ struct LightGridEntry
     float inverseSelectionProbability;
 };
 
+struct LightSelection
+{
+    uint emitterIndex;
+    /* RIS correction for selecting this emitter, excluding the independent
+     * uniform point sampled on its triangle. */
+    float inverseProbability;
+};
+
+int lightGridCellForSurface(uint2 pixel, uint sampleIndex,
+                            float3 surfacePosition);
+LightSelection selectEmitterForCell(float selection, int cellIndex);
+
 /*
  * One direct-lighting reservoir per pixel, mirrored by `DxrLightReservoir` in
  * dxr_pipeline.h. Bitterli et al. 2020 store the surviving sample, its unbiased
@@ -1250,7 +1262,8 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
 }
 
 float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
-                                 uint stream, SurfaceData surface)
+                                 uint stream, bool localProposal,
+                                 SurfaceData surface)
 {
     if (EmitterCount == 0u) {
         return 0.0;
@@ -1263,17 +1276,29 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
     selected.emitterIndex = InvalidIndex;
     selected.valid = false;
     float weightSum = 0.0;
+    int lightGridCell = localProposal ? lightGridCellForSurface(
+        pixel, sampleIndex, surface.position) : -1;
     for (uint candidate = 0u; candidate < candidateCount; ++candidate) {
         float4 random = sampleStream(
             pixel, sampleIndex, stream + candidate);
+        LightSelection lightSelection = selectEmitterForCell(
+            random.x, lightGridCell);
         EmitterSample lightSample;
-        lightSample.emitterIndex = selectEmitter(random.x);
+        lightSample.emitterIndex = lightSelection.emitterIndex;
         lightSample.positionSample = packPositionSample(random.yz);
         lightSample.valid = true;
         EmitterEvaluation evaluation = evaluateDiffusePolygonSample(
             surface, lightSample);
-        float weight = evaluation.valid && evaluation.sourcePdf > 0.0 ?
-            evaluation.targetPdf / evaluation.sourcePdf : 0.0;
+        float globalProbability = Emitters[
+            lightSample.emitterIndex].selectionProbability;
+        float conditionalAreaPdf = evaluation.valid &&
+                globalProbability > 0.0 ?
+            evaluation.sourcePdf / globalProbability : 0.0;
+        float proposalPdf = conditionalAreaPdf > 0.0 &&
+                lightSelection.inverseProbability > 0.0 ?
+            conditionalAreaPdf / lightSelection.inverseProbability : 0.0;
+        float weight = proposalPdf > 0.0 ?
+            evaluation.targetPdf / proposalPdf : 0.0;
         weightSum += weight;
         if (weight > 0.0 && random.w * weightSum < weight) {
             selected = lightSample;
@@ -1352,14 +1377,6 @@ EmitterEvaluation evaluateDirectSampleForFrame(SurfaceData surface,
     return evaluateEmitterSampleForFrame(surface, viewDirection, lightSample,
                                          previousFrame);
 }
-
-struct LightSelection
-{
-    uint emitterIndex;
-    /* RIS correction for selecting this emitter, excluding the independent
-     * uniform point sampled on its triangle. */
-    float inverseProbability;
-};
 
 float3 lightGridCellCenter(uint cellIndex)
 {
@@ -1449,9 +1466,6 @@ void BuildLightGrid()
 int lightGridCellForSurface(uint2 pixel, uint sampleIndex,
                             float3 surfacePosition)
 {
-    if (ReservoirSampleLimit == 0u) {
-        return -1;
-    }
     float3 jitter = sampleStream(
         pixel, sampleIndex, LightGridLookupStream).xyz - 0.5;
     float3 samplingPosition =
@@ -2228,7 +2242,7 @@ void RayGeneration()
                     SampleIndex * sampleCount + sampleOrdinal;
                 float3 sampleRadiance = sampleDiffusePolygonLight(
                     pixel, effectiveSampleIndex,
-                    DiffusePrimaryPolygonStream, surface);
+                    DiffusePrimaryPolygonStream, false, surface);
                 if (MaximumDepth >= 2u) {
                     float3 bounceDirection = cosineHemisphere(
                         surface.shadingNormal,
@@ -2257,7 +2271,7 @@ void RayGeneration()
                                 sampleDiffusePolygonLight(
                                     pixel, effectiveSampleIndex,
                                     DiffuseIndirectPolygonStream,
-                                    indirectSurface);
+                                    true, indirectSurface);
                         }
                     }
                 }

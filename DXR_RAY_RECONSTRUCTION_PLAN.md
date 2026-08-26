@@ -590,13 +590,17 @@ emission is shown. For each SPP sample, the primary diffuse surface streams
 `CandidateCount` samples from the complete global authored-emitter alias
 distribution through fresh RIS, converts area density to solid-angle density,
 and traces visibility only for the survivor. A cosine-weighted Lambert
-continuation then leaves the primary surface, and the first opaque indirect hit
-evaluates the same fresh polygon RIS for the Q2RTX-style indirect term. The
+continuation then leaves the primary surface. Before the primary dispatch, the
+existing camera-centred ReGIR grid is rebuilt from the complete alias table;
+the first opaque indirect hit evaluates fresh polygon RIS from its world-space
+cell. This supplies Q2RTX's essential local-light-list proposal behavior while
+remaining unbiased through the stored categorical inverse probability. The
 second estimator is
 `primary diffuse throughput * indirect Lambert BRDF * Le * cos / lightPdf`.
 Only these direct and one-bounce diffuse polygon-light terms execute:
 environment lighting, GGX/specular transport, authored zone ambient, a third
-surface hit, ReGIR, and temporal/spatial reservoirs remain dormant. Fresh RIS
+surface hit, and temporal/spatial reservoirs remain dormant. ReGIR supplies
+only the current-frame indirect proposal. Fresh RIS
 uses the unbiased `weightSum / (candidateCount * selectedTarget)` normalization
 and is not reused across frames or pixels. Source
 additive layers are visible and non-occluding but are not area-light candidates.

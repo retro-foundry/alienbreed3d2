@@ -125,6 +125,25 @@ inline float finalize_inverse_selection_probability(
         0.0f;
 }
 
+/* Convert the global area-to-solid-angle PDF evaluated by the shader into the
+ * PDF of a categorical emitter drawn from one ReGIR cell. The conditional
+ * point-on-triangle density is unchanged; only the emitter probability is
+ * replaced. Passing the global categorical inverse recovers the original PDF
+ * exactly, which is the required outside-grid behavior. */
+inline float local_solid_angle_pdf(
+    float global_solid_angle_pdf,
+    float global_selection_probability,
+    float local_inverse_selection_probability)
+{
+    return global_solid_angle_pdf > 0.0f &&
+            global_selection_probability > 0.0f &&
+            local_inverse_selection_probability > 0.0f ?
+        global_solid_angle_pdf /
+            (global_selection_probability *
+             local_inverse_selection_probability) :
+        0.0f;
+}
+
 }  // namespace ab3d2::dxr::light_grid
 
 #endif
