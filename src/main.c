@@ -1539,7 +1539,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
             if (!renderer_present(app->renderer, &app->frame, &app->view,
                                   error, sizeof(error))) {
                 fprintf(stderr,
-                        "[RENDER] DXR second indirect-diffuse frame failed for Level %c: %s\n",
+                        "[RENDER] DXR second diffuse polygon-light frame failed for Level %c: %s\n",
                         (char)('A' + level_index), error);
                 app->exit_code = 1;
                 return 0;
@@ -1964,7 +1964,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                                         "additive entity coverage" :
                                         dxr_lit_level_count == 0u ?
                                             "visible or indirect authored radiance" :
-                                            "stochastic indirect-diffuse response");
+                                            "stochastic diffuse polygon-light response");
                     app->exit_code = 1;
                     return 0;
                 }

@@ -1343,8 +1343,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         history_.input_height == render_height;
     const uint32_t sample_index =
         history_valid ? history_.sample_index + 1u : 0u;
-    /* The isolated indirect-diffuse pass varies continuation/light samples,
-     * not primary visibility. Moving the camera ray within each pixel made
+    /* The diffuse polygon-light pass varies NEE/continuation samples, not
+     * primary visibility. Moving the camera ray within each pixel made
      * otherwise stable geometry edges visibly shake, so keep it pixel-centred
      * and report the same zero primary jitter to Streamline. */
     const reconstruction::PixelJitter current_jitter = {};
@@ -1432,9 +1432,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                 shader_record_size * 2u, shader_record_size};
     dispatch.HitGroupTable = {table + shader_record_size * 5u, shader_record_size,
                               shader_record_size};
-    /* The isolated indirect-diffuse pass samples the global emitter alias table
-     * directly at its one indirect vertex. BuildLightGrid and SpatialShade stay
-     * dormant: no primary-light reservoir is built, reused, or shaded. */
+    /* The diffuse pass samples the global emitter alias table directly at its
+     * primary and one indirect vertex. BuildLightGrid and SpatialShade stay
+     * dormant: no light reservoir is built, reused, or shaded. */
     dispatch.RayGenerationShaderRecord = {
         table + shader_record_size, shader_record_size};
     dispatch.Width = render_width;

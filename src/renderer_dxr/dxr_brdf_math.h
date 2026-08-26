@@ -105,7 +105,7 @@ inline float cosine_hemisphere_pdf(float normal_direction)
 
 /* With cosine-weighted sampling, f * cos(theta) / pdf collapses exactly to
  * the diffuse reflectance. This is the throughput carried from the primary
- * surface to the one indirect vertex in the isolated polygon-light pass. */
+ * surface to the one indirect vertex in the diffuse polygon-light pass. */
 inline Vec3 cosine_sample_throughput(const Material &material,
                                      float normal_direction)
 {

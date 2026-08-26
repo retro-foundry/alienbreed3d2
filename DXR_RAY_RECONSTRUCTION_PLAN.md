@@ -576,19 +576,24 @@ Use the `SceneEnvironment` backdrop/sky through a documented lat-long or equival
 ## Noisy path tracer
 
 Current staged status (2026-08-26): after reducing the executed DXR path to
-flat primary visibility, the first lighting term has been reintroduced in
-isolation. The camera ray remains pixel-centred with zero frame-varying
+flat primary visibility, diffuse polygon-light transport has been reintroduced
+without the former full PBR/ReSTIR estimator. The camera ray remains
+pixel-centred with zero frame-varying
 subpixel jitter and preserves flat base colour as an inspectable material
 guide rather than adding it to HDR as self-emission. Directly visible authored
-emission is shown. For each SPP sample, a
-cosine-weighted Lambert continuation leaves the primary surface, and the first
-opaque indirect hit explicitly samples one triangle from the complete global
-authored-emitter alias distribution, converts its area density to solid-angle
-density, and traces visibility. The estimator is therefore
+emission is shown. For each SPP sample, the primary diffuse surface streams
+`CandidateCount` samples from the complete global authored-emitter alias
+distribution through fresh RIS, converts area density to solid-angle density,
+and traces visibility only for the survivor. A cosine-weighted Lambert
+continuation then leaves the primary surface, and the first opaque indirect hit
+evaluates the same fresh polygon RIS for the Q2RTX-style indirect term. The
+second estimator is
 `primary diffuse throughput * indirect Lambert BRDF * Le * cos / lightPdf`.
-Only this indirect-polygon-light NEE term executes: primary-hit direct NEE,
+Only these direct and one-bounce diffuse polygon-light terms execute:
 environment lighting, GGX/specular transport, authored zone ambient, a third
-surface hit, ReGIR, and temporal/spatial reservoirs remain dormant. Source
+surface hit, ReGIR, and temporal/spatial reservoirs remain dormant. Fresh RIS
+uses the unbiased `weightSum / (candidateCount * selectedTarget)` normalization
+and is not reused across frames or pixels. Source
 additive layers are visible and non-occluding but are not area-light candidates.
 
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
@@ -829,8 +834,8 @@ readback statistics/ID overlays, and PIX validation remain later work.
 ### 7. `Add the clean-room noisy PBR path tracer`
 
 Current status: the historical complete estimator remains implemented but is
-inactive apart from the isolated indirect-diffuse polygon-light stage recorded
-above. The executed shader covers world geometry, non-projectile bitmap/vector
+inactive apart from the direct and one-bounce diffuse polygon-light stage
+recorded above. The executed shader covers world geometry, non-projectile bitmap/vector
 entities, and the PBR companion weapon. Alpha-tested surfaces participate in
 primary, continuation, and visibility traversal; additive/glare geometry is
 visible but excluded from the area-emitter distribution. Later presentation

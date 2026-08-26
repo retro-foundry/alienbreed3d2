@@ -292,6 +292,8 @@ static const uint ReservoirSpatialAcceptanceStream = 0x10300u;
 static const uint ReservoirEnvironmentStream = 0x10400u;
 static const uint ReservoirBrdfStream = 0x10500u;
 static const uint SecondaryDirectStream = 0x10600u;
+static const uint DiffusePrimaryPolygonStream = 0x10700u;
+static const uint DiffuseIndirectPolygonStream = 0x10800u;
 static const uint SecondaryLocalSampleCount = 2u;
 static const uint SecondaryEnvironmentSampleCount = 1u;
 /*
@@ -1166,19 +1168,24 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
     return evaluation;
 }
 
-/*
- * The isolated equivalent of Q2RTX's indirect-polygon-light transport term:
- * one authored emissive-triangle NEE sample evaluated at an indirect diffuse
- * vertex. This deliberately does not call evaluateBsdf, sample the analytic
- * environment, read the light grid, or publish/reuse a reservoir. Keeping the
- * Lambert estimator separate prevents the dormant GGX/direct-primary path from
- * leaking energy into this reconstruction stage.
- */
-float3 evaluateIndirectDiffusePolygonSample(SurfaceData surface,
-                                            EmitterSample lightSample)
+/* Plain authored-polygon NEE for one diffuse receiver. The primary receiver
+ * supplies the directly lit baseline; evaluating the same estimator after the
+ * cosine continuation supplies the Q2RTX-style indirect-polygon-light term.
+ * This deliberately does not call the full PBR evaluator, sample the analytic
+ * environment, read the light grid, or publish/reuse a reservoir. */
+EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
+                                                EmitterSample lightSample)
 {
+    EmitterEvaluation evaluation;
+    evaluation.contribution = 0.0;
+    evaluation.targetPdf = 0.0;
+    evaluation.sourcePdf = 0.0;
+    evaluation.brdfPdf = 0.0;
+    evaluation.lightDirection = 0.0;
+    evaluation.lightDistance = 0.0;
+    evaluation.valid = false;
     if (!lightSample.valid || lightSample.emitterIndex >= EmitterCount) {
-        return 0.0;
+        return evaluation;
     }
     EmissiveTriangle emitter = Emitters[lightSample.emitterIndex];
     SceneVertex first = Vertices[emitter.firstVertex + 0u];
@@ -1198,7 +1205,7 @@ float3 evaluateIndirectDiffusePolygonSample(SurfaceData surface,
     float3 toLight = lightPosition - surface.position;
     float distanceSquared = dot(toLight, toLight);
     if (distanceSquared <= RayEpsilon * RayEpsilon) {
-        return 0.0;
+        return evaluation;
     }
     float lightDistance = sqrt(distanceSquared);
     float3 lightDirection = toLight / lightDistance;
@@ -1206,18 +1213,18 @@ float3 evaluateIndirectDiffusePolygonSample(SurfaceData surface,
                                         lightDirection));
     if (receiverCosine <= 0.0 ||
         dot(surface.geometricNormal, lightDirection) <= 0.0) {
-        return 0.0;
+        return evaluation;
     }
     float3 lightNormal = normalize(cross(second.position - first.position,
                                          third.position - first.position));
     float lightCosine = abs(dot(lightNormal, -lightDirection));
     if (lightCosine <= 1.0e-6) {
-        return 0.0;
+        return evaluation;
     }
     float sourcePdf = emitter.selectionProbability * emitter.inverseArea *
         distanceSquared / lightCosine;
     if (!(sourcePdf > 0.0) || isnan(sourcePdf) || isinf(sourcePdf)) {
-        return 0.0;
+        return evaluation;
     }
     SceneMaterial lightMaterial = Materials[first.materialIndex];
     MaterialSampleFootprint lightFootprint = materialSampleFootprint(
@@ -1229,32 +1236,65 @@ float3 evaluateIndirectDiffusePolygonSample(SurfaceData surface,
     float3 emittedRadiance = sampleMaterialAtlas(
         EmissiveAtlas, lightFootprint).rgb *
         lightMaterial.emissiveFactor * lightEmissiveScale;
-    if (!any(emittedRadiance > 0.0) ||
-        !traceVisibility(surface.position +
-                             surface.geometricNormal * RayEpsilon,
-                         lightDirection, lightDistance - RayEpsilon,
-                         SceneInstanceMask)) {
-        return 0.0;
+    if (!any(emittedRadiance > 0.0)) {
+        return evaluation;
     }
-    return (diffuseReflectance(surface) / Pi) * emittedRadiance *
-        (receiverCosine / sourcePdf);
+    evaluation.contribution = (diffuseReflectance(surface) / Pi) *
+        emittedRadiance * receiverCosine;
+    evaluation.targetPdf = luminance(evaluation.contribution);
+    evaluation.sourcePdf = sourcePdf;
+    evaluation.lightDirection = lightDirection;
+    evaluation.lightDistance = lightDistance;
+    evaluation.valid = evaluation.targetPdf > 0.0;
+    return evaluation;
 }
 
-float3 sampleIndirectDiffusePolygonLight(uint2 pixel, uint sampleIndex,
-                                         SurfaceData surface)
+float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
+                                 uint stream, SurfaceData surface)
 {
     if (EmitterCount == 0u) {
         return 0.0;
     }
-    const uint dimension = PathDimensionsPerBounce;
-    EmitterSample lightSample;
-    lightSample.emitterIndex = selectEmitter(
-        sampleBlueNoise(pixel, sampleIndex, dimension + 0u));
-    lightSample.positionSample = packPositionSample(float2(
-        sampleBlueNoise(pixel, sampleIndex, dimension + 1u),
-        sampleBlueNoise(pixel, sampleIndex, dimension + 2u)));
-    lightSample.valid = true;
-    return evaluateIndirectDiffusePolygonSample(surface, lightSample);
+    /* Fresh RIS rejects black texels and poor geometric connections before the
+     * one survivor spends a visibility ray. There is no temporal/spatial reuse
+     * here: CandidateCount changes current-frame proposal quality only. */
+    uint candidateCount = max(CandidateCount, 1u);
+    EmitterSample selected = (EmitterSample)0;
+    selected.emitterIndex = InvalidIndex;
+    selected.valid = false;
+    float weightSum = 0.0;
+    for (uint candidate = 0u; candidate < candidateCount; ++candidate) {
+        float4 random = sampleStream(
+            pixel, sampleIndex, stream + candidate);
+        EmitterSample lightSample;
+        lightSample.emitterIndex = selectEmitter(random.x);
+        lightSample.positionSample = packPositionSample(random.yz);
+        lightSample.valid = true;
+        EmitterEvaluation evaluation = evaluateDiffusePolygonSample(
+            surface, lightSample);
+        float weight = evaluation.valid && evaluation.sourcePdf > 0.0 ?
+            evaluation.targetPdf / evaluation.sourcePdf : 0.0;
+        weightSum += weight;
+        if (weight > 0.0 && random.w * weightSum < weight) {
+            selected = lightSample;
+        }
+    }
+    if (!selected.valid || !(weightSum > 0.0)) {
+        return 0.0;
+    }
+    EmitterEvaluation selectedEvaluation = evaluateDiffusePolygonSample(
+        surface, selected);
+    if (!selectedEvaluation.valid ||
+        !traceVisibility(surface.position +
+                             surface.geometricNormal * RayEpsilon,
+                         selectedEvaluation.lightDirection,
+                         selectedEvaluation.lightDistance - RayEpsilon,
+                         SceneInstanceMask)) {
+        return 0.0;
+    }
+    float inversePdf = weightSum /
+        (float(candidateCount) * selectedEvaluation.targetPdf);
+    return selectedEvaluation.contribution * inversePdf;
 }
 
 EmitterEvaluation evaluateEnvironmentSample(SurfaceData surface,
@@ -2173,46 +2213,54 @@ void RayGeneration()
         writeDiffuseSurfaceGuides(pixel, primaryPayload, surface, dimensions);
 
         /* Base colour is a reconstruction/material guide, not self-emission.
-         * The displayed radiance contains source visibility plus only the
-         * requested lighting term. No polygon NEE is evaluated at this primary
-         * vertex. */
+         * Visible source radiance is deterministic; the loop evaluates plain
+         * diffuse polygon NEE at the primary hit and, when enabled, repeats it
+         * after one cosine continuation for indirect transport. */
         resolvedRadiance += surface.emission;
         float3 primaryThroughput = diffuseReflectance(surface);
-        if (MaximumDepth >= 2u && EmitterCount > 0u &&
+        if (EmitterCount > 0u &&
             luminance(primaryThroughput) > 1.0e-6) {
             uint sampleCount = max(SamplesPerPixel, 1u);
-            float3 indirectRadiance = 0.0;
+            float3 diffuseRadiance = 0.0;
             for (uint sampleOrdinal = 0u; sampleOrdinal < sampleCount;
                  ++sampleOrdinal) {
                 uint effectiveSampleIndex =
                     SampleIndex * sampleCount + sampleOrdinal;
-                float3 bounceDirection = cosineHemisphere(
-                    surface.shadingNormal,
-                    float2(sampleBlueNoise(pixel, effectiveSampleIndex, 6u),
-                           sampleBlueNoise(pixel, effectiveSampleIndex, 7u)));
-                if (dot(surface.geometricNormal, bounceDirection) <= 0.0) {
-                    continue;
+                float3 sampleRadiance = sampleDiffusePolygonLight(
+                    pixel, effectiveSampleIndex,
+                    DiffusePrimaryPolygonStream, surface);
+                if (MaximumDepth >= 2u) {
+                    float3 bounceDirection = cosineHemisphere(
+                        surface.shadingNormal,
+                        float2(sampleBlueNoise(
+                                   pixel, effectiveSampleIndex, 6u),
+                               sampleBlueNoise(
+                                   pixel, effectiveSampleIndex, 7u)));
+                    if (dot(surface.geometricNormal, bounceDirection) > 0.0) {
+                        RayDesc bounceRay;
+                        bounceRay.Origin = surface.position +
+                            surface.geometricNormal * RayEpsilon;
+                        bounceRay.Direction = bounceDirection;
+                        bounceRay.TMin = RayEpsilon;
+                        bounceRay.TMax = SceneFarPlane;
+                        SegmentTraversal bounceSegment = traceSegment(
+                            bounceRay);
+                        if (sampleOrdinal == 0u) {
+                            DiffuseHitDistance[pixel] =
+                                bounceSegment.payload.hit != 0u ?
+                                    bounceSegment.distance : SceneFarPlane;
+                        }
+                        if (bounceSegment.payload.hit != 0u) {
+                            SurfaceData indirectSurface = loadSurface(
+                                bounceSegment.payload, bounceRay.Direction);
+                            sampleRadiance += primaryThroughput *
+                                sampleDiffusePolygonLight(
+                                    pixel, effectiveSampleIndex,
+                                    DiffuseIndirectPolygonStream,
+                                    indirectSurface);
+                        }
+                    }
                 }
-                RayDesc bounceRay;
-                bounceRay.Origin = surface.position +
-                    surface.geometricNormal * RayEpsilon;
-                bounceRay.Direction = bounceDirection;
-                bounceRay.TMin = RayEpsilon;
-                bounceRay.TMax = SceneFarPlane;
-                SegmentTraversal bounceSegment = traceSegment(bounceRay);
-                if (sampleOrdinal == 0u) {
-                    DiffuseHitDistance[pixel] =
-                        bounceSegment.payload.hit != 0u ?
-                            bounceSegment.distance : SceneFarPlane;
-                }
-                if (bounceSegment.payload.hit == 0u) {
-                    continue;
-                }
-                SurfaceData indirectSurface = loadSurface(
-                    bounceSegment.payload, bounceRay.Direction);
-                float3 sampleRadiance = primaryThroughput *
-                    sampleIndirectDiffusePolygonLight(
-                        pixel, effectiveSampleIndex, indirectSurface);
                 if (any(isnan(sampleRadiance)) ||
                     any(isinf(sampleRadiance))) {
                     continue;
@@ -2221,9 +2269,9 @@ void RayGeneration()
                 if (RadianceClamp > 0.0 && sampleLuminance > RadianceClamp) {
                     sampleRadiance *= RadianceClamp / sampleLuminance;
                 }
-                indirectRadiance += sampleRadiance;
+                diffuseRadiance += sampleRadiance;
             }
-            resolvedRadiance += indirectRadiance / float(sampleCount);
+            resolvedRadiance += diffuseRadiance / float(sampleCount);
         }
     }
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
