@@ -162,6 +162,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_readback_;
     Microsoft::WRL::ComPtr<ID3D12Resource> indirect_radiance_;
     Microsoft::WRL::ComPtr<ID3D12Resource> indirect_filtered_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> indirect_chroma_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> indirect_chroma_filtered_;
     Microsoft::WRL::ComPtr<ID3D12Resource> automatic_exposure_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> indirect_histories_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;

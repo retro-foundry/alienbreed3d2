@@ -10,6 +10,10 @@ On 2026-08-20 the user separately authorized the plan-listed companion-weapon
 files in that sibling as behavioral evidence, then directed a comparison of its
 weapon PBR materials. No sibling texture or generated material package was
 imported.
+On 2026-08-26 the user requested a detailed breakdown of Q2RTX's renderer and
+then directed continued investigation of its lower temporal noise. The exact
+read-only Q2RTX audit is recorded below. No Q2RTX source text, shader, binary,
+asset, generated map, or material package was imported.
 
 ## Project-authored implementation
 
@@ -18,8 +22,9 @@ The files under `src/renderer_dxr/`, `src/renderer_rtx.cpp`, and
 the clean baseline. All diagnostic, ray-tracing, and presentation HLSL is
 project-authored. No source, shader, generated table, binary, scene data, or
 asset was imported from Q2RTX, a removed renderer, or repository history
-before clean baseline `86241dd`. The later emissive compatibility comparison
-did not import a generated Q2RTX package, renderer binary, shader, or scene.
+before clean baseline `86241dd`. The later user-authorized behavioral
+inspections did not import a generated Q2RTX package, renderer binary, shader,
+or scene.
 
 The DXR-only build produces DXIL in the build tree and stages only its
 project-built diagnostic, ray-tracing, and presentation shader objects beside
@@ -324,13 +329,38 @@ the reference lookup within every block while preventing the aligned full-tile
 pattern from repeating every 256 presented frames. No temporal accumulation,
 radiance clamp, spatial filter, or alternate denoiser was added.
 
-The separate one-bounce diffuse-indirect channel uses a project-authored
-low-frequency reconstruction stage. Its separable cubic B-spline weights,
-threefold step sequence, depth/geometric-normal guide tests, spatial-before-
-temporal ordering, and history layout were derived and validated inside this
-repository. No Q2RTX or other third-party reconstruction shader was inspected,
-copied, linked, or staged for this change. The stage does not filter the fresh
-direct/specular signal tagged for DLSS Ray Reconstruction.
+The separate one-bounce diffuse-indirect channel uses project-authored HLSL and
+host code. Its first full-resolution reconstruction was derived and validated
+inside this repository. After the explicit 2026-08-26 direction, the bounded
+Q2RTX audit below identified the missing stage structure. The replacement keeps
+full-resolution validated temporal history, represents incident luminance with
+standard first-order real spherical harmonics plus two opponent-chroma values,
+integrates guide-compatible 3-by-3 regions at one-third resolution, applies a
+regional luminance bound and three guided wavelet stages, and reconstructs with
+four bilateral taps. The stage does not filter the fresh direct/specular signal
+tagged for DLSS Ray Reconstruction.
+
+### User-authorized Q2RTX behavioral audit
+
+- Local checkout: `C:\Users\paula\Documents\Projects\Q2RTX`
+- Exact commit: `f2526e9a165949f66e91e82f0d63aa7bb2567b4d`
+- Checkout state during inspection: clean
+- Licence of inspected source/shaders: GPL-2.0-or-later
+- Files: `doc/client.md`, `src/refresh/vkpt/asvgf.c`,
+  `src/refresh/vkpt/global_ubo.h`, and
+  `src/refresh/vkpt/shader/{asvgf.glsl,indirect_lighting.rgen,utils.glsl,
+  asvgf_gradient_reproject.comp,asvgf_gradient_img.comp,
+  asvgf_gradient_atrous.comp,asvgf_temporal.comp,asvgf_lf.comp,
+  asvgf_atrous.comp}`.
+
+Only observable algorithm boundaries and representation choices were recorded:
+secondary-hit polygon-light NEE supplies a directional low-frequency diffuse
+channel; temporal reprojection, large-region change detection, regional
+downsampling, deflicker, guided low-resolution filtering, and bilateral
+reconstruction stabilize it. The inspection also showed that this is not a
+ReSTIR-GI pipeline. No GPL implementation text or expression was copied or
+adapted. No Q2RTX dependency, source, shader, table, data, binary, or asset is
+present in the build or repository as a result.
 
 ## Approved conceptual references inspected
 

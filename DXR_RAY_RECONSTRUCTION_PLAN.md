@@ -203,15 +203,27 @@ SceneFrame
   -> DXGI swap chain
 ```
 
-The renderer should produce a physically coherent, deliberately noisy ray-traced image and let NVIDIA Ray Reconstruction perform denoising and reconstruction. It must not add a hand-written temporal accumulator, bilateral filter, reflection denoiser, TAA, spatial specular blur, or other pre-RR workaround.
+The original Phase 9 target was a physically coherent noisy image denoised only
+by NVIDIA Ray Reconstruction. Later Level A measurements showed that one rare
+diffuse continuation per pixel is a distinct low-frequency signal that RR does
+not reconstruct reliably by itself. The user therefore directed a dedicated
+diffuse-only reconstruction path. That scoped path must remain separate from
+fresh direct/specular radiance; it does not authorize a general pre-RR blur,
+reflection denoiser, or TAA replacement.
 
-The target is a stable and convincing PBR presentation of the native AB3D2 scene. Q2RTX is neither an implementation source nor a pixel-matching oracle for this renderer.
+The target is a stable and convincing PBR presentation of the native AB3D2
+scene. Q2RTX is a bounded behavioral comparator only where an explicit
+user-authorized inspection is recorded below; it is not the authority for
+AB3D2 content, gameplay, or exact pixels.
 
 ## Non-negotiable clean-room boundary
 
 The following rules apply to every implementation commit:
 
-1. Do not inspect, copy, diff, port, link, regenerate from, or use as an algorithmic reference any Q2RTX source, shader, renderer asset, generated BSP, visibility sidecar, material file, light list, sampling strategy, denoiser, or prior removed implementation.
+1. Do not inspect, copy, diff, port, link, regenerate from, or use Q2RTX source,
+   shaders, renderer assets, or generated data except for a read-only,
+   user-authorized behavioral audit whose exact revision and files are recorded
+   in this plan and `docs/DXR_PROVENANCE.md`. No Q2RTX source text may be copied.
 2. Do not recover renderer code from this repository's older commits. The history necessarily records the removal, but those commits are prohibited implementation material. Start from `86241dd` or a descendant and use only files present in that clean tree.
 3. Do not add a Q2 BSP, PVS, cluster, ZoneT lighting proposal, light cap, importance workaround, temporal-reprojection hack, or Q2 material convention to the new backend.
 4. Keep a provenance record for every imported source file, shader, generated table, binary, and third-party dependency. Copying a substantial MIT-licensed implementation requires retaining its copyright and licence notice.
@@ -225,7 +237,39 @@ removed-renderer restriction only for the weapon evidence listed below. It does
 not authorize Q2RTX code, packages, algorithms, assets, or any other historical
 renderer path.
 
+On 2026-08-26 the user explicitly requested a detailed Q2RTX renderer breakdown
+and then directed continued investigation of its lower noise. That authorizes
+the separate, read-only Q2RTX audit recorded under Approved references. It does
+not authorize importing GPL source, shaders, binaries, BSPs, material files, or
+generated assets. The implementation in this repository remains independently
+written against project resources.
+
 ## Approved references and exact revisions
+
+### `Q2RTX`: user-directed low-frequency reconstruction audit
+
+Local path: `C:\Users\paula\Documents\Projects\Q2RTX`
+
+- Inspected commit: `f2526e9a165949f66e91e82f0d63aa7bb2567b4d`
+- Licence of inspected shader/source files: GPL-2.0-or-later
+- Inspection date and authority: 2026-08-26, after the user requested a
+  detailed renderer breakdown and directed continued investigation of Q2RTX's
+  lower temporal noise.
+- Files inspected: `doc/client.md`, `src/refresh/vkpt/asvgf.c`,
+  `src/refresh/vkpt/global_ubo.h`, and the shaders `asvgf.glsl`,
+  `indirect_lighting.rgen`, `utils.glsl`, `asvgf_gradient_reproject.comp`,
+  `asvgf_gradient_img.comp`, `asvgf_gradient_atrous.comp`,
+  `asvgf_temporal.comp`, `asvgf_lf.comp`, and `asvgf_atrous.comp`.
+
+The audit established behavior and stage boundaries: diffuse continuation plus
+polygon-light NEE at the secondary hit, a separate directional low-frequency
+signal, long validated temporal history, one-third-resolution regional
+integration, explicit regional deflicker, three guided wavelet stages, and
+bilateral reconstruction. It also established that this path is not ReSTIR GI.
+No GPL source text, shader, table, binary, asset, or generated output was copied,
+adapted, linked, staged, or committed. The HLSL and host implementation here
+were written independently for the existing D3D12 resources; the real
+first-order spherical-harmonic basis used is standard published mathematics.
 
 ### `fisica-rt`: PBR path-tracing concepts
 
@@ -609,16 +653,18 @@ The sparse second-vertex result now has a dedicated low-frequency diffuse
 reconstruction path. The continuation and indirect-light evaluation use the
 second hit's geometric normal, and the continuation distribution deliberately
 covers more grazing directions than an ordinary cosine sample. The path tracer
-stores incident indirect radiance without the primary albedo. Four project-owned
-5x5 depth/geometric-normal-guided passes use a separable cubic B-spline kernel
-at step widths 1, 3, 9, and 27. The taps retain continuous support over an
-80-pixel radius, and spatial reconstruction precedes temporal accumulation so
-history stores a low-frequency estimate rather than isolated one-pixel paths.
-That history is reprojected through dense scene motion, rejected on depth/
-geometric-normal disagreement, and maintained as a bounded running average.
-Primary albedo is then restored and direct radiance is added. This reconstructs the
-existing one-bounce polygon-light transport; it neither invents ambient light
-nor implements ReSTIR GI. A sparse 32-by-18 primary-surface grid supplies a
+stores the incident signal without primary albedo as first-order directional
+luminance plus two opponent-chroma values. Full-resolution history is
+reprojected through dense scene motion, rejected on depth/geometric-normal
+disagreement, and maintained as a bounded running average. Each guide-compatible
+3x3 full-resolution region is then integrated into one anchored value in a
+one-third-resolution working image. An explicit regional deflicker bound runs
+before three guided 3x3 wavelet passes at low-resolution steps 1, 2, and 4. A
+four-tap bilateral reconstruction projects the directional field onto the
+full-resolution primary geometric normal; primary albedo is then restored and
+direct radiance is added. This reconstructs the existing one-bounce polygon-
+light transport; it neither invents ambient light nor implements ReSTIR GI. A
+sparse 32-by-18 primary-surface grid supplies a
 64-bin log-luminance histogram. Exact black is excluded, the centre region has
 two votes, and the weighted 10th--98th percentile interval drives bounded,
 elapsed-time exposure with a faster response to highlights than darkness. A
@@ -633,9 +679,15 @@ as a square lattice that appeared and faded in dark areas. On the same frozen
 Level A save over 32 frames, replacing that impulse response reduced the
 indirect-debug mean frame delta from `0.1094` to `0.0660`; the final
 Ray-Reconstruction presentation fell from `0.1080` to `0.0938` while retaining
-the corridor fill. This is reconstruction of the explicitly separated diffuse
-indirect signal, not a filter on the fresh direct/specular input supplied to
-DLSS Ray Reconstruction.
+the corridor fill. Those are retained historical measurements of the former
+full-resolution B-spline stage. The current directional reduced-resolution
+stage measured `0.0468` in the indirect debug view, a further 29% reduction.
+The composed RR result measured `0.1098`--`0.1113` in repeated runs; its three
+16-level temporal outliers did not increase, but automatic-exposure convergence
+and unfiltered high-frequency/direct noise keep that whole-image number above
+the former `0.0938` run. This is reconstruction of the explicitly separated
+diffuse-indirect signal, not a filter on the fresh direct/specular input
+supplied to DLSS Ray Reconstruction.
 
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
@@ -1375,9 +1427,11 @@ nothing passes any stability bound trivially.
 
 #### 11f. Deferred
 
-- ReSTIR GI for the indirect channel. The bounded temporal average and wide
-  guided reconstruction above reduce variance but do not resample path vertices
-  or reservoirs, so ReSTIR GI remains a separate future feature.
+- ReSTIR GI for the indirect channel. The bounded temporal average and reduced-
+  resolution directional reconstruction above reduce variance but do not
+  resample path vertices or reservoirs. Q2RTX's inspected diffuse pipeline also
+  uses secondary NEE plus reconstruction rather than ReSTIR GI, so ReSTIR GI
+  remains a separate future feature rather than the next parity requirement.
 - Dropping the forced `ePresetD` on every quality level.
 
 ## Test matrix

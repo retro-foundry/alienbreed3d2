@@ -37,17 +37,17 @@ int main()
     namespace exposure = ab3d2::dxr::auto_exposure;
     namespace indirect = ab3d2::dxr::indirect_reconstruction;
     namespace grid = ab3d2::dxr::light_grid;
-    static_assert(indirect::filter_steps[0] == 1 &&
-                  indirect::filter_steps[1] == 3 &&
-                  indirect::filter_steps[2] == 9 &&
-                  indirect::filter_steps[3] == 27 &&
-                  indirect::filter_radius == 2 &&
-                  indirect::filter_reach == 80 &&
-                  indirect::filter_kernel[0] == 1 &&
-                  indirect::filter_kernel[1] == 4 &&
-                  indirect::filter_kernel[2] == 6 &&
-                  indirect::filter_kernel[3] == 4 &&
-                  indirect::filter_kernel[4] == 1 &&
+    static_assert(indirect::downsample_factor == 3 &&
+                  indirect::filter_steps[0] == 1 &&
+                  indirect::filter_steps[1] == 2 &&
+                  indirect::filter_steps[2] == 4 &&
+                  indirect::filter_radius == 1 &&
+                  indirect::filter_reach == 22 &&
+                  indirect::filter_kernel[0] == 1.0f &&
+                  indirect::filter_kernel[1] == 0.5f &&
+                  indirect::deflicker_neighbor_factor == 2.0f &&
+                  indirect::sh_basis_l0 == 0.282095f &&
+                  indirect::sh_basis_l1 == 0.488603f &&
                   indirect::filter_support_is_continuous() &&
                   indirect::continuation_radial_power == 0.4f);
     exposure::Histogram metering_histogram = {};
@@ -117,14 +117,40 @@ int main()
         indirect::guide_weight(0.0f, 100.0f, 1.0f) != 0.0f) {
         return fail("low-frequency indirect guide weighting changed");
     }
-    if (indirect::kernel_weight(-3) != 0 ||
-        indirect::kernel_weight(-2) != 1 ||
-        indirect::kernel_weight(-1) != 4 ||
-        indirect::kernel_weight(0) != 6 ||
-        indirect::kernel_weight(1) != 4 ||
-        indirect::kernel_weight(2) != 1 ||
-        indirect::kernel_weight(3) != 0) {
+    if (indirect::kernel_weight(-2) != 0.0f ||
+        indirect::kernel_weight(-1) != 0.5f ||
+        indirect::kernel_weight(0) != 1.0f ||
+        indirect::kernel_weight(1) != 0.5f ||
+        indirect::kernel_weight(2) != 0.0f) {
         return fail("low-frequency indirect filter kernel changed");
+    }
+    if (!near(indirect::deflicker_scale(4.0f, 8.0f, 8u), 0.5f) ||
+        indirect::deflicker_scale(1.0f, 8.0f, 8u) != 1.0f ||
+        indirect::deflicker_scale(1.0f, 0.0f, 8u) != 0.0f ||
+        indirect::deflicker_scale(1.0f, 0.0f, 0u) != 1.0f ||
+        indirect::deflicker_scale(0.0f, 8.0f, 8u) != 1.0f) {
+        return fail("low-frequency indirect deflicker contract changed");
+    }
+    const indirect::Color axial = indirect::project_signal(
+        indirect::signal_from_radiance({1.0f, 0.5f, 0.25f},
+                                       0.0f, 0.0f, 1.0f),
+        0.0f, 0.0f, 1.0f);
+    const indirect::Color tangent = indirect::project_signal(
+        indirect::signal_from_radiance({1.0f, 0.5f, 0.25f},
+                                       0.0f, 0.0f, 1.0f),
+        1.0f, 0.0f, 0.0f);
+    const indirect::Color black = indirect::project_signal(
+        indirect::signal_from_radiance({0.0f, 0.0f, 0.0f},
+                                       0.0f, 0.0f, 1.0f),
+        0.0f, 0.0f, 1.0f);
+    if (!near(axial.red, 1.5f, 2.0e-5f) ||
+        !near(axial.green, 0.75f, 2.0e-5f) ||
+        !near(axial.blue, 0.375f, 2.0e-5f) ||
+        !near(tangent.red, 0.5f, 2.0e-5f) ||
+        !near(tangent.green, 0.25f, 2.0e-5f) ||
+        !near(tangent.blue, 0.125f, 2.0e-5f) ||
+        black.red != 0.0f || black.green != 0.0f || black.blue != 0.0f) {
+        return fail("directional low-frequency projection changed");
     }
     static_assert(grid::cell_count == 4096u);
     static_assert(grid::entry_count == 2097152u);
