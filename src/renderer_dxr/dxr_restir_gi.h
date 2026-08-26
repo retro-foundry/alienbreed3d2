@@ -23,6 +23,7 @@ struct PackedReservoir {
 static_assert(sizeof(PackedReservoir) == 32u);
 
 inline constexpr uint32_t invalid_primitive = 0xffffffffu;
+inline constexpr uint32_t initial_candidate_count = 4u;
 inline constexpr uint32_t spatial_sample_count = 4u;
 inline constexpr int spatial_radius = 32;
 inline constexpr float uniform_hemisphere_pdf =

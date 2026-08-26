@@ -725,8 +725,10 @@ three guided wavelets therefore remain the production path. The startup-only
 boundary without adding a second RR pass.
 
 On 2026-08-26 a complete project-owned `restir` comparison mode was added at
-the user's direction. Its current-frame continuation is uniform over the
-primary geometric-normal hemisphere. A hit is stored as triangle identity,
+the user's direction. Four current-frame continuation candidates are sampled
+uniformly over the primary geometric-normal hemisphere and streamed into one
+initial reservoir without repeating primary direct lighting. A hit is stored as
+triangle identity,
 full-precision barycentrics, secondary outgoing radiance, effective sample
 count, and finalized basic-resampling weight. The common sample domain is
 secondary surface area: `p_A = p_omega cos_y / r^2`, while reconnection applies
@@ -753,6 +755,18 @@ slower, and the complete Levels A--P GPU smoke passed. ReSTIR GI therefore
 remains the explicit comparison path rather than replacing `full`: reservoir
 resampling improves path discovery, but it is not itself the smooth diffuse
 reconstruction that DLSS-RR failed to supply from the sparse raw signal.
+
+The initial version above traced one new GI continuation per configured SPP.
+After the user's interactive check requested denser discovery, the ReSTIR path
+was given a floor of four GI-only candidates while ordinary primary direct
+lighting retained the configured SPP count. On the same captured saved view,
+this reduced delta from `0.2103` to `0.1715` with no 16-level outliers. Moving
+Level A late delta fell from `0.5122` to `0.4119`; the second Shotgun burst rose
+from `11.555 ms` to `13.416 ms`, about 16%. For comparison, four complete SPP
+reached `0.1081` saved and `0.2949` moving but cost `16.731 ms`, about 45% over
+the one-candidate result because it needlessly repeated direct NEE as well.
+Four GI-only candidates are therefore the ReSTIR floor; configured SPP above
+four remains an explicit quality-for-cost option that raises both channels.
 
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
@@ -1491,13 +1505,13 @@ The all-level smoke's stability numbers should not be turned into a regression
 threshold until the near-black levels are understood, because a level that renders
 nothing passes any stability bound trivially.
 
-#### 11f. Deferred
+#### 11f. Implemented comparison and deferred work
 
-- ReSTIR GI for the indirect channel. The bounded temporal average and reduced-
-  resolution directional reconstruction above reduce variance but do not
-  resample path vertices or reservoirs. Q2RTX's inspected diffuse pipeline also
-  uses secondary NEE plus reconstruction rather than ReSTIR GI, so ReSTIR GI
-  remains a separate future feature rather than the next parity requirement.
+- ReSTIR GI for the indirect channel is implemented as the explicit `restir`
+  comparison documented above. It resamples secondary path vertices through
+  initial, temporal, and spatial reservoirs, independently of Q2RTX's inspected
+  secondary-NEE reconstruction. Its measured single-reservoir variation keeps
+  it out of the production `full` default.
 - Dropping the forced `ePresetD` on every quality level.
 
 ## Test matrix
@@ -1619,7 +1633,8 @@ The renderer is ready for normal use only when all of these are true:
 - Static BLAS compaction, bindless layout, sampler choice, and bounce-count/performance presets: measure after correctness; none may become a visual workaround.
 - Additional spatial passes beyond the one current-frame pass in 11c: measure the
   accepted implementation before paying for more ray-traced neighbor domains.
-- ReSTIR GI: deferred until the completed direct-light signal passes its new
-  moving-camera validation.
+- Promoting ReSTIR GI over `full`, or adding further spatial iterations, remains
+  deferred until a measured variant beats the production path in both saved and
+  moving reconstruction quality.
 
 This plan intentionally leaves no compatibility path to the removed renderer. If a required behavior is missing, extend the clean renderer and its API-neutral `SceneFrame` evidence rather than reviving old code or data.

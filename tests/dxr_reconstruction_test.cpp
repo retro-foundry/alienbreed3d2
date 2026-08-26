@@ -68,7 +68,8 @@ int main()
                   indirect::filter_support_is_continuous() &&
                   indirect::continuation_radial_power == 0.4f);
     static_assert(sizeof(gi::PackedReservoir) == 32u);
-    static_assert(gi::spatial_sample_count == 4u &&
+    static_assert(gi::initial_candidate_count == 4u &&
+                  gi::spatial_sample_count == 4u &&
                   gi::spatial_radius == 32);
     const gi::Vec3 gi_primary = {0.0f, 0.0f, 0.0f};
     const gi::Vec3 gi_secondary = {0.0f, 0.0f, 2.0f};

@@ -362,6 +362,7 @@ static const uint IndirectReconstructionWavelet1 = 5u;
 static const uint IndirectReconstructionWavelet2 = 6u;
 static const uint IndirectReconstructionRestir = 7u;
 static const float GIUniformHemispherePdf = 1.0 / (2.0 * Pi);
+static const uint GIInitialCandidateCount = 4u;
 static const uint GISpatialSampleCount = 4u;
 static const float GISpatialRadius = 32.0;
 static const uint GITemporalStream = 0x30000u;
@@ -2617,16 +2618,27 @@ void RayGeneration()
         float3 primaryThroughput = diffuseReflectance(surface);
         if (EmitterCount > 0u &&
             luminance(primaryThroughput) > 1.0e-6) {
-            uint sampleCount = max(SamplesPerPixel, 1u);
+            uint directSampleCount = max(SamplesPerPixel, 1u);
+            /* ReSTIR needs enough newly traced secondary vertices to discover
+             * transport before temporal/spatial reuse can redistribute it.
+             * Keep that supply independent of direct-light SPP: four GI
+             * candidates cost only continuation/secondary-NEE work, while a
+             * larger user SPP still raises both channels coherently. */
+            uint pathSampleCount =
+                IndirectReconstructionMode == IndirectReconstructionRestir ?
+                max(directSampleCount, GIInitialCandidateCount) :
+                directSampleCount;
             float3 directRadiance = 0.0;
             IndirectSignal indirectSignalSum = emptyIndirectSignal();
-            for (uint sampleOrdinal = 0u; sampleOrdinal < sampleCount;
+            for (uint sampleOrdinal = 0u;
+                 sampleOrdinal < pathSampleCount;
                  ++sampleOrdinal) {
                 uint effectiveSampleIndex =
-                    SampleIndex * sampleCount + sampleOrdinal;
-                float3 sampleDirect = sampleDiffusePolygonLight(
-                    pixel, effectiveSampleIndex,
-                    DiffusePrimaryPolygonStream, false, surface);
+                    SampleIndex * pathSampleCount + sampleOrdinal;
+                float3 sampleDirect = sampleOrdinal < directSampleCount ?
+                    sampleDiffusePolygonLight(
+                        pixel, effectiveSampleIndex,
+                        DiffusePrimaryPolygonStream, false, surface) : 0.0;
                 float3 sampleIndirectIncident = 0.0;
                 float3 sampleIndirectDirection = surface.geometricNormal;
                 if (MaximumDepth >= 2u) {
@@ -2726,7 +2738,9 @@ void RayGeneration()
                     sampleDirect *= scale;
                     sampleIndirectIncident *= scale;
                 }
-                directRadiance += sampleDirect;
+                if (sampleOrdinal < directSampleCount) {
+                    directRadiance += sampleDirect;
+                }
                 IndirectSignal sampleIndirectSignal =
                     indirectSignalFromRadiance(
                         sampleIndirectIncident, sampleIndirectDirection);
@@ -2734,9 +2748,9 @@ void RayGeneration()
                     sampleIndirectSignal.luminanceSH;
                 indirectSignalSum.chroma += sampleIndirectSignal.chroma;
             }
-            resolvedRadiance += directRadiance / float(sampleCount);
+            resolvedRadiance += directRadiance / float(directSampleCount);
             resolvedIndirectSignal = scaleIndirectSignal(
-                indirectSignalSum, 1.0 / float(sampleCount));
+                indirectSignalSum, 1.0 / float(pathSampleCount));
         }
     }
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);

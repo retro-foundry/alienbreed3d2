@@ -76,7 +76,10 @@ default, so the shipped template lists them commented out with their defaults:
 
 - `rtx_samples_per_pixel=1` through `8` sets how many independent
   diffuse polygon-light samples are averaged per pixel. The primary ray remains
-  pixel-centred. `rtx_max_bounces=1` evaluates directly visible emission and
+  pixel-centred. The `restir` comparison always traces at least four fresh GI
+  continuations without repeating primary direct lighting; values above four
+  raise both direct and GI sample counts. `rtx_max_bounces=1` evaluates directly
+  visible emission and
   primary-hit Lambert polygon NEE; values `2` through `8` add the same single
   indirect diffuse vertex while later bounces remain deliberately dormant;
 - `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
@@ -697,8 +700,9 @@ projection before it enters the combined noisy HDR input.
 `regional`, `deflicker`, `wavelet1`, and `wavelet2` stop after the named
 one-third-resolution stage; the ordinary `full` mode includes all three guided
 wavelet passes. `restir` replaces every LF reconstruction stage with a complete
-project-owned ReSTIR GI experiment: one uniform-hemisphere secondary-surface
-sample is represented in area measure, combined with one motion-reprojected
+project-owned ReSTIR GI experiment: four uniform-hemisphere secondary-surface
+candidates are streamed into one area-measure reservoir without repeating
+primary direct lighting, combined with one motion-reprojected
 reservoir, combined with four depth/geometric-normal-compatible spatial
 reservoirs, reconnected with fresh conservative visibility, and remodulated at
 the primary receiver. Its 32-byte reservoir retains triangle/barycentric
