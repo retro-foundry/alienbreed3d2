@@ -15,6 +15,12 @@ sys.modules[SPEC.name] = ab3d
 SPEC.loader.exec_module(ab3d)
 
 
+class TextureExtentTests(unittest.TestCase):
+    def test_ab3d2_walls_omit_unaddressable_packed_columns(self):
+        self.assertEqual(ab3d.AB3D2_WALL_TEXTURE_DIMS["chevrondoor"], (128, 128))
+        self.assertEqual(ab3d.AB3D2_WALL_TEXTURE_DIMS["hullmetal"], (256, 128))
+
+
 def rect(x0, y0, x1, y1):
     return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
 

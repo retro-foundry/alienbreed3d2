@@ -24,7 +24,10 @@ The source floor tile `ab3d2/floor_0101` is the other proven emitter, at `200`.
 The package builder reads `assets/renderer_dxr/materials/materials.json` and its
 committed channel images. Those files retain the original source bindings and
 the authored `textures_pbr` sheets. Every channel is center-cropped to the
-matching original WAL aspect ratio and written at four times the WAL size.
+matching logical WAL aspect ratio, omitting packed three-texel-word padding,
+and written at four times the WAL size. Explicit source-landmark registration
+is shared by all five channels where authored artwork crosses a source window
+boundary, including the Level A `chevrondoor` jamb.
 Q2RTX roughness is packed into base alpha, and metalness into normal alpha.
 The explicit `.mat` entries bind both `ab3d2/name` and
 `textures/ab3d2/name`, so no automatic texture-name substitution is required.

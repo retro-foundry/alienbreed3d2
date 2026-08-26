@@ -31,7 +31,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
 
     def test_artist_directory_is_complete_sorted_and_zip_ready(self) -> None:
         materials = self.spec["materials"]
-        self.assertEqual(self.spec["schema_version"], 6)
+        self.assertEqual(self.spec["schema_version"], 7)
         self.assertEqual(self.spec["world_texture_scale"], 4)
         self.assertEqual(len(materials), 979)
         self.assertEqual(
@@ -140,7 +140,7 @@ class PbrAssetPackCompilerTests(unittest.TestCase):
             self.assertTrue(manifest["runtime_package"]["contains_pixels"])
             self.assertEqual(manifest["runtime_package"]["pixel_encoding"], "png")
             self.assertEqual(manifest["runtime_package"]["format"], "AB3PBR7")
-            self.assertEqual(manifest["schema_version"], 7)
+            self.assertEqual(manifest["schema_version"], 8)
             self.assertEqual(len(list(output.rglob("*.png"))), 0)
             self.assertEqual(
                 {path.name for path in output.iterdir()},

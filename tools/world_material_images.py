@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from PIL import Image
 
@@ -48,6 +48,51 @@ def resize_world_channel(
     )
 
 
+def register_world_channel(
+    image: Image.Image,
+    horizontal_registration: Sequence[Sequence[float]],
+) -> Image.Image:
+    """Piecewise-register authored horizontal landmarks to source UV space."""
+
+    points = [tuple(float(value) for value in point) for point in horizontal_registration]
+    if (
+        len(points) < 2
+        or any(len(point) != 2 for point in points)
+        or points[0] != (0.0, 0.0)
+        or points[-1] != (1.0, 1.0)
+        or any(
+            not 0.0 <= source <= 1.0 or not 0.0 <= target <= 1.0
+            for source, target in points
+        )
+        or any(
+            current[0] <= previous[0] or current[1] <= previous[1]
+            for previous, current in zip(points, points[1:])
+        )
+    ):
+        raise ValueError(
+            "world material registration points must increase from (0, 0) to (1, 1)"
+        )
+
+    width, height = image.size
+    output = Image.new(image.mode, image.size)
+    for point_index in range(len(points) - 1):
+        source_left = round(points[point_index][0] * width)
+        source_right = round(points[point_index + 1][0] * width)
+        target_left = round(points[point_index][1] * width)
+        target_right = round(points[point_index + 1][1] * width)
+        if point_index == len(points) - 2:
+            source_right = width
+            target_right = width
+        if source_right <= source_left or target_right <= target_left:
+            raise ValueError("world material registration collapses an image segment")
+        segment = image.crop((source_left, 0, source_right, height))
+        target_size = (target_right - target_left, height)
+        if segment.size != target_size:
+            segment = segment.resize(target_size, Image.Resampling.LANCZOS)
+        output.paste(segment, (target_left, 0))
+    return output
+
+
 def clamp_world_normal_blue(image: Image.Image) -> Image.Image:
     """Apply the shared encoded-Z floor used by both runtime packages."""
 
@@ -57,13 +102,20 @@ def clamp_world_normal_blue(image: Image.Image) -> Image.Image:
 
 
 def resize_world_channels(
-    channels: Mapping[str, Image.Image], source_size: tuple[int, int]
+    channels: Mapping[str, Image.Image],
+    source_size: tuple[int, int],
+    horizontal_registration: Sequence[Sequence[float]] | None = None,
 ) -> dict[str, Image.Image]:
     target_size = scaled_world_size(source_size)
     resized = {
         name: resize_world_channel(image.convert("RGBA"), target_size)
         for name, image in channels.items()
     }
+    if horizontal_registration is not None:
+        resized = {
+            name: register_world_channel(image, horizontal_registration)
+            for name, image in resized.items()
+        }
     if "normal" not in resized:
         raise ValueError("world material channels have no normal map")
     resized["normal"] = clamp_world_normal_blue(resized["normal"])

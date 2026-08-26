@@ -154,8 +154,8 @@ def validate_source_metadata(material: dict, name: str) -> None:
 
 def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
-    if not isinstance(spec, dict) or spec.get("schema_version") != 6:
-        raise ValueError("PBR artist manifest must use schema_version 6")
+    if not isinstance(spec, dict) or spec.get("schema_version") != 7:
+        raise ValueError("PBR artist manifest must use schema_version 7")
     materials = spec.get("materials")
     if not isinstance(materials, list) or not materials:
         raise ValueError("PBR artist manifest contains no materials")
@@ -358,7 +358,7 @@ def compile_pack(source_dir: Path, spec_path: Path, output_dir: Path) -> Path:
     if unexpected:
         raise ValueError(f"PBR runtime output contains stale/unexpected files: {unexpected}")
     manifest = {
-        "schema_version": 7,
+        "schema_version": 8,
         "generator": "tools/compile_pbr_asset_pack.py",
         "source_manifest_sha256": sha256(spec_path.read_bytes()),
         "materials": output_materials,

@@ -529,13 +529,18 @@ dimensions, source provenance, exact world/vector/bitmap binding, alpha mode,
 color spaces, generated-channel list, and non-color source assets.
 
 Authored wall panels are center-cropped to the authoritative source wall's
-pixel aspect before all five channels are resized together to four times that
-source extent. Floors are similarly exported at 256 by 256 for each 64-by-64
-source tile. The source dimensions come from the AB3D2 wall assets and are
+logical pixel aspect before all five channels are resized together to four
+times that source extent. The packed WAD's one or two unused final columns are
+not part of that extent. The `chevrondoor` replacement additionally carries an
+explicit piecewise horizontal landmark registration, applied identically to all
+five channels after Lanczos resizing. Its source boundaries at U 24, 43, 84,
+and 103 then agree with the PBR artwork, keeping Level A's U 0..15 jamb window
+inside the pipe panel. Floors are similarly exported at 256 by 256 for each
+64-by-64 source tile. The source dimensions and any registration landmarks are
 recorded in the manifest rather than inferred from a generated renderer
-package. A shared image helper applies the Lanczos crop, resize, and encoded
-normal-Z floor used by the Q2 package. Tests require every world output to be
-exactly four times its declared source dimensions.
+package. A shared image helper applies the Lanczos crop, resize, registration,
+and encoded normal-Z floor used by the Q2 package. Tests require every world
+output to be exactly four times its declared logical source dimensions.
 
 Native shading uses a manual repeat-aware four-tap filter for every PBR channel.
 All four loads stay inside the material's packed atlas rectangle, including at

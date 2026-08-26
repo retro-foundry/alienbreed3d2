@@ -600,20 +600,22 @@ AB3D2_WALL_SLOT_NAMES: List[Optional[str]] = [
     None,
 ]
 AB3D2_WALL_TEXTURE_DIMS: Dict[str, Tuple[int, int]] = {
-    "alienredwall": (258, 128),
-    "brownpipes": (258, 128),
-    "brownspeakers": (129, 128),
-    "brownstonestep": (129, 32),
-    "brownwithyellowstripes": (258, 128),
-    "chevrondoor": (129, 128),
-    "gieger": (642, 128),
-    "hullmetal": (258, 128),
-    "redhullmetal": (129, 128),
-    "rocky": (513, 128),
-    "steampunk": (513, 128),
+    # Logical Draw_Wall extents. Packed three-column words leave up to two
+    # trailing columns which no source U mask can address.
+    "alienredwall": (256, 128),
+    "brownpipes": (256, 128),
+    "brownspeakers": (128, 128),
+    "brownstonestep": (128, 32),
+    "brownwithyellowstripes": (256, 128),
+    "chevrondoor": (128, 128),
+    "gieger": (640, 128),
+    "hullmetal": (256, 128),
+    "redhullmetal": (128, 128),
+    "rocky": (512, 128),
+    "steampunk": (512, 128),
     "stonewall": (96, 128),
-    "technolights": (258, 128),
-    "technotritile": (258, 128),
+    "technolights": (256, 128),
+    "technotritile": (256, 128),
 }
 AB3D2_FLOOR_TILE_OFFSETS = [row * 256 + col for row in range(5) for col in range(4)]
 

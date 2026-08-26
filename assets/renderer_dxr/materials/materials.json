@@ -37207,7 +37207,7 @@
           "11ea0a108d2f395b0b59d2a6a9e133e2d2878089c982d7ad8a86751aa49fb598"
         ],
         "source_texture_size": [
-          195,
+          192,
           64
         ]
       },
@@ -37217,7 +37217,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 780
+      "width": 768
     },
     {
       "alpha_cutoff": 0.5,
@@ -37258,7 +37258,7 @@
           "e2656f9825ea7918376c90cecb1281ade11172306afea379264a99bc8f703b3f"
         ],
         "source_texture_size": [
-          258,
+          256,
           128
         ]
       },
@@ -37267,7 +37267,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 1032
+      "width": 1024
     },
     {
       "alpha_cutoff": 0.5,
@@ -37308,7 +37308,7 @@
           "866c8d91fa20912aae78428f477663d2436d838a6716e54c087a01b84edea0e1"
         ],
         "source_texture_size": [
-          258,
+          256,
           128
         ]
       },
@@ -37317,7 +37317,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 1032
+      "width": 1024
     },
     {
       "alpha_cutoff": 0.5,
@@ -37358,7 +37358,7 @@
           "d879c1b26c11fbf1c3905c60713d8f2cf89084ddf1cd925f976e4c5829ceb8d8"
         ],
         "source_texture_size": [
-          258,
+          256,
           128
         ]
       },
@@ -37367,7 +37367,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 1032
+      "width": 1024
     },
     {
       "alpha_cutoff": 0.5,
@@ -37408,7 +37408,7 @@
           "591fe90a3cfba348974a010f2a2368797776d72e8ba21f728a7c2981119b1c87"
         ],
         "source_texture_size": [
-          129,
+          128,
           128
         ]
       },
@@ -37417,7 +37417,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 516
+      "width": 512
     },
     {
       "alpha_cutoff": 0.5,
@@ -37454,11 +37454,37 @@
         "files": [
           "wallinc/chevrondoor.256wad"
         ],
+        "horizontal_registration": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            0.095703125,
+            0.1875
+          ],
+          [
+            0.26171875,
+            0.3359375
+          ],
+          [
+            0.638671875,
+            0.65625
+          ],
+          [
+            0.80078125,
+            0.8046875
+          ],
+          [
+            1.0,
+            1.0
+          ]
+        ],
         "sha256": [
           "19ec4571a990b31d9282a601b40635f318fe7e87c53f62c64932737950c1440b"
         ],
         "source_texture_size": [
-          129,
+          128,
           128
         ]
       },
@@ -37467,7 +37493,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 516
+      "width": 512
     },
     {
       "alpha_cutoff": 0.5,
@@ -37508,7 +37534,7 @@
           "6a112e22265cd3ef8a89523b470016de7452048869519bc37e39efc1fb5a14c5"
         ],
         "source_texture_size": [
-          258,
+          256,
           128
         ]
       },
@@ -37517,7 +37543,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 1032
+      "width": 1024
     },
     {
       "alpha_cutoff": 0.5,
@@ -37558,7 +37584,7 @@
           "f83d22fe1d1090565122b9825b06d11fd55d5a9b5ffd2068c557cd2b2e54c13a"
         ],
         "source_texture_size": [
-          129,
+          128,
           128
         ]
       },
@@ -37567,7 +37593,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 516
+      "width": 512
     },
     {
       "alpha_cutoff": 0.5,
@@ -37608,7 +37634,7 @@
           "5df8ceba34f59fc22abc6cbf999f4c4a3abe9ff57e5b534b58f2ed3f94e46918"
         ],
         "source_texture_size": [
-          258,
+          256,
           128
         ]
       },
@@ -37617,7 +37643,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 1032
+      "width": 1024
     },
     {
       "alpha_cutoff": 0.5,
@@ -37658,7 +37684,7 @@
           "0e3e752103f86e7b5b3635289afb7dfae5ceab2b1d342cc3389b40c6ef1b582c"
         ],
         "source_texture_size": [
-          642,
+          640,
           128
         ]
       },
@@ -37667,7 +37693,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 2568
+      "width": 2560
     },
     {
       "alpha_cutoff": 0.5,
@@ -37708,7 +37734,7 @@
           "2b864c50ce0d943603177dc689660c674bc8351864dcfab338fbe3d36421905c"
         ],
         "source_texture_size": [
-          513,
+          512,
           128
         ]
       },
@@ -37717,7 +37743,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 2052
+      "width": 2048
     },
     {
       "alpha_cutoff": 0.5,
@@ -37758,7 +37784,7 @@
           "3a859e666789c574eed3f6de41b24b6e87ab7d6c3f49f95590729337ab715de6"
         ],
         "source_texture_size": [
-          513,
+          512,
           128
         ]
       },
@@ -37767,7 +37793,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 2052
+      "width": 2048
     },
     {
       "alpha_cutoff": 0.5,
@@ -37813,7 +37839,7 @@
           "a3e0004ddd3701201891468357ee994cb6f5afc9950c21c2c10aa2c8ad373d7a"
         ],
         "source_texture_size": [
-          129,
+          128,
           32
         ]
       },
@@ -37822,7 +37848,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 516
+      "width": 512
     },
     {
       "alpha_cutoff": 0.5,
@@ -37859,7 +37885,7 @@
           "452e306aa8c96ee77f4c352bc2047427f04be11b8b6790ba1122560712aa8758"
         ],
         "source_texture_size": [
-          258,
+          256,
           128
         ]
       },
@@ -37868,7 +37894,7 @@
         "world"
       ],
       "two_sided": false,
-      "width": 1032
+      "width": 1024
     },
     {
       "alpha_cutoff": 0.5,
@@ -57993,7 +58019,7 @@
       "sha256": "9d29f7f7e28d68a3fafb125741cf2b1e88a9ab6a4f085d058d51b39d4fb56c8d"
     }
   ],
-  "schema_version": 6,
+  "schema_version": 7,
   "source_vector_material_defaults": {
     "metalness": [
       0,

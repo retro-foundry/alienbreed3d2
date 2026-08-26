@@ -163,7 +163,7 @@ The source sheets in `textures_pbr` are compiled into the committed renderer-nat
 assets/renderer_dxr/materials
 ```
 
-`tools/build_q2rtx.py` consumes the exact catalog bindings and channels. This covers all 20 floor slots and all 14 extracted wall textures, including source-decoded color with explicit neutral channels where no authored PBR sheet exists. It does not synthesize normals or infer materials during Q2RTX packaging.
+`tools/build_q2rtx.py` consumes the exact catalog bindings and channels. This covers all 20 floor slots and all 14 extracted wall textures, including source-decoded color with explicit neutral channels where no authored PBR sheet exists. WAL and PBR dimensions use the logical source extent rather than packed padding columns, and authored landmark registration is already baked identically into all five channels. It does not synthesize normals or infer materials during Q2RTX packaging.
 
 Q2RTX receives roughness in base-texture alpha and metalness in normal-texture alpha. The only emitters are the two already proven by the project material catalog:
 

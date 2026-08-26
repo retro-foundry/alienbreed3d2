@@ -35,7 +35,7 @@ int main(int argc, char **argv)
     if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE, 0u, 64u,
                          stone_64, error) ||
         !stone_64 || stone_64->name != "wall_00_stonewall_v64" ||
-        stone_64->width != 780u || stone_64->height != 256u) {
+        stone_64->width != 768u || stone_64->height != 256u) {
         std::fprintf(stderr, "source wall packed-layout variant is incomplete\n");
         return 1;
     }

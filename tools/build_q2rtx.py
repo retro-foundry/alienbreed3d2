@@ -116,6 +116,10 @@ def material_name(entry: dict[str, object]) -> str | None:
     if kind == "shared_floor" and name.startswith("floor_"):
         return name
     if kind == "shared_wall":
+        # Native DXR can bind alternate packed-WAD height interpretations;
+        # the Q2 converter emits one WAL for the primary named wall only.
+        if re.search(r"_v\d+$", name):
+            return None
         match = re.fullmatch(r"wall_\d{2}_(.+)", name)
         if not match:
             raise ValueError(f"shared wall material has an invalid name: {name}")

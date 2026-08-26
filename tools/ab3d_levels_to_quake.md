@@ -35,7 +35,7 @@ Extracted Quake 2 textures are written to:
 - `build/quake2_assets/baseq2/pics/colormap.pcx`
 - `build/quake2_assets/ab3d2_textures.wad` as a WAD2 preview/export
 
-Wall texture decoding now uses the AB3D2 `.256wad` files from `amiga/media/wallinc` plus the game palette at `amiga/media/includes/256pal`. The first 2048 bytes of each wall file are the 32-level palette remap table, and the remaining data is unpacked as vertical strips of three 5-bit texels per 16-bit word.
+Wall texture decoding now uses the AB3D2 `.256wad` files from `amiga/media/wallinc` plus the game palette at `amiga/media/includes/256pal`. The first 2048 bytes of each wall file are the 32-level palette remap table, and the remaining data is unpacked as vertical strips of three 5-bit texels per 16-bit word. The exported WAL dimensions use the logical `Draw_Wall` extents; one or two trailing packed columns which no U mask can address are omitted.
 
 Floor and roof texture decoding uses the AB3D2 floor atlas at `amiga/media/includes/floortile` plus the floor remap table at `amiga/media/includes/newtexturemaps.pal`. Graph flat records select atlas offsets which are exported as materials named like `ab3d2/floor_0001` and `ab3d2/floor_0201`. The converter reads both lower and upper graph streams for each zone, then matches flat and wall records to the relevant room span by height, so zones that contain one room above another export both volumes.
 

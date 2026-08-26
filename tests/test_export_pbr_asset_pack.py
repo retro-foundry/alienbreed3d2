@@ -73,11 +73,11 @@ class PbrAssetExporterTest(unittest.TestCase):
         )
         self.assertEqual(wall.size, (96, 128))
         stone_variant = exporter.wall_image(
-            media.require("wallinc/stonewall.256wad"), palette, (195, 64)
+            media.require("wallinc/stonewall.256wad"), palette, (192, 64)
         )
         # The record-selected 64-high interpretation supplies Level G's
         # authoritative Draw_Wall U window 64..127 from the same packed WAD.
-        self.assertEqual(stone_variant.size, (195, 64))
+        self.assertEqual(stone_variant.size, (192, 64))
         floor = exporter.floor_image(
             media.require("includes/floortile").read_bytes(),
             media.require("includes/newtexturemaps.pal").read_bytes(),
@@ -120,10 +120,31 @@ class PbrAssetExporterTest(unittest.TestCase):
             authored_channels, exporter.WALL_DIMENSIONS["hullmetal"]
         )
         self.assertEqual(
-            {image.size for image in world_channels.values()}, {(1032, 512)}
+            {image.size for image in world_channels.values()}, {(1024, 512)}
         )
         self.assertGreaterEqual(
             world_channels["normal"].getchannel("B").getextrema()[0], 96
+        )
+
+        chevrondoor = next(
+            entry
+            for entry in authored_spec["materials"]
+            if entry["name"] == "chevrondoor"
+        )
+        door_channels = exporter.resize_world_channels(
+            exporter.authored_sheet_channels(ROOT / "textures_pbr", chevrondoor),
+            exporter.WALL_DIMENSIONS["chevrondoor"],
+            chevrondoor["horizontal_registration"],
+        )
+        self.assertEqual(
+            {image.size for image in door_channels.values()}, {(512, 512)}
+        )
+        jamb = door_channels["base_color"].crop((0, 0, 64, 512)).convert("RGB")
+        self.assertFalse(
+            any(
+                red > 70 and green > 65 and blue < 70 and red - blue > 25
+                for red, green, blue in jamb.getdata()
+            )
         )
 
 if __name__ == "__main__":
