@@ -6,6 +6,7 @@
 #include <wrl/client.h>
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -95,6 +96,8 @@ private:
     double last_scene_frame_delta_ = -1.0;
     uint64_t last_scene_saturated_pixels_ = 0;
     uint64_t last_scene_temporal_outlier_pixels_ = 0;
+    std::chrono::steady_clock::time_point previous_render_time_ = {};
+    bool previous_render_time_valid_ = false;
     std::vector<uint8_t> previous_readback_rgb_;
     UINT readback_width_ = 0;
     UINT readback_height_ = 0;

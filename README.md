@@ -576,7 +576,7 @@ wide depth/normal-guided passes before the primary albedo is restored. This is a
 dedicated low-frequency diffuse channel rather than ReSTIR GI. The ReGIR grid
 remains a fresh light proposal only. Misses are black unless the primary segment crosses a
 non-occluding authored additive layer. A full-screen pass tone maps the HDR
-result using sparse log-average automatic exposure before writing the
+result using percentile histogram automatic exposure before writing the
 three-frame flip-discard swap chain. The same primary dispatch writes separate
 diffuse/specular albedo, world shading normal, linear roughness, linear depth,
 dense scene motion, and specular-hit-distance resources in the formats recorded
@@ -625,11 +625,16 @@ set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
 smoke to save the latest presented frame. Weapon, bitmap-entity, and
 vector-entity coverage come from a GPU UAV. Transient projectile, HUD, and text
 coverage are not claimed at this milestone.
-Presentation measures a sparse log-average luminance, adapts exposure over
-time, and maps the supported scene interval from `0.0002` through `10` into a
-seven-stop display interval. This is what keeps indirect corridor fill visible
-beside a directly visible emissive room. The configured exposure remains `1`
-by default and is multiplied into the automatic value as a bias. Set
+Presentation builds a 64-bin log-luminance histogram from a fixed 32-by-18
+primary-surface grid. Exact black is excluded, the centre region receives a
+modest second vote, and only the 10th--98th percentile interval determines the
+scene key. Exposure reacts faster to newly visible highlights than to darkness
+and uses elapsed seconds rather than a frame-dependent blend. A project-owned
+luminance curve supplies a quadratic black toe and an asymptotic shoulder; its
+RGB ratio and final gamut compression preserve hue. The former uniform
+seven-stop log mapping, which raised `0.0002` scene luminance to visible grey,
+is no longer used. The configured exposure remains `1` by default and is
+multiplied into the automatic value as a bias. Set
 `AB3D2_DXR_EXPOSURE` to a finite value from `0.001` through `100` for diagnostic
 exposure sweeps. The CTest all-level invocation uses the production default
 without an override.

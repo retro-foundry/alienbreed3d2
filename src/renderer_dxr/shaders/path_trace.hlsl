@@ -190,8 +190,9 @@ RWStructuredBuffer<PackedLightReservoir> CurrentReservoirs : register(u10);
 /* Read-only this frame, but declared as a UAV so both reservoir buffers can stay
  * in the unordered-access state and the frame needs no state transitions. */
 RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
-/* Primary-ray view-weapon coverage and fresh-radiance checksum. The hidden GPU
- * smoke reads this after the dispatch; it is never used to shade the image. */
+/* Primary-ray coverage occupies words 0--4. Automatic-exposure diagnostics
+ * occupy words 5--10. Hidden GPU smoke reads them after the dispatch; none is
+ * used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
 /* Raw demodulated second-vertex diffuse lighting. ReconstructIndirect filters
@@ -231,6 +232,7 @@ cbuffer FrameConstants : register(b0)
     float RadianceClamp;
     float NdfTrim;
     uint SamplesPerPixel;
+    float ExposureDeltaSeconds;
 };
 
 static const uint BlueNoiseSampleCount = 256u;
@@ -319,12 +321,18 @@ static const int IndirectFilterStep2 = 6;
 static const int IndirectFilterStep3 = 12;
 static const uint ExposureSampleColumns = 32u;
 static const uint ExposureSampleRows = 18u;
-static const float ExposureMinimumLuminance = 0.001;
-static const float ExposureMaximumLuminance = 16.0;
-static const float ExposureMiddleGrey = 0.18;
-static const float ExposureMinimum = 0.25;
-static const float ExposureMaximum = 128.0;
-static const float ExposureAdaptationWeight = 0.05;
+static const uint ExposureHistogramBinCount = 64u;
+static const float ExposureMinimumLuminance = 0.00001;
+static const float ExposureMaximumLuminance = 64.0;
+static const uint ExposureLowPercentileNumerator = 10u;
+static const uint ExposureHighPercentileNumerator = 98u;
+static const uint ExposurePercentileDenominator = 100u;
+static const float ExposureMeteringKey = 0.014;
+static const float ExposureMinimum = 0.125;
+static const float ExposureMaximum = 4096.0;
+static const float ExposureDarkAdaptationRate = 1.0;
+static const float ExposureLightAdaptationRate = 4.0;
+static const float ExposureMaximumDeltaSeconds = 0.25;
 static const uint ReservoirTemporalSearchStream = 0x10000u;
 static const uint ReservoirSpatialStream = 0x10100u;
 static const uint ReservoirAcceptanceStream = 0x10200u;
@@ -2634,12 +2642,22 @@ void ReconstructIndirect()
     NoisyRadiance[pixel] = noisy;
 }
 
+float exposureHistogramLuminance(uint index)
+{
+    float minimumLog = log2(ExposureMinimumLuminance);
+    float maximumLog = log2(ExposureMaximumLuminance);
+    float position = (float(min(index, ExposureHistogramBinCount - 1u)) +
+                      0.5) / float(ExposureHistogramBinCount);
+    return exp2(lerp(minimumLog, maximumLog, position));
+}
+
 /* A fixed exposure cannot show both AB3D2's authored light panels and the
- * indirect energy they carry into an otherwise black corridor. Q2RTX solves
- * the same display problem with histogram adaptation. This clean-room stage
- * uses a bounded sparse log average instead: one thread samples a regular grid
- * of primary surfaces, rejects the background, caps fireflies, and persists a
- * slowly adapted scalar for the presentation pass. */
+ * indirect energy they carry into an otherwise black corridor. This
+ * project-owned metering stage builds a sparse luminance histogram in one
+ * thread, gives the central region a modest second vote, and measures only
+ * the 10th--98th percentile span. Exact black is not promoted into a grey
+ * sample. A bounded target then adapts with elapsed-time exponential rates:
+ * entering darkness is deliberately slower than reacting to a bright source. */
 [shader("raygeneration")]
 void CalculateAutomaticExposure()
 {
@@ -2649,9 +2667,17 @@ void CalculateAutomaticExposure()
     uint2 dimensions = uint2(
         max(DispatchRaysDimensions().x, 1u),
         max(DispatchRaysDimensions().y, 1u));
-    float logLuminanceSum = 0.0;
-    uint surfaceSampleCount = 0u;
+    uint histogram[ExposureHistogramBinCount];
+    [loop]
+    for (uint bin = 0u; bin < ExposureHistogramBinCount; ++bin) {
+        histogram[bin] = 0u;
+    }
+    uint totalWeight = 0u;
+    float minimumLog = log2(ExposureMinimumLuminance);
+    float maximumLog = log2(ExposureMaximumLuminance);
+    [loop]
     for (uint sampleY = 0u; sampleY < ExposureSampleRows; ++sampleY) {
+        [loop]
         for (uint sampleX = 0u; sampleX < ExposureSampleColumns; ++sampleX) {
             uint2 samplePixel = min(
                 uint2((sampleX * 2u + 1u) * dimensions.x /
@@ -2662,27 +2688,86 @@ void CalculateAutomaticExposure()
             if (DiffuseAlbedo[samplePixel].a <= 0.0) {
                 continue;
             }
-            float sampleLuminance = clamp(
-                luminance(max(NoisyRadiance[samplePixel].rgb, 0.0)),
-                ExposureMinimumLuminance, ExposureMaximumLuminance);
-            logLuminanceSum += log(sampleLuminance);
-            ++surfaceSampleCount;
+            float sampleLuminance = luminance(
+                max(NoisyRadiance[samplePixel].rgb, 0.0));
+            if (!(sampleLuminance > 0.0) || !isfinite(sampleLuminance)) {
+                continue;
+            }
+            float sampleLog = log2(clamp(
+                sampleLuminance, ExposureMinimumLuminance,
+                ExposureMaximumLuminance));
+            float normalized = saturate(
+                (sampleLog - minimumLog) / (maximumLog - minimumLog));
+            uint bin = min(uint(normalized *
+                                float(ExposureHistogramBinCount)),
+                           ExposureHistogramBinCount - 1u);
+            float2 normalizedPosition =
+                (float2(samplePixel) + 0.5) / float2(dimensions);
+            float2 centered = normalizedPosition * 2.0 - 1.0;
+            uint weight = dot(centered, centered) <= 0.25 ? 2u : 1u;
+            histogram[bin] += weight;
+            totalWeight += weight;
         }
     }
+    uint lowRank = totalWeight * ExposureLowPercentileNumerator /
+        ExposurePercentileDenominator;
+    uint unclampedHighRank = totalWeight * ExposureHighPercentileNumerator /
+        ExposurePercentileDenominator;
+    uint highRank = min(totalWeight,
+        max(lowRank + (totalWeight > 0u ? 1u : 0u), unclampedHighRank));
+    uint cumulative = 0u;
+    uint includedWeight = 0u;
+    float weightedLogSum = 0.0;
+    float lowPercentileLuminance = 0.0;
+    float highPercentileLuminance = 0.0;
+    [loop]
+    for (uint meterBin = 0u; meterBin < ExposureHistogramBinCount;
+         ++meterBin) {
+        uint next = cumulative + histogram[meterBin];
+        uint includedBegin = max(cumulative, lowRank);
+        uint includedEnd = min(next, highRank);
+        if (includedEnd > includedBegin) {
+            uint included = includedEnd - includedBegin;
+            float binLuminance = exposureHistogramLuminance(meterBin);
+            if (includedWeight == 0u) {
+                lowPercentileLuminance = binLuminance;
+            }
+            highPercentileLuminance = binLuminance;
+            weightedLogSum += float(included) * log2(binLuminance);
+            includedWeight += included;
+        }
+        cumulative = next;
+    }
+    float averageLuminance = includedWeight > 0u ?
+        exp2(weightedLogSum / float(includedWeight)) : 0.0;
     float targetExposure = 1.0;
-    if (surfaceSampleCount > 0u) {
-        float averageLuminance = exp(
-            logLuminanceSum / float(surfaceSampleCount));
+    if (includedWeight > 0u && averageLuminance > 0.0 &&
+        isfinite(averageLuminance)) {
         targetExposure = clamp(
-            ExposureMiddleGrey / max(averageLuminance,
-                                     ExposureMinimumLuminance),
+            ExposureMeteringKey / max(averageLuminance,
+                                      ExposureMinimumLuminance),
             ExposureMinimum, ExposureMaximum);
     }
     float previousExposure = AutomaticExposure[0];
-    AutomaticExposure[0] = HistoryValid != 0u &&
-            isfinite(previousExposure) && previousExposure > 0.0 ?
-        lerp(previousExposure, targetExposure,
-             ExposureAdaptationWeight) : targetExposure;
+    float adaptedExposure = targetExposure;
+    if (HistoryValid != 0u && isfinite(previousExposure) &&
+        previousExposure > 0.0) {
+        float elapsed = isfinite(ExposureDeltaSeconds) ?
+            clamp(ExposureDeltaSeconds, 0.0,
+                  ExposureMaximumDeltaSeconds) : 0.0;
+        float rate = targetExposure > previousExposure ?
+            ExposureDarkAdaptationRate : ExposureLightAdaptationRate;
+        float adaptationWeight = 1.0 - exp(-rate * elapsed);
+        adaptedExposure = lerp(previousExposure, targetExposure,
+                               adaptationWeight);
+    }
+    AutomaticExposure[0] = adaptedExposure;
+    Diagnostics[5] = asuint(targetExposure);
+    Diagnostics[6] = asuint(adaptedExposure);
+    Diagnostics[7] = asuint(averageLuminance);
+    Diagnostics[8] = asuint(lowPercentileLuminance);
+    Diagnostics[9] = asuint(highPercentileLuminance);
+    Diagnostics[10] = includedWeight;
 }
 
 /*

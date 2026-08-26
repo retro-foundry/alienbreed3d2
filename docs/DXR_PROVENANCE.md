@@ -347,6 +347,17 @@ No substantial renderer implementation was copied. The sampler's third-party
 data and required MIT notice are the explicit, bounded exception documented
 above.
 
+## Project-owned exposure and presentation
+
+The 2026-08-26 automatic-exposure and tone-mapping revision was designed and
+implemented from this renderer's own Level A HDR diagnostics. It uses a sparse
+64-bin log-luminance histogram, weighted 10th--98th percentile metering,
+elapsed-time asymmetric adaptation, and a luminance-preserving quadratic toe
+with an asymptotic rational shoulder. No external game renderer source, shader,
+constant set, or tone-mapping implementation was inspected or adapted for this
+revision. `dxr_auto_exposure.h` mirrors the shader contract for deterministic
+CPU regression coverage.
+
 ## Historical published-mathematics implementation
 
 Phase 11 rebuilds the direct-lighting estimator from two published papers. Both

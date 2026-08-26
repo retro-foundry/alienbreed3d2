@@ -616,11 +616,15 @@ depth/geometric-normal-guided
 passes at step widths 1, 3, 6, and 12 give the signal a 22-pixel reach before
 primary albedo is restored and direct radiance is added. This reconstructs the
 existing one-bounce polygon-light transport; it neither invents ambient light
-nor implements ReSTIR GI. A sparse 32-by-18 log-luminance measurement supplies
-bounded automatic exposure. A luminance-preserving curve then maps scene
-luminance `0.0002` through `10` into seven display stops, with `rtx_exposure`
-retained as an explicit multiplicative bias. The constants and guide rejection
-rules have CPU regression coverage.
+nor implements ReSTIR GI. A sparse 32-by-18 primary-surface grid supplies a
+64-bin log-luminance histogram. Exact black is excluded, the centre region has
+two votes, and the weighted 10th--98th percentile interval drives bounded,
+elapsed-time exposure with a faster response to highlights than darkness. A
+project-owned luminance-preserving toe and asymptotic shoulder replace the
+former uniform seven-stop log lift; `rtx_exposure` remains an explicit
+multiplicative bias. Metering, adaptation, curve constants, and guide rejection
+rules have CPU regression coverage, while hidden GPU smoke reports the target
+and adapted exposure plus the measured luminance span.
 
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
@@ -912,12 +916,14 @@ classes and transient projectiles remain incomplete.
   Hidden DXR smoke reads per-category primary coverage and a fresh-radiance
   checksum from a GPU UAV; the 2026-08-20 Level A
   run passed, and a diffuse-albedo capture confirmed the source-scale lower-view
-  surface supplies real world depth and reconstruction guides. The production
-  ACES exposure is now `1`: the former `0.015`
-  default crushed ordinary traced lighting below the display range. Level A
-  exposure sweeps at one and eight samples per pixel confirmed that exposure
-  one restores the scene response while retaining the existing filmic
-  highlight roll-off. CTest no longer supplies an exposure override, so its
+  surface supplies real world depth and reconstruction guides. The configured
+  exposure bias is `1`; a project-owned 64-bin percentile histogram now derives
+  the automatic scene exposure. It adapts by elapsed time and feeds a
+  luminance-preserving toe/shoulder curve that retains exact black instead of
+  applying the former uniform log lift. The saved Level A corridor provides the
+  calibration capture, and hidden GPU diagnostics expose both exposure values
+  and the metered percentile range. CTest no longer supplies an exposure
+  override, so its
   Level A--P smoke exercises the production presentation and both companion
   assertions directly. No coverage assertion or checksum threshold was
   removed. Transmissive/alpha-blended presentation, HUD, text, and optional

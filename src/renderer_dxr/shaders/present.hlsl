@@ -22,9 +22,7 @@ cbuffer PresentConstants : register(b0)
     float Exposure;
 };
 
-static const float ToneMinimumLuminance = 0.0002;
-static const float ToneWhitePoint = 10.0;
-static const float ToneDynamicRangeStops = 7.0;
+static const float ToneToeLuminance = 0.02;
 
 struct PixelInput
 {
@@ -53,6 +51,19 @@ float3 linearToSrgb(float3 color)
 float3 displayLinear(float3 color)
 {
     return linearToSrgb(saturate(color));
+}
+
+/* Project-owned luminance curve mirrored by dxr_auto_exposure.h. The toe
+ * removes residual path noise without lifting exact black. The rational
+ * shoulder approaches one without clipping highlights while retaining a
+ * useful, approximately linear midsection. */
+float toneMapLuminance(float luminance)
+{
+    if (!(luminance > 0.0) || !isfinite(luminance)) {
+        return 0.0;
+    }
+    float toe = luminance * luminance / (luminance + ToneToeLuminance);
+    return toe / (1.0 + toe);
 }
 
 float3 hsvToRgb(float3 hsv)
@@ -118,23 +129,12 @@ float4 ps_main(PixelInput input) : SV_Target
     float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
     float3 exposed = hdr * Exposure * AutomaticExposure[0];
     float exposedLuminance = dot(exposed, float3(0.2126, 0.7152, 0.0722));
-    float displayFloor = exp2(-ToneDynamicRangeStops);
-    float mappedLuminance = 0.0;
-    if (exposedLuminance > 0.0) {
-        if (exposedLuminance < ToneMinimumLuminance) {
-            mappedLuminance = displayFloor * exposedLuminance /
-                ToneMinimumLuminance;
-        } else {
-            float sceneStops = log2(
-                ToneWhitePoint / ToneMinimumLuminance);
-            float position = saturate(log2(
-                exposedLuminance / ToneMinimumLuminance) / sceneStops);
-            mappedLuminance = exp2(
-                -ToneDynamicRangeStops * (1.0 - position));
-        }
-    }
+    float mappedLuminance = toneMapLuminance(exposedLuminance);
     float3 mapped = exposedLuminance > 0.0 ?
         exposed * (mappedLuminance / exposedLuminance) : 0.0;
-    mapped = saturate(mapped);
-    return float4(linearToSrgb(mapped), 1.0);
+    /* Preserve hue when a saturated HDR color extends outside the display
+     * gamut instead of clipping each component independently. */
+    float maximumComponent = max(mapped.r, max(mapped.g, mapped.b));
+    mapped /= max(maximumComponent, 1.0);
+    return float4(linearToSrgb(max(mapped, 0.0)), 1.0);
 }

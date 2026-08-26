@@ -68,7 +68,8 @@ public:
                  D3D12_CPU_DESCRIPTOR_HANDLE render_target_view,
                  const SceneFrame &frame,
                  const RenderView &view, uint32_t frame_number,
-                 uint32_t frame_slot, DxrStreamline *streamline,
+                 uint32_t frame_slot, float exposure_delta_seconds,
+                 DxrStreamline *streamline,
                  std::string &error);
     void commit_presented_frame();
     bool collect_diagnostics(std::string &error);
@@ -125,6 +126,8 @@ private:
                                  std::string &error);
     bool create_raytracing_pipeline(ID3D12Device5 *device, std::string &error);
     bool create_blue_noise_sampler(ID3D12Device5 *device, std::string &error);
+    bool create_frame_constant_buffer(ID3D12Device5 *device,
+                                      std::string &error);
     bool create_light_grid(ID3D12Device5 *device, std::string &error);
     bool create_diagnostics(ID3D12Device5 *device, std::string &error);
     bool create_descriptor_heap(ID3D12Device5 *device, std::string &error);
@@ -153,6 +156,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12StateObject> ray_state_object_;
     Microsoft::WRL::ComPtr<ID3D12Resource> shader_table_;
     Microsoft::WRL::ComPtr<ID3D12Resource> blue_noise_sampler_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> frame_constants_;
     Microsoft::WRL::ComPtr<ID3D12Resource> light_grid_;
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_;
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_readback_;
@@ -191,6 +195,12 @@ private:
     size_t last_world_bitmap_coverage_ = 0u;
     size_t last_world_vector_coverage_ = 0u;
     size_t last_world_additive_coverage_ = 0u;
+    float last_target_exposure_ = 1.0f;
+    float last_automatic_exposure_ = 1.0f;
+    float last_metered_average_luminance_ = 0.0f;
+    float last_metered_low_luminance_ = 0.0f;
+    float last_metered_high_luminance_ = 0.0f;
+    uint32_t last_metered_weight_ = 0u;
     bool diagnostics_have_output_ = false;
     struct DxrFrameHistory {
         reconstruction::CameraProjection previous_camera = {};

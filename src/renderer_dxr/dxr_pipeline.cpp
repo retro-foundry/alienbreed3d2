@@ -109,6 +109,9 @@ constexpr std::array<const wchar_t *,
  */
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
 constexpr UINT shader_table_size = shader_record_size * 13u;
+constexpr UINT diagnostic_value_count = 11u;
+constexpr UINT64 frame_constant_stride =
+    D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
 constexpr float pi = 3.14159265358979323846f;
 constexpr float source_fullscreen_depth_scale =
     4.0f * (32767.0f / 65536.0f) * (85.0f / 256.0f) * (927.0f / 1024.0f);
@@ -142,15 +145,17 @@ struct FrameConstants {
     float radiance_clamp;
     float ndf_trim;
     uint32_t samples_per_pixel;
+    float exposure_delta_seconds;
 };
 
 /*
- * The ray root signature spends two DWORDs per root descriptor and one per
- * descriptor table. This block plus five root SRVs, three root UAVs, and four
- * tables uses all 64 available DWORDs. Move the constants to a constant-buffer
- * view rather than trimming them if another binding is needed.
+ * Frame constants live in one 256-byte upload slice per in-flight frame. A
+ * root CBV costs two root-signature DWORDs regardless of this structure's
+ * size, leaving room for future bindings without trimming camera or exposure
+ * state.
  */
-static_assert(sizeof(FrameConstants) == 44u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 45u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
     uint32_t debug_view;
@@ -686,9 +691,8 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[6].Descriptor.ShaderRegister = 9;
     parameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     parameters[7].Descriptor.ShaderRegister = 10;
-    parameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    parameters[8].Constants.Num32BitValues = sizeof(FrameConstants) / sizeof(uint32_t);
-    parameters[8].Constants.ShaderRegister = 0;
+    parameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+    parameters[8].Descriptor.ShaderRegister = 0;
     /* Both reservoir buffers bind as unordered-access root descriptors, which
      * keeps them in one resource state for the whole frame. */
     parameters[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
@@ -937,6 +941,27 @@ bool DxrPipeline::create_blue_noise_sampler(ID3D12Device5 *device,
     return true;
 }
 
+bool DxrPipeline::create_frame_constant_buffer(ID3D12Device5 *device,
+                                               std::string &error)
+{
+    const D3D12_HEAP_PROPERTIES upload_heap =
+        heap_properties(D3D12_HEAP_TYPE_UPLOAD);
+    const D3D12_RESOURCE_DESC description = buffer_description(
+        frame_constant_stride * DxrScene::upload_frame_count);
+    const HRESULT result = device->CreateCommittedResource(
+        &upload_heap, D3D12_HEAP_FLAG_NONE, &description,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+        IID_PPV_ARGS(&frame_constants_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateCommittedResource(frame constants)",
+            result);
+        return false;
+    }
+    frame_constants_->SetName(L"AB3D2 DXR Frame Constants");
+    return true;
+}
+
 bool DxrPipeline::create_light_grid(ID3D12Device5 *device,
                                     std::string &error)
 {
@@ -970,7 +995,8 @@ bool DxrPipeline::create_light_grid(ID3D12Device5 *device,
 bool DxrPipeline::create_diagnostics(ID3D12Device5 *device,
                                      std::string &error)
 {
-    constexpr UINT64 diagnostic_bytes = 5u * sizeof(uint32_t);
+    constexpr UINT64 diagnostic_bytes =
+        diagnostic_value_count * sizeof(uint32_t);
     D3D12_RESOURCE_DESC description = buffer_description(diagnostic_bytes);
     description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
     const D3D12_HEAP_PROPERTIES default_heap =
@@ -984,12 +1010,12 @@ bool DxrPipeline::create_diagnostics(ID3D12Device5 *device,
             "ID3D12Device::CreateCommittedResource(DXR diagnostics)", result);
         return false;
     }
-    diagnostics_->SetName(L"AB3D2 DXR Entity Diagnostics");
+    diagnostics_->SetName(L"AB3D2 DXR Renderer Diagnostics");
     diagnostics_have_output_ = false;
     D3D12_UNORDERED_ACCESS_VIEW_DESC diagnostic_view = {};
     diagnostic_view.Format = DXGI_FORMAT_R32_UINT;
     diagnostic_view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-    diagnostic_view.Buffer.NumElements = 5u;
+    diagnostic_view.Buffer.NumElements = diagnostic_value_count;
     device->CreateUnorderedAccessView(
         diagnostics_.Get(), nullptr, &diagnostic_view,
         cpu_descriptor(diagnostics_uav));
@@ -1011,7 +1037,7 @@ bool DxrPipeline::create_diagnostics(ID3D12Device5 *device,
         return false;
     }
     diagnostics_readback_->SetName(
-        L"AB3D2 DXR Entity Diagnostic Readback");
+        L"AB3D2 DXR Renderer Diagnostic Readback");
     return true;
 }
 
@@ -1020,7 +1046,7 @@ bool DxrPipeline::record_diagnostics_begin(
 {
     if (!command_list || !diagnostics_ || !diagnostics_readback_ ||
         !descriptor_heap_) {
-        error = "DXR entity diagnostics are incomplete";
+        error = "DXR renderer diagnostics are incomplete";
         return false;
     }
     const D3D12_RESOURCE_BARRIER to_write = transition(
@@ -1043,7 +1069,7 @@ bool DxrPipeline::record_diagnostics_end(
     ID3D12GraphicsCommandList4 *command_list, std::string &error)
 {
     if (!command_list || !diagnostics_ || !diagnostics_readback_) {
-        error = "DXR entity diagnostic readback is incomplete";
+        error = "DXR renderer diagnostic readback is incomplete";
         return false;
     }
     const D3D12_RESOURCE_BARRIER finished = uav_barrier(diagnostics_.Get());
@@ -1054,7 +1080,7 @@ bool DxrPipeline::record_diagnostics_end(
     command_list->ResourceBarrier(1, &to_copy);
     command_list->CopyBufferRegion(diagnostics_readback_.Get(), 0,
                                    diagnostics_.Get(), 0,
-                                   5u * sizeof(uint32_t));
+                                   diagnostic_value_count * sizeof(uint32_t));
     diagnostics_have_output_ = true;
     return true;
 }
@@ -1062,16 +1088,17 @@ bool DxrPipeline::record_diagnostics_end(
 bool DxrPipeline::collect_diagnostics(std::string &error)
 {
     if (!diagnostics_readback_) {
-        error = "DXR entity diagnostic readback is unavailable";
+        error = "DXR renderer diagnostic readback is unavailable";
         return false;
     }
-    constexpr SIZE_T diagnostic_bytes = 5u * sizeof(uint32_t);
+    constexpr SIZE_T diagnostic_bytes =
+        diagnostic_value_count * sizeof(uint32_t);
     const D3D12_RANGE read = {0, diagnostic_bytes};
     void *mapped = nullptr;
     const HRESULT result = diagnostics_readback_->Map(0, &read, &mapped);
     if (FAILED(result)) {
         error = hresult_error(
-            "ID3D12Resource::Map(DXR entity diagnostics)", result);
+            "ID3D12Resource::Map(DXR renderer diagnostics)", result);
         return false;
     }
     const auto *values = static_cast<const uint32_t *>(mapped);
@@ -1080,15 +1107,27 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     last_world_bitmap_coverage_ = values[2];
     last_world_vector_coverage_ = values[3];
     last_world_additive_coverage_ = values[4];
+    std::memcpy(&last_target_exposure_, &values[5], sizeof(float));
+    std::memcpy(&last_automatic_exposure_, &values[6], sizeof(float));
+    std::memcpy(&last_metered_average_luminance_, &values[7], sizeof(float));
+    std::memcpy(&last_metered_low_luminance_, &values[8], sizeof(float));
+    std::memcpy(&last_metered_high_luminance_, &values[9], sizeof(float));
+    last_metered_weight_ = values[10];
     const D3D12_RANGE no_write = {0, 0};
     diagnostics_readback_->Unmap(0, &no_write);
     debug_output(
-        "DXR entity diagnostics: view_weapon_primary_pixels=" +
+        "DXR renderer diagnostics: view_weapon_primary_pixels=" +
         std::to_string(last_view_weapon_coverage_) + " radiance=" +
         std::to_string(last_view_weapon_rgb_checksum_) + " world_bitmaps=" +
         std::to_string(last_world_bitmap_coverage_) + " world_vectors=" +
         std::to_string(last_world_vector_coverage_) + " additive_layers=" +
-        std::to_string(last_world_additive_coverage_));
+        std::to_string(last_world_additive_coverage_) + " exposure_target=" +
+        std::to_string(last_target_exposure_) + " exposure=" +
+        std::to_string(last_automatic_exposure_) + " meter_average=" +
+        std::to_string(last_metered_average_luminance_) + " meter_low=" +
+        std::to_string(last_metered_low_luminance_) + " meter_high=" +
+        std::to_string(last_metered_high_luminance_) + " meter_weight=" +
+        std::to_string(last_metered_weight_));
     return true;
 }
 
@@ -1398,6 +1437,7 @@ bool DxrPipeline::initialize(ID3D12Device5 *device,
         create_diagnostic_pipeline(device, vertex_shader, pixel_shader, error) &&
         create_present_pipeline(device, present_vertex_shader, error) &&
         create_blue_noise_sampler(device, error) &&
+        create_frame_constant_buffer(device, error) &&
         create_descriptor_heap(device, error) &&
         create_light_grid(device, error) &&
         create_diagnostics(device, error) &&
@@ -1422,10 +1462,12 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                          D3D12_CPU_DESCRIPTOR_HANDLE render_target_view,
                          const SceneFrame &frame,
                          const RenderView &view, uint32_t frame_number,
-                         uint32_t frame_slot, DxrStreamline *streamline,
+                         uint32_t frame_slot, float exposure_delta_seconds,
+                         DxrStreamline *streamline,
                          std::string &error)
 {
-    if (!device || !command_list) {
+    if (!device || !command_list || !frame_constants_ ||
+        frame_slot >= DxrScene::upload_frame_count) {
         error = "DXR frame recording received incomplete D3D12 state";
         return false;
     }
@@ -1530,6 +1572,26 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.radiance_clamp = radiance_clamp_;
     constants.ndf_trim = ndf_trim_;
     constants.samples_per_pixel = spp_;
+    constants.exposure_delta_seconds =
+        std::isfinite(exposure_delta_seconds) && exposure_delta_seconds > 0.0f ?
+        exposure_delta_seconds : 0.0f;
+    const UINT64 frame_constant_offset = frame_constant_stride * frame_slot;
+    void *mapped_frame_constants = nullptr;
+    const D3D12_RANGE no_read = {0, 0};
+    const HRESULT map_result = frame_constants_->Map(
+        0, &no_read, &mapped_frame_constants);
+    if (FAILED(map_result)) {
+        error = hresult_error("ID3D12Resource::Map(frame constants)",
+                              map_result);
+        return false;
+    }
+    std::memcpy(static_cast<unsigned char *>(mapped_frame_constants) +
+                    frame_constant_offset,
+                &constants, sizeof(constants));
+    const D3D12_RANGE written = {
+        static_cast<SIZE_T>(frame_constant_offset),
+        static_cast<SIZE_T>(frame_constant_offset + sizeof(constants))};
+    frame_constants_->Unmap(0, &written);
     if (targets_recreated) {
         const std::array<D3D12_RESOURCE_BARRIER, 6> history_states = {
             transition(light_reservoirs_[0].Get(),
@@ -1571,8 +1633,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         6, scene_.previous_vertex_address());
     command_list->SetComputeRootShaderResourceView(
         7, blue_noise_sampler_->GetGPUVirtualAddress());
-    command_list->SetComputeRoot32BitConstants(
-        8, sizeof(constants) / sizeof(uint32_t), &constants, 0);
+    command_list->SetComputeRootConstantBufferView(
+        8, frame_constants_->GetGPUVirtualAddress() + frame_constant_offset);
     const size_t reservoir_slot = sample_index & 1u;
     command_list->SetComputeRootUnorderedAccessView(
         9, temporal_reservoirs_->GetGPUVirtualAddress());

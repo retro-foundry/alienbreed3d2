@@ -699,10 +699,17 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     command_list_->OMSetRenderTargets(1, &frame.render_target_view, FALSE, nullptr);
     static constexpr FLOAT clear_color[4] = {0.018f, 0.028f, 0.052f, 1.0f};
     command_list_->ClearRenderTargetView(frame.render_target_view, clear_color, 0, nullptr);
+    const auto render_time = std::chrono::steady_clock::now();
+    const float exposure_delta_seconds = previous_render_time_valid_ ?
+        std::chrono::duration<float>(render_time - previous_render_time_).count() :
+        0.0f;
+    previous_render_time_ = render_time;
+    previous_render_time_valid_ = true;
     if (!pipeline.record(device_.Get(), command_list_.Get(), width_, height_,
                           frame.render_target_view, scene_frame, view,
                           rendered_frame_count_++,
-                          frame_index_, streamline_, error)) {
+                          frame_index_, exposure_delta_seconds,
+                          streamline_, error)) {
         return false;
     }
     const bool capture_scene = hidden_window_ && pipeline.has_scene();
@@ -918,6 +925,8 @@ void DxrDevice::shutdown(bool flush_queue)
     width_ = 0;
     height_ = 0;
     rendered_frame_count_ = 0;
+    previous_render_time_ = {};
+    previous_render_time_valid_ = false;
     last_scene_rgb_checksum_ = 0;
     last_scene_frame_delta_ = -1.0;
     last_scene_saturated_pixels_ = 0;

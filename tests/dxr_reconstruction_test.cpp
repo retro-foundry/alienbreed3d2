@@ -43,17 +43,64 @@ int main()
                   indirect::filter_steps[3] == 12 &&
                   indirect::filter_reach == 22 &&
                   indirect::continuation_radial_power == 0.4f);
-    if (!near(exposure::target(std::log(0.18f) * 8.0f, 8u), 1.0f) ||
-        exposure::target(std::log(0.0001f), 1u) !=
-            exposure::maximum_exposure ||
-        exposure::target(0.0f, 0u) != 1.0f ||
-        !near(exposure::adapt(1.0f, 101.0f, true), 6.0f) ||
-        exposure::adapt(1.0f, 101.0f, false) != 101.0f ||
+    exposure::Histogram metering_histogram = {};
+    exposure::add_sample(metering_histogram, 0.000001f, 10u);
+    exposure::add_sample(metering_histogram, 0.01f, 80u);
+    exposure::add_sample(metering_histogram, 10.0f, 10u);
+    const exposure::Metering metering =
+        exposure::meter(metering_histogram);
+    const float metering_low = exposure::histogram_luminance(
+        exposure::histogram_index(0.01f));
+    const float metering_high = exposure::histogram_luminance(
+        exposure::histogram_index(10.0f));
+    const float expected_metering_average = std::exp2(
+        (80.0f * std::log2(metering_low) +
+         8.0f * std::log2(metering_high)) / 88.0f);
+    const exposure::Metering neutral_metering = {
+        exposure::metering_key, 0.01f, 0.02f, 1u, 1u};
+    const exposure::Metering dark_metering = {
+        exposure::metering_key / (exposure::maximum_exposure * 2.0f),
+        0.0f, 0.0f, 1u, 1u};
+    const float one_dark_step = exposure::adapt(
+        1.0f, 2.0f, true, 0.2f);
+    const float two_dark_steps = exposure::adapt(
+        exposure::adapt(1.0f, 2.0f, true, 0.1f),
+        2.0f, true, 0.1f);
+    const float dark_adaptation_distance = exposure::adapt(
+        1.0f, 2.0f, true, 0.1f) - 1.0f;
+    const float light_adaptation_distance = 2.0f - exposure::adapt(
+        2.0f, 1.0f, true, 0.1f);
+    if (exposure::sample_weight(0.5f, 0.5f) != 2u ||
+        exposure::sample_weight(0.0f, 0.0f) != 1u ||
+        exposure::histogram_index(0.0f) != 0u ||
+        exposure::histogram_index(1000.0f) !=
+            exposure::histogram_bin_count - 1u ||
+        metering.total_weight != 100u || metering.included_weight != 88u ||
+        !near(metering.low_percentile_luminance, metering_low) ||
+        !near(metering.high_percentile_luminance, metering_high) ||
+        !near(metering.average_luminance, expected_metering_average) ||
+        !near(exposure::target(neutral_metering), 1.0f) ||
+        exposure::target(dark_metering) != exposure::maximum_exposure ||
+        exposure::target(exposure::Metering{}) != 1.0f ||
+        !near(one_dark_step, two_dark_steps) ||
+        !(light_adaptation_distance > dark_adaptation_distance) ||
+        exposure::adapt(1.0f, 3.0f, false, 0.1f) != 3.0f ||
+        exposure::adapt(1.0f, 3.0f, true, -1.0f) != 1.0f ||
+        !near(exposure::adapt(1.0f, 2.0f, true, 1.0f),
+              exposure::adapt(1.0f, 2.0f, true,
+                              exposure::maximum_delta_seconds)) ||
         !near(exposure::tone_map_luminance(0.0f), 0.0f) ||
-        !near(exposure::tone_map_luminance(
-                  exposure::tone_minimum_luminance), 1.0f / 128.0f) ||
-        !near(exposure::tone_map_luminance(
-                  exposure::tone_white_point), 1.0f)) {
+        !(exposure::tone_map_luminance(0.0002f) < 0.00001f) ||
+        !(exposure::tone_map_luminance(0.001f) <
+          exposure::tone_map_luminance(0.01f)) ||
+        !(exposure::tone_map_luminance(0.01f) <
+          exposure::tone_map_luminance(0.18f)) ||
+        !(exposure::tone_map_luminance(0.18f) <
+          exposure::tone_map_luminance(1.0f)) ||
+        !(exposure::tone_map_luminance(1.0f) <
+          exposure::tone_map_luminance(8.0f)) ||
+        !(exposure::tone_map_luminance(8.0f) < 1.0f) ||
+        !(exposure::tone_map_luminance(1000000.0f) > 0.999f)) {
         return fail("automatic exposure contract changed");
     }
     if (!near(indirect::guide_weight(100.0f, 100.0f, 1.0f), 1.0f) ||
