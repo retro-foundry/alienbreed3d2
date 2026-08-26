@@ -42,8 +42,8 @@ session. Supported keys are:
   vector models, and companion weapon into a fresh, visibly noisy HDR image.
   The current staged pass samples renderer-native base color, normal,
   metalness, and explicit emissive channels with Lambert polygon-light NEE at
-  the primary surface and after one diffuse continuation, shadow rays, and a
-  pinned dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player
+  the primary surface and every configured diffuse continuation, shadow rays,
+  and a pinned dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player
   1's
   companion weapon is source-scale camera-relative PBR geometry in the same
   depth-ordered TLAS. It is occluded by the world, participates in diffuse and
@@ -77,21 +77,21 @@ default, so the shipped template lists them commented out with their defaults:
 - `rtx_samples_per_pixel=1` through `8` sets how many independent
   diffuse polygon-light samples are averaged per pixel. The primary ray remains
   pixel-centred. The `restir` comparison always traces at least four fresh GI
-  continuations without repeating primary direct lighting; values above four
-  raise both direct and GI sample counts. `rtx_max_bounces=1` evaluates directly
-  visible emission and
-  primary-hit Lambert polygon NEE; values `2` through `8` add the same single
-  indirect diffuse vertex while later bounces remain deliberately dormant;
+  paths without repeating primary direct lighting; values above four raise
+  both direct and GI sample counts. `rtx_max_bounces=1` evaluates directly
+  visible emission and primary-hit Lambert polygon NEE. Each value from `2`
+  through `8` adds one real diffuse continuation and polygon-light evaluation;
+  the default `3` therefore shades two successive indirect surfaces;
 - `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
   path tracer renders at before reconstruction upscales it. That makes it the
   largest single performance lever: at 2560x1440 the three fastest measured
   12.7, 10.4 and 8.5 ms a frame. The default is `quality`;
-- `rtx_light_candidates=1` through `1024` controls fresh RIS at both diffuse
-  vertices. Candidates are evaluated without shadow rays, one survivor traces
+- `rtx_light_candidates=1` through `1024` controls fresh RIS at every diffuse
+  vertex. Candidates are evaluated without shadow rays, one survivor traces
   visibility, and the unbiased reservoir normalization preserves brightness.
-  The primary vertex uses the complete emitter alias table. The indirect
-  vertex uses a fresh camera-centred ReGIR cell proposal, matching Q2RTX's
+  The primary vertex uses the complete emitter alias table. Indirect vertices
+  use fresh camera-centred ReGIR cell proposals, matching Q2RTX's
   essential local-light-list behavior. `rtx_reservoir_limit=0` through `65536`
   caps the running history of the separate low-frequency indirect channel; zero
   keeps only the current frame while its depth/normal-guided spatial filter
@@ -101,10 +101,11 @@ default, so the shipped template lists them commented out with their defaults:
   `rtx_exposure=1` is a bias multiplied by the renderer's automatic exposure
   before tone mapping.
 
-`AB3D2_DXR_SPP`, `AB3D2_DXR_CANDIDATES`, `AB3D2_DXR_RESERVOIR_LIMIT`,
-`AB3D2_DXR_RADIANCE_CLAMP`, `AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, and
-`AB3D2_DXR_RR_MODE` still override the file for one run, which is how a setting
-gets swept without editing it. The ordinary hidden `--gpu-smoke` path
+`AB3D2_DXR_SPP`, `AB3D2_DXR_MAX_BOUNCES`, `AB3D2_DXR_CANDIDATES`,
+`AB3D2_DXR_RESERVOIR_LIMIT`, `AB3D2_DXR_RADIANCE_CLAMP`,
+`AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, and `AB3D2_DXR_RR_MODE` still
+override the file for one run, which is how a setting gets swept without
+editing it. The ordinary hidden `--gpu-smoke` path
 deliberately reads no `ab3d2.ini`, so its measurements stay independent of the
 host's configuration. `--gpu-smoke save` is the exception: it restores the
 executable-local `savegame.bin`, applies the adjacent configuration, freezes the
@@ -563,20 +564,21 @@ not added to HDR as fake self-emission. The image shows directly visible
 authored emission and diffuse polygon-light transport. At the primary hit the
 shader draws `rtx_light_candidates` samples from the complete authored-emitter
 alias distribution, streams them through fresh RIS, and traces visibility only for
-the survivor, providing the directly lit diffuse baseline. It then takes one
-cosine-weighted continuation and evaluates fresh polygon RIS from the
-camera-centred world-space light-grid cell containing that indirect hit. This
-keeps Level A's starting-room emitters in the second-vertex proposal instead of
-diluting them among every emissive triangle in the level. Both use metal-free
-diffuse reflectance and the emitter's exact area-to-solid-angle PDF and unbiased
-RIS normalization. SPP repeats and averages the complete estimate. There is no
-environment lighting, GGX/specular transport, authored zone ambient, third
-surface hit, or screen-space ReSTIR reservoir reuse. The indirect incident
+the survivor, providing the directly lit diffuse baseline. The first indirect
+continuation uses the broad low-frequency geometric-normal distribution; each
+later continuation uses an ordinary cosine distribution. Every reached surface
+evaluates fresh polygon RIS from its camera-centred world-space light-grid cell,
+so Level A's starting-room emitters remain in local proposals instead of being
+diluted among every emissive triangle in the level. All vertices use metal-free
+diffuse reflectance, the emitter's exact area-to-solid-angle PDF, and unbiased
+fresh-RIS normalization. SPP repeats and averages the complete bounded path.
+There is no environment lighting, GGX/specular transport, or authored zone
+ambient. The indirect incident
 radiance is demodulated from primary albedo, represented directionally,
 reprojected and accumulated up to `rtx_reservoir_limit`, then reconstructed by
 the one-third-resolution regional pipeline before primary albedo is restored.
 This is a dedicated low-frequency diffuse channel rather than ReSTIR GI. The ReGIR grid
-remains a fresh light proposal only. Misses are black unless the primary segment crosses a
+remains a fresh light proposal only. Misses are black unless a traced segment crosses a
 non-occluding authored additive layer. A full-screen pass tone maps the HDR
 result using percentile histogram automatic exposure before writing the
 three-frame flip-discard swap chain. The same primary dispatch writes separate
@@ -612,7 +614,7 @@ lifecycle check and run the game-content check with:
 ```
 
 The RTX smoke renders each Level A--P frame twice. A starting view with no
-visible source and no sampled two-vertex connection may correctly be black;
+visible source and no sampled emitter connection may correctly be black;
 across a full campaign run, at least one level must produce authored radiance
 and at least one frozen camera/scene pair must change as the diffuse
 polygon-light sample sequence advances. The primary ray itself remains fixed. It also

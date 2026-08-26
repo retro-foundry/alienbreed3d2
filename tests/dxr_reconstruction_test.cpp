@@ -67,6 +67,17 @@ int main()
                   indirect::temporal_minimum_current_weight == 0.01f &&
                   indirect::temporal_gradient_confirmation_rate == 0.25f &&
                   indirect::temporal_gradient_confirmation_threshold == 0.4f &&
+                  indirect::maximum_path_depth == 8u &&
+                  indirect::path_dimensions_per_continuation == 8u &&
+                  indirect::direction_dimension_x == 6u &&
+                  indirect::direction_dimension_y == 7u &&
+                  indirect::polygon_bounce_stream_stride == 1024u &&
+                  indirect::continuation_count(0u) == 0u &&
+                  indirect::continuation_count(1u) == 0u &&
+                  indirect::continuation_count(2u) == 1u &&
+                  indirect::continuation_count(3u) == 2u &&
+                  indirect::continuation_count(8u) == 7u &&
+                  indirect::continuation_count(9u) == 7u &&
                   indirect::sh_basis_l0 == 0.282095f &&
                   indirect::sh_basis_l1 == 0.488603f &&
                   indirect::filter_support_is_continuous() &&

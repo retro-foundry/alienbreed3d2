@@ -641,35 +641,36 @@ Use the `SceneEnvironment` backdrop/sky through a documented lat-long or equival
 
 Current staged status (2026-08-26): after reducing the executed DXR path to
 flat primary visibility, diffuse polygon-light transport has been reintroduced
-without the former full PBR/ReSTIR estimator. The camera ray remains
-pixel-centred with zero frame-varying
-subpixel jitter and preserves flat base colour as an inspectable material
-guide rather than adding it to HDR as self-emission. Directly visible authored
-emission is shown. For each SPP sample, the primary diffuse surface streams
-`CandidateCount` samples from the complete global authored-emitter alias
-distribution through fresh RIS, converts area density to solid-angle density,
-and traces visibility only for the survivor. A cosine-weighted Lambert
-continuation then leaves the primary surface. Before the primary dispatch, the
-existing camera-centred ReGIR grid is rebuilt from the complete alias table;
-the first opaque indirect hit evaluates fresh polygon RIS from its world-space
-cell. This supplies Q2RTX's essential local-light-list proposal behavior while
-remaining unbiased through the stored categorical inverse probability. The
-second estimator is
-`primary diffuse throughput * indirect Lambert BRDF * Le * cos / lightPdf`.
-Only these direct and one-bounce diffuse polygon-light terms execute:
-environment lighting, GGX/specular transport, authored zone ambient, a third
-surface hit, and screen-space ReSTIR reservoirs remain dormant. ReGIR supplies
-only the current-frame indirect light proposal. Fresh RIS
-uses the unbiased `weightSum / (candidateCount * selectedTarget)` normalization
-and is not reused across frames or pixels. Source
-additive layers are visible and non-occluding but are not area-light candidates.
+without the former full PBR estimator. The camera ray remains pixel-centred
+with zero frame-varying subpixel jitter and preserves flat base colour as an
+inspectable material guide rather than adding it to HDR as self-emission.
+Directly visible authored emission is shown. For each SPP sample, the primary
+diffuse surface streams `CandidateCount` samples from the complete global
+authored-emitter alias distribution through fresh RIS, converts area density to
+solid-angle density, and traces visibility only for the survivor.
+`rtx_max_bounces` now counts real surface depth: one evaluates the primary
+surface only, while each value from two through eight traces one additional
+diffuse continuation. The first continuation uses the broad low-frequency
+geometric-normal distribution established by the Q2RTX audit; every later
+continuation uses ordinary cosine sampling. Before the primary dispatch, the
+existing camera-centred ReGIR grid is rebuilt from the complete alias table.
+Every opaque indirect hit evaluates fresh polygon RIS from its own world-space
+cell and multiplies later terms by all preceding diffuse reflectances. This
+supplies Q2RTX's essential local-light-list proposal behavior while retaining
+the stored categorical inverse probability. Environment lighting,
+GGX/specular transport, authored zone ambient, and screen-space direct-light
+ReSTIR reservoirs remain dormant. ReGIR supplies only a current-frame light
+proposal. Fresh RIS uses the unbiased
+`weightSum / (candidateCount * selectedTarget)` normalization and is not reused
+across frames or pixels. Source additive layers are visible, non-occluding, and
+accumulated along every segment, but are not area-light candidates.
 
-The sparse second-vertex result now has a dedicated low-frequency diffuse
-reconstruction path. The continuation and indirect-light evaluation use the
-second hit's geometric normal, and the continuation distribution deliberately
-covers more grazing directions than an ordinary cosine sample. The path tracer
-stores the incident signal without primary albedo as first-order directional
-luminance plus two opponent-chroma values. Full-resolution history is gathered
+The sparse diffuse suffix now has a dedicated low-frequency reconstruction
+path. All indirect-light evaluations use geometric normals; only the first
+continuation deliberately covers more grazing directions than an ordinary
+cosine sample. The path tracer stores the complete configured suffix without
+primary albedo as first-order directional luminance plus two opponent-chroma
+values. Full-resolution history is gathered
 from four bilinear taps through dense scene motion, rejected on depth/geometric-
 normal disagreement, and maintained as a bounded running average. One current/
 history luminance pair per 3x3 region is blurred through seven unguided wavelet
@@ -682,8 +683,8 @@ one-third-resolution working image. An explicit regional deflicker bound runs
 before three guided 3x3 wavelet passes at low-resolution steps 1, 2, and 4. A
 four-tap bilateral reconstruction projects the directional field onto the
 full-resolution primary geometric normal; primary albedo is then restored and
-direct radiance is added. This reconstructs the existing one-bounce polygon-
-light transport; it neither invents ambient light nor implements ReSTIR GI. A
+direct radiance is added. This reconstructs the bounded polygon-light suffix;
+it neither invents ambient light nor implements ReSTIR GI. A
 sparse 32-by-18 primary-surface grid supplies a
 64-bin log-luminance histogram. Exact black is excluded, the centre region has
 two votes, and the weighted 10th--98th percentile interval drives bounded,
@@ -795,6 +796,22 @@ exposure-meter mean rose from approximately `0.000013` to `0.000016`; a
 and zero pixels changing by at least 16 display-code values. The broad ReSTIR
 kernel changes where that energy is discovered rather than multiplying it, so
 the fixed-view global mean is not expected to measure the doorway redistribution.
+
+The following `rtx_max_bounces` audit replaced the dormant-depth branch with a
+bounded loop and disjoint blue-noise/light-candidate streams per continuation.
+On the same frozen Level A indirect-only ReSTIR/RR save, depth one was exactly
+black as expected; depths two, three, and five produced distinct checksums and
+display deltas `0.0911`, `0.0818`, and `0.0775`. Their display-space mean
+luminance rose from `24.8076` at depth two to `26.8999` at depth three and
+`27.4315` at depth five. This demonstrates that later paths execute and deliver
+energy, but it does not make bounce count a coverage repair. The dark
+right-hand hallway face has valid non-black diffuse albedo and a valid
+geometric normal. Raising complete SPP from one to eight changed its measured
+display-region mean only from approximately `17.10` to `17.14`. Its normal is
+incompatible with the adjacent brighter faces under the current ReSTIR GI
+spatial similarity gate, so those reservoirs cannot cross the corner. A deeper
+suffix only begins after a useful first continuation has been discovered; it
+cannot correct that first-vertex proposal/reuse limitation.
 
 `AB3D2_DXR_RADIANCE_CHANNEL=indirect` is the startup-only isolation test for
 this signal. It clears primary visible emission, additive radiance, and direct
@@ -1043,8 +1060,8 @@ readback statistics/ID overlays, and PIX validation remain later work.
 ### 7. `Add the clean-room noisy PBR path tracer`
 
 Current status: the historical complete estimator remains implemented but is
-inactive apart from the direct and one-bounce diffuse polygon-light stage
-recorded above. The executed shader covers world geometry, non-projectile bitmap/vector
+inactive apart from the direct and bounded diffuse polygon-light stage recorded
+above. The executed shader covers world geometry, non-projectile bitmap/vector
 entities, and the PBR companion weapon. Alpha-tested surfaces participate in
 primary, continuation, and visibility traversal; additive/glare geometry is
 visible but excluded from the area-emitter distribution. Later presentation
@@ -1580,7 +1597,7 @@ nothing passes any stability bound trivially.
 - The dedicated foundation test does not require game content. The RTX
   all-level smoke separately renders each world/entity frame twice. An isolated
   pass may correctly return black when that view sees no authored source or
-  sampled two-vertex connection; across Levels A--P at least one level must
+  sampled emitter connection; across Levels A--P at least one level must
   produce authored radiance and at least one frozen pair must differ as the
   indirect sample sequence advances while primary visibility remains
   pixel-centred. It additionally requires nonzero GPU

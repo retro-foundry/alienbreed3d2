@@ -56,6 +56,24 @@ inline constexpr float temporal_antilag_history_power = 10.0f;
 inline constexpr float temporal_minimum_current_weight = 0.01f;
 inline constexpr float temporal_gradient_confirmation_rate = 0.25f;
 inline constexpr float temporal_gradient_confirmation_threshold = 0.4f;
+/* Runtime path-depth and dimension contracts mirrored by path_trace.hlsl.
+ * Depth counts the primary surface. The first continuation consumes dimensions
+ * 6/7 from group zero; every later continuation advances by one eight-value
+ * group. Polygon RIS reserves 1024 streams per reached surface, matching the
+ * public candidate-count ceiling. */
+inline constexpr uint32_t maximum_path_depth = 8u;
+inline constexpr uint32_t path_dimensions_per_continuation = 8u;
+inline constexpr uint32_t direction_dimension_x = 6u;
+inline constexpr uint32_t direction_dimension_y = 7u;
+inline constexpr uint32_t polygon_bounce_stream_stride = 1024u;
+
+inline constexpr uint32_t continuation_count(uint32_t path_depth)
+{
+    const uint32_t bounded = path_depth < maximum_path_depth ?
+        path_depth : maximum_path_depth;
+    return bounded > 0u ? bounded - 1u : 0u;
+}
+
 /* Q2RTX's low-frequency path deliberately samples slightly more grazing
  * directions than an ordinary cosine hemisphere so a sparse screen block
  * covers broad transport directions. This project-owned sampler mirrors that

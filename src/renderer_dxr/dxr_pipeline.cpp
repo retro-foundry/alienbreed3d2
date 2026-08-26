@@ -535,11 +535,11 @@ bool DxrPipeline::configure_debug_view(std::string &error)
 
 /*
  * Applies ab3d2.ini's ray-tracing settings over the tuned defaults, then lets
- * the environment override either, so candidate count and indirect history can
- * be swept against `--gpu-smoke` without editing a file. A larger history cap
- * lengthens the running average of demodulated diffuse incident radiance. The
- * subsequent depth/normal-guided spatial reconstruction is independent of the
- * cap and still runs when it is zero.
+ * the environment override either, so bounce depth, candidate count, and
+ * indirect history can be swept against `--gpu-smoke` without editing a file.
+ * A larger history cap lengthens the running average of demodulated diffuse
+ * incident radiance. The subsequent depth/normal-guided spatial reconstruction
+ * is independent of the cap and still runs when it is zero.
  *
  * A zero in the ordinary options means "keep the default", which is what an
  * absent INI key leaves behind. The history-limit set flag preserves zero as an
@@ -579,7 +579,10 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     };
     /* A history limit of zero is a meaningful diagnostic setting rather than an
      * error: it disables only indirect temporal accumulation. */
-    const std::array<Override, 2> overrides = {
+    const std::array<Override, 3> overrides = {
+        Override{"AB3D2_DXR_MAX_BOUNCES", 1u,
+                 indirect_reconstruction::maximum_path_depth,
+                 &maximum_depth_},
         Override{"AB3D2_DXR_CANDIDATES", 1u, 1024u, &candidate_count_},
         Override{"AB3D2_DXR_RESERVOIR_LIMIT", 0u, 65536u,
                  &reservoir_sample_limit_},
@@ -1948,7 +1951,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         table + shader_record_size * shader_record_hit_group,
         shader_record_size, shader_record_size};
     if (maximum_depth_ >= 2u && scene_.emitter_count() > 0u) {
-        /* The indirect vertex needs the same local-light proposal property as
+        /* Every indirect vertex needs the same local-light proposal property as
          * Q2RTX's cluster light list. Reuse the renderer-owned world-space
          * ReGIR table only as a fresh proposal: no screen-space reservoir is
          * published or reused by this stripped diffuse estimator. */
@@ -1960,8 +1963,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             uav_barrier(light_grid_.Get());
         command_list->ResourceBarrier(1, &light_grid_ready);
     }
-    /* Primary polygon NEE keeps the complete global proposal; the indirect
-     * vertex draws from the grid built above. SpatialShade remains dormant:
+    /* Primary polygon NEE keeps the complete global proposal; indirect
+     * vertices draw from the grid built above. SpatialShade remains dormant:
      * no temporal or neighboring screen-space reservoir is shaded. */
     dispatch.RayGenerationShaderRecord = {
         table + shader_record_size * shader_record_ray_generation,

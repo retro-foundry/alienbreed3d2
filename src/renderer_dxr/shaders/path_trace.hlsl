@@ -205,9 +205,9 @@ RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
  * used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
-/* Demodulated second-vertex diffuse lighting. RayGeneration writes the raw
- * sample; after temporal accumulation the texture's top-left third-sized area
- * holds the transient one-third-resolution reconstruction. */
+/* Demodulated diffuse-suffix lighting. RayGeneration writes the raw bounded
+ * path sample; after temporal accumulation the texture's top-left third-sized
+ * area holds the transient one-third-resolution reconstruction. */
 RWTexture2D<float4> IndirectRadiance : register(u14);
 RWStructuredBuffer<IndirectHistoryPixel> IndirectHistories[2] : register(u15);
 RWTexture2D<float4> IndirectFiltered : register(u17);
@@ -263,6 +263,7 @@ static const uint BlueNoiseOptimizedDimensions = 8u;
 static const uint BlueNoiseSobolOffset = 0u;
 static const uint BlueNoiseScramblingOffset = 65536u;
 static const uint BlueNoiseRankingOffset = 196608u;
+static const uint MaximumDiffusePathDepth = 8u;
 static const uint PathDimensionsPerBounce = 8u;
 /*
  * The primary lobe choice is stochastic, so only some frames produce a
@@ -366,6 +367,10 @@ static const uint ReservoirBrdfStream = 0x10500u;
 static const uint SecondaryDirectStream = 0x10600u;
 static const uint DiffusePrimaryPolygonStream = 0x10700u;
 static const uint DiffuseIndirectPolygonStream = 0x10800u;
+/* `rtx_light_candidates` is capped at 1024. Give every indirect surface a
+ * disjoint candidate stream so changing path depth adds samples instead of
+ * replaying the first secondary vertex's light choices. */
+static const uint DiffusePolygonBounceStreamStride = 1024u;
 static const uint SecondaryLocalSampleCount = 2u;
 static const uint SecondaryEnvironmentSampleCount = 1u;
 /*
@@ -1358,8 +1363,8 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
 }
 
 /* Plain authored-polygon NEE for one diffuse receiver. The primary receiver
- * supplies the directly lit baseline; evaluating the same estimator after the
- * cosine continuation supplies the Q2RTX-style indirect-polygon-light term.
+ * supplies the directly lit baseline; evaluating the same estimator at every
+ * reached continuation supplies the indirect-polygon-light path suffix.
  * This deliberately does not call the full PBR evaluator, sample the analytic
  * environment, read the light grid, or publish/reuse a reservoir. */
 EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
@@ -1497,6 +1502,106 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
     float inversePdf = weightSum /
         (float(candidateCount) * selectedEvaluation.targetPdf);
     return selectedEvaluation.contribution * inversePdf;
+}
+
+struct DiffusePathSample
+{
+    /* Outgoing diffuse radiance at the first indirect surface, including all
+     * later configured surfaces. Primary albedo is deliberately absent. */
+    float3 radiance;
+    float3 firstDirection;
+    float firstDistance;
+    SurfacePayload firstPayload;
+    SurfaceData firstSurface;
+    bool firstHit;
+};
+
+/* Trace the diffuse suffix behind the primary receiver.
+ *
+ * Q2RTX's reconstructed low-frequency signal broadens only the first
+ * continuation. Later diffuse continuations use ordinary cosine sampling.
+ * With cosine-estimator throughput, each additional surface contributes its
+ * polygon-light NEE after every preceding diffuse albedo has been applied.
+ * MaximumDepth counts the primary surface, so depth three executes two real
+ * continuation rays and shades both reached surfaces. */
+DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
+                                    SurfaceData primarySurface)
+{
+    DiffusePathSample result = (DiffusePathSample)0;
+    result.firstDirection = primarySurface.geometricNormal;
+    result.firstDistance = SceneFarPlane;
+    result.firstPayload.primitiveIndex = InvalidIndex;
+    float3 suffixThroughput = 1.0;
+    SurfaceData departureSurface = primarySurface;
+    uint pathDepth = min(MaximumDepth, MaximumDiffusePathDepth);
+
+    [loop]
+    for (uint continuationIndex = 0u;
+         continuationIndex + 1u < pathDepth;
+         ++continuationIndex) {
+        uint dimension = PathDimensionsPerBounce * continuationIndex;
+        float2 directionSample = float2(
+            sampleBlueNoise(pixel, sampleIndex, dimension + 6u),
+            sampleBlueNoise(pixel, sampleIndex, dimension + 7u));
+        float3 bounceDirection = continuationIndex == 0u ?
+            lowFrequencyDiffuseHemisphere(
+                departureSurface.geometricNormal, directionSample) :
+            cosineHemisphere(
+                departureSurface.geometricNormal, directionSample);
+        if (dot(departureSurface.geometricNormal, bounceDirection) <= 0.0) {
+            break;
+        }
+        if (continuationIndex == 0u) {
+            result.firstDirection = bounceDirection;
+        }
+
+        RayDesc bounceRay;
+        bounceRay.Origin = departureSurface.position +
+            departureSurface.geometricNormal * RayEpsilon;
+        bounceRay.Direction = bounceDirection;
+        bounceRay.TMin = RayEpsilon;
+        bounceRay.TMax = SceneFarPlane;
+        SegmentTraversal bounceSegment = traceSegment(bounceRay);
+        result.radiance +=
+            suffixThroughput * bounceSegment.additiveRadiance;
+
+        if (continuationIndex == 0u) {
+            result.firstDistance = bounceSegment.payload.hit != 0u ?
+                bounceSegment.distance : SceneFarPlane;
+            result.firstPayload = bounceSegment.payload;
+        }
+        if (bounceSegment.payload.hit == 0u) {
+            break;
+        }
+
+        SurfaceData reachedSurface = loadSurface(
+            bounceSegment.payload, bounceRay.Direction);
+        /* Room-scale diffuse transport follows geometry rather than normal-map
+         * detail at every indirect vertex. */
+        reachedSurface.shadingNormal = reachedSurface.geometricNormal;
+        if (continuationIndex == 0u) {
+            result.firstSurface = reachedSurface;
+            result.firstHit = true;
+        }
+
+        uint lightStream = DiffuseIndirectPolygonStream +
+            continuationIndex * DiffusePolygonBounceStreamStride;
+        float3 directAtSurface = sampleDiffusePolygonLight(
+            pixel, sampleIndex, lightStream, true, reachedSurface);
+        result.radiance += suffixThroughput * directAtSurface;
+
+        if (continuationIndex + 2u >= pathDepth) {
+            break;
+        }
+        suffixThroughput *= diffuseReflectance(reachedSurface);
+        if (luminance(suffixThroughput) <= 1.0e-6 ||
+            any(isnan(suffixThroughput)) ||
+            any(isinf(suffixThroughput))) {
+            break;
+        }
+        departureSurface = reachedSurface;
+    }
+    return result;
 }
 
 PackedGIReservoir emptyGIReservoir()
@@ -2571,8 +2676,8 @@ void RayGeneration()
 
         /* Base colour is a reconstruction/material guide, not self-emission.
          * Visible source radiance is deterministic; the loop evaluates plain
-         * diffuse polygon NEE at the primary hit and, when enabled, repeats it
-         * after one cosine continuation for indirect transport. */
+         * diffuse polygon NEE at the primary hit and traces every configured
+         * diffuse continuation through sampleDiffusePath. */
         resolvedRadiance += surface.emission;
         float3 primaryThroughput = diffuseReflectance(surface);
         if (EmitterCount > 0u &&
@@ -2601,84 +2706,54 @@ void RayGeneration()
                 float3 sampleIndirectIncident = 0.0;
                 float3 sampleIndirectDirection = surface.geometricNormal;
                 if (MaximumDepth >= 2u) {
-                    float2 directionSample = float2(
-                        sampleBlueNoise(pixel, effectiveSampleIndex, 6u),
-                        sampleBlueNoise(pixel, effectiveSampleIndex, 7u));
-                    float3 bounceDirection = lowFrequencyDiffuseHemisphere(
-                        surface.geometricNormal, directionSample);
                     if (IndirectReconstructionMode ==
                             IndirectReconstructionRestir) {
                         giCandidateCount += 1u;
                     }
-                    if (dot(surface.geometricNormal, bounceDirection) > 0.0) {
-                        sampleIndirectDirection = bounceDirection;
-                        RayDesc bounceRay;
-                        bounceRay.Origin = surface.position +
-                            surface.geometricNormal * RayEpsilon;
-                        bounceRay.Direction = bounceDirection;
-                        bounceRay.TMin = RayEpsilon;
-                        bounceRay.TMax = SceneFarPlane;
-                        SegmentTraversal bounceSegment = traceSegment(
-                            bounceRay);
-                        if (sampleOrdinal == 0u) {
-                            DiffuseHitDistance[pixel] =
-                                bounceSegment.payload.hit != 0u ?
-                                    bounceSegment.distance : SceneFarPlane;
+                    DiffusePathSample pathSample = sampleDiffusePath(
+                        pixel, effectiveSampleIndex, surface);
+                    sampleIndirectDirection = pathSample.firstDirection;
+                    sampleIndirectIncident = pathSample.radiance;
+                    if (sampleOrdinal == 0u) {
+                        DiffuseHitDistance[pixel] = pathSample.firstDistance;
+                    }
+                    bool finiteIndirect =
+                        !any(isnan(sampleIndirectIncident)) &&
+                        !any(isinf(sampleIndirectIncident));
+                    if (IndirectReconstructionMode ==
+                            IndirectReconstructionRestir &&
+                        pathSample.firstHit && finiteIndirect &&
+                        any(sampleIndirectIncident > 0.0)) {
+                        PackedGIReservoir candidate = emptyGIReservoir();
+                        candidate.primitiveIndex =
+                            pathSample.firstPayload.primitiveIndex;
+                        candidate.sampleCount = 1u;
+                        candidate.weight = 1.0;
+                        candidate.sampleRadiance = sampleIndirectIncident;
+                        candidate.barycentrics =
+                            pathSample.firstPayload.barycentrics;
+                        float3 incident = giReconnectIncident(
+                            surface.position, surface.geometricNormal,
+                            pathSample.firstSurface,
+                            sampleIndirectIncident);
+                        float candidateTarget = luminance(
+                            primaryThroughput * incident);
+                        float areaPdf = giAreaPdf(
+                            surface.position, surface.geometricNormal,
+                            pathSample.firstSurface);
+                        float candidateWeight = areaPdf > 0.0 ?
+                            candidateTarget / areaPdf : 0.0;
+                        float combinedWeight =
+                            giWeightSum + candidateWeight;
+                        float acceptance = sampleStream(
+                            pixel, effectiveSampleIndex,
+                            GIInitialAcceptanceStream).x;
+                        if (candidateWeight > 0.0 &&
+                            acceptance * combinedWeight < candidateWeight) {
+                            currentGI = candidate;
+                            giSelectedTarget = candidateTarget;
                         }
-                        if (bounceSegment.payload.hit != 0u) {
-                            SurfaceData indirectSurface = loadSurface(
-                                bounceSegment.payload, bounceRay.Direction);
-                            /* Q2RTX's low-frequency NEE uses the secondary
-                             * geometric normal for both sampling and diffuse
-                             * response. Normal maps remain primary guides and
-                             * do not steer room-scale transport. */
-                            indirectSurface.shadingNormal =
-                                indirectSurface.geometricNormal;
-                            sampleIndirectIncident =
-                                sampleDiffusePolygonLight(
-                                pixel, effectiveSampleIndex,
-                                DiffuseIndirectPolygonStream,
-                                true, indirectSurface);
-                            if (IndirectReconstructionMode ==
-                                    IndirectReconstructionRestir &&
-                                any(sampleIndirectIncident > 0.0)) {
-                                PackedGIReservoir candidate =
-                                    emptyGIReservoir();
-                                candidate.primitiveIndex =
-                                    bounceSegment.payload.primitiveIndex;
-                                candidate.sampleCount = 1u;
-                                candidate.weight = 1.0;
-                                candidate.sampleRadiance =
-                                    sampleIndirectIncident;
-                                candidate.barycentrics =
-                                    bounceSegment.payload.barycentrics;
-                                float3 incident = giReconnectIncident(
-                                    surface.position,
-                                    surface.geometricNormal,
-                                    indirectSurface,
-                                    sampleIndirectIncident);
-                                float candidateTarget = luminance(
-                                    primaryThroughput * incident);
-                                float areaPdf = giAreaPdf(
-                                    surface.position,
-                                    surface.geometricNormal,
-                                    indirectSurface);
-                                float candidateWeight = areaPdf > 0.0 ?
-                                    candidateTarget / areaPdf : 0.0;
-                                float combinedWeight =
-                                    giWeightSum + candidateWeight;
-                                float acceptance = sampleStream(
-                                    pixel, effectiveSampleIndex,
-                                    GIInitialAcceptanceStream).x;
-                                if (candidateWeight > 0.0 &&
-                                    acceptance * combinedWeight <
-                                        candidateWeight) {
-                                    currentGI = candidate;
-                                    giSelectedTarget = candidateTarget;
-                                }
-                                giWeightSum = combinedWeight;
-                            }
-                        }
+                        giWeightSum = combinedWeight;
                     }
                 }
                 float3 sampleRadiance = sampleDirect +

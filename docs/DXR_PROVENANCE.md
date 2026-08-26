@@ -299,8 +299,11 @@ the reference lookup within every block while preventing the aligned full-tile
 pattern from repeating every 256 presented frames. No temporal accumulation,
 radiance clamp, spatial filter, or alternate denoiser was added.
 
-The separate one-bounce diffuse-indirect channel uses project-authored HLSL and
-host code. Its first full-resolution reconstruction was derived and validated
+The separate bounded diffuse-indirect channel uses project-authored HLSL and
+host code. `rtx_max_bounces` counts the primary surface and up to seven real
+continuations. Each continuation owns a separate eight-dimension sample group
+and a disjoint polygon-light candidate stream; later terms retain every
+preceding diffuse reflectance. Its first full-resolution reconstruction was derived and validated
 inside this repository. After the explicit 2026-08-26 direction, the bounded
 Q2RTX audit below identified the missing stage structure. The replacement keeps
 full-resolution validated temporal history gathered through four bilinear taps,
@@ -348,7 +351,8 @@ reservoir implementation, layout, or shader text was copied or adapted.
 - Checkout state during inspection: clean
 - Licence of inspected source/shaders: GPL-2.0-or-later
 - Files: `doc/client.md`, `src/refresh/vkpt/asvgf.c`,
-  `src/refresh/vkpt/global_ubo.h`, `src/refresh/vkpt/bsp_mesh.c`,
+  `src/refresh/vkpt/path_tracer.c`,
+  `src/refresh/vkpt/shader/global_ubo.h`, `src/refresh/vkpt/bsp_mesh.c`,
   `src/refresh/vkpt/material.c`, `src/refresh/vkpt/textures.c`,
   `src/refresh/vkpt/vertex_buffer.c`, `src/refresh/vkpt/main.c`, and
   `src/refresh/vkpt/shader/{asvgf.glsl,indirect_lighting.rgen,utils.glsl,
@@ -362,11 +366,15 @@ secondary-hit polygon-light NEE supplies a directional low-frequency diffuse
 channel; multi-tap temporal reprojection, large-region change detection, regional
 downsampling, deflicker, guided low-resolution filtering, and bilateral
 reconstruction stabilize it. The later audit also established broad radial
-continuation with retained cosine-estimator throughput, geometric-normal
-secondary NEE, bounding-rectangle/average-color polygon emitters whose texture
-energy is conserved, and full default radiance for the converted `floor_0101`
-surface. The inspection also showed that this is not a ReSTIR-GI pipeline. No
-GPL implementation text or expression was copied or
+continuation only in Q2RTX's first indirect pass, ordinary cosine sampling in
+its second indirect pass, retained cosine-estimator throughput,
+geometric-normal secondary NEE, bounding-rectangle/average-color polygon
+emitters whose texture energy is conserved, and full default radiance for the
+converted `floor_0101` surface. `path_tracer.c` showed that Q2RTX dispatches at
+most two indirect passes. The project independently generalized that observable
+depth contract to its already-public one-through-eight setting; it did not copy
+Q2RTX's dispatch or shader structure. The inspection also showed that this is
+not a ReSTIR-GI pipeline. No GPL implementation text or expression was copied or
 adapted. No Q2RTX dependency, source, shader, table, data, binary, or asset is
 present in the build or repository as a result.
 

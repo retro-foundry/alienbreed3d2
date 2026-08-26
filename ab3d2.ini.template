@@ -49,8 +49,7 @@ world_light_tessellation=4
 #rtx_samples_per_pixel=1
 
 # Path length counting the primary hit, 1 through 8. 1 is direct lighting only.
-# Each further bounce adds its own shadow and continuation rays; measured at
-# 2560x1440, going from 3 to 1 saved about 7 ms a frame. Default 3.
+# Each further bounce adds its own shadow and continuation rays. Default 3.
 #rtx_max_bounces=3
 
 # DLSS Ray Reconstruction mode: quality, balanced, performance,
