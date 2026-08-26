@@ -687,7 +687,9 @@ active path.
 
 `AB3D2_DXR_INDIRECT_RECONSTRUCTION` selects a diagnostic LF stage boundary at
 startup. `full` is the production default. `temporal` retains only four-tap
-history and gradient anti-lag, while `raw` also disables temporal accumulation.
+history and gradient anti-lag. `raw` disables temporal accumulation and decodes
+the exact current-frame RGB indirect estimate without directional SH
+projection before it enters the combined noisy HDR input.
 `regional`, `deflicker`, `wavelet1`, and `wavelet2` stop after the named
 one-third-resolution stage; the ordinary `full` mode includes all three guided
 wavelet passes. Every mode remodulates the resulting incident signal and sends

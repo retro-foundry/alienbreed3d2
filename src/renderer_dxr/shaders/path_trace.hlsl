@@ -594,6 +594,19 @@ float3 projectIndirectSignal(IndirectSignal signal, float3 normal)
     return max(float3(red, green, blue), 0.0);
 }
 
+/* The opponent-color portion of IndirectSignal is linear and reversible.
+ * Raw mode uses this exact RGB decode without applying the directional SH
+ * projection that belongs to the project LF reconstruction path. */
+float3 decodeIndirectSignalColor(IndirectSignal signal)
+{
+    float opponentY = signal.luminanceSH.w / IndirectShBasisL0;
+    float base = opponentY - signal.chroma.y * 0.5;
+    float green = signal.chroma.y + base;
+    float blue = base - signal.chroma.x * 0.5;
+    float red = blue + signal.chroma.x;
+    return float3(red, green, blue);
+}
+
 IndirectSignal loadIndirectLow(int2 pixel, bool filtered)
 {
     IndirectSignal signal;
@@ -3058,63 +3071,71 @@ void ReconstructIndirect()
         IndirectFiltered[pixel] = 0.0;
         return;
     }
-    float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
-    IndirectSignal filteredSignal;
-    if (IndirectReconstructionMode == IndirectReconstructionTemporal ||
-        IndirectReconstructionMode == IndirectReconstructionRaw) {
-        /* The temporal experiment bypasses every regional stage but retains
-         * the accumulated full-resolution directional signal. Raw bypasses
-         * temporal dispatch as well, so this same record is the current
-         * frame's untouched one-sample signal. */
-        filteredSignal.luminanceSH = centerHistory.luminanceSH;
-        filteredSignal.chroma = centerHistory.chroma;
+    float3 filteredIncident;
+    if (IndirectReconstructionMode == IndirectReconstructionRaw) {
+        /* Feed the exact current-frame RGB estimator to DLSS-RR. No temporal
+         * accumulation, directional SH projection, regional filtering,
+         * deflicker, or wavelet stage participates in this mode. */
+        IndirectSignal rawSignal;
+        rawSignal.luminanceSH = centerHistory.luminanceSH;
+        rawSignal.chroma = centerHistory.chroma;
+        filteredIncident = decodeIndirectSignalColor(rawSignal);
     } else {
-        float3 centerPosition = primaryWorldPosition(
-            pixel, dimensions, centerHistory.depth);
-        float2 lowPosition = (float2(pixel) + 0.5) /
-            float(IndirectDownsampleFactor) - 0.5;
-        int2 lowBase = int2(floor(lowPosition));
-        float2 lowFraction = frac(lowPosition);
-        uint2 lowDimensions = indirectLowDimensions(dimensions);
-        IndirectSignal incidentSum = emptyIndirectSignal();
-        float weightSum = 0.0;
-        for (int offsetY = 0; offsetY <= 1; ++offsetY) {
-            for (int offsetX = 0; offsetX <= 1; ++offsetX) {
-                int2 sampleLow = lowBase + int2(offsetX, offsetY);
-                if (any(sampleLow < 0) ||
-                    any(sampleLow >= int2(lowDimensions))) {
-                    continue;
-                }
-                float2 bilinearAxis = float2(
-                    offsetX == 0 ? 1.0 - lowFraction.x : lowFraction.x,
-                    offsetY == 0 ? 1.0 - lowFraction.y : lowFraction.y);
-                uint2 sampleAnchor = indirectLowAnchor(
-                    uint2(sampleLow), dimensions);
-                float weight = bilinearAxis.x * bilinearAxis.y *
-                    indirectLowSpatialWeight(
-                        int2(sampleAnchor), dimensions, currentSlot,
-                        centerHistory.depth, centerNormal, centerPosition);
-                IndirectSignal sampleValue = loadIndirectLow(
-                    sampleLow, false);
-                if (weight <= 0.0) {
-                    continue;
-                }
-                incidentSum.luminanceSH +=
-                    sampleValue.luminanceSH * weight;
-                incidentSum.chroma += sampleValue.chroma * weight;
-                weightSum += weight;
-            }
-        }
-        if (weightSum > 0.0) {
-            filteredSignal = scaleIndirectSignal(
-                incidentSum, 1.0 / weightSum);
-        } else {
+        float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
+        IndirectSignal filteredSignal;
+        if (IndirectReconstructionMode == IndirectReconstructionTemporal) {
             filteredSignal.luminanceSH = centerHistory.luminanceSH;
             filteredSignal.chroma = centerHistory.chroma;
+        } else {
+            float3 centerPosition = primaryWorldPosition(
+                pixel, dimensions, centerHistory.depth);
+            float2 lowPosition = (float2(pixel) + 0.5) /
+                float(IndirectDownsampleFactor) - 0.5;
+            int2 lowBase = int2(floor(lowPosition));
+            float2 lowFraction = frac(lowPosition);
+            uint2 lowDimensions = indirectLowDimensions(dimensions);
+            IndirectSignal incidentSum = emptyIndirectSignal();
+            float weightSum = 0.0;
+            for (int offsetY = 0; offsetY <= 1; ++offsetY) {
+                for (int offsetX = 0; offsetX <= 1; ++offsetX) {
+                    int2 sampleLow = lowBase + int2(offsetX, offsetY);
+                    if (any(sampleLow < 0) ||
+                        any(sampleLow >= int2(lowDimensions))) {
+                        continue;
+                    }
+                    float2 bilinearAxis = float2(
+                        offsetX == 0 ?
+                            1.0 - lowFraction.x : lowFraction.x,
+                        offsetY == 0 ?
+                            1.0 - lowFraction.y : lowFraction.y);
+                    uint2 sampleAnchor = indirectLowAnchor(
+                        uint2(sampleLow), dimensions);
+                    float weight = bilinearAxis.x * bilinearAxis.y *
+                        indirectLowSpatialWeight(
+                            int2(sampleAnchor), dimensions, currentSlot,
+                            centerHistory.depth, centerNormal, centerPosition);
+                    IndirectSignal sampleValue = loadIndirectLow(
+                        sampleLow, false);
+                    if (weight <= 0.0) {
+                        continue;
+                    }
+                    incidentSum.luminanceSH +=
+                        sampleValue.luminanceSH * weight;
+                    incidentSum.chroma += sampleValue.chroma * weight;
+                    weightSum += weight;
+                }
+            }
+            if (weightSum > 0.0) {
+                filteredSignal = scaleIndirectSignal(
+                    incidentSum, 1.0 / weightSum);
+            } else {
+                filteredSignal.luminanceSH = centerHistory.luminanceSH;
+                filteredSignal.chroma = centerHistory.chroma;
+            }
         }
+        filteredIncident = projectIndirectSignal(
+            filteredSignal, centerNormal);
     }
-    float3 filteredIncident = projectIndirectSignal(
-        filteredSignal, centerNormal);
     if (any(isnan(filteredIncident)) || any(isinf(filteredIncident))) {
         filteredIncident = 0.0;
     }

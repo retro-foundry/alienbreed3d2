@@ -705,12 +705,17 @@ supplied to DLSS Ray Reconstruction.
 
 A matched 2026-08-26 reduction experiment then kept the same single final
 DLSS-RR evaluation while stopping the LF path at explicit stage boundaries.
-The 32-frame saved Level A indirect-view results were `1.6991` for raw,
+The 32-frame saved Level A indirect-view results were `1.5917` for exact raw,
 `0.1181` for temporal-only, `0.1408` after regional integration, `0.1012` after
 deflicker, `0.0780` after one guided wavelet, `0.0537` after two, and `0.0347`
 after all three. Raw appeared stable after RR only because nearly all corridor
-fill disappeared; temporal-only and one-wavelet captures retained visible
-speckles or blotches. Two wavelets came closest, but the isolated LF still
+fill disappeared. Its corrected current-frame RGB path bypassed directional SH
+projection as well as every temporal/spatial LF stage, measured `0.0906` after
+RR, and exposed a starfield of rare nonzero indirect samples. Eight complete
+samples per pixel revealed more corridor detail after RR (`0.2755`) but remained
+substantially darker than the LF reconstruction. Temporal-only and one-wavelet
+captures retained visible speckles or blotches. Two wavelets came closest, but
+the isolated LF still
 showed blotches and its moving Level A comparison was marginally worse than the
 full path: late delta `0.3548` versus `0.3504`, saturation `76463` versus
 `76213`, and walked-frame delta `16.0135` versus `16.0068`. No useful GPU-time
