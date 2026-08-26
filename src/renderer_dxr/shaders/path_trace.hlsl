@@ -131,6 +131,19 @@ struct PackedLightReservoir
     uint surfaceTextureWindowExtent;
 };
 
+/* Project-owned ReSTIR GI sample layout mirrored by
+ * restir_gi::PackedReservoir. The triangle/barycentric identity is stable
+ * across geometry motion; position and orientation are reconstructed from the
+ * current vertex buffer whenever the sample is reconnected. */
+struct PackedGIReservoir
+{
+    uint primitiveIndex;
+    uint sampleCount;
+    float weight;
+    float3 sampleRadiance;
+    float2 barycentrics;
+};
+
 struct SurfacePayload
 {
     float rayDistance;
@@ -212,6 +225,8 @@ RWStructuredBuffer<float> AutomaticExposure : register(u18);
 RWTexture2D<float2> IndirectChroma : register(u19);
 RWTexture2D<float2> IndirectChromaFiltered : register(u20);
 RWTexture2D<float2> IndirectGradients[2] : register(u21);
+RWStructuredBuffer<PackedGIReservoir> GIReservoirs[2] : register(u23);
+RWStructuredBuffer<PackedGIReservoir> GITemporalScratch : register(u25);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -345,6 +360,15 @@ static const uint IndirectReconstructionRegional = 3u;
 static const uint IndirectReconstructionDeflicker = 4u;
 static const uint IndirectReconstructionWavelet1 = 5u;
 static const uint IndirectReconstructionWavelet2 = 6u;
+static const uint IndirectReconstructionRestir = 7u;
+static const float GIUniformHemispherePdf = 1.0 / (2.0 * Pi);
+static const uint GISpatialSampleCount = 4u;
+static const float GISpatialRadius = 32.0;
+static const uint GITemporalStream = 0x30000u;
+static const uint GITemporalAcceptanceStream = 0x30100u;
+static const uint GISpatialStream = 0x30200u;
+static const uint GISpatialAcceptanceStream = 0x30300u;
+static const uint GIInitialAcceptanceStream = 0x30400u;
 static const float IndirectShBasisL0 = 0.282095;
 static const float IndirectShBasisL1 = 0.488603;
 static const float IndirectShIrradianceL0 = 0.886226;
@@ -726,6 +750,19 @@ float3 lowFrequencyDiffuseHemisphere(float3 geometricNormal,
                      geometricNormal * sqrt(max(0.0, 1.0 - radius * radius)));
 }
 
+float3 uniformHemisphere(float3 geometricNormal, float2 sampleValue)
+{
+    float cosine = sampleValue.x;
+    float radius = sqrt(max(0.0, 1.0 - cosine * cosine));
+    float angle = 2.0 * Pi * sampleValue.y;
+    float3 tangent;
+    float3 bitangent;
+    coordinateSystem(geometricNormal, tangent, bitangent);
+    return normalize(tangent * (radius * cos(angle)) +
+                     bitangent * (radius * sin(angle)) +
+                     geometricNormal * cosine);
+}
+
 uint2 materialTexel(SceneMaterial material, float2 textureCoordinate,
                     uint packedWindowOrigin, uint packedWindowExtent)
 {
@@ -1070,6 +1107,19 @@ float2 reprojectHistoryPixel(uint2 pixel, float2 motion)
 {
     return float2(pixel) + 0.5 + motion +
         float2(JitterX - PreviousJitterX, JitterY - PreviousJitterY);
+}
+
+float3 giPrimaryWorldPosition(uint2 pixel, uint2 dimensions, float depth)
+{
+    float2 screen = (float2(pixel) + 0.5 + float2(JitterX, JitterY)) /
+        float2(dimensions);
+    float2 ndc = float2(screen.x * 2.0 - 1.0,
+                        1.0 - screen.y * 2.0);
+    float3 direction = normalize(CameraForward +
+        CameraRight * (ndc.x * Aspect * TanHalfFovY) +
+        CameraUp * (ndc.y * TanHalfFovY));
+    float projected = max(dot(direction, CameraForward), 1.0e-6);
+    return CameraPosition + direction * (depth / projected);
 }
 
 float3 fresnelSchlick(float cosine, float3 reflectance)
@@ -1489,6 +1539,161 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
     float inversePdf = weightSum /
         (float(candidateCount) * selectedEvaluation.targetPdf);
     return selectedEvaluation.contribution * inversePdf;
+}
+
+PackedGIReservoir emptyGIReservoir()
+{
+    PackedGIReservoir reservoir = (PackedGIReservoir)0;
+    reservoir.primitiveIndex = InvalidIndex;
+    return reservoir;
+}
+
+struct GISampleEvaluation
+{
+    float3 incident;
+    float target;
+    bool valid;
+};
+
+/* ReSTIR GI uses secondary surface area as its common sample measure. The
+ * initial continuation is uniform in solid angle, so p_A = p_omega cos_y/r^2.
+ * Reconnecting the stored outgoing radiance applies the matching geometric
+ * term cos_x cos_y/(pi r^2). */
+float giAreaPdf(float3 primaryPosition, SurfaceData secondarySurface)
+{
+    float3 offset = secondarySurface.position - primaryPosition;
+    float distanceSquared = dot(offset, offset);
+    if (!(distanceSquared > RayEpsilon * RayEpsilon)) {
+        return 0.0;
+    }
+    float3 direction = offset * rsqrt(distanceSquared);
+    float secondaryCosine = saturate(dot(
+        secondarySurface.geometricNormal, -direction));
+    return GIUniformHemispherePdf * secondaryCosine / distanceSquared;
+}
+
+float3 giReconnectIncident(float3 primaryPosition, float3 primaryNormal,
+                           SurfaceData secondarySurface,
+                           float3 secondaryRadiance)
+{
+    float3 offset = secondarySurface.position - primaryPosition;
+    float distanceSquared = dot(offset, offset);
+    if (!(distanceSquared > RayEpsilon * RayEpsilon)) {
+        return 0.0;
+    }
+    float3 direction = offset * rsqrt(distanceSquared);
+    float primaryCosine = saturate(dot(primaryNormal, direction));
+    float secondaryCosine = saturate(dot(
+        secondarySurface.geometricNormal, -direction));
+    return secondaryRadiance *
+        (primaryCosine * secondaryCosine / (Pi * distanceSquared));
+}
+
+bool loadGISecondarySurface(PackedGIReservoir reservoir,
+                            float3 primaryPosition,
+                            out SurfaceData secondarySurface)
+{
+    secondarySurface = (SurfaceData)0;
+    if (reservoir.primitiveIndex >= TriangleCount ||
+        any(reservoir.barycentrics < 0.0) ||
+        reservoir.barycentrics.x + reservoir.barycentrics.y > 1.0) {
+        return false;
+    }
+    uint firstVertex = reservoir.primitiveIndex * 3u;
+    float firstWeight = 1.0 - reservoir.barycentrics.x -
+        reservoir.barycentrics.y;
+    float3 secondaryPosition =
+        Vertices[firstVertex + 0u].position * firstWeight +
+        Vertices[firstVertex + 1u].position * reservoir.barycentrics.x +
+        Vertices[firstVertex + 2u].position * reservoir.barycentrics.y;
+    float3 incoming = secondaryPosition - primaryPosition;
+    if (dot(incoming, incoming) <= RayEpsilon * RayEpsilon) {
+        return false;
+    }
+    SurfacePayload payload;
+    payload.rayDistance = length(incoming);
+    payload.barycentrics = reservoir.barycentrics;
+    payload.primitiveIndex = reservoir.primitiveIndex;
+    payload.hit = 1u;
+    secondarySurface = loadSurface(payload, normalize(incoming));
+    secondarySurface.shadingNormal = secondarySurface.geometricNormal;
+    return secondarySurface.primitive != WorldEffectPrimitive;
+}
+
+GISampleEvaluation evaluateGISample(PackedGIReservoir reservoir,
+                                    float3 primaryPosition,
+                                    float3 primaryNormal,
+                                    float3 primaryAlbedo,
+                                    bool testVisibility)
+{
+    GISampleEvaluation evaluation;
+    evaluation.incident = 0.0;
+    evaluation.target = 0.0;
+    evaluation.valid = false;
+    if (!(reservoir.weight > 0.0) || reservoir.sampleCount == 0u ||
+        !any(reservoir.sampleRadiance > 0.0)) {
+        return evaluation;
+    }
+    SurfaceData secondarySurface;
+    if (!loadGISecondarySurface(reservoir, primaryPosition,
+                                secondarySurface)) {
+        return evaluation;
+    }
+    float3 offset = secondarySurface.position - primaryPosition;
+    float distance = length(offset);
+    float3 direction = offset / max(distance, RayEpsilon);
+    if (testVisibility && !traceVisibility(
+            primaryPosition + primaryNormal * RayEpsilon, direction,
+            distance - RayEpsilon, SceneInstanceMask)) {
+        return evaluation;
+    }
+    evaluation.incident = giReconnectIncident(
+        primaryPosition, primaryNormal, secondarySurface,
+        reservoir.sampleRadiance);
+    evaluation.target = luminance(primaryAlbedo * evaluation.incident);
+    evaluation.valid = evaluation.target > 0.0 &&
+        !any(isnan(evaluation.incident)) &&
+        !any(isinf(evaluation.incident));
+    return evaluation;
+}
+
+void streamGIReservoir(inout PackedGIReservoir output,
+                       PackedGIReservoir source,
+                       GISampleEvaluation evaluation,
+                       float acceptance,
+                       inout float weightSum,
+                       inout uint totalCount,
+                       inout float selectedTarget)
+{
+    uint sourceCount = min(source.sampleCount,
+        max(ReservoirSampleLimit, max(SamplesPerPixel, 1u)));
+    float candidateWeight = evaluation.valid ?
+        evaluation.target * source.weight * float(sourceCount) : 0.0;
+    float combinedWeight = weightSum + candidateWeight;
+    if (candidateWeight > 0.0 &&
+        acceptance * combinedWeight < candidateWeight) {
+        output = source;
+        selectedTarget = evaluation.target;
+    }
+    weightSum = combinedWeight;
+    totalCount += sourceCount;
+}
+
+void finalizeGIReservoir(inout PackedGIReservoir reservoir,
+                         float weightSum, float selectedTarget,
+                         uint totalCount)
+{
+    uint countLimit = ReservoirSampleLimit > 0u ? ReservoirSampleLimit :
+        max(SamplesPerPixel, 1u);
+    reservoir.sampleCount = min(totalCount, countLimit);
+    reservoir.weight = weightSum > 0.0 && selectedTarget > 0.0 &&
+            totalCount > 0u ?
+        weightSum / (selectedTarget * float(totalCount)) : 0.0;
+    if (!(reservoir.weight > 0.0) || isnan(reservoir.weight) ||
+        isinf(reservoir.weight)) {
+        reservoir = emptyGIReservoir();
+        reservoir.sampleCount = min(totalCount, countLimit);
+    }
 }
 
 EmitterEvaluation evaluateEnvironmentSample(SurfaceData surface,
@@ -2390,6 +2595,10 @@ void RayGeneration()
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
     float3 resolvedRadiance = primarySegment.additiveRadiance;
     IndirectSignal resolvedIndirectSignal = emptyIndirectSignal();
+    PackedGIReservoir currentGI = emptyGIReservoir();
+    float giWeightSum = 0.0;
+    float giSelectedTarget = 0.0;
+    uint giCandidateCount = 0u;
     float3 primaryGeometricNormal = 0.0;
     float primaryDepth = 0.0;
     if (primaryPayload.hit == 0u) {
@@ -2421,12 +2630,20 @@ void RayGeneration()
                 float3 sampleIndirectIncident = 0.0;
                 float3 sampleIndirectDirection = surface.geometricNormal;
                 if (MaximumDepth >= 2u) {
-                    float3 bounceDirection = lowFrequencyDiffuseHemisphere(
-                        surface.geometricNormal,
-                        float2(sampleBlueNoise(
-                                   pixel, effectiveSampleIndex, 6u),
-                               sampleBlueNoise(
-                                   pixel, effectiveSampleIndex, 7u)));
+                    float2 directionSample = float2(
+                        sampleBlueNoise(pixel, effectiveSampleIndex, 6u),
+                        sampleBlueNoise(pixel, effectiveSampleIndex, 7u));
+                    float3 bounceDirection =
+                        IndirectReconstructionMode ==
+                            IndirectReconstructionRestir ?
+                        uniformHemisphere(surface.geometricNormal,
+                                          directionSample) :
+                        lowFrequencyDiffuseHemisphere(
+                            surface.geometricNormal, directionSample);
+                    if (IndirectReconstructionMode ==
+                            IndirectReconstructionRestir) {
+                        giCandidateCount += 1u;
+                    }
                     if (dot(surface.geometricNormal, bounceDirection) > 0.0) {
                         sampleIndirectDirection = bounceDirection;
                         RayDesc bounceRay;
@@ -2456,6 +2673,43 @@ void RayGeneration()
                                 pixel, effectiveSampleIndex,
                                 DiffuseIndirectPolygonStream,
                                 true, indirectSurface);
+                            if (IndirectReconstructionMode ==
+                                    IndirectReconstructionRestir &&
+                                any(sampleIndirectIncident > 0.0)) {
+                                PackedGIReservoir candidate =
+                                    emptyGIReservoir();
+                                candidate.primitiveIndex =
+                                    bounceSegment.payload.primitiveIndex;
+                                candidate.sampleCount = 1u;
+                                candidate.weight = 1.0;
+                                candidate.sampleRadiance =
+                                    sampleIndirectIncident;
+                                candidate.barycentrics =
+                                    bounceSegment.payload.barycentrics;
+                                float3 incident = giReconnectIncident(
+                                    surface.position,
+                                    surface.geometricNormal,
+                                    indirectSurface,
+                                    sampleIndirectIncident);
+                                float candidateTarget = luminance(
+                                    primaryThroughput * incident);
+                                float areaPdf = giAreaPdf(
+                                    surface.position, indirectSurface);
+                                float candidateWeight = areaPdf > 0.0 ?
+                                    candidateTarget / areaPdf : 0.0;
+                                float combinedWeight =
+                                    giWeightSum + candidateWeight;
+                                float acceptance = sampleStream(
+                                    pixel, effectiveSampleIndex,
+                                    GIInitialAcceptanceStream).x;
+                                if (candidateWeight > 0.0 &&
+                                    acceptance * combinedWeight <
+                                        candidateWeight) {
+                                    currentGI = candidate;
+                                    giSelectedTarget = candidateTarget;
+                                }
+                                giWeightSum = combinedWeight;
+                            }
                         }
                     }
                 }
@@ -2490,6 +2744,12 @@ void RayGeneration()
     IndirectChroma[pixel] = resolvedIndirectSignal.chroma;
     uint historyIndex = pixel.y * dimensions.x + pixel.x;
     uint currentHistorySlot = SampleIndex & 1u;
+    if (IndirectReconstructionMode == IndirectReconstructionRestir &&
+        primaryPayload.hit != 0u) {
+        finalizeGIReservoir(currentGI, giWeightSum, giSelectedTarget,
+                            giCandidateCount);
+    }
+    GIReservoirs[currentHistorySlot][historyIndex] = currentGI;
     IndirectHistoryPixel currentIndirect = (IndirectHistoryPixel)0;
     if (primaryPayload.hit != 0u) {
         currentIndirect.luminanceSH = resolvedIndirectSignal.luminanceSH;
@@ -2551,6 +2811,188 @@ float3 primaryWorldPosition(uint2 pixel, uint2 dimensions, float depth)
         CameraUp * (ndc.y * TanHalfFovY));
     float projected = max(dot(direction, CameraForward), 1.0e-6);
     return CameraPosition + direction * (depth / projected);
+}
+
+bool giTemporalGuideMatches(IndirectHistoryPixel previousGuide,
+                            float3 currentPosition,
+                            float3 currentNormal)
+{
+    if (!(previousGuide.historyLength > 0.0)) {
+        return false;
+    }
+    float expectedDepth = dot(
+        currentPosition - PreviousCameraPosition, PreviousCameraForward);
+    if (!(expectedDepth > RayEpsilon) ||
+        abs(previousGuide.depth - expectedDepth) >
+            ReservoirDepthTolerance * max(expectedDepth, 1.0)) {
+        return false;
+    }
+    return dot(currentNormal,
+               unpackOctahedralNormal(previousGuide.normal)) >=
+        ReservoirNormalTolerance;
+}
+
+bool giSpatialGuideMatches(IndirectHistoryPixel centerGuide,
+                           IndirectHistoryPixel neighborGuide)
+{
+    return neighborGuide.historyLength > 0.0 &&
+        indirectDepthWeight(centerGuide.depth, neighborGuide.depth) > 0.0 &&
+        dot(unpackOctahedralNormal(centerGuide.normal),
+            unpackOctahedralNormal(neighborGuide.normal)) >=
+            ReservoirNormalTolerance;
+}
+
+/* The first ReSTIR GI reuse pass combines the current secondary-surface
+ * sample with one validated, motion-reprojected reservoir. Every reused path
+ * is reconnected at the current primary and conservatively visibility tested.
+ * Basic normalization is intentional: it is the published low-cost biased
+ * mode, while final visibility is always fresh. */
+[shader("raygeneration")]
+void TemporalGI()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    uint index = pixel.y * dimensions.x + pixel.x;
+    uint currentSlot = SampleIndex & 1u;
+    uint previousSlot = 1u - currentSlot;
+    IndirectHistoryPixel centerGuide =
+        IndirectHistories[currentSlot][index];
+    if (!(centerGuide.historyLength > 0.0)) {
+        GITemporalScratch[index] = emptyGIReservoir();
+        return;
+    }
+
+    float3 primaryPosition = giPrimaryWorldPosition(
+        pixel, dimensions, centerGuide.depth);
+    float3 primaryNormal = unpackOctahedralNormal(centerGuide.normal);
+    float3 primaryAlbedo = DiffuseAlbedo[pixel].rgb;
+    PackedGIReservoir output = emptyGIReservoir();
+    float weightSum = 0.0;
+    float selectedTarget = 0.0;
+    uint totalCount = 0u;
+
+    PackedGIReservoir current = GIReservoirs[currentSlot][index];
+    GISampleEvaluation currentEvaluation = evaluateGISample(
+        current, primaryPosition, primaryNormal, primaryAlbedo, false);
+    streamGIReservoir(
+        output, current, currentEvaluation,
+        sampleStream(pixel, SampleIndex, GITemporalAcceptanceStream).x,
+        weightSum, totalCount, selectedTarget);
+
+    float2 motion = SceneMotion[pixel];
+    if (HistoryValid != 0u && ReservoirSampleLimit > 0u &&
+        !any(abs(motion) >= InvalidMotion)) {
+        float2 reprojected = reprojectHistoryPixel(pixel, motion);
+        int2 center = int2(floor(reprojected));
+        for (uint attempt = 0u;
+             attempt < ReservoirTemporalSearchAttempts; ++attempt) {
+            int2 offset = 0;
+            if (attempt > 0u) {
+                float2 random = sampleStream(
+                    pixel, SampleIndex, GITemporalStream + attempt).xy;
+                offset = int2(round((random - 0.5) *
+                                    ReservoirTemporalSearchRadius));
+            }
+            int2 previousPixel = center + offset;
+            if (any(previousPixel < 0) ||
+                any(previousPixel >= int2(dimensions))) {
+                continue;
+            }
+            uint previousIndex = uint(previousPixel.y) * dimensions.x +
+                uint(previousPixel.x);
+            IndirectHistoryPixel previousGuide =
+                IndirectHistories[previousSlot][previousIndex];
+            if (!giTemporalGuideMatches(previousGuide, primaryPosition,
+                                        primaryNormal)) {
+                continue;
+            }
+            PackedGIReservoir previous =
+                GIReservoirs[previousSlot][previousIndex];
+            GISampleEvaluation previousEvaluation = evaluateGISample(
+                previous, primaryPosition, primaryNormal, primaryAlbedo,
+                true);
+            streamGIReservoir(
+                output, previous, previousEvaluation,
+                sampleStream(pixel, SampleIndex,
+                    GITemporalAcceptanceStream + attempt + 1u).x,
+                weightSum, totalCount, selectedTarget);
+            break;
+        }
+    }
+    finalizeGIReservoir(output, weightSum, selectedTarget, totalCount);
+    GITemporalScratch[index] = output;
+}
+
+/* A separate dispatch is required so every lookup observes the completed
+ * temporal field. Four project-authored low-discrepancy offsets reconnect
+ * neighbor samples at the center surface; the published reservoir remains in
+ * the current ping-pong slot for next frame's temporal pass. */
+[shader("raygeneration")]
+void SpatialGI()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    uint index = pixel.y * dimensions.x + pixel.x;
+    uint currentSlot = SampleIndex & 1u;
+    IndirectHistoryPixel centerGuide =
+        IndirectHistories[currentSlot][index];
+    if (!(centerGuide.historyLength > 0.0)) {
+        GIReservoirs[currentSlot][index] = emptyGIReservoir();
+        return;
+    }
+
+    float3 primaryPosition = giPrimaryWorldPosition(
+        pixel, dimensions, centerGuide.depth);
+    float3 primaryNormal = unpackOctahedralNormal(centerGuide.normal);
+    float3 primaryAlbedo = DiffuseAlbedo[pixel].rgb;
+    PackedGIReservoir output = emptyGIReservoir();
+    float weightSum = 0.0;
+    float selectedTarget = 0.0;
+    uint totalCount = 0u;
+
+    PackedGIReservoir center = GITemporalScratch[index];
+    GISampleEvaluation centerEvaluation = evaluateGISample(
+        center, primaryPosition, primaryNormal, primaryAlbedo, false);
+    streamGIReservoir(
+        output, center, centerEvaluation,
+        sampleStream(pixel, SampleIndex, GISpatialAcceptanceStream).x,
+        weightSum, totalCount, selectedTarget);
+
+    if (ReservoirSampleLimit > 0u) {
+        uint neighborStart = min(uint(sampleStream(
+            pixel, SampleIndex, GISpatialStream).x *
+            float(ReservoirNeighborOffsetCount)),
+            ReservoirNeighborOffsetMask);
+        for (uint attempt = 0u; attempt < GISpatialSampleCount; ++attempt) {
+            float2 offset = reservoirNeighborOffset(neighborStart + attempt);
+            int2 neighborPixel = int2(pixel) +
+                int2(round(GISpatialRadius * offset));
+            if (all(neighborPixel == int2(pixel)) ||
+                any(neighborPixel < 0) ||
+                any(neighborPixel >= int2(dimensions))) {
+                continue;
+            }
+            uint neighborIndex = uint(neighborPixel.y) * dimensions.x +
+                uint(neighborPixel.x);
+            IndirectHistoryPixel neighborGuide =
+                IndirectHistories[currentSlot][neighborIndex];
+            if (!giSpatialGuideMatches(centerGuide, neighborGuide)) {
+                continue;
+            }
+            PackedGIReservoir neighbor =
+                GITemporalScratch[neighborIndex];
+            GISampleEvaluation neighborEvaluation = evaluateGISample(
+                neighbor, primaryPosition, primaryNormal, primaryAlbedo,
+                true);
+            streamGIReservoir(
+                output, neighbor, neighborEvaluation,
+                sampleStream(pixel, SampleIndex,
+                    GISpatialAcceptanceStream + attempt + 1u).x,
+                weightSum, totalCount, selectedTarget);
+        }
+    }
+    finalizeGIReservoir(output, weightSum, selectedTarget, totalCount);
+    GIReservoirs[currentSlot][index] = output;
 }
 
 struct IndirectTemporalSample
@@ -3072,7 +3514,17 @@ void ReconstructIndirect()
         return;
     }
     float3 filteredIncident;
-    if (IndirectReconstructionMode == IndirectReconstructionRaw) {
+    if (IndirectReconstructionMode == IndirectReconstructionRestir) {
+        float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
+        float3 centerPosition = giPrimaryWorldPosition(
+            pixel, dimensions, centerHistory.depth);
+        PackedGIReservoir reservoir =
+            GIReservoirs[currentSlot][centerIndex];
+        GISampleEvaluation evaluation = evaluateGISample(
+            reservoir, centerPosition, centerNormal, centerAlbedo.rgb, true);
+        filteredIncident = evaluation.valid ?
+            evaluation.incident * reservoir.weight : 0.0;
+    } else if (IndirectReconstructionMode == IndirectReconstructionRaw) {
         /* Feed the exact current-frame RGB estimator to DLSS-RR. No temporal
          * accumulation, directional SH projection, regional filtering,
          * deflicker, or wavelet stage participates in this mode. */

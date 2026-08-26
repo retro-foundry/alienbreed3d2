@@ -3,6 +3,7 @@
 #include "renderer_dxr/dxr_emitter_history.h"
 #include "renderer_dxr/dxr_indirect_reconstruction.h"
 #include "renderer_dxr/dxr_light_grid.h"
+#include "renderer_dxr/dxr_restir_gi.h"
 
 #include <cmath>
 #include <cstdio>
@@ -37,6 +38,7 @@ int main()
     namespace exposure = ab3d2::dxr::auto_exposure;
     namespace indirect = ab3d2::dxr::indirect_reconstruction;
     namespace grid = ab3d2::dxr::light_grid;
+    namespace gi = ab3d2::dxr::restir_gi;
     static_assert(indirect::downsample_factor == 3 &&
                   static_cast<uint32_t>(indirect::Mode::full) == 0u &&
                   static_cast<uint32_t>(indirect::Mode::temporal) == 1u &&
@@ -45,6 +47,7 @@ int main()
                   static_cast<uint32_t>(indirect::Mode::deflicker) == 4u &&
                   static_cast<uint32_t>(indirect::Mode::wavelet1) == 5u &&
                   static_cast<uint32_t>(indirect::Mode::wavelet2) == 6u &&
+                  static_cast<uint32_t>(indirect::Mode::restir) == 7u &&
                   indirect::filter_steps[0] == 1 &&
                   indirect::filter_steps[1] == 2 &&
                   indirect::filter_steps[2] == 4 &&
@@ -64,6 +67,34 @@ int main()
                   indirect::sh_basis_l1 == 0.488603f &&
                   indirect::filter_support_is_continuous() &&
                   indirect::continuation_radial_power == 0.4f);
+    static_assert(sizeof(gi::PackedReservoir) == 32u);
+    static_assert(gi::spatial_sample_count == 4u &&
+                  gi::spatial_radius == 32);
+    const gi::Vec3 gi_primary = {0.0f, 0.0f, 0.0f};
+    const gi::Vec3 gi_secondary = {0.0f, 0.0f, 2.0f};
+    const gi::Vec3 gi_incident = gi::reconnect_incident(
+        gi_primary, {0.0f, 0.0f, 1.0f}, gi_secondary,
+        {0.0f, 0.0f, -1.0f}, {3.0f, 2.0f, 1.0f});
+    const float gi_area_pdf = gi::solid_angle_pdf_to_area(
+        gi::uniform_hemisphere_pdf, gi_primary, gi_secondary,
+        {0.0f, 0.0f, -1.0f});
+    const float gi_target = gi::target({0.5f, 0.5f, 0.5f}, gi_incident);
+    const float gi_initial_weight =
+        gi::initial_candidate_weight(gi_target, gi_area_pdf);
+    const float gi_final_weight =
+        gi::finalize_weight(gi_initial_weight, gi_target, 1u);
+    if (!near(gi_incident.x, 3.0f / (4.0f * 3.14159265358979323846f)) ||
+        !near(gi_incident.y, 2.0f / (4.0f * 3.14159265358979323846f)) ||
+        !near(gi_incident.z, 1.0f / (4.0f * 3.14159265358979323846f)) ||
+        !near(gi_area_pdf, gi::uniform_hemisphere_pdf / 4.0f) ||
+        !near(gi_final_weight, 1.0f / gi_area_pdf) ||
+        !near(gi::reused_candidate_weight(gi_target, gi_final_weight, 1u),
+              gi_initial_weight) ||
+        gi::initial_candidate_weight(gi_target, 0.0f) != 0.0f ||
+        gi::reused_candidate_weight(0.0f, gi_final_weight, 1u) != 0.0f ||
+        gi::finalize_weight(gi_initial_weight, 0.0f, 1u) != 0.0f) {
+        return fail("ReSTIR GI area-measure reservoir contract changed");
+    }
     exposure::Histogram metering_histogram = {};
     exposure::add_sample(metering_histogram, 0.000001f, 10u);
     exposure::add_sample(metering_histogram, 0.01f, 80u);

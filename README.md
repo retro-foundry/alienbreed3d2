@@ -664,9 +664,13 @@ same local polygon-light proposal and stores demodulated incident radiance in a
 separate low-frequency channel.
 
 `AB3D2_DXR_RESERVOIR_LIMIT` retains its public name for configuration
-compatibility but now caps the number of validated temporal samples in that
-indirect channel. It defaults to `256`; zero disables temporal accumulation but
-still performs the spatial reconstruction. Incident luminance is stored as
+compatibility and caps the number of validated temporal samples in the
+production indirect channel. In the diagnostic ReSTIR GI path described below,
+it instead caps the published reservoir's effective candidate count. It
+defaults to `256`. Zero disables temporal accumulation while retaining the
+production spatial reconstruction; in `restir` it disables both cross-frame
+and neighboring-pixel reservoir reuse. Incident luminance in the production
+path is stored as
 four first-order directional coefficients with two opponent-chroma channels.
 Temporal reprojection gathers four bilinear, depth/geometric-normal-validated
 history taps rather than rounding motion to one previous pixel. A separate
@@ -692,9 +696,18 @@ the exact current-frame RGB indirect estimate without directional SH
 projection before it enters the combined noisy HDR input.
 `regional`, `deflicker`, `wavelet1`, and `wavelet2` stop after the named
 one-third-resolution stage; the ordinary `full` mode includes all three guided
-wavelet passes. Every mode remodulates the resulting incident signal and sends
-the same combined noisy HDR frame through the one final DLSS-RR evaluation.
-This is an A/B facility, not a second Ray Reconstruction invocation.
+wavelet passes. `restir` replaces every LF reconstruction stage with a complete
+project-owned ReSTIR GI experiment: one uniform-hemisphere secondary-surface
+sample is represented in area measure, combined with one motion-reprojected
+reservoir, combined with four depth/geometric-normal-compatible spatial
+reservoirs, reconnected with fresh conservative visibility, and remodulated at
+the primary receiver. Its 32-byte reservoir retains triangle/barycentric
+identity so moving geometry is reconstructed from current vertices. It uses
+the published basic (biased) normalization deliberately and does not claim
+unbiased reuse. Every mode sends the same combined noisy HDR frame through the
+one final DLSS-RR evaluation. This is an A/B facility, not a second Ray
+Reconstruction invocation; `full` remains the default because the recorded
+saved-corridor ReSTIR result is currently noisier.
 
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
 `normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`,

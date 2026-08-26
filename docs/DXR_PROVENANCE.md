@@ -344,6 +344,29 @@ signed temporal confirmation prevents alternating Monte Carlo changes from
 triggering anti-lag. The stage does not filter the fresh direct/specular signal
 tagged for DLSS Ray Reconstruction.
 
+### ReSTIR GI comparison path
+
+On 2026-08-26 the user explicitly directed a ReSTIR GI implementation after the
+exact raw indirect signal proved too sparse for DLSS Ray Reconstruction alone.
+Only primary publications and NVIDIA's public integration contract were used:
+
+- Yaobin Ouyang, Shiqiu Liu, Markus Kettunen, Matt Pharr, and Jacopo Pantaleoni,
+  *ReSTIR GI: Path Resampling for Real-Time Path Tracing*, Computer Graphics
+  Forum 40(4), 2021, DOI `10.1111/cgf.14378`; NVIDIA publication page:
+  `https://research.nvidia.com/publication/2021-06_restir-gi-path-resampling-real-time-path-tracing`.
+- NVIDIA RTXDI public ReSTIR GI integration and shader-API documentation:
+  `https://github.com/NVIDIA-RTX/RTXDI/blob/main/Doc/RestirGI.md` and
+  `https://github.com/NVIDIA-RTX/RTXDI/blob/main/Doc/ShaderAPI-RestirGI.md`.
+
+The repository implementation was written independently. It uses a
+project-defined secondary-area-measure formulation, a project-defined 32-byte
+triangle/barycentric reservoir, the existing project sample stream and
+low-discrepancy neighbor offsets, and the documented basic/biased reservoir
+normalization. No RTXDI SDK source, header, shader, generated table, library,
+binary, or data was copied, adapted, included, linked, or staged. The prior
+user-authorized Q2RTX inspection established that Q2RTX's low-frequency ASVGF
+path is not ReSTIR GI; no GPL implementation was consulted for this addition.
+
 ### User-authorized Q2RTX behavioral audit
 
 - Local checkout: `C:\Users\paula\Documents\Projects\Q2RTX`

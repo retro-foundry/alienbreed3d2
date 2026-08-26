@@ -16,6 +16,7 @@ enum class Mode : uint32_t {
     deflicker = 4u,
     wavelet1 = 5u,
     wavelet2 = 6u,
+    restir = 7u,
 };
 
 /*

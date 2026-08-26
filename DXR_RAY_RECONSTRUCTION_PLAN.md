@@ -724,6 +724,36 @@ three guided wavelets therefore remain the production path. The startup-only
 `AB3D2_DXR_INDIRECT_RECONSTRUCTION` diagnostic preserves every measured stage
 boundary without adding a second RR pass.
 
+On 2026-08-26 a complete project-owned `restir` comparison mode was added at
+the user's direction. Its current-frame continuation is uniform over the
+primary geometric-normal hemisphere. A hit is stored as triangle identity,
+full-precision barycentrics, secondary outgoing radiance, effective sample
+count, and finalized basic-resampling weight. The common sample domain is
+secondary surface area: `p_A = p_omega cos_y / r^2`, while reconnection applies
+`cos_x cos_y / (pi r^2)`. One motion-reprojected reservoir and four
+low-discrepancy spatial reservoirs are guide validated, re-evaluated at the
+current primary surface, and visibility tested before the selected result is
+published. A final fresh visibility ray precedes primary-albedo remodulation.
+The pass sequence is current sample -> temporal reservoir -> spatial reservoir
+-> combined noisy HDR -> the existing single DLSS-RR evaluation; it runs none
+of the SH, gradient, regional, deflicker, or wavelet stages. The implementation
+uses the documented low-cost basic/biased correction and makes no unbiased-mode
+claim.
+
+This successfully changes the raw path's coverage rather than merely hiding
+its sparsity. On the same captured 32-frame saved Level A corridor, exact `raw`
+measured display delta `0.0865` with no saturated pixels, `restir` measured
+`0.2103` with `2103` saturated pixels, and production `full` measured `0.1107`
+with `3654` saturated pixels. The ReSTIR capture visibly lit corridor floor and
+wall regions that were black in `raw`, but retained patchy single-reservoir
+variation instead of matching the smooth LF result. On the moving Level A
+smoke, ReSTIR late stability was `0.5122` versus `0.3500` for `full`; its second
+48-frame Shotgun burst averaged `11.555 ms` versus `11.066 ms`, about 4.4%
+slower, and the complete Levels A--P GPU smoke passed. ReSTIR GI therefore
+remains the explicit comparison path rather than replacing `full`: reservoir
+resampling improves path discovery, but it is not itself the smooth diffuse
+reconstruction that DLSS-RR failed to supply from the sparse raw signal.
+
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
 1. Dispatch one camera ray per input-resolution pixel per frame with a deterministic frame-varying subpixel jitter supplied by the same jitter generator used in Streamline constants.
