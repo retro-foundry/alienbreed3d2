@@ -63,15 +63,12 @@ int main()
         return 1;
     }
 
-    /*
-     * newanims.s:brightanim moves CurrentPointBrights without moving geometry.
-     * The vertex buffer carries authored emission, so this must reach the
-     * geometry path rather than being classified as an unchanged frame.
-     */
+    /* Source Gouraud brightness remains renderer-neutral frame data for the
+     * OpenGL path, but it must not perturb DXR geometry or PBR emission. */
     vertices[1].source_light_level += 7;
     const DxrSceneGeometryHashes relit = dxr_scene_geometry_hashes(frame);
     if (!expect(dxr_scene_classify_update(true, moved, relit),
-                DxrSceneUpdateKind::geometry, "animated Gouraud brightness") ||
+                DxrSceneUpdateKind::unchanged, "ignored Gouraud brightness") ||
         !expect(dxr_scene_classify_update(true, relit, relit),
                 DxrSceneUpdateKind::unchanged, "identical relit frame")) {
         return 1;

@@ -258,8 +258,11 @@ Local path: `C:\Users\paula\Documents\Projects\Q2RTX`
   detailed renderer breakdown and directed continued investigation of Q2RTX's
   lower temporal noise.
 - Files inspected: `doc/client.md`, `src/refresh/vkpt/asvgf.c`,
-  `src/refresh/vkpt/global_ubo.h`, and the shaders `asvgf.glsl`,
-  `indirect_lighting.rgen`, `utils.glsl`, `asvgf_gradient_reproject.comp`,
+  `src/refresh/vkpt/global_ubo.h`, `src/refresh/vkpt/bsp_mesh.c`,
+  `src/refresh/vkpt/material.c`, `src/refresh/vkpt/textures.c`,
+  `src/refresh/vkpt/vertex_buffer.c`, `src/refresh/vkpt/main.c`, and the
+  shaders `asvgf.glsl`, `indirect_lighting.rgen`, `utils.glsl`,
+  `path_tracer_rgen.h`, `light_lists.h`, `asvgf_gradient_reproject.comp`,
   `asvgf_gradient_img.comp`, `asvgf_gradient_atrous.comp`,
   `asvgf_temporal.comp`, `asvgf_lf.comp`, and `asvgf_atrous.comp`.
 
@@ -269,6 +272,15 @@ signal, bilinear/bilateral multi-tap temporal history, broad low-resolution
 lighting-change gradients, one-third-resolution regional integration, explicit
 regional deflicker, three guided wavelet stages, and bilateral reconstruction.
 It also established that this path is not ReSTIR GI.
+The later transport audit established that the low-frequency diffuse
+continuation deliberately broadens its radial distribution to power `0.4`
+while retaining cosine-estimator throughput, and that secondary polygon NEE
+uses the geometric normal. Its polygon emitters use a bounding rectangle and
+one texture-derived average color; because that average includes black texels
+inside the rectangle, it preserves the emissive texture's integrated energy
+rather than creating extra light. The converted AB3D2 map supplies full default
+radiance to `floor_0101` and a `0.9` BSP surface factor to `technolights`; it
+does not carry native Gouraud shade rows into either polygon-light power.
 No GPL source text, shader, table, binary, asset, or generated output was copied,
 adapted, linked, staged, or committed. The HLSL and host implementation here
 were written independently for the existing D3D12 resources; the real
@@ -725,14 +737,17 @@ three guided wavelets therefore remain the production path. The startup-only
 boundary without adding a second RR pass.
 
 On 2026-08-26 a complete project-owned `restir` comparison mode was added at
-the user's direction. Four current-frame continuation candidates are sampled
-uniformly over the primary geometric-normal hemisphere and streamed into one
+the user's direction. Four current-frame continuation candidates use the
+established broad `0.4` radial distribution over the primary geometric-normal
+hemisphere and are streamed into one
 initial reservoir without repeating primary direct lighting. A hit is stored as
 triangle identity,
 full-precision barycentrics, secondary outgoing radiance, effective sample
 count, and finalized basic-resampling weight. The common sample domain is
-secondary surface area: `p_A = p_omega cos_y / r^2`, while reconnection applies
-`cos_x cos_y / (pi r^2)`. One motion-reprojected reservoir and four
+secondary surface area: `p_A = p_broad cos_y / r^2`. Reconnection applies
+`cos_x cos_y / (pi r^2)` multiplied by `p_broad / p_cosine`, which reproduces
+the comparator's deliberate directional kernel while retaining unit response
+to constant incident radiance. One motion-reprojected reservoir and four
 low-discrepancy spatial reservoirs are guide validated, re-evaluated at the
 current primary surface, and visibility tested before the selected result is
 published. A final fresh visibility ray precedes primary-albedo remodulation.
@@ -767,6 +782,19 @@ reached `0.1081` saved and `0.2949` moving but cost `16.731 ms`, about 45% over
 the one-candidate result because it needlessly repeated direct NEE as well.
 Four GI-only candidates are therefore the ReSTIR floor; configured SPP above
 four remains an explicit quality-for-cost option that raises both channels.
+
+The subsequent hallway-energy audit removed an unrelated attenuation before
+the estimator: world PBR emission had been multiplied by the source raster
+Gouraud shade, despite this plan's requirement that DXR ignore Gouraud/ZoneT
+lighting. World polygon lights now use neutral vertex emission strength, and a
+brightness-only source frame is an unchanged DXR scene. The dormant
+`authoredAmbientRadiance` fallback and its uncalled arbitrary ambience were
+deleted. In the same saved Level A indirect-only ReSTIR smoke, the converged
+exposure-meter mean rose from approximately `0.000013` to `0.000016`; a
+32-frame quality-RR run measured display delta `0.0719`, zero saturated pixels,
+and zero pixels changing by at least 16 display-code values. The broad ReSTIR
+kernel changes where that energy is discovered rather than multiplying it, so
+the fixed-view global mean is not expected to measure the doorway redistribution.
 
 `AB3D2_DXR_RADIANCE_CHANNEL=indirect` is the startup-only isolation test for
 this signal. It clears primary visible emission, additive radiance, and direct

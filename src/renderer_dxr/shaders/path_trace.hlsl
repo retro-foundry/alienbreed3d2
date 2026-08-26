@@ -31,15 +31,8 @@ struct SceneVertex
     /* Packed 16-bit image-texel XY pairs; zero extent selects the full image. */
     uint textureWindowOrigin;
     uint textureWindowExtent;
-    /*
-     * The source Gouraud shade response at this vertex, one being the brightest
-     * source row. It scales authored emission, and on world geometry it is also
-     * the ambience secondary rays gather through `authoredAmbientRadiance`.
-     * Direct incident lighting is traced either way.
-     * newanims.s:brightanim moves it for zones whose CurrentPointBrights words
-     * carry an Anim_BrightTable index, which is how an authored emissive panel
-     * pulses.
-     */
+    /* Per-vertex strength for explicitly authored additive effects. World PBR
+     * polygon lights use neutral one; source Gouraud lighting is not radiance. */
     float emissiveScale;
 };
 
@@ -168,9 +161,6 @@ struct SurfaceData
     float metalness;
     float specularFactor;
     float3 emission;
-    /* The interpolated source Gouraud shade response, before `emissiveFactor`
-     * turns it into emission. Only world flats and strips carry a real one. */
-    float authoredShade;
     uint materialIndex;
     uint emitterIndex;
     uint primitive;
@@ -283,31 +273,6 @@ static const uint PathDimensionsPerBounce = 8u;
  * radiance: the path-traced estimate in NoisyRadiance is untouched.
  */
 /*
- * Radiance the source's authored zone lighting contributes as ambience, in
- * multiples of the outgoing radiance a surface has when the source rasterizer
- * draws it at its brightest shade row.
- *
- * `hires.s:goursides` and its wall equivalents shade a texel by walking the
- * palette shade rows, and row zero draws the texel at its own display value.
- * Whatever else the source's authored lighting is, that fixes what "fully lit"
- * means in it: the surface leaves exactly its albedo. A Lambertian surface
- * leaves `albedo * E / Pi`, so row zero corresponds to `E = Pi`, and
- * `baseColor * emissiveScale` is the authored lighting restated as outgoing
- * radiance in this renderer's units. A scale of one therefore reproduces the
- * source's own brightness rather than picking a level, which is why nothing
- * here is fitted.
- *
- * Primary rays ignore it, so a directly visible surface only ever receives this
- * through a bounce, at roughly the product of the two albedos - about a tenth of
- * the authored level for typical AB3D2 art. A room lit by the emissive floor
- * panel at offset 0x0101 sits an order of magnitude above that - its 200
- * radiance reaches the surrounding geometry at around one - so this reads as a
- * fill: it lifts what the path tracer leaves black without competing with the
- * traced lighting. In a zone with no emissive panel at all it becomes the only
- * thing in the room, which is the point.
- */
-static const float AuthoredAmbientScale = 1.0;
-/*
  * How many additive layers one ray segment resolves before it gives up and
  * shades the next one as ordinary geometry.
  *
@@ -365,7 +330,7 @@ static const uint IndirectReconstructionDeflicker = 4u;
 static const uint IndirectReconstructionWavelet1 = 5u;
 static const uint IndirectReconstructionWavelet2 = 6u;
 static const uint IndirectReconstructionRestir = 7u;
-static const float GIUniformHemispherePdf = 1.0 / (2.0 * Pi);
+static const float GIContinuationRadialPower = 0.4;
 static const uint GIInitialCandidateCount = 4u;
 static const uint GISpatialSampleCount = 4u;
 static const float GISpatialRadius = 32.0;
@@ -671,31 +636,6 @@ float3 environmentRadiance(float3 direction)
                 horizon * horizon);
 }
 
-/*
- * The source's authored zone lighting, restated as radiance this surface leaves
- * in every direction. See `AuthoredAmbientScale` for where the unit comes from.
- *
- * Only `DxrScenePrimitive::world` carries an authored shade: the flats and wall
- * strips whose `CurrentPointBrights` word the source rasterizer shades from.
- * Billboards, vector models and the view weapon all write one into the vertex
- * buffer so their own emissive materials survive, because `doapoly`'s Gouraud
- * modulation was deliberately dropped from PBR entities. Reading it here would
- * make every entity a full-brightness ambient emitter, so entities are left to
- * gather this from the world around them like any other incident light.
- *
- * Metalness is not factored out. Base colour is the specular tint for a metal
- * rather than a diffuse albedo, but a rough metal under ambient light does
- * return roughly its base colour, so the same product answers for both and a
- * `1 - metalness` factor would only turn metal-panelled rooms black.
- */
-float3 authoredAmbientRadiance(SurfaceData surface)
-{
-    if (surface.primitive != WorldSurfacePrimitive) {
-        return 0.0;
-    }
-    return surface.baseColor * (surface.authoredShade * AuthoredAmbientScale);
-}
-
 void coordinateSystem(float3 normal, out float3 tangent, out float3 bitangent)
 {
     float3 helper = abs(normal.y) < 0.999 ? float3(0.0, 1.0, 0.0) :
@@ -755,17 +695,30 @@ float3 lowFrequencyDiffuseHemisphere(float3 geometricNormal,
                      geometricNormal * sqrt(max(0.0, 1.0 - radius * radius)));
 }
 
-float3 uniformHemisphere(float3 geometricNormal, float2 sampleValue)
+/* Solid-angle density of lowFrequencyDiffuseHemisphere. With radial sample
+ * r=u^p and uniform azimuth, p_omega is
+ * cos(theta)/(2*pi*p) * sin(theta)^(1/p-2). */
+float lowFrequencyDiffusePdf(float3 geometricNormal, float3 direction)
 {
-    float cosine = sampleValue.x;
-    float radius = sqrt(max(0.0, 1.0 - cosine * cosine));
-    float angle = 2.0 * Pi * sampleValue.y;
-    float3 tangent;
-    float3 bitangent;
-    coordinateSystem(geometricNormal, tangent, bitangent);
-    return normalize(tangent * (radius * cos(angle)) +
-                     bitangent * (radius * sin(angle)) +
-                     geometricNormal * cosine);
+    float cosine = saturate(dot(geometricNormal, direction));
+    float radial = sqrt(max(0.0, 1.0 - cosine * cosine));
+    float exponent = 1.0 / GIContinuationRadialPower - 2.0;
+    return cosine > 0.0 ?
+        cosine * pow(radial, exponent) /
+            (2.0 * Pi * GIContinuationRadialPower) : 0.0;
+}
+
+/* Q2RTX's low-frequency continuation broadens a cosine sample with p=0.4
+ * while retaining cosine-estimator throughput. Express that deliberate
+ * directional kernel as p_broad/p_cos so ReSTIR can resample it coherently.
+ * Its integral is one for constant incident radiance: this redistributes
+ * transport toward grazing doorway directions; it is not an energy gain. */
+float lowFrequencyDiffuseBias(float3 geometricNormal, float3 direction)
+{
+    float cosine = saturate(dot(geometricNormal, direction));
+    float cosinePdf = cosine / Pi;
+    float broadPdf = lowFrequencyDiffusePdf(geometricNormal, direction);
+    return cosinePdf > 0.0 ? broadPdf / cosinePdf : 0.0;
 }
 
 uint2 materialTexel(SceneMaterial material, float2 textureCoordinate,
@@ -902,11 +855,11 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
         sampleMaterialAtlas(RoughnessAtlas, footprint).r, 0.045, 1.0);
-    surface.authoredShade = first.emissiveScale * firstWeight +
+    float emissionScale = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
     surface.emission = sampleMaterialAtlas(EmissiveAtlas, footprint).rgb *
-        material.emissiveFactor * surface.authoredShade;
+        material.emissiveFactor * emissionScale;
     return surface;
 }
 
@@ -1561,10 +1514,9 @@ struct GISampleEvaluation
 };
 
 /* ReSTIR GI uses secondary surface area as its common sample measure. The
- * initial continuation is uniform in solid angle, so p_A = p_omega cos_y/r^2.
- * Reconnecting the stored outgoing radiance applies the matching geometric
- * term cos_x cos_y/(pi r^2). */
-float giAreaPdf(float3 primaryPosition, SurfaceData secondarySurface)
+ * initial broad continuation density becomes p_A = p_omega cos_y/r^2. */
+float giAreaPdf(float3 primaryPosition, float3 primaryNormal,
+                SurfaceData secondarySurface)
 {
     float3 offset = secondarySurface.position - primaryPosition;
     float distanceSquared = dot(offset, offset);
@@ -1574,7 +1526,8 @@ float giAreaPdf(float3 primaryPosition, SurfaceData secondarySurface)
     float3 direction = offset * rsqrt(distanceSquared);
     float secondaryCosine = saturate(dot(
         secondarySurface.geometricNormal, -direction));
-    return GIUniformHemispherePdf * secondaryCosine / distanceSquared;
+    return lowFrequencyDiffusePdf(primaryNormal, direction) *
+        secondaryCosine / distanceSquared;
 }
 
 float3 giReconnectIncident(float3 primaryPosition, float3 primaryNormal,
@@ -1590,7 +1543,9 @@ float3 giReconnectIncident(float3 primaryPosition, float3 primaryNormal,
     float primaryCosine = saturate(dot(primaryNormal, direction));
     float secondaryCosine = saturate(dot(
         secondarySurface.geometricNormal, -direction));
-    return secondaryRadiance *
+    float directionalBias = lowFrequencyDiffuseBias(
+        primaryNormal, direction);
+    return secondaryRadiance * directionalBias *
         (primaryCosine * secondaryCosine / (Pi * distanceSquared));
 }
 
@@ -2649,13 +2604,8 @@ void RayGeneration()
                     float2 directionSample = float2(
                         sampleBlueNoise(pixel, effectiveSampleIndex, 6u),
                         sampleBlueNoise(pixel, effectiveSampleIndex, 7u));
-                    float3 bounceDirection =
-                        IndirectReconstructionMode ==
-                            IndirectReconstructionRestir ?
-                        uniformHemisphere(surface.geometricNormal,
-                                          directionSample) :
-                        lowFrequencyDiffuseHemisphere(
-                            surface.geometricNormal, directionSample);
+                    float3 bounceDirection = lowFrequencyDiffuseHemisphere(
+                        surface.geometricNormal, directionSample);
                     if (IndirectReconstructionMode ==
                             IndirectReconstructionRestir) {
                         giCandidateCount += 1u;
@@ -2710,7 +2660,9 @@ void RayGeneration()
                                 float candidateTarget = luminance(
                                     primaryThroughput * incident);
                                 float areaPdf = giAreaPdf(
-                                    surface.position, indirectSurface);
+                                    surface.position,
+                                    surface.geometricNormal,
+                                    indirectSurface);
                                 float candidateWeight = areaPdf > 0.0 ?
                                     candidateTarget / areaPdf : 0.0;
                                 float combinedWeight =

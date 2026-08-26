@@ -76,22 +76,32 @@ int main()
                   gi::spatial_sample_count == 4u &&
                   gi::spatial_radius == 32);
     const gi::Vec3 gi_primary = {0.0f, 0.0f, 0.0f};
-    const gi::Vec3 gi_secondary = {0.0f, 0.0f, 2.0f};
+    const gi::Vec3 gi_secondary = {
+        1.7320508075688772f, 0.0f, 1.0f};
+    const gi::Vec3 gi_direction = gi::normalize(gi_secondary);
+    const gi::Vec3 gi_secondary_normal = gi::multiply(gi_direction, -1.0f);
     const gi::Vec3 gi_incident = gi::reconnect_incident(
         gi_primary, {0.0f, 0.0f, 1.0f}, gi_secondary,
-        {0.0f, 0.0f, -1.0f}, {3.0f, 2.0f, 1.0f});
+        gi_secondary_normal, {3.0f, 2.0f, 1.0f});
+    const float gi_solid_angle_pdf =
+        gi::low_frequency_solid_angle_pdf(0.5f);
+    const float gi_directional_bias =
+        gi::low_frequency_directional_bias(0.5f);
     const float gi_area_pdf = gi::solid_angle_pdf_to_area(
-        gi::uniform_hemisphere_pdf, gi_primary, gi_secondary,
-        {0.0f, 0.0f, -1.0f});
+        gi_solid_angle_pdf, gi_primary, gi_secondary,
+        gi_secondary_normal);
     const float gi_target = gi::target({0.5f, 0.5f, 0.5f}, gi_incident);
     const float gi_initial_weight =
         gi::initial_candidate_weight(gi_target, gi_area_pdf);
     const float gi_final_weight =
         gi::finalize_weight(gi_initial_weight, gi_target, 1u);
-    if (!near(gi_incident.x, 3.0f / (4.0f * 3.14159265358979323846f)) ||
-        !near(gi_incident.y, 2.0f / (4.0f * 3.14159265358979323846f)) ||
-        !near(gi_incident.z, 1.0f / (4.0f * 3.14159265358979323846f)) ||
-        !near(gi_area_pdf, gi::uniform_hemisphere_pdf / 4.0f) ||
+    if (!near(gi_incident.x, 3.0f * gi_directional_bias /
+                                  (8.0f * gi::pi)) ||
+        !near(gi_incident.y, 2.0f * gi_directional_bias /
+                                  (8.0f * gi::pi)) ||
+        !near(gi_incident.z, gi_directional_bias / (8.0f * gi::pi)) ||
+        !near(gi_area_pdf, gi_solid_angle_pdf / 4.0f) ||
+        !(gi_directional_bias > 1.0f) ||
         !near(gi_final_weight, 1.0f / gi_area_pdf) ||
         !near(gi::reused_candidate_weight(gi_target, gi_final_weight, 1u),
               gi_initial_weight) ||
@@ -99,6 +109,23 @@ int main()
         gi::reused_candidate_weight(0.0f, gi_final_weight, 1u) != 0.0f ||
         gi::finalize_weight(gi_initial_weight, 0.0f, 1u) != 0.0f) {
         return fail("ReSTIR GI area-measure reservoir contract changed");
+    }
+    double gi_pdf_mass = 0.0;
+    double gi_biased_cosine_mass = 0.0;
+    constexpr int gi_pdf_steps = 16384;
+    for (int step = 0; step < gi_pdf_steps; ++step) {
+        const float cosine = (static_cast<float>(step) + 0.5f) /
+            static_cast<float>(gi_pdf_steps);
+        const float solid_angle = 2.0f * gi::pi /
+            static_cast<float>(gi_pdf_steps);
+        gi_pdf_mass +=
+            gi::low_frequency_solid_angle_pdf(cosine) * solid_angle;
+        gi_biased_cosine_mass += (cosine / gi::pi) *
+            gi::low_frequency_directional_bias(cosine) * solid_angle;
+    }
+    if (std::abs(gi_pdf_mass - 1.0) > 1.0e-4 ||
+        std::abs(gi_biased_cosine_mass - 1.0) > 1.0e-4) {
+        return fail("ReSTIR GI broad continuation PDF lost unit mass");
     }
     exposure::Histogram metering_histogram = {};
     exposure::add_sample(metering_histogram, 0.000001f, 10u);

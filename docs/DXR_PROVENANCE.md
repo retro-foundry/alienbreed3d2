@@ -91,47 +91,17 @@ scales dielectric F0, is used consistently by path sampling and evaluation,
 and feeds the NVIDIA-guided RR specular-albedo calculation. The generated
 roughness PNG uses `184/255`, the nearest representable 8-bit value.
 
-The per-vertex scaling of that authored emission by the source Gouraud shade
-response is project-authored and takes its evidence from the maintained Amiga
-sources, not from the sibling renderer, which has no equivalent. The row
-coordinate is `hires.s:goursides`/`dofloorGOUR` and
-`hiresgourwall.s:drawwallPACK*G`'s `source_light_level - 300`, and the animated
-Gouraud that drives it is `newanims.s:brightanim` through
-`Anim_BrightTable_vw`. The response is linear in that row coordinate, and the
-darkest row keeps a `1/rows` residual rather than reaching zero. Two things
-support the residual. The shipped art keeps one: the mean display luminance of
-the shared floortile at offset `0x0101`, the emissive floor panel Level A opens
-beside, is 167 through shade row 0 and 10 through row 30. And these panels are
-the room's only light in this renderer, so extinguishing them would leave the
-path tracer nothing to reconstruct. The remaining curvature between those
-endpoints is not reproduced: the OpenGL forward path fits per-texel exponent
-and floor maps from the same shade table, and the PBR material package carries
-no equivalent.
-
-That same response is read a second time, as the level's authored ambience.
-`authoredAmbientRadiance` in `src/renderer_dxr/shaders/path_trace.hlsl` gives a
-world flat or wall strip an outgoing radiance of `baseColor * emissiveScale`,
-and only a secondary ray gathers it: a primary hit shades from traced lighting
-alone, so a directly visible surface receives the authored level as fill from
-whatever surrounds it rather than as a term of its own. This too is
-project-authored, and the sibling renderer has no equivalent. Its unit is not
-fitted. `hires.s:goursides` and `hiresgourwall.s:drawwallPACK*G` draw a texel at
-its own display value through shade row zero, which fixes what "fully lit" means
-in the source's authored lighting: the surface leaves exactly its albedo. A
-Lambertian surface leaves `albedo * E / Pi`, so row zero is `E = Pi`, and the
-scale of one in `AuthoredAmbientScale` reproduces the source's own brightness
-instead of selecting a level. Because primary rays ignore it, what reaches the
-image is the product of two albedos, roughly a tenth of the authored level for
-this art, which is an order of magnitude below what the `0x0101` panel's 200
-radiance delivers to the geometry around it. Metalness is not factored out: base
-colour is a metal's specular tint rather than a diffuse albedo, but a rough metal
-under ambient light does return
-close to its base colour, and a `1 - metalness` factor would only black out
-metal-panelled rooms. Only `DxrScenePrimitive::world` is read. Billboards,
-vector models and the view weapon each write a shade of one so their own
-emissive materials survive `doapoly`'s Gouraud modulation having been dropped
-from PBR entities, so they are left to gather this from the world around them
-like any other incident light.
+An earlier project-authored experiment multiplied world PBR emission by a
+linear approximation of the source Gouraud shade response and described an
+`authoredAmbientRadiance` fallback. The fallback was never called. The
+2026-08-26 hallway audit removed both concepts: Gouraud/ZoneT values are raster
+lighting retained in `SceneFrame` for OpenGL, not authored outgoing radiance.
+All world polygon emitters now carry neutral vertex strength, and source-only
+brightness changes no longer trigger DXR geometry/emitter uploads. Explicit
+glare/additive strengths remain separate and unchanged. This restores the
+implementation plan's existing clean-room rule and removes a non-authoritative
+attenuation that could reduce the Level A emitter to a small fraction of its
+manifest factor before indirect transport sampled it.
 
 The additive-effect model is project-authored from the source's own blended
 draw paths. `objdrawhires.s:draw_bitmap_additive`, `draw_bitmap_glare` and
@@ -229,8 +199,8 @@ ray-traced correction, and disabled boiling/final-visibility reuse.
 The project implementation is independent. Its regular 16-cubed grid contains
 512 project-layout entries per cell, each built from eight candidates drawn from
 the existing complete global alias table. Its volume target is project-derived
-from triangle area, the renderer's conservative maximum-emissive-texture and
-authored-vertex bound, a solid-angle cap, and an RMS receiver-volume distance.
+from triangle area, the renderer's conservative maximum-emissive-texture bound,
+a solid-angle cap, and an RMS receiver-volume distance.
 Each entry stores only the project emitter index and mathematically required
 inverse proposal probability. No NVIDIA shader text, fitted distance formula,
 light hierarchy, constant table, resource layout, generated data, header,
@@ -365,7 +335,11 @@ low-discrepancy neighbor offsets, and the documented basic/biased reservoir
 normalization. No RTXDI SDK source, header, shader, generated table, library,
 binary, or data was copied, adapted, included, linked, or staged. The prior
 user-authorized Q2RTX inspection established that Q2RTX's low-frequency ASVGF
-path is not ReSTIR GI; no GPL implementation was consulted for this addition.
+path is not ReSTIR GI. A later user-directed parity audit established the
+observable broad-continuation behavior. The ReSTIR refinement reuses the
+already project-owned low-frequency sampler and independently derives and tests
+its solid-angle density and directional-density ratio; no GPL expression,
+reservoir implementation, layout, or shader text was copied or adapted.
 
 ### User-authorized Q2RTX behavioral audit
 
@@ -374,8 +348,11 @@ path is not ReSTIR GI; no GPL implementation was consulted for this addition.
 - Checkout state during inspection: clean
 - Licence of inspected source/shaders: GPL-2.0-or-later
 - Files: `doc/client.md`, `src/refresh/vkpt/asvgf.c`,
-  `src/refresh/vkpt/global_ubo.h`, and
+  `src/refresh/vkpt/global_ubo.h`, `src/refresh/vkpt/bsp_mesh.c`,
+  `src/refresh/vkpt/material.c`, `src/refresh/vkpt/textures.c`,
+  `src/refresh/vkpt/vertex_buffer.c`, `src/refresh/vkpt/main.c`, and
   `src/refresh/vkpt/shader/{asvgf.glsl,indirect_lighting.rgen,utils.glsl,
+  path_tracer_rgen.h,light_lists.h,
   asvgf_gradient_reproject.comp,asvgf_gradient_img.comp,
   asvgf_gradient_atrous.comp,asvgf_temporal.comp,asvgf_lf.comp,
   asvgf_atrous.comp}`.
@@ -384,8 +361,12 @@ Only observable algorithm boundaries and representation choices were recorded:
 secondary-hit polygon-light NEE supplies a directional low-frequency diffuse
 channel; multi-tap temporal reprojection, large-region change detection, regional
 downsampling, deflicker, guided low-resolution filtering, and bilateral
-reconstruction stabilize it. The inspection also showed that this is not a
-ReSTIR-GI pipeline. No GPL implementation text or expression was copied or
+reconstruction stabilize it. The later audit also established broad radial
+continuation with retained cosine-estimator throughput, geometric-normal
+secondary NEE, bounding-rectangle/average-color polygon emitters whose texture
+energy is conserved, and full default radiance for the converted `floor_0101`
+surface. The inspection also showed that this is not a ReSTIR-GI pipeline. No
+GPL implementation text or expression was copied or
 adapted. No Q2RTX dependency, source, shader, table, data, binary, or asset is
 present in the build or repository as a result.
 

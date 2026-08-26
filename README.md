@@ -515,13 +515,12 @@ active reconstruction guides. Specular/reflection transport remains dormant.
 remain non-emissive. Companion weapon vertices do not consume the source
 `doapoly` directional flat/Gouraud response: non-emissive weapon illumination
 comes only from traced incident radiance, while authored PBR emissive maps stay
-at their material intensity. World vertices carry the source Gouraud shade
-response for their surface, and that scales authored emission, so an emissive
-panel in a zone whose `CurrentPointBrights_vl` words hold an
-`Anim_BrightTable_vw` index pulses with `newanims.s:brightanim` - which is what
-animates the `floor_0101` light panel the player starts beside in Level A. A
-brightness-only frame rewrites the vertex and emitter buffers without refitting
-any acceleration structure, so it never resets the temporal history.
+at their material intensity. World polygon lights likewise emit at their
+authored PBR intensity. Source Gouraud/ZoneT values remain in `SceneFrame` for
+the OpenGL renderer but neither scale DXR emission nor cause a DXR geometry or
+emitter upload. This keeps raster lighting out of the path tracer and prevents
+dark source shade rows from suppressing the Level A room lights before indirect
+transport samples them.
 
 The complete editable texture handoff is
 `assets/renderer_dxr/materials/`: one zip-ready root with `walls`, `floors`,
@@ -700,13 +699,16 @@ projection before it enters the combined noisy HDR input.
 `regional`, `deflicker`, `wavelet1`, and `wavelet2` stop after the named
 one-third-resolution stage; the ordinary `full` mode includes all three guided
 wavelet passes. `restir` replaces every LF reconstruction stage with a complete
-project-owned ReSTIR GI experiment: four uniform-hemisphere secondary-surface
+project-owned ReSTIR GI experiment: four broad `0.4`-radial secondary-surface
 candidates are streamed into one area-measure reservoir without repeating
 primary direct lighting, combined with one motion-reprojected
 reservoir, combined with four depth/geometric-normal-compatible spatial
 reservoirs, reconnected with fresh conservative visibility, and remodulated at
 the primary receiver. Its 32-byte reservoir retains triangle/barycentric
-identity so moving geometry is reconstructed from current vertices. It uses
+identity so moving geometry is reconstructed from current vertices. The
+independently derived solid-angle density and its ratio to the cosine density
+make the Q2RTX-style broad continuation a directional kernel with unit response
+to constant incident radiance, not a brightness multiplier. It uses
 the published basic (biased) normalization deliberately and does not claim
 unbiased reuse. Every mode sends the same combined noisy HDR frame through the
 one final DLSS-RR evaluation. This is an A/B facility, not a second Ray

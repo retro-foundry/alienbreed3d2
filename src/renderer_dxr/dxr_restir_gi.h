@@ -26,8 +26,8 @@ inline constexpr uint32_t invalid_primitive = 0xffffffffu;
 inline constexpr uint32_t initial_candidate_count = 4u;
 inline constexpr uint32_t spatial_sample_count = 4u;
 inline constexpr int spatial_radius = 32;
-inline constexpr float uniform_hemisphere_pdf =
-    0.15915494309189535f;  // 1 / (2 pi)
+inline constexpr float continuation_radial_power = 0.4f;
+inline constexpr float pi = 3.14159265358979323846f;
 
 struct Vec3 {
     float x;
@@ -62,6 +62,26 @@ inline Vec3 normalize(Vec3 value)
         return {};
     }
     return multiply(value, 1.0f / std::sqrt(squared));
+}
+
+inline float low_frequency_solid_angle_pdf(float cosine)
+{
+    cosine = std::clamp(cosine, 0.0f, 1.0f);
+    if (!(cosine > 0.0f)) {
+        return 0.0f;
+    }
+    const float radial = std::sqrt(std::max(1.0f - cosine * cosine, 0.0f));
+    const float exponent = 1.0f / continuation_radial_power - 2.0f;
+    return cosine * std::pow(radial, exponent) /
+        (2.0f * pi * continuation_radial_power);
+}
+
+inline float low_frequency_directional_bias(float cosine)
+{
+    cosine = std::clamp(cosine, 0.0f, 1.0f);
+    const float cosine_pdf = cosine / pi;
+    return cosine_pdf > 0.0f ?
+        low_frequency_solid_angle_pdf(cosine) / cosine_pdf : 0.0f;
 }
 
 /* The reservoir's common domain is secondary surface area. Converting the
@@ -102,8 +122,10 @@ inline Vec3 reconnect_incident(Vec3 primary_position, Vec3 primary_normal,
     const float primary_cosine = std::max(dot(primary_normal, direction), 0.0f);
     const float secondary_cosine =
         std::max(dot(secondary_normal, multiply(direction, -1.0f)), 0.0f);
-    const float geometry = primary_cosine * secondary_cosine /
-        (3.14159265358979323846f * distance_squared);
+    const float directional_bias =
+        low_frequency_directional_bias(primary_cosine);
+    const float geometry = directional_bias * primary_cosine *
+        secondary_cosine / (pi * distance_squared);
     return multiply(secondary_radiance, geometry);
 }
 

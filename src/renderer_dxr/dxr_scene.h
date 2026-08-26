@@ -48,19 +48,10 @@ struct DxrSceneVertex {
      */
     uint32_t texture_window_origin;
     uint32_t texture_window_extent;
-    /*
-     * The source Gouraud shade response for this vertex, scaling the material's
-     * authored emission. `hires.s:goursides` selects a flat's shade row from its
-     * CurrentPointBrights word, so a zone whose points carry an
-     * Anim_BrightTable index pulses its authored emissive panels through
-     * newanims.s:brightanim. One is the brightest source row.
-     *
-     * On `DxrScenePrimitive::world` the shader also reads it as the level's
-     * authored ambience, which secondary rays gather and primary rays ignore.
-     * Every other primitive writes one so its own emissive materials survive,
-     * and `authoredAmbientRadiance` in shaders/path_trace.hlsl skips them for
-     * exactly that reason.
-     */
+    /* Explicit authored-emission strength. World PBR surfaces, ordinary
+     * entities, vectors, and the weapon use neutral one. Glare bitmaps retain
+     * their measured additive strength without turning source Gouraud/ZoneT
+     * raster lighting into emitted radiance. */
     float emissive_scale;
 };
 
@@ -122,12 +113,6 @@ public:
     uint32_t emitter_count() const {
         return static_cast<uint32_t>(emissive_triangles_.size());
     }
-    /*
-     * Fold of every vertex's authored emission scale. The hidden GPU smoke uses
-     * it to assert that newanims.s:brightanim reaches the vertex buffer, which
-     * an image comparison cannot show while the sampler is still boiling.
-     */
-    uint64_t emissive_scale_fold() const;
     uint64_t rebuild_count() const { return rebuild_count_; }
     bool history_reset_pending() const { return history_reset_pending_; }
     void mark_history_promoted() { history_reset_pending_ = false; }
@@ -163,7 +148,6 @@ private:
                                  const DxrViewWeaponCompilation &view_weapon,
                                  const DxrWorldBitmapCompilation &world_bitmaps,
                                  const DxrWorldVectorCompilation &world_vectors,
-                                 bool light_changed,
                                  bool &static_changed, std::string &error);
     void release_gpu();
 

@@ -731,49 +731,6 @@ D3D12_RESOURCE_BARRIER uav_barrier(ID3D12Resource *resource)
     return barrier;
 }
 
-/*
- * `hires.s:goursides`/`dofloorGOUR` and `hiresgourwall.s:drawwallPACK*G` select
- * a shade row from `source_light_level - 300`, row zero being brightest, and
- * every source palette entry an emissive material draws from varies across
- * those rows. The DXR path traces its own direct incident lighting, so this
- * response never modulates a primary hit. It scales authored emission - an
- * emissive panel in a zone whose CurrentPointBrights words carry an
- * Anim_BrightTable index then pulses with newanims.s:brightanim as the source
- * rasterizer shaded it - and on world geometry `authoredAmbientRadiance` in
- * shaders/path_trace.hlsl reads it a second time as ambience that only
- * secondary rays gather.
- *
- * The response is `(rows - row) / rows`, so the darkest source row keeps a
- * small residual rather than going black. That matches the shipped art: the
- * mean display luminance of the shared floortile at offset 0x0101, the
- * emissive floor panel in Level A, is 167 through shade row 0 and 10 through
- * row 30 - six per cent, not zero. It also matters more here than it did in
- * the source: these panels are the only light in the room, so extinguishing
- * them entirely would leave the path tracer nothing to reconstruct. The
- * OpenGL forward path reproduces the remaining curvature with the per-texel
- * exponent and floor maps it fits from the same shade table; the PBR material
- * package carries no equivalent, so this stays linear in the row coordinate.
- *
- * The source's per-column depth term is deliberately omitted. It is a
- * screen-space distance shade, and emitted radiance cannot depend on where the
- * camera stands without breaking both next-event estimation and the denoiser's
- * temporal reuse.
- */
-float source_gouraud_emissive_scale(SceneGeometryPrimitive primitive,
-                                    int16_t source_light_level)
-{
-    /* Wall strips have 32 shade rows; Draw_Flats has 31. */
-    const float row_count =
-        primitive == SCENE_GEOMETRY_PRIMITIVE_WALL ? 32.0f : 31.0f;
-    float shade = static_cast<float>(source_light_level) - 300.0f;
-    if (shade < 0.0f) {
-        shade = 0.0f;
-    } else if (shade > row_count - 1.0f) {
-        shade = row_count - 1.0f;
-    }
-    return (row_count - shade) / row_count;
-}
-
 bool append_geometry_vertices(const SceneGeometry &geometry,
                               uint32_t material_index,
                               uint32_t material_width,
@@ -872,8 +829,9 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
         vertex.primitive = static_cast<uint32_t>(DxrScenePrimitive::world);
         vertex.texture_window_origin = texture_window_origin;
         vertex.texture_window_extent = texture_window_extent;
-        vertex.emissive_scale = source_gouraud_emissive_scale(
-            geometry.primitive, source.source_light_level);
+        /* PBR emission is authored radiance. Source Gouraud/ZoneT values are
+         * raster-lighting inputs retained for OpenGL, not an emitter control. */
+        vertex.emissive_scale = 1.0f;
         vertices.push_back(vertex);
     }
     scene_geometry_triangle_indices_release(indices);
@@ -923,16 +881,9 @@ bool compile_emissive_triangles(
         const float area = 0.5f * std::sqrt(
             cross[0] * cross[0] + cross[1] * cross[1] +
             cross[2] * cross[2]);
-        /* The emitter proposal uses conservative radiance bounds, like a light
-         * tree/ReGIR cell, rather than average power. Shading can land on the
-         * brightest texel and vertex of a triangle; weighting with their maxima
-         * prevents that valid sample from being selected with a probability
-         * derived from a much dimmer average. */
-        const float maximum_emissive_scale = std::max({
-            vertices[first_vertex + 0u].emissive_scale,
-            vertices[first_vertex + 1u].emissive_scale,
-            vertices[first_vertex + 2u].emissive_scale});
-        const float weight = area * luminance * maximum_emissive_scale;
+        /* The emitter proposal uses the material's conservative radiance bound,
+         * like a light tree/ReGIR cell, rather than average texture power. */
+        const float weight = area * luminance;
         if (!(area > 1.0e-6f) || !std::isfinite(weight) ||
             !(weight > 0.0f)) {
             continue;
@@ -984,19 +935,6 @@ D3D12_GPU_VIRTUAL_ADDRESS DxrScene::previous_vertex_address() const
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::material_address() const
 {
     return material_buffer_ ? material_buffer_->GetGPUVirtualAddress() : 0;
-}
-
-uint64_t DxrScene::emissive_scale_fold() const
-{
-    uint64_t fold = UINT64_C(1469598103934665603);
-
-    for (const DxrSceneVertex &vertex : vertices_) {
-        uint32_t bits = 0u;
-        std::memcpy(&bits, &vertex.emissive_scale, sizeof(bits));
-        fold ^= static_cast<uint64_t>(bits);
-        fold *= UINT64_C(1099511628211);
-    }
-    return fold;
 }
 
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::emitter_address() const
@@ -1106,17 +1044,9 @@ bool DxrScene::update(const SceneFrame &frame,
                        hashes, world_layout, error);
     }
 
-    /*
-     * A Gouraud-only change never moves a triangle, so every instance keeps its
-     * BLAS. The vertices still have to be rebuilt, including those of instances
-     * whose positions are unchanged, because they carry the authored emission
-     * scale that brightanim just moved.
-     */
-    const bool light_changed = scene_hashes_.vertex_light != hashes.vertex_light;
     bool static_changed = false;
     if (!compile_geometry_update(frame, view_weapon, world_bitmaps,
                                  world_vectors,
-                                 light_changed,
                                  static_changed, error)) {
         return false;
     }
@@ -1671,7 +1601,6 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                                        const DxrViewWeaponCompilation &view_weapon,
                                        const DxrWorldBitmapCompilation &world_bitmaps,
                                        const DxrWorldVectorCompilation &world_vectors,
-                                       bool light_changed,
                                        bool &static_changed,
                                        std::string &error)
 {
@@ -1724,7 +1653,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
             static_changed = true;
             return true;
         }
-        if (instance_changed || light_changed) {
+        if (instance_changed) {
             std::vector<DxrSceneVertex> updated_vertices;
             updated_vertices.reserve(previous.vertex_count);
             for (uint32_t surface_index = 0;

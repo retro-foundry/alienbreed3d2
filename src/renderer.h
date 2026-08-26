@@ -80,14 +80,6 @@ uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer);
  * that moving ReSTIR samples occupy instead of hiding it in a mean delta. */
 uint64_t renderer_last_frame_temporal_outlier_pixels(const Renderer *renderer);
 
-/* Hidden GPU-smoke fold of the per-vertex source Gouraud shade response the
- * ray-traced backend uploaded for the last presented scene, which is what
- * scales authored emission there. It is the only way to observe
- * newanims.s:brightanim reaching that backend while its fresh-sample noise
- * still dominates any image comparison. Zero on backends that trace no
- * authored emission. */
-uint64_t renderer_last_scene_emissive_scale_fold(const Renderer *renderer);
-
 /* Hidden GPU-smoke count of complete RTX scene-layout rebuilds. */
 uint64_t renderer_scene_rebuild_count(const Renderer *renderer);
 

@@ -10,12 +10,6 @@ namespace ab3d2::dxr {
 struct DxrSceneGeometryHashes {
     uint64_t layout = 0;
     uint64_t vertex_data = 0;
-    /*
-     * Source Gouraud brightness, kept apart from `vertex_data` because it never
-     * moves a triangle. A newanims.s:brightanim change must refresh the vertex
-     * buffer that carries authored emission without refitting any BLAS.
-     */
-    uint64_t vertex_light = 0;
 };
 
 enum class DxrSceneUpdateKind {
