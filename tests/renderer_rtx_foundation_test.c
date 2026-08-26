@@ -183,7 +183,9 @@ int main(void)
     SceneMeshSurface moving_surface = {0};
     moving_surface.material.source =
         SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE;
-    moving_surface.material.source_asset_id = 5u;
+    /* Use the authored technolights wall so the isolated radiance pass has a
+     * real visible source without inventing ambient light for this test. */
+    moving_surface.material.source_asset_id = 6u;
     moving_surface.geometry.vertices = moving_vertices;
     moving_surface.geometry.vertex_count = 3u;
     moving_surface.geometry.topology = SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
@@ -216,7 +218,7 @@ int main(void)
 #if !defined(AB3D2_ENABLE_STREAMLINE)
         if (scene_frame != 0 && scene_checksum != previous_scene_checksum) {
             fprintf(stderr,
-                    "DXR flat primary output changed for a stationary scene at frame %d\n",
+                    "DXR visible-emitter output changed for a stationary scene at frame %d\n",
                     scene_frame);
             renderer_rtx_destroy(renderer);
             SDL_Quit();
@@ -254,7 +256,7 @@ int main(void)
     if (renderer_rtx_last_frame_rgb_checksum(renderer) ==
         previous_scene_checksum) {
         fprintf(stderr,
-                "DXR flat primary output did not respond to moved geometry\n");
+                "DXR visible-emitter output did not respond to moved geometry\n");
         renderer_rtx_destroy(renderer);
         SDL_Quit();
         return 1;

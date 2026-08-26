@@ -38,18 +38,20 @@ session. Supported keys are:
 - `renderer=opengl|rtx` selects the desktop graphics backend. It defaults to
   `opengl`. A normal build retains the clean-room RTX fail-fast stub. A native
   Windows build configured with `AB3D2_ENABLE_DXR=ON` ray traces the
-  `SceneFrame` world, bitmap billboards/effects, projectiles, animated world
+  `SceneFrame` world, bitmap billboards/effects, animated world
   vector models, and companion weapon into a fresh, visibly noisy HDR image.
-  It samples the renderer-native base-color, normal, roughness, metalness, and explicit
-  emissive channels with a multi-bounce Lambertian/GGX path tracer, authored
-  area emitters, environment lighting, shadow rays, MIS, and a pinned
-  dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player 1's
+  The current staged pass samples renderer-native base color, normal,
+  metalness, and explicit emissive channels with one diffuse continuation,
+  authored area emitters, shadow rays, and a pinned dimension-addressed
+  blue-noise/Owen-scrambled Sobol sequence. Player 1's
   companion weapon is source-scale camera-relative PBR geometry in the same
-  depth-ordered TLAS. It reflects, shadows, and is occluded by the world, and
-  supplies HDR radiance plus every guide before Ray Reconstruction. Bitmap
+  depth-ordered TLAS. It is occluded by the world, participates in diffuse and
+  visibility rays, and supplies the primary guides before Ray Reconstruction.
+  Bitmap
   items/enemies, additive/glare effects, and 3D items/enemies likewise use
   their preconverted PBR maps inside the shared TLAS before reconstruction.
-  Projectiles and particles are traced with them. An additive source effect -
+  Transient projectiles and particles remain outside this milestone. An
+  additive source effect -
   a glare, an additive bitmap, or a `predoglare` vector face - is light that
   never occludes: a ray passes through it collecting its emission, keeps its
   direction and throughput, spends no bounce, and takes its reconstruction
@@ -71,10 +73,11 @@ The ray-traced backend takes its own presentation-only quality settings from the
 same file. Every one is optional, and an absent key keeps the renderer's tuned
 default, so the shipped template lists them commented out with their defaults:
 
-- `rtx_samples_per_pixel=1` through `8` and `rtx_max_bounces=1` through `8`
-  remain accepted configuration keys, but the current primary-visibility reset
-  deliberately ignores them. It traces one camera ray and no lighting or
-  continuation rays;
+- `rtx_samples_per_pixel=1` through `8` sets how many independent
+  diffuse-continuation/emissive-polygon samples are averaged per pixel. The
+  primary ray remains pixel-centred. `rtx_max_bounces=1` keeps only source
+  visibility; values `2` through `8` currently enable the same single indirect
+  diffuse vertex while later bounces remain deliberately dormant;
 - `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
   path tracer renders at before reconstruction upscales it. That makes it the
@@ -82,10 +85,11 @@ default, so the shipped template lists them commented out with their defaults:
   12.7, 10.4 and 8.5 ms a frame. The default is `quality`;
 - `rtx_light_candidates=1` through `1024` and `rtx_reservoir_limit=0` through
   `65536` remain accepted for the retained estimator implementation, but no
-  light-grid or reservoir shading dispatch runs in the current flat reset; and
-- `rtx_radiance_clamp=200` and `rtx_ndf_trim=0.9` remain accepted but are
-  inactive during the flat primary-visibility reset. `rtx_exposure=1` remains
-  active and scales the flat HDR result before tone mapping.
+  light-grid or reservoir shading dispatch runs in the current isolated pass;
+  and
+- `rtx_radiance_clamp=200` bounds each indirect sample before SPP averaging.
+  `rtx_ndf_trim=0.9` remains inactive because no GGX lobe executes, while
+  `rtx_exposure=1` scales the HDR result before tone mapping.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_CANDIDATES`, `AB3D2_DXR_RESERVOIR_LIMIT`,
 `AB3D2_DXR_RADIANCE_CLAMP`, `AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, and
@@ -488,8 +492,9 @@ buffer and refit its dynamic BLAS instead of rebuilding the scene/material
 atlases, draining the GPU queue, and resetting Ray Reconstruction history.
 Weapon and world instances use the same TLAS mask and nearest-hit query, so all
 primary, secondary, and visibility rays see both. The PBR weapon can therefore
-reflect, shadow, be shadowed by, and be occluded by the world while contributing
-HDR radiance, depth, normals, motion, and every reconstruction guide.
+be occluded by the world, receive this indirect diffuse term, and occlude its
+continuation/visibility rays while contributing depth, normals, motion, and the
+active reconstruction guides. Specular/reflection transport remains dormant.
 `technolights` and the source
 `floor_0101` panel use colored emissive masks at factor 200; other materials
 remain non-emissive. Companion weapon vertices do not consume the source
@@ -532,28 +537,37 @@ source mode together, so animation does not repack the atlas or reset RR
 history. A missing/corrupt map or missing world/entity/weapon binding is fatal;
 the runtime does not regenerate fallback textures.
 
-The current renderer reset traces one pixel-centred camera ray per pixel with
-zero frame-varying subpixel jitter and writes the first opaque surface's linear
-base colour without direct lighting,
-emission, environment radiance, shadow rays, continuation rays, or specular
-guide rays. Misses are black. Source additive geometry remains non-occluding
-but contributes no colour. Light-grid and spatial-reservoir dispatches are
-skipped. A full-screen pass tone maps the flat HDR result to the three-frame
+The current staged renderer keeps one pixel-centred camera ray with zero
+frame-varying subpixel jitter. Base colour is written as a reconstruction guide,
+not added to HDR as fake self-emission. The image shows directly visible
+authored emission and exactly one lighting term: a cosine-weighted diffuse
+continuation from the primary surface, followed at that indirect hit by one
+alias-sampled emissive polygon and a visibility ray. The Lambert estimator uses
+metal-free diffuse
+reflectance and the emitter's exact area-to-solid-angle PDF. SPP repeats and
+averages that complete two-vertex estimate. There is no polygon-light NEE at
+the primary hit, environment lighting, GGX/specular transport, authored zone
+ambient, or third surface hit. Misses are black unless the primary segment
+crosses a non-occluding authored additive layer. Light-grid and temporal/spatial
+reservoir dispatches remain skipped. A full-screen pass tone maps the HDR
+result to the three-frame
 flip-discard swap chain; there is no project-authored temporal accumulation or
 denoiser. The same primary dispatch writes separate
 diffuse/specular albedo, world shading normal, linear roughness, linear depth,
 dense scene motion, and specular-hit-distance resources in the formats recorded
-by the implementation plan. The inactive specular and diffuse hit-distance
-guides are zero.
+by the implementation plan. Specular guides remain zero; the first sampled
+diffuse continuation writes its traced hit distance.
+
 A renderer-neutral history epoch resets camera and
 geometry history across level/quickload discontinuities; topology-stable world
 motion uses the previous vertex positions at the current hit barycentrics.
 Non-projectile bitmap sprites and animated world vector objects now retain
 stable renderer-neutral layouts, resolve their exact preconverted PBR maps on
 demand, and update dynamic BLAS objects without repacking the global material
-atlas. Alpha-tested bitmap/vector surfaces and emissive additive/glare effects
-therefore participate in primary, secondary, shadow, and reflection rays and
-write the RR guides before reconstruction. Source flat/Gouraud lighting does
+atlas. Alpha-tested bitmap/vector surfaces participate in primary, secondary,
+and visibility rays. Emissive additive/glare effects remain non-occluding and
+visible on primary segments but are not area-light candidates. Source
+flat/Gouraud lighting does
 not modulate the DXR entity or weapon materials. Transient projectile sprites
 and HUD/text overlays remain outstanding.
 
@@ -569,9 +583,11 @@ lifecycle check and run the game-content check with:
 .\build\dxr\Debug\ab3d2.exe --gpu-smoke all --renderer rtx
 ```
 
-The RTX smoke renders each Level A--P frame twice and requires two nonzero
-readback checksums. Without Streamline, the frozen flat-primary frames must
-match exactly; any difference exposes unintended temporal movement. It also
+The RTX smoke renders each Level A--P frame twice. A starting view with no
+visible source and no sampled two-vertex connection may correctly be black;
+across a full campaign run, at least one level must produce authored radiance
+and at least one frozen camera/scene pair must change as the indirect-diffuse
+sample sequence advances. The primary ray itself remains fixed. It also
 requires nonzero GPU primary-hit coverage from the initial
 and key-six Rocket Launcher companions, cumulative bitmap entity coverage, and
 world-vector coverage. If a real active vector entity is occluded from a

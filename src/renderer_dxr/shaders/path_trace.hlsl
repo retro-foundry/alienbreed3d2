@@ -901,6 +901,11 @@ float3 surfaceF0(SurfaceData surface)
     return lerp(dielectricF0.xxx, surface.baseColor, surface.metalness);
 }
 
+float3 diffuseReflectance(SurfaceData surface)
+{
+    return surface.baseColor * (1.0 - surface.metalness);
+}
+
 float ggxDistribution(float normalHalf, float alpha)
 {
     float alphaSquared = alpha * alpha;
@@ -1159,6 +1164,97 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
     evaluation.lightDistance = distance;
     evaluation.valid = true;
     return evaluation;
+}
+
+/*
+ * The isolated equivalent of Q2RTX's indirect-polygon-light transport term:
+ * one authored emissive-triangle NEE sample evaluated at an indirect diffuse
+ * vertex. This deliberately does not call evaluateBsdf, sample the analytic
+ * environment, read the light grid, or publish/reuse a reservoir. Keeping the
+ * Lambert estimator separate prevents the dormant GGX/direct-primary path from
+ * leaking energy into this reconstruction stage.
+ */
+float3 evaluateIndirectDiffusePolygonSample(SurfaceData surface,
+                                            EmitterSample lightSample)
+{
+    if (!lightSample.valid || lightSample.emitterIndex >= EmitterCount) {
+        return 0.0;
+    }
+    EmissiveTriangle emitter = Emitters[lightSample.emitterIndex];
+    SceneVertex first = Vertices[emitter.firstVertex + 0u];
+    SceneVertex second = Vertices[emitter.firstVertex + 1u];
+    SceneVertex third = Vertices[emitter.firstVertex + 2u];
+    float2 positionSample = unpackPositionSample(lightSample.positionSample);
+    float root = sqrt(positionSample.x);
+    float3 barycentrics = float3(
+        1.0 - root,
+        root * (1.0 - positionSample.y),
+        root * positionSample.y);
+    float3 lightPosition = first.position * barycentrics.x +
+        second.position * barycentrics.y + third.position * barycentrics.z;
+    float2 lightUv = first.textureCoordinate * barycentrics.x +
+        second.textureCoordinate * barycentrics.y +
+        third.textureCoordinate * barycentrics.z;
+    float3 toLight = lightPosition - surface.position;
+    float distanceSquared = dot(toLight, toLight);
+    if (distanceSquared <= RayEpsilon * RayEpsilon) {
+        return 0.0;
+    }
+    float lightDistance = sqrt(distanceSquared);
+    float3 lightDirection = toLight / lightDistance;
+    float receiverCosine = saturate(dot(surface.shadingNormal,
+                                        lightDirection));
+    if (receiverCosine <= 0.0 ||
+        dot(surface.geometricNormal, lightDirection) <= 0.0) {
+        return 0.0;
+    }
+    float3 lightNormal = normalize(cross(second.position - first.position,
+                                         third.position - first.position));
+    float lightCosine = abs(dot(lightNormal, -lightDirection));
+    if (lightCosine <= 1.0e-6) {
+        return 0.0;
+    }
+    float sourcePdf = emitter.selectionProbability * emitter.inverseArea *
+        distanceSquared / lightCosine;
+    if (!(sourcePdf > 0.0) || isnan(sourcePdf) || isinf(sourcePdf)) {
+        return 0.0;
+    }
+    SceneMaterial lightMaterial = Materials[first.materialIndex];
+    MaterialSampleFootprint lightFootprint = materialSampleFootprint(
+        lightMaterial, lightUv, first.textureWindowOrigin,
+        first.textureWindowExtent);
+    float lightEmissiveScale = first.emissiveScale * barycentrics.x +
+        second.emissiveScale * barycentrics.y +
+        third.emissiveScale * barycentrics.z;
+    float3 emittedRadiance = sampleMaterialAtlas(
+        EmissiveAtlas, lightFootprint).rgb *
+        lightMaterial.emissiveFactor * lightEmissiveScale;
+    if (!any(emittedRadiance > 0.0) ||
+        !traceVisibility(surface.position +
+                             surface.geometricNormal * RayEpsilon,
+                         lightDirection, lightDistance - RayEpsilon,
+                         SceneInstanceMask)) {
+        return 0.0;
+    }
+    return (diffuseReflectance(surface) / Pi) * emittedRadiance *
+        (receiverCosine / sourcePdf);
+}
+
+float3 sampleIndirectDiffusePolygonLight(uint2 pixel, uint sampleIndex,
+                                         SurfaceData surface)
+{
+    if (EmitterCount == 0u) {
+        return 0.0;
+    }
+    const uint dimension = PathDimensionsPerBounce;
+    EmitterSample lightSample;
+    lightSample.emitterIndex = selectEmitter(
+        sampleBlueNoise(pixel, sampleIndex, dimension + 0u));
+    lightSample.positionSample = packPositionSample(float2(
+        sampleBlueNoise(pixel, sampleIndex, dimension + 1u),
+        sampleBlueNoise(pixel, sampleIndex, dimension + 2u)));
+    lightSample.valid = true;
+    return evaluateIndirectDiffusePolygonSample(surface, lightSample);
 }
 
 EmitterEvaluation evaluateEnvironmentSample(SurfaceData surface,
@@ -2021,13 +2117,13 @@ void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
     DiffuseHitDistance[pixel] = 0.0;
 }
 
-void writeFlatSurfaceGuides(uint2 pixel, SurfacePayload payload,
-                            SurfaceData surface, uint2 dimensions)
+void writeDiffuseSurfaceGuides(uint2 pixel, SurfacePayload payload,
+                               SurfaceData surface, uint2 dimensions)
 {
-    /* The reset renderer has no specular or indirect signal. Preserve only the
-     * primary surface data Ray Reconstruction needs to reproject the flat base
-     * colour; in particular, do not trace the former mirror guide ray. */
-    DiffuseAlbedo[pixel] = float4(surface.baseColor, 1.0);
+    /* This pass has one diffuse signal and no specular signal. Keep the primary
+     * ray pixel-centred, publish metal-free diffuse reflectance, and leave the
+     * specular resources explicitly inactive. */
+    DiffuseAlbedo[pixel] = float4(diffuseReflectance(surface), 1.0);
     SpecularAlbedo[pixel] = 0.0;
     ShadingNormal[pixel] = float4(surface.shadingNormal, 1.0);
     LinearRoughness[pixel] = 1.0;
@@ -2057,9 +2153,9 @@ void RayGeneration()
         CameraRight * (unjitteredNdc.x * Aspect * TanHalfFovY) +
         CameraUp * (unjitteredNdc.y * TanHalfFovY));
 
-    /* The reset baseline performs primary visibility only. `traceSegment`
-     * continues the same camera ray through source additive layers so they do
-     * not become opaque, but their emission is deliberately discarded. */
+    /* Keep primary visibility pixel-centred. Stochastic variation belongs only
+     * to the diffuse continuation and polygon sample below, so geometry edges
+     * do not regain the camera jitter that made the flat reset shake. */
     RayDesc primaryRay;
     primaryRay.Origin = CameraPosition;
     primaryRay.Direction = direction;
@@ -2069,13 +2165,66 @@ void RayGeneration()
     SurfacePayload primaryPayload = primarySegment.payload;
     uint primaryPrimitive = primaryPayload.hit != 0u ?
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
-    float3 resolvedRadiance = 0.0;
+    float3 resolvedRadiance = primarySegment.additiveRadiance;
     if (primaryPayload.hit == 0u) {
         writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
     } else {
         SurfaceData surface = loadSurface(primaryPayload, primaryRay.Direction);
-        writeFlatSurfaceGuides(pixel, primaryPayload, surface, dimensions);
-        resolvedRadiance = surface.baseColor;
+        writeDiffuseSurfaceGuides(pixel, primaryPayload, surface, dimensions);
+
+        /* Base colour is a reconstruction/material guide, not self-emission.
+         * The displayed radiance contains source visibility plus only the
+         * requested lighting term. No polygon NEE is evaluated at this primary
+         * vertex. */
+        resolvedRadiance += surface.emission;
+        float3 primaryThroughput = diffuseReflectance(surface);
+        if (MaximumDepth >= 2u && EmitterCount > 0u &&
+            luminance(primaryThroughput) > 1.0e-6) {
+            uint sampleCount = max(SamplesPerPixel, 1u);
+            float3 indirectRadiance = 0.0;
+            for (uint sampleOrdinal = 0u; sampleOrdinal < sampleCount;
+                 ++sampleOrdinal) {
+                uint effectiveSampleIndex =
+                    SampleIndex * sampleCount + sampleOrdinal;
+                float3 bounceDirection = cosineHemisphere(
+                    surface.shadingNormal,
+                    float2(sampleBlueNoise(pixel, effectiveSampleIndex, 6u),
+                           sampleBlueNoise(pixel, effectiveSampleIndex, 7u)));
+                if (dot(surface.geometricNormal, bounceDirection) <= 0.0) {
+                    continue;
+                }
+                RayDesc bounceRay;
+                bounceRay.Origin = surface.position +
+                    surface.geometricNormal * RayEpsilon;
+                bounceRay.Direction = bounceDirection;
+                bounceRay.TMin = RayEpsilon;
+                bounceRay.TMax = SceneFarPlane;
+                SegmentTraversal bounceSegment = traceSegment(bounceRay);
+                if (sampleOrdinal == 0u) {
+                    DiffuseHitDistance[pixel] =
+                        bounceSegment.payload.hit != 0u ?
+                            bounceSegment.distance : SceneFarPlane;
+                }
+                if (bounceSegment.payload.hit == 0u) {
+                    continue;
+                }
+                SurfaceData indirectSurface = loadSurface(
+                    bounceSegment.payload, bounceRay.Direction);
+                float3 sampleRadiance = primaryThroughput *
+                    sampleIndirectDiffusePolygonLight(
+                        pixel, effectiveSampleIndex, indirectSurface);
+                if (any(isnan(sampleRadiance)) ||
+                    any(isinf(sampleRadiance))) {
+                    continue;
+                }
+                float sampleLuminance = luminance(sampleRadiance);
+                if (RadianceClamp > 0.0 && sampleLuminance > RadianceClamp) {
+                    sampleRadiance *= RadianceClamp / sampleLuminance;
+                }
+                indirectRadiance += sampleRadiance;
+            }
+            resolvedRadiance += indirectRadiance / float(sampleCount);
+        }
     }
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
     if (primaryPrimitive == ViewWeaponPrimitive) {
@@ -2091,8 +2240,8 @@ void RayGeneration()
     if (primaryPrimitive == WorldVectorPrimitive) {
         InterlockedAdd(Diagnostics[3], 1u);
     }
-    /* Keep source-effect geometry observable to the existing smoke diagnostic
-     * even though the reset renderer intentionally discards its emission. */
+    /* Additive layers remain non-occluding and their source emission is visible,
+     * but they are excluded from the polygon-light distribution. */
     if (primarySegment.additiveLayers != 0u) {
         InterlockedAdd(Diagnostics[4], 1u);
     }

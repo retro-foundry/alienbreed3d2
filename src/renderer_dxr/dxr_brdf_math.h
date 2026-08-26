@@ -93,6 +93,50 @@ inline Vec3 diffuse_reflectance(const Material &material)
     return material.base_color * (1.0f - material.metalness);
 }
 
+inline Vec3 lambertian_value(const Material &material)
+{
+    return diffuse_reflectance(material) / pi;
+}
+
+inline float cosine_hemisphere_pdf(float normal_direction)
+{
+    return std::max(normal_direction, 0.0f) / pi;
+}
+
+/* With cosine-weighted sampling, f * cos(theta) / pdf collapses exactly to
+ * the diffuse reflectance. This is the throughput carried from the primary
+ * surface to the one indirect vertex in the isolated polygon-light pass. */
+inline Vec3 cosine_sample_throughput(const Material &material,
+                                     float normal_direction)
+{
+    const float pdf = cosine_hemisphere_pdf(normal_direction);
+    return pdf > 0.0f ?
+        lambertian_value(material) * (normal_direction / pdf) : Vec3{};
+}
+
+inline float triangle_solid_angle_pdf(float selection_probability,
+                                      float inverse_area,
+                                      float distance_squared,
+                                      float light_cosine)
+{
+    return selection_probability > 0.0f && inverse_area > 0.0f &&
+            distance_squared > 0.0f && light_cosine > 0.0f ?
+        selection_probability * inverse_area * distance_squared /
+            light_cosine : 0.0f;
+}
+
+/* One emissive-triangle NEE sample evaluated at a diffuse receiver. The
+ * source PDF is already expressed in solid-angle measure at that receiver. */
+inline Vec3 diffuse_polygon_nee(const Material &receiver,
+                                Vec3 emitted_radiance,
+                                float receiver_cosine,
+                                float source_pdf)
+{
+    return receiver_cosine > 0.0f && source_pdf > 0.0f ?
+        lambertian_value(receiver) * emitted_radiance *
+            (receiver_cosine / source_pdf) : Vec3{};
+}
+
 inline Vec3 f0(const Material &material)
 {
     const float dielectric = 0.04f * material.specular_factor;

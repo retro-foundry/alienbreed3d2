@@ -1343,10 +1343,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         history_.input_height == render_height;
     const uint32_t sample_index =
         history_valid ? history_.sample_index + 1u : 0u;
-    /* Flat primary visibility has no stochastic lighting signal for Ray
-     * Reconstruction to resolve. Moving the camera ray within each pixel only
-     * makes otherwise deterministic geometry edges visibly shake, so keep the
-     * active reset pixel-centred and report the same zero jitter to Streamline. */
+    /* The isolated indirect-diffuse pass varies continuation/light samples,
+     * not primary visibility. Moving the camera ray within each pixel made
+     * otherwise stable geometry edges visibly shake, so keep it pixel-centred
+     * and report the same zero primary jitter to Streamline. */
     const reconstruction::PixelJitter current_jitter = {};
     const reconstruction::CameraProjection &previous_camera =
         history_valid ? history_.previous_camera : current_camera;
@@ -1432,9 +1432,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                 shader_record_size * 2u, shader_record_size};
     dispatch.HitGroupTable = {table + shader_record_size * 5u, shader_record_size,
                               shader_record_size};
-    /* The primary-visibility reset deliberately skips BuildLightGrid and
-     * SpatialShade. RayGeneration writes flat base colour and valid primary
-     * guides without consuming any emitter, visibility, or continuation rays. */
+    /* The isolated indirect-diffuse pass samples the global emitter alias table
+     * directly at its one indirect vertex. BuildLightGrid and SpatialShade stay
+     * dormant: no primary-light reservoir is built, reused, or shaded. */
     dispatch.RayGenerationShaderRecord = {
         table + shader_record_size, shader_record_size};
     dispatch.Width = render_width;

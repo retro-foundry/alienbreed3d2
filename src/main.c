@@ -1490,6 +1490,8 @@ static int game_app_run_gpu_smoke(GameApp *app)
     size_t dxr_world_bitmap_coverage = 0u;
     size_t dxr_world_vector_coverage = 0u;
     size_t dxr_world_additive_coverage = 0u;
+    size_t dxr_lit_level_count = 0u;
+    size_t dxr_stochastic_level_count = 0u;
     RendererBackend smoke_backend = app->has_renderer_backend_from_command_line != 0u ?
         app->renderer_backend_from_command_line :
         app->desktop_settings.renderer_backend;
@@ -1534,48 +1536,37 @@ static int game_app_run_gpu_smoke(GameApp *app)
              * billboards/effects, animated world vectors, and the weapon in
              * one nearest-hit scene. The OpenGL branch below retains its
              * separate source UI/effect presentation contract. */
-            if (first_checksum == UINT64_C(0)) {
-                fprintf(stderr,
-                        "[RENDER] DXR flat primary smoke produced a zero checksum "
-                        "for Level %c\n", (char)('A' + level_index));
-                app->exit_code = 1;
-                return 0;
-            }
             if (!renderer_present(app->renderer, &app->frame, &app->view,
                                   error, sizeof(error))) {
                 fprintf(stderr,
-                        "[RENDER] DXR second flat primary frame failed for Level %c: %s\n",
+                        "[RENDER] DXR second indirect-diffuse frame failed for Level %c: %s\n",
                         (char)('A' + level_index), error);
                 app->exit_code = 1;
                 return 0;
             }
             second_checksum = renderer_last_frame_rgb_checksum(app->renderer);
-            if (second_checksum == UINT64_C(0)) {
-                fprintf(stderr,
-                        "[RENDER] DXR second flat primary frame produced a zero checksum "
-                        "for Level %c\n", (char)('A' + level_index));
-                app->exit_code = 1;
-                return 0;
+            /* A view with no visible emitter and no sampled two-vertex
+             * connection is correctly black in this isolated pass. Require
+             * real radiance across the complete campaign, not fake ambient in
+             * every individual starting view. */
+            if (first_checksum != UINT64_C(0) ||
+                second_checksum != UINT64_C(0)) {
+                ++dxr_lit_level_count;
             }
-#if !defined(AB3D2_ENABLE_STREAMLINE)
             if (second_checksum != first_checksum) {
-                fprintf(stderr,
-                        "[RENDER] DXR flat primary output changed with a frozen camera "
-                        "and scene in Level %c\n", (char)('A' + level_index));
-                app->exit_code = 1;
-                return 0;
+                ++dxr_stochastic_level_count;
             }
-#endif
             fprintf(stdout,
                     "[RENDER] DXR Level %c presented frames=%016llx,%016llx\n",
                     (char)('A' + level_index),
                     (unsigned long long)first_checksum,
                     (unsigned long long)second_checksum);
             /*
-             * Temporal-stability measurement. The camera, view and SceneFrame
-             * are frozen, and the flat primary ray has no subpixel jitter. A
-             * Streamline build may still evolve its reconstruction history;
-             * report that change rather than assigning it to the ray sampler.
+             * Temporal-stability measurement. The camera, view and primary ray
+             * are frozen, while diffuse continuation and polygon-light samples
+             * advance. A Streamline build additionally evolves reconstruction
+             * history; report the combined result rather than treating primary
+             * edge movement as intended sampling.
              */
             {
                 enum {
@@ -1960,13 +1951,20 @@ static int game_app_run_gpu_smoke(GameApp *app)
                     level_index == last_level &&
                     (dxr_world_bitmap_coverage == 0u ||
                      dxr_world_vector_coverage == 0u ||
-                     dxr_world_additive_coverage == 0u)) {
+                     dxr_world_additive_coverage == 0u ||
+                     dxr_lit_level_count == 0u ||
+                     dxr_stochastic_level_count == 0u)) {
                     fprintf(stderr,
-                            "[RENDER] DXR all-level smoke saw no primary-ray "
-                            "coverage for %s entities\n",
-                            dxr_world_bitmap_coverage == 0u ? "bitmap" :
-                                dxr_world_vector_coverage == 0u ? "vector" :
-                                    "additive");
+                            "[RENDER] DXR all-level smoke saw no %s\n",
+                            dxr_world_bitmap_coverage == 0u ?
+                                "bitmap entity coverage" :
+                                dxr_world_vector_coverage == 0u ?
+                                    "vector entity coverage" :
+                                    dxr_world_additive_coverage == 0u ?
+                                        "additive entity coverage" :
+                                        dxr_lit_level_count == 0u ?
+                                            "visible or indirect authored radiance" :
+                                            "stochastic indirect-diffuse response");
                     app->exit_code = 1;
                     return 0;
                 }
@@ -2258,10 +2256,11 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 app->exit_code = 1;
                 return 0;
             }
-            /* The DXR primary-visibility reset deliberately traces additive
-             * and glare geometry without adding its emission. Its directed
-             * coverage probe above remains the DXR acceptance check; the
-             * source blend must still alter the OpenGL presentation path. */
+            /* DXR shows this emission while passing through the layer, but its
+             * advancing indirect sample means adjacent-frame RGB checksums do
+             * not isolate the effect. The directed coverage probe above is the
+             * DXR acceptance check; the deterministic source blend must still
+             * alter the OpenGL presentation path. */
             if (smoke_backend == RENDERER_BACKEND_OPENGL &&
                 renderer_last_frame_rgb_checksum(app->renderer) ==
                     source_effect_background_checksum) {

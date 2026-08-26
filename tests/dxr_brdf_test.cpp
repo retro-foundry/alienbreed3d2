@@ -40,6 +40,22 @@ int main()
         !near(f0(source_vector), {0.014f, 0.014f, 0.014f})) {
         return fail("metallic-roughness reflectance equations disagree");
     }
+    if (!near(lambertian_value(dielectric), dielectric.base_color / pi) ||
+        !near(cosine_hemisphere_pdf(0.25f), 0.25f / pi) ||
+        !near(cosine_sample_throughput(dielectric, 0.25f),
+              dielectric.base_color) ||
+        !near(cosine_sample_throughput(metal, 0.75f), Vec3{}) ||
+        !near(triangle_solid_angle_pdf(0.25f, 0.5f, 16.0f, 0.5f),
+              4.0f) ||
+        !near(diffuse_polygon_nee(dielectric, {10.0f, 20.0f, 30.0f},
+                                  0.5f, 4.0f),
+              {1.0f / pi, 0.5f / pi, 0.375f / pi}) ||
+        !near(diffuse_polygon_nee(dielectric, {10.0f, 20.0f, 30.0f},
+                                  0.0f, 4.0f), Vec3{}) ||
+        !near(diffuse_polygon_nee(dielectric, {10.0f, 20.0f, 30.0f},
+                                  0.5f, 0.0f), Vec3{})) {
+        return fail("isolated diffuse polygon-light estimator changed");
+    }
     if (!(specular_probability(dielectric) >= 0.05f &&
           specular_probability(dielectric) <= 0.95f &&
           specular_probability(metal) > specular_probability(dielectric))) {

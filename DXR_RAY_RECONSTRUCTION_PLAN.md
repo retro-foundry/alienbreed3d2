@@ -575,19 +575,21 @@ Use the `SceneEnvironment` backdrop/sky through a documented lat-long or equival
 
 ## Noisy path tracer
 
-Current reset status (2026-08-26): at the user's direction, the executed DXR
-path has been reduced to primary visibility before rebuilding lighting from a
-known baseline. It traces one pixel-centred camera ray with zero frame-varying
-subpixel jitter, writes the first opaque surface's flat linear base colour,
-writes black on miss, and retains valid
-primary depth/normal/motion guides. Direct and indirect lighting, emission,
-environment radiance, shadow and continuation rays, the specular guide ray,
-ReGIR construction, and temporal/spatial reservoir shading do not execute.
-Source additive layers remain non-occluding but add no radiance. The complete
-estimator code remains present but inactive so each lighting stage can be
-reintroduced and measured independently. The full-estimator jitter described
-below is likewise inactive: without stochastic radiance, it only moves flat
-geometry edges between pixels.
+Current staged status (2026-08-26): after reducing the executed DXR path to
+flat primary visibility, the first lighting term has been reintroduced in
+isolation. The camera ray remains pixel-centred with zero frame-varying
+subpixel jitter and preserves flat base colour as an inspectable material
+guide rather than adding it to HDR as self-emission. Directly visible authored
+emission is shown. For each SPP sample, a
+cosine-weighted Lambert continuation leaves the primary surface, and the first
+opaque indirect hit explicitly samples one triangle from the complete global
+authored-emitter alias distribution, converts its area density to solid-angle
+density, and traces visibility. The estimator is therefore
+`primary diffuse throughput * indirect Lambert BRDF * Le * cos / lightPdf`.
+Only this indirect-polygon-light NEE term executes: primary-hit direct NEE,
+environment lighting, GGX/specular transport, authored zone ambient, a third
+surface hit, ReGIR, and temporal/spatial reservoirs remain dormant. Source
+additive layers are visible and non-occluding but are not area-light candidates.
 
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
@@ -827,12 +829,12 @@ readback statistics/ID overlays, and PIX validation remain later work.
 ### 7. `Add the clean-room noisy PBR path tracer`
 
 Current status: the historical complete estimator remains implemented but is
-inactive during the 2026-08-26 primary-visibility reset recorded above. The
-executed shader covers world geometry, non-projectile bitmap/vector entities,
-and the PBR companion weapon with one flat base-colour camera ray. Alpha-tested
-surfaces still participate in primary visibility; additive/glare geometry is
-passed through without emission. Later presentation classes and transient
-projectiles remain incomplete.
+inactive apart from the isolated indirect-diffuse polygon-light stage recorded
+above. The executed shader covers world geometry, non-projectile bitmap/vector
+entities, and the PBR companion weapon. Alpha-tested surfaces participate in
+primary, continuation, and visibility traversal; additive/glare geometry is
+visible but excluded from the area-emitter distribution. Later presentation
+classes and transient projectiles remain incomplete.
 
 - The pinned 256-spp blue-noise/Owen-scrambled Sobol sampler is implemented
   with explicit dimensions for every environment, emitter, BSDF, and specular
@@ -1352,9 +1354,12 @@ nothing passes any stability bound trivially.
 
 - ID-independent debug-layer-clean diagnostic create/render/resize/minimize/restore/shutdown loops, including a multi-thousand-frame run.
 - The dedicated foundation test does not require game content. The RTX
-  all-level smoke separately renders each world/entity frame twice and requires
-  nonzero readback checksums; without Streamline, the two frozen flat-primary
-  frames must match exactly. It additionally requires nonzero GPU
+  all-level smoke separately renders each world/entity frame twice. An isolated
+  pass may correctly return black when that view sees no authored source or
+  sampled two-vertex connection; across Levels A--P at least one level must
+  produce authored radiance and at least one frozen pair must differ as the
+  indirect sample sequence advances while primary visibility remains
+  pixel-centred. It additionally requires nonzero GPU
   primary-hit coverage for the initial and key-six Rocket Launcher companion;
   on the first requested level it also times the complete Shotgun firing
   animation and rejects any scene rebuild after weapon selection. It requires
@@ -1363,7 +1368,8 @@ nothing passes any stability bound trivially.
   cannot see one, then requires nonzero vector primary-hit coverage. It does
   not claim UI, projectile, or complete transparent/transmissive coverage. The foundation's synthetic
   scene also retains one camera/geometry state for 32 presented frames and
-  rejects a repeated adjacent temporal sample before exercising motion.
+  requires its directly visible authored emitter to remain deterministic before
+  exercising material-window and geometry motion.
 - The 2026-08-20 Release all-level run reported 4,822 visible Level A bitmap
   primary pixels and 11,198/654,905 pixels from real vector-entity probes in
   Levels D/P. Its 48-frame Level A Shotgun sequence averaged 9.858 ms, peaked
