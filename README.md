@@ -658,7 +658,7 @@ separate low-frequency channel.
 `AB3D2_DXR_RESERVOIR_LIMIT` retains its public name for configuration
 compatibility but now caps the number of validated temporal samples in that
 indirect channel. It defaults to `20`; zero disables temporal accumulation but
-still performs the four depth/normal-guided spatial passes with full-resolution
+still performs four depth/geometric-normal-guided spatial passes at full-resolution
 steps `1`, `3`, `6`, and `12`. The filtered incident radiance is remodulated by
 the primary diffuse albedo only when it is recombined with direct lighting.
 Screen-space direct-light temporal/spatial reservoirs and `SpatialShade` remain

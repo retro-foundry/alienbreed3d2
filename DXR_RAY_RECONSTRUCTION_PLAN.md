@@ -610,8 +610,9 @@ reconstruction path. The continuation and indirect-light evaluation use the
 second hit's geometric normal, and the continuation distribution deliberately
 covers more grazing directions than an ordinary cosine sample. The path tracer
 stores incident indirect radiance without the primary albedo, reprojects it
-through dense scene motion, rejects history on depth/normal disagreement, and
-maintains a bounded running average. Four project-owned 3x3 depth/normal-guided
+through dense scene motion, rejects history on depth/geometric-normal
+disagreement, and maintains a bounded running average. Four project-owned 3x3
+depth/geometric-normal-guided
 passes at step widths 1, 3, 6, and 12 give the signal a 22-pixel reach before
 primary albedo is restored and direct radiance is added. This reconstructs the
 existing one-bounce polygon-light transport; it neither invents ambient light

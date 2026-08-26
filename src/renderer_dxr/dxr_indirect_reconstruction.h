@@ -25,7 +25,9 @@ inline constexpr float normal_tolerance = 0.5f;
  * distributional property, not its implementation. */
 inline constexpr float continuation_radial_power = 0.4f;
 
-/* GPU history layout mirrored by IndirectHistoryPixel in path_trace.hlsl. */
+/* GPU history layout mirrored by IndirectHistoryPixel in path_trace.hlsl.
+ * `normal` is the primary geometric normal: normal-map detail must not split
+ * room-scale indirect reconstruction into unrelated high-frequency patches. */
 struct HistoryPixel {
     float incident_radiance[3];
     float depth;

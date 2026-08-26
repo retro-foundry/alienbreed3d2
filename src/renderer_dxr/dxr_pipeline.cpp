@@ -1614,6 +1614,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->DispatchRays(&dispatch);
     const D3D12_RESOURCE_BARRIER indirect_input_ready[] = {
         uav_barrier(indirect_radiance_.Get()),
+        uav_barrier(indirect_histories_[sample_index & 1u].Get()),
         uav_barrier(reconstruction_resource(
             DxrReconstructionBuffer::diffuse_albedo)),
         uav_barrier(reconstruction_resource(

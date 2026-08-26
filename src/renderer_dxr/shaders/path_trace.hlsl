@@ -2266,11 +2266,15 @@ void RayGeneration()
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
     float3 resolvedRadiance = primarySegment.additiveRadiance;
     float3 resolvedIndirectIncident = 0.0;
+    float3 primaryGeometricNormal = 0.0;
+    float primaryDepth = 0.0;
     if (primaryPayload.hit == 0u) {
         writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
     } else {
         SurfaceData surface = loadSurface(primaryPayload, primaryRay.Direction);
         writeDiffuseSurfaceGuides(pixel, primaryPayload, surface, dimensions);
+        primaryGeometricNormal = surface.geometricNormal;
+        primaryDepth = LinearDepth[pixel];
 
         /* Base colour is a reconstruction/material guide, not self-emission.
          * Visible source radiance is deterministic; the loop evaluates plain
@@ -2353,6 +2357,18 @@ void RayGeneration()
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
     IndirectRadiance[pixel] = float4(resolvedIndirectIncident,
         primaryPayload.hit != 0u ? 1.0 : 0.0);
+    uint historyIndex = pixel.y * dimensions.x + pixel.x;
+    uint currentHistorySlot = SampleIndex & 1u;
+    IndirectHistoryPixel currentIndirect = (IndirectHistoryPixel)0;
+    if (primaryPayload.hit != 0u) {
+        currentIndirect.incidentRadiance = max(
+            resolvedIndirectIncident, 0.0);
+        currentIndirect.depth = primaryDepth;
+        currentIndirect.normal = packOctahedralNormal(
+            primaryGeometricNormal);
+        currentIndirect.sampleCount = 1u;
+    }
+    IndirectHistories[currentHistorySlot][historyIndex] = currentIndirect;
     if (primaryPrimitive == ViewWeaponPrimitive) {
         uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
         InterlockedAdd(Diagnostics[0], 1u);
@@ -2418,18 +2434,13 @@ void TemporalIndirect()
     uint historyIndex = pixel.y * dimensions.x + pixel.x;
     uint currentSlot = SampleIndex & 1u;
     uint previousSlot = 1u - currentSlot;
-    float4 albedo = DiffuseAlbedo[pixel];
-    IndirectHistoryPixel current = (IndirectHistoryPixel)0;
-    if (albedo.a <= 0.0) {
-        IndirectHistories[currentSlot][historyIndex] = current;
+    IndirectHistoryPixel current =
+        IndirectHistories[currentSlot][historyIndex];
+    if (current.sampleCount == 0u) {
         return;
     }
-    float currentDepth = LinearDepth[pixel];
-    float3 currentNormal = normalize(ShadingNormal[pixel].xyz);
-    current.incidentRadiance = max(IndirectRadiance[pixel].rgb, 0.0);
-    current.depth = currentDepth;
-    current.normal = packOctahedralNormal(currentNormal);
-    current.sampleCount = 1u;
+    float currentDepth = current.depth;
+    float3 currentNormal = unpackOctahedralNormal(current.normal);
 
     float2 motion = SceneMotion[pixel];
     int2 previousPixel = int2(round(float2(pixel) + motion));
@@ -2467,16 +2478,22 @@ void TemporalIndirect()
     IndirectHistories[currentSlot][historyIndex] = current;
 }
 
-float indirectSpatialWeight(uint2 centerPixel, int2 samplePixel,
-                            uint2 dimensions, float centerDepth,
+float indirectSpatialWeight(int2 samplePixel, uint2 dimensions,
+                            uint currentSlot, float centerDepth,
                             float3 centerNormal, float3 centerPosition)
 {
-    if (any(samplePixel < 0) || any(samplePixel >= int2(dimensions)) ||
-        DiffuseAlbedo[samplePixel].a <= 0.0) {
+    if (any(samplePixel < 0) || any(samplePixel >= int2(dimensions))) {
         return 0.0;
     }
-    float sampleDepth = LinearDepth[samplePixel];
-    float3 sampleNormal = normalize(ShadingNormal[samplePixel].xyz);
+    uint sampleIndex = uint(samplePixel.y) * dimensions.x +
+        uint(samplePixel.x);
+    IndirectHistoryPixel sampleHistory =
+        IndirectHistories[currentSlot][sampleIndex];
+    if (sampleHistory.sampleCount == 0u) {
+        return 0.0;
+    }
+    float sampleDepth = sampleHistory.depth;
+    float3 sampleNormal = unpackOctahedralNormal(sampleHistory.normal);
     float normalWeight = indirectNormalWeight(
         dot(centerNormal, sampleNormal));
     if (normalWeight <= 0.0) {
@@ -2500,9 +2517,12 @@ void filterIndirect(uint passIndex, int step)
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 dimensions = DispatchRaysDimensions().xy;
-    float4 centerAlbedo = DiffuseAlbedo[pixel];
     bool outputFiltered = (passIndex & 1u) != 0u;
-    if (centerAlbedo.a <= 0.0) {
+    uint currentSlot = SampleIndex & 1u;
+    uint centerIndex = pixel.y * dimensions.x + pixel.x;
+    IndirectHistoryPixel centerHistory =
+        IndirectHistories[currentSlot][centerIndex];
+    if (centerHistory.sampleCount == 0u) {
         if (outputFiltered) {
             IndirectFiltered[pixel] = 0.0;
         } else {
@@ -2510,11 +2530,10 @@ void filterIndirect(uint passIndex, int step)
         }
         return;
     }
-    float centerDepth = LinearDepth[pixel];
-    float3 centerNormal = normalize(ShadingNormal[pixel].xyz);
+    float centerDepth = centerHistory.depth;
+    float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
     float3 centerPosition = primaryWorldPosition(
         pixel, dimensions, centerDepth);
-    uint currentSlot = SampleIndex & 1u;
     float3 incidentSum = 0.0;
     float weightSum = 0.0;
     for (int offsetY = -1; offsetY <= 1; ++offsetY) {
@@ -2522,7 +2541,7 @@ void filterIndirect(uint passIndex, int step)
             int2 samplePixel = int2(pixel) +
                 int2(offsetX, offsetY) * step;
             float weight = indirectSpatialWeight(
-                pixel, samplePixel, dimensions, centerDepth,
+                samplePixel, dimensions, currentSlot, centerDepth,
                 centerNormal, centerPosition);
             if (weight <= 0.0) {
                 continue;
