@@ -488,13 +488,14 @@ int mechanism_runtime_update_doors_single_player_with_audio(
             requested_flags = mechanism_runtime_door_raise_mask(door.raise_condition, player);
             requested_velocity = mechanism_runtime_neg16(door.opening_speed);
         } else if (door_open != 0) {
-            uint16_t elapsed = (uint16_t)(runtime->door_open_timers[door_index] + frame_ticks);
-
-            runtime->door_open_timers[door_index] = elapsed;
-            if ((int16_t)elapsed >= door.open_duration) {
-                requested_flags = 0x8000u;
-                requested_velocity = door.closing_speed;
-            }
+            /*
+             * Deliberate user-requested testing override. The maintained
+             * newanims.s:DoorRoutine `tstdoortoclose` branch advances this
+             * timer and requests anim_ClosingSpeed_w. Keep every fully-open
+             * door at its authored top instead, without changing its opening,
+             * lock, collision, graphics, endpoint audio, or safety paths.
+             */
+            runtime->door_open_timers[door_index] = 0u;
         }
 
         /* DoorRoutine's player-in-door safety branch precedes its lock check. */

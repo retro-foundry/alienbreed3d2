@@ -737,7 +737,10 @@ sound effects and music now play through the SDL WAV backend.
   per-door graphics displacement records, door-state bits, source raise masks,
   player-in-door safety opening, and `EdgeT_Flags_w` consumption. It operates
   entirely on the cloned level bytes, leaves PVS unused, and emits neither
-  audio nor pixels. Its `LiftRoutine` companion now mutates source `ZoneT`
+  audio nor pixels. A user-requested testing override currently suppresses
+  `DoorRoutine`'s `tstdoortoclose` transition once a door reaches its authored
+  top; opening, locks, collision, graphics, and endpoint audio remain on their
+  source paths. Its `LiftRoutine` companion now mutates source `ZoneT`
   floor height, lift wall/graphics displacement, per-lift source height table,
   trigger edges, and the `FloorSpd_w` handoff consumed by the next player-fall
   update. Its trailing `DoWaterAnims` pass now follows the source's 21

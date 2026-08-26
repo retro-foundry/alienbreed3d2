@@ -5053,11 +5053,10 @@ int main(int argc, char **argv)
                             &game.level_mechanisms, &door_player, 1u, error,
                             sizeof(error)) ||
                         (int16_t)read_be16(door_header + 22u) != door.top ||
-                        (int16_t)read_be16(door_header + 24u) != door.closing_speed ||
-                        game.mechanism_runtime.door_open_timers[door_index] !=
-                            (uint16_t)door.open_duration) {
+                        (int16_t)read_be16(door_header + 24u) != 0 ||
+                        game.mechanism_runtime.door_open_timers[door_index] != 0u) {
                         fprintf(stderr,
-                                "campaign level %u DoorRoutine close timer is inconsistent: %s\n",
+                                "campaign level %u door did not remain fully open: %s\n",
                                 level_index, error);
                         game_bootstrap_destroy(&game);
                         return 1;

@@ -24,7 +24,9 @@ void mechanism_runtime_init(MechanismRuntime *runtime);
 /*
  * Single-player newanims.s:DoorRoutine. This mutates only the cloned source
  * ZoneT, EdgeT, ZLiftableT, and door-graphics records; it emits no pixels or
- * sounds. frame_ticks is Anim_TempFrames_w for this simulation update.
+ * sounds. frame_ticks is Anim_TempFrames_w for this simulation update. The
+ * current user-requested testing policy suppresses DoorRoutine's
+ * `tstdoortoclose` transition after a door reaches its authored top.
  */
 int mechanism_runtime_update_doors_single_player(MechanismRuntime *runtime,
                                                  LevelDynamicState *dynamic_level,

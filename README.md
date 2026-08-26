@@ -136,7 +136,10 @@ first game's software renderer:
 
 The active direct-play path now runs the source single-player control,
 weapon, object/mechanism (including source-held door/lift locks), worry, and
-`ItsAnAlien` update ordering. Every
+`ItsAnAlien` update ordering. Each
+fully opened door is currently held at its authored top by a user-requested
+testing override; lifts and every door-opening path retain source behavior.
+Every
 complete AI route enters through `newanims.s:ObjectHandler` only when its
 source worry byte is set. Source death, successful collectable, and
 destructible narratives enter the GPU-neutral small-screen message ring and
