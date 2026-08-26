@@ -10,13 +10,17 @@ namespace ab3d2::dxr::indirect_reconstruction {
 
 /*
  * Project-owned low-frequency diffuse reconstruction constants mirrored by
- * shaders/path_trace.hlsl. Four sparse 3x3 passes expand from immediate
- * neighbours to a 22-pixel full-resolution reach. This is the project-owned
- * equivalent of the broad low-frequency filter that Q2RTX applies at reduced
- * resolution, without importing its shader implementation.
+ * shaders/path_trace.hlsl. Four guide-aware 5x5 à-trous passes use the
+ * separable cubic B-spline kernel at threefold, overlap-preserving steps.
+ * Their continuous 80-pixel support avoids the visible stride lattice
+ * produced by the former equal-weight sparse taps and gives rare secondary
+ * paths the broad footprint required by this low-frequency channel.
  */
-inline constexpr std::array<int, 4> filter_steps = {1, 3, 6, 12};
-inline constexpr int filter_reach = 22;
+inline constexpr std::array<int, 4> filter_steps = {1, 3, 9, 27};
+inline constexpr std::array<int, 5> filter_kernel = {1, 4, 6, 4, 1};
+inline constexpr int filter_radius = 2;
+inline constexpr int filter_reach = filter_radius *
+    (filter_steps[0] + filter_steps[1] + filter_steps[2] + filter_steps[3]);
 inline constexpr float relative_depth_tolerance = 0.1f;
 inline constexpr float normal_tolerance = 0.5f;
 /* Q2RTX's low-frequency path deliberately samples slightly more grazing
@@ -65,6 +69,26 @@ inline float guide_weight(float center_depth, float sample_depth,
     return depth_weight(center_depth, sample_depth) *
         normal_weight(normal_dot);
 }
+
+inline int kernel_weight(int offset)
+{
+    return offset >= -filter_radius && offset <= filter_radius ?
+        filter_kernel[offset + filter_radius] : 0;
+}
+
+inline constexpr bool filter_support_is_continuous()
+{
+    int reach = 0;
+    for (int step : filter_steps) {
+        if (reach > 0 && step > reach * 2 + 1) {
+            return false;
+        }
+        reach += filter_radius * step;
+    }
+    return reach == filter_reach;
+}
+
+static_assert(filter_support_is_continuous());
 
 }  // namespace ab3d2::dxr::indirect_reconstruction
 

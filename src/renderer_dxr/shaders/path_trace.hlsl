@@ -195,8 +195,9 @@ RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
  * used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
-/* Raw demodulated second-vertex diffuse lighting. ReconstructIndirect filters
- * it as a low-frequency signal, then remodulates with the primary albedo. */
+/* Raw demodulated second-vertex diffuse lighting. The spatial passes first
+ * reconstruct it as a low-frequency signal, TemporalIndirect accumulates that
+ * reconstruction, then ReconstructIndirect remodulates with primary albedo. */
 RWTexture2D<float4> IndirectRadiance : register(u14);
 RWStructuredBuffer<IndirectHistoryPixel> IndirectHistories[2] : register(u15);
 RWTexture2D<float4> IndirectFiltered : register(u17);
@@ -317,8 +318,8 @@ static const float ReservoirNormalTolerance = 0.5;
 static const float IndirectContinuationRadialPower = 0.4;
 static const int IndirectFilterStep0 = 1;
 static const int IndirectFilterStep1 = 3;
-static const int IndirectFilterStep2 = 6;
-static const int IndirectFilterStep3 = 12;
+static const int IndirectFilterStep2 = 9;
+static const int IndirectFilterStep3 = 27;
 static const uint ExposureSampleColumns = 32u;
 static const uint ExposureSampleRows = 18u;
 static const uint ExposureHistogramBinCount = 64u;
@@ -2430,10 +2431,12 @@ float3 primaryWorldPosition(uint2 pixel, uint2 dimensions, float depth)
     return CameraPosition + direction * (depth / projected);
 }
 
-/* Temporal stage for the dedicated indirect channel. Zero-valued Monte Carlo
- * samples are valid and enter the running mean; only a guide mismatch rejects
- * history. The configured reservoir limit is reused solely as this bounded
- * history length while screen-space ReSTIR remains disabled. */
+/* Temporal stage for the dedicated indirect channel. It runs after the spatial
+ * passes so history contains a broad low-frequency estimate rather than a raw
+ * one-pixel path that remains visible while it ages out. Zero-valued Monte
+ * Carlo samples are valid and enter the running mean; only a guide mismatch
+ * rejects history. The configured reservoir limit is reused solely as this
+ * bounded history length while screen-space ReSTIR remains disabled. */
 [shader("raygeneration")]
 void TemporalIndirect()
 {
@@ -2446,6 +2449,11 @@ void TemporalIndirect()
         IndirectHistories[currentSlot][historyIndex];
     if (current.sampleCount == 0u) {
         return;
+    }
+    current.incidentRadiance = max(IndirectFiltered[pixel].rgb, 0.0);
+    if (any(isnan(current.incidentRadiance)) ||
+        any(isinf(current.incidentRadiance))) {
+        current.incidentRadiance = 0.0;
     }
     float currentDepth = current.depth;
     float3 currentNormal = unpackOctahedralNormal(current.normal);
@@ -2484,6 +2492,7 @@ void TemporalIndirect()
         }
     }
     IndirectHistories[currentSlot][historyIndex] = current;
+    IndirectFiltered[pixel] = float4(current.incidentRadiance, 1.0);
 }
 
 float indirectSpatialWeight(int2 samplePixel, uint2 dimensions,
@@ -2516,9 +2525,19 @@ float indirectSpatialWeight(int2 samplePixel, uint2 dimensions,
     return planeWeight * normalWeight;
 }
 
-/* One sparse, guide-aware 3x3 stage of the project-owned low-frequency
- * reconstruction. Pass zero reads the temporally accumulated history; later
- * passes ping-pong full-resolution incident radiance with expanding steps.
+float indirectKernelWeight(int offset)
+{
+    int distance = abs(offset);
+    return distance == 0 ? 6.0 : (distance == 1 ? 4.0 : 1.0);
+}
+
+/* One guide-aware 5x5 à-trous stage of the project-owned low-frequency
+ * reconstruction. The separable 1-4-6-4-1 kernel uses threefold steps whose
+ * prior support still overlaps every new tap. This gives an
+ * 80-pixel continuous impulse response instead of stamping rare bright paths
+ * into a visible stride lattice. Pass zero reads this frame's raw incident
+ * sample from the current history slot; later passes ping-pong full-resolution
+ * incident radiance. TemporalIndirect accumulates the final filtered result.
  * Zero-valued history remains a valid Monte Carlo sample and participates in
  * the average instead of biasing the result toward rare successful paths. */
 void filterIndirect(uint passIndex, int step)
@@ -2544,13 +2563,15 @@ void filterIndirect(uint passIndex, int step)
         pixel, dimensions, centerDepth);
     float3 incidentSum = 0.0;
     float weightSum = 0.0;
-    for (int offsetY = -1; offsetY <= 1; ++offsetY) {
-        for (int offsetX = -1; offsetX <= 1; ++offsetX) {
+    for (int offsetY = -2; offsetY <= 2; ++offsetY) {
+        for (int offsetX = -2; offsetX <= 2; ++offsetX) {
             int2 samplePixel = int2(pixel) +
                 int2(offsetX, offsetY) * step;
             float weight = indirectSpatialWeight(
                 samplePixel, dimensions, currentSlot, centerDepth,
                 centerNormal, centerPosition);
+            weight *= indirectKernelWeight(offsetX) *
+                indirectKernelWeight(offsetY);
             if (weight <= 0.0) {
                 continue;
             }

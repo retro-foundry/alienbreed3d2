@@ -324,6 +324,14 @@ the reference lookup within every block while preventing the aligned full-tile
 pattern from repeating every 256 presented frames. No temporal accumulation,
 radiance clamp, spatial filter, or alternate denoiser was added.
 
+The separate one-bounce diffuse-indirect channel uses a project-authored
+low-frequency reconstruction stage. Its separable cubic B-spline weights,
+threefold step sequence, depth/geometric-normal guide tests, spatial-before-
+temporal ordering, and history layout were derived and validated inside this
+repository. No Q2RTX or other third-party reconstruction shader was inspected,
+copied, linked, or staged for this change. The stage does not filter the fresh
+direct/specular signal tagged for DLSS Ray Reconstruction.
+
 ## Approved conceptual references inspected
 
 - `binaryfoundry/dxr-demo`, commit

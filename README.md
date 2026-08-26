@@ -570,9 +570,9 @@ diffuse reflectance and the emitter's exact area-to-solid-angle PDF and unbiased
 RIS normalization. SPP repeats and averages the complete estimate. There is no
 environment lighting, GGX/specular transport, authored zone ambient, third
 surface hit, or screen-space ReSTIR reservoir reuse. The indirect incident
-radiance is demodulated from primary albedo, reprojected with depth and normal
-validation, accumulated up to `rtx_reservoir_limit`, and reconstructed by four
-wide depth/normal-guided passes before the primary albedo is restored. This is a
+radiance is demodulated from primary albedo, reconstructed by four wide
+depth/geometric-normal-guided passes, then reprojected and accumulated up to
+`rtx_reservoir_limit` before the primary albedo is restored. This is a
 dedicated low-frequency diffuse channel rather than ReSTIR GI. The ReGIR grid
 remains a fresh light proposal only. Misses are black unless the primary segment crosses a
 non-occluding authored additive layer. A full-screen pass tone maps the HDR
@@ -666,9 +666,13 @@ separate low-frequency channel.
 `AB3D2_DXR_RESERVOIR_LIMIT` retains its public name for configuration
 compatibility but now caps the number of validated temporal samples in that
 indirect channel. It defaults to `20`; zero disables temporal accumulation but
-still performs four depth/geometric-normal-guided spatial passes at full-resolution
-steps `1`, `3`, `6`, and `12`. The filtered incident radiance is remodulated by
-the primary diffuse albedo only when it is recombined with direct lighting.
+still performs four depth/geometric-normal-guided 5-by-5 spatial passes. A
+separable `1, 4, 6, 4, 1` kernel at full-resolution steps `1`, `3`, `9`, and
+`27` gives rare secondary paths a continuous 80-pixel low-frequency footprint
+without the former checkerboard impulse pattern. Spatial reconstruction runs
+before temporal history so raw one-pixel paths are never retained as fading
+history samples. The filtered incident radiance is remodulated by the primary
+diffuse albedo only when it is recombined with direct lighting.
 Screen-space direct-light temporal/spatial reservoirs and `SpatialShade` remain
 dormant. Section 11 of `DXR_RAY_RECONSTRUCTION_PLAN.md` preserves the former
 reservoir experiments as historical evidence rather than a description of the

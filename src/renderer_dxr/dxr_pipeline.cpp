@@ -1687,13 +1687,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->ResourceBarrier(
         static_cast<UINT>(std::size(indirect_input_ready)),
         indirect_input_ready);
-    dispatch.RayGenerationShaderRecord = {
-        table + shader_record_size * 3u, shader_record_size};
-    command_list->DispatchRays(&dispatch);
-    const size_t indirect_history_slot = sample_index & 1u;
-    const D3D12_RESOURCE_BARRIER temporal_indirect_ready =
-        uav_barrier(indirect_histories_[indirect_history_slot].Get());
-    command_list->ResourceBarrier(1, &temporal_indirect_ready);
+    /* Reconstruct the current frame spatially before temporal accumulation.
+     * Storing raw rare paths first made individual hits persist and fade as
+     * bright speckles for the entire history window. */
     ID3D12Resource *const indirect_filter_outputs[] = {
         indirect_radiance_.Get(), indirect_filtered_.Get(),
         indirect_radiance_.Get(), indirect_filtered_.Get()};
@@ -1706,6 +1702,17 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             uav_barrier(indirect_filter_outputs[filter_pass]);
         command_list->ResourceBarrier(1, &filter_ready);
     }
+    dispatch.RayGenerationShaderRecord = {
+        table + shader_record_size * 3u, shader_record_size};
+    command_list->DispatchRays(&dispatch);
+    const size_t indirect_history_slot = sample_index & 1u;
+    const D3D12_RESOURCE_BARRIER temporal_indirect_ready[] = {
+        uav_barrier(indirect_histories_[indirect_history_slot].Get()),
+        uav_barrier(indirect_filtered_.Get()),
+    };
+    command_list->ResourceBarrier(
+        static_cast<UINT>(std::size(temporal_indirect_ready)),
+        temporal_indirect_ready);
     dispatch.RayGenerationShaderRecord = {
         table + shader_record_size * 8u, shader_record_size};
     command_list->DispatchRays(&dispatch);

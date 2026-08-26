@@ -39,9 +39,16 @@ int main()
     namespace grid = ab3d2::dxr::light_grid;
     static_assert(indirect::filter_steps[0] == 1 &&
                   indirect::filter_steps[1] == 3 &&
-                  indirect::filter_steps[2] == 6 &&
-                  indirect::filter_steps[3] == 12 &&
-                  indirect::filter_reach == 22 &&
+                  indirect::filter_steps[2] == 9 &&
+                  indirect::filter_steps[3] == 27 &&
+                  indirect::filter_radius == 2 &&
+                  indirect::filter_reach == 80 &&
+                  indirect::filter_kernel[0] == 1 &&
+                  indirect::filter_kernel[1] == 4 &&
+                  indirect::filter_kernel[2] == 6 &&
+                  indirect::filter_kernel[3] == 4 &&
+                  indirect::filter_kernel[4] == 1 &&
+                  indirect::filter_support_is_continuous() &&
                   indirect::continuation_radial_power == 0.4f);
     exposure::Histogram metering_histogram = {};
     exposure::add_sample(metering_histogram, 0.000001f, 10u);
@@ -109,6 +116,15 @@ int main()
         indirect::guide_weight(100.0f, 100.0f, 0.5f) != 0.0f ||
         indirect::guide_weight(0.0f, 100.0f, 1.0f) != 0.0f) {
         return fail("low-frequency indirect guide weighting changed");
+    }
+    if (indirect::kernel_weight(-3) != 0 ||
+        indirect::kernel_weight(-2) != 1 ||
+        indirect::kernel_weight(-1) != 4 ||
+        indirect::kernel_weight(0) != 6 ||
+        indirect::kernel_weight(1) != 4 ||
+        indirect::kernel_weight(2) != 1 ||
+        indirect::kernel_weight(3) != 0) {
+        return fail("low-frequency indirect filter kernel changed");
     }
     static_assert(grid::cell_count == 4096u);
     static_assert(grid::entry_count == 2097152u);

@@ -609,12 +609,14 @@ The sparse second-vertex result now has a dedicated low-frequency diffuse
 reconstruction path. The continuation and indirect-light evaluation use the
 second hit's geometric normal, and the continuation distribution deliberately
 covers more grazing directions than an ordinary cosine sample. The path tracer
-stores incident indirect radiance without the primary albedo, reprojects it
-through dense scene motion, rejects history on depth/geometric-normal
-disagreement, and maintains a bounded running average. Four project-owned 3x3
-depth/geometric-normal-guided
-passes at step widths 1, 3, 6, and 12 give the signal a 22-pixel reach before
-primary albedo is restored and direct radiance is added. This reconstructs the
+stores incident indirect radiance without the primary albedo. Four project-owned
+5x5 depth/geometric-normal-guided passes use a separable cubic B-spline kernel
+at step widths 1, 3, 9, and 27. The taps retain continuous support over an
+80-pixel radius, and spatial reconstruction precedes temporal accumulation so
+history stores a low-frequency estimate rather than isolated one-pixel paths.
+That history is reprojected through dense scene motion, rejected on depth/
+geometric-normal disagreement, and maintained as a bounded running average.
+Primary albedo is then restored and direct radiance is added. This reconstructs the
 existing one-bounce polygon-light transport; it neither invents ambient light
 nor implements ReSTIR GI. A sparse 32-by-18 primary-surface grid supplies a
 64-bin log-luminance histogram. Exact black is excluded, the centre region has
@@ -625,6 +627,15 @@ former uniform seven-stop log lift; `rtx_exposure` remains an explicit
 multiplicative bias. Metering, adaptation, curve constants, and guide rejection
 rules have CPU regression coverage, while hidden GPU smoke reports the target
 and adapted exposure plus the measured luminance span.
+
+The former equal-weight 3x3 cascade made every successful secondary path visible
+as a square lattice that appeared and faded in dark areas. On the same frozen
+Level A save over 32 frames, replacing that impulse response reduced the
+indirect-debug mean frame delta from `0.1094` to `0.0660`; the final
+Ray-Reconstruction presentation fell from `0.1080` to `0.0938` while retaining
+the corridor fill. This is reconstruction of the explicitly separated diffuse
+indirect signal, not a filter on the fresh direct/specular input supplied to
+DLSS Ray Reconstruction.
 
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
