@@ -260,7 +260,11 @@ cbuffer FrameConstants : register(b0)
     uint SamplesPerPixel;
     float ExposureDeltaSeconds;
     uint IndirectReconstructionMode;
+    uint RadianceChannel;
 };
+
+static const uint RadianceChannelCombined = 0u;
+static const uint RadianceChannelIndirect = 1u;
 
 static const uint BlueNoiseSampleCount = 256u;
 static const uint BlueNoiseDimensionCount = 256u;
@@ -3514,6 +3518,13 @@ void ReconstructIndirect()
 {
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 dimensions = DispatchRaysDimensions().xy;
+    bool indirectOnly = RadianceChannel == RadianceChannelIndirect;
+    /* Isolate the final secondary-diffuse contribution at composition time.
+     * Direct lighting is still evaluated so this diagnostic changes neither
+     * the GI proposal stream nor any RR guide. Early returns remain black. */
+    if (indirectOnly) {
+        NoisyRadiance[pixel] = float4(0.0, 0.0, 0.0, 1.0);
+    }
     float4 centerAlbedo = DiffuseAlbedo[pixel];
     if (centerAlbedo.a <= 0.0) {
         IndirectFiltered[pixel] = 0.0;
@@ -3614,7 +3625,7 @@ void ReconstructIndirect()
         reconstructed *= RadianceClamp / reconstructedLuminance;
     }
     float4 noisy = NoisyRadiance[pixel];
-    noisy.rgb += reconstructed;
+    noisy.rgb = indirectOnly ? reconstructed : noisy.rgb + reconstructed;
     NoisyRadiance[pixel] = noisy;
 }
 

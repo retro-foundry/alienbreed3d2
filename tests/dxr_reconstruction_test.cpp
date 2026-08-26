@@ -48,6 +48,10 @@ int main()
                   static_cast<uint32_t>(indirect::Mode::wavelet1) == 5u &&
                   static_cast<uint32_t>(indirect::Mode::wavelet2) == 6u &&
                   static_cast<uint32_t>(indirect::Mode::restir) == 7u &&
+                  static_cast<uint32_t>(
+                      indirect::RadianceChannel::combined) == 0u &&
+                  static_cast<uint32_t>(
+                      indirect::RadianceChannel::indirect) == 1u &&
                   indirect::filter_steps[0] == 1 &&
                   indirect::filter_steps[1] == 2 &&
                   indirect::filter_steps[2] == 4 &&

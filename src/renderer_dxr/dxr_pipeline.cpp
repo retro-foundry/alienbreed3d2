@@ -180,6 +180,7 @@ struct FrameConstants {
     uint32_t samples_per_pixel;
     float exposure_delta_seconds;
     uint32_t indirect_reconstruction_mode;
+    uint32_t radiance_channel;
 };
 
 /*
@@ -188,7 +189,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 46u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 47u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -500,6 +501,34 @@ bool DxrPipeline::configure_debug_view(std::string &error)
             found - indirect_mode_names.begin());
         debug_output(std::string("DXR indirect reconstruction mode: ") +
                      indirect_mode_names[indirect_reconstruction_mode_]);
+    }
+
+    constexpr std::array<const char *, 2> radiance_channel_names = {
+        "combined", "indirect"};
+    char radiance_channel_value[64] = {};
+    const DWORD radiance_channel_length = GetEnvironmentVariableA(
+        "AB3D2_DXR_RADIANCE_CHANNEL", radiance_channel_value,
+        static_cast<DWORD>(sizeof(radiance_channel_value)));
+    if (radiance_channel_length >= sizeof(radiance_channel_value)) {
+        error = "AB3D2_DXR_RADIANCE_CHANNEL exceeds 63 bytes";
+        return false;
+    }
+    radiance_channel_ = static_cast<uint32_t>(
+        indirect_reconstruction::RadianceChannel::combined);
+    if (radiance_channel_length != 0u) {
+        const auto found = std::find_if(
+            radiance_channel_names.begin(), radiance_channel_names.end(),
+            [&radiance_channel_value](const char *name) {
+                return std::strcmp(radiance_channel_value, name) == 0;
+            });
+        if (found == radiance_channel_names.end()) {
+            error = "AB3D2_DXR_RADIANCE_CHANNEL must be combined or indirect";
+            return false;
+        }
+        radiance_channel_ = static_cast<uint32_t>(
+            found - radiance_channel_names.begin());
+        debug_output(std::string("DXR radiance channel: ") +
+                     radiance_channel_names[radiance_channel_]);
     }
     return true;
 }
@@ -1827,6 +1856,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         std::isfinite(exposure_delta_seconds) && exposure_delta_seconds > 0.0f ?
         exposure_delta_seconds : 0.0f;
     constants.indirect_reconstruction_mode = indirect_reconstruction_mode_;
+    constants.radiance_channel = radiance_channel_;
     const UINT64 frame_constant_offset = frame_constant_stride * frame_slot;
     void *mapped_frame_constants = nullptr;
     const D3D12_RANGE no_read = {0, 0};

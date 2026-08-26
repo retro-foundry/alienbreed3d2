@@ -713,6 +713,14 @@ one final DLSS-RR evaluation. This is an A/B facility, not a second Ray
 Reconstruction invocation; `full` remains the default because the recorded
 saved-corridor ReSTIR result is currently noisier.
 
+Set `AB3D2_DXR_RADIANCE_CHANNEL=indirect` to remove primary visible emission,
+additive radiance, and direct-light NEE at the final composition boundary while
+retaining only remodulated secondary diffuse GI in the ordinary noisy HDR input
+sent through the single DLSS-RR evaluation. The tracer still evaluates the
+primary channel so the comparison does not perturb the GI samples or RR guides.
+Unset it, or select `combined`, for the production composition. Do not combine
+this with `AB3D2_DXR_DEBUG_VIEW`: explicit debug views bypass DLSS-RR.
+
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
 `normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`,
 `diffuse-hit-distance`, `specular-hit-distance-history`, or `indirect` to

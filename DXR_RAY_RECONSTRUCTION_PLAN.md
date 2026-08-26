@@ -768,6 +768,15 @@ the one-candidate result because it needlessly repeated direct NEE as well.
 Four GI-only candidates are therefore the ReSTIR floor; configured SPP above
 four remains an explicit quality-for-cost option that raises both channels.
 
+`AB3D2_DXR_RADIANCE_CHANNEL=indirect` is the startup-only isolation test for
+this signal. It clears primary visible emission, additive radiance, and direct
+polygon NEE only at the final composition boundary, after the unchanged path
+trace has produced the secondary GI estimate and all reconstruction guides.
+The isolated, remodulated secondary diffuse result therefore enters the same
+automatic exposure and single DLSS-RR evaluation as the combined frame. This
+is deliberately separate from `AB3D2_DXR_DEBUG_VIEW=indirect`, which presents
+the incident-light diagnostic buffer directly and bypasses DLSS-RR.
+
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
 1. Dispatch one camera ray per input-resolution pixel per frame with a deterministic frame-varying subpixel jitter supplied by the same jitter generator used in Streamline constants.

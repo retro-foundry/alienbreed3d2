@@ -19,6 +19,14 @@ enum class Mode : uint32_t {
     restir = 7u,
 };
 
+/* Startup-only diagnostic composition. The indirect option preserves the
+ * ordinary path trace and every reconstruction guide, but publishes only the
+ * reconstructed secondary diffuse channel to the single DLSS-RR evaluation. */
+enum class RadianceChannel : uint32_t {
+    combined = 0u,
+    indirect = 1u,
+};
+
 /*
  * Project-owned low-frequency diffuse reconstruction constants mirrored by
  * shaders/path_trace.hlsl. Temporal incident radiance is integrated over
