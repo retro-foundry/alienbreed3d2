@@ -71,28 +71,21 @@ The ray-traced backend takes its own presentation-only quality settings from the
 same file. Every one is optional, and an absent key keeps the renderer's tuned
 default, so the shipped template lists them commented out with their defaults:
 
-- `rtx_samples_per_pixel=1` through `8` sets the fresh path-traced samples each
-  pixel takes per frame. This is the direct quality-for-cost dial: a sample
-  repeats the whole path, so two cost about twice one, and the noise Ray
-  Reconstruction has to remove falls as their number. The default is `1`;
-- `rtx_max_bounces=1` through `8` sets the path length counting the primary hit.
-  `1` is direct lighting only, and each further bounce adds its own shadow and
-  continuation rays. The default is `3`; measured at 2560x1440, `1` saved about
-  7 ms a frame;
+- `rtx_samples_per_pixel=1` through `8` and `rtx_max_bounces=1` through `8`
+  remain accepted configuration keys, but the current primary-visibility reset
+  deliberately ignores them. It traces one camera ray and no lighting or
+  continuation rays;
 - `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
   path tracer renders at before reconstruction upscales it. That makes it the
   largest single performance lever: at 2560x1440 the three fastest measured
   12.7, 10.4 and 8.5 ms a frame. The default is `quality`;
 - `rtx_light_candidates=1` through `1024` and `rtx_reservoir_limit=0` through
-  `65536` control the direct-lighting reservoir. The defaults are `16` and `20`,
-  the accepted filter-free ReGIR/ReSTIR configuration matching the NVIDIA Ultra
-  sample's initial and temporal counts. An explicit reservoir limit of zero
-  disables temporal/spatial reuse while retaining the heterogeneous fresh
-  local/environment estimator and the exact environment/BRDF overlap; and
-- `rtx_radiance_clamp=200`, `rtx_exposure=1`, and `rtx_ndf_trim=0.9` are the
-  per-sample luminance ceiling, the linear multiplier applied before tone
-  mapping, and the GGX visible-normal sampling trim.
+  `65536` remain accepted for the retained estimator implementation, but no
+  light-grid or reservoir shading dispatch runs in the current flat reset; and
+- `rtx_radiance_clamp=200` and `rtx_ndf_trim=0.9` remain accepted but are
+  inactive during the flat primary-visibility reset. `rtx_exposure=1` remains
+  active and scales the flat HDR result before tone mapping.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_CANDIDATES`, `AB3D2_DXR_RESERVOIR_LIMIT`,
 `AB3D2_DXR_RADIANCE_CLAMP`, `AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, and
@@ -537,17 +530,19 @@ source mode together, so animation does not repack the atlas or reset RR
 history. A missing/corrupt map or missing world/entity/weapon binding is fatal;
 the runtime does not regenerate fallback textures.
 
-Each pixel traces a fresh three-hit path
-with a Lambertian/Cook-Torrance GGX mixture, visible-normal specular sampling,
-authored emissive-triangle and environment next-event sampling, visibility
-rays, and multiple-importance sampling. A full-screen pass tone maps the HDR
-result to the three-frame flip-discard swap chain; there is no project-authored
-temporal accumulation or denoiser. The same dispatch writes separate
+The current renderer reset traces one pixel-centred camera ray per pixel with
+zero frame-varying subpixel jitter and writes the first opaque surface's linear
+base colour without direct lighting,
+emission, environment radiance, shadow rays, continuation rays, or specular
+guide rays. Misses are black. Source additive geometry remains non-occluding
+but contributes no colour. Light-grid and spatial-reservoir dispatches are
+skipped. A full-screen pass tone maps the flat HDR result to the three-frame
+flip-discard swap chain; there is no project-authored temporal accumulation or
+denoiser. The same primary dispatch writes separate
 diffuse/specular albedo, world shading normal, linear roughness, linear depth,
 dense scene motion, and specular-hit-distance resources in the formats recorded
-by the implementation plan. Specular hit distance is a deterministic
-mirror-direction distance query from the primary surface, as required by the
-pinned Streamline guide; a miss reports the far-plane distance.
+by the implementation plan. The inactive specular and diffuse hit-distance
+guides are zero.
 A renderer-neutral history epoch resets camera and
 geometry history across level/quickload discontinuities; topology-stable world
 motion uses the previous vertex positions at the current hit barycentrics.
@@ -572,9 +567,10 @@ lifecycle check and run the game-content check with:
 .\build\dxr\Debug\ab3d2.exe --gpu-smoke all --renderer rtx
 ```
 
-The RTX smoke renders each Level A--P frame twice and requires two nonzero,
-different readback checksums, proving both game-derived output and fresh random
-sampling. It also requires nonzero GPU primary-hit coverage from the initial
+The RTX smoke renders each Level A--P frame twice and requires two nonzero
+readback checksums. Without Streamline, the frozen flat-primary frames must
+match exactly; any difference exposes unintended temporal movement. It also
+requires nonzero GPU primary-hit coverage from the initial
 and key-six Rocket Launcher companions, cumulative bitmap entity coverage, and
 world-vector coverage. If a real active vector entity is occluded from a
 level's initial camera, the test presents that exact command in an

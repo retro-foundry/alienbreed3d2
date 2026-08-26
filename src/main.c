@@ -1528,35 +1528,54 @@ static int game_app_run_gpu_smoke(GameApp *app)
         }
         if (smoke_backend == RENDERER_BACKEND_RTX) {
             uint64_t first_checksum = renderer_last_frame_rgb_checksum(app->renderer);
+            uint64_t second_checksum;
 
             /* The DXR milestone covers opaque world geometry, PBR bitmap
              * billboards/effects, animated world vectors, and the weapon in
              * one nearest-hit scene. The OpenGL branch below retains its
              * separate source UI/effect presentation contract. */
-            if (first_checksum == UINT64_C(0) ||
-                !renderer_present(app->renderer, &app->frame, &app->view,
-                                  error, sizeof(error)) ||
-                renderer_last_frame_rgb_checksum(app->renderer) == UINT64_C(0) ||
-                renderer_last_frame_rgb_checksum(app->renderer) == first_checksum) {
+            if (first_checksum == UINT64_C(0)) {
                 fprintf(stderr,
-                        "[RENDER] DXR raw smoke did not produce two distinct fresh samples "
-                        "for Level %c: %s\n",
+                        "[RENDER] DXR flat primary smoke produced a zero checksum "
+                        "for Level %c\n", (char)('A' + level_index));
+                app->exit_code = 1;
+                return 0;
+            }
+            if (!renderer_present(app->renderer, &app->frame, &app->view,
+                                  error, sizeof(error))) {
+                fprintf(stderr,
+                        "[RENDER] DXR second flat primary frame failed for Level %c: %s\n",
                         (char)('A' + level_index), error);
                 app->exit_code = 1;
                 return 0;
             }
+            second_checksum = renderer_last_frame_rgb_checksum(app->renderer);
+            if (second_checksum == UINT64_C(0)) {
+                fprintf(stderr,
+                        "[RENDER] DXR second flat primary frame produced a zero checksum "
+                        "for Level %c\n", (char)('A' + level_index));
+                app->exit_code = 1;
+                return 0;
+            }
+#if !defined(AB3D2_ENABLE_STREAMLINE)
+            if (second_checksum != first_checksum) {
+                fprintf(stderr,
+                        "[RENDER] DXR flat primary output changed with a frozen camera "
+                        "and scene in Level %c\n", (char)('A' + level_index));
+                app->exit_code = 1;
+                return 0;
+            }
+#endif
             fprintf(stdout,
                     "[RENDER] DXR Level %c presented frames=%016llx,%016llx\n",
                     (char)('A' + level_index),
                     (unsigned long long)first_checksum,
-                    (unsigned long long)renderer_last_frame_rgb_checksum(app->renderer));
+                    (unsigned long long)second_checksum);
             /*
-             * Temporal-stability measurement. The camera, view and SceneFrame are
-             * frozen, so the only things still moving are the sampler and the Ray
-             * Reconstruction history. A converging renderer's frame-to-frame delta
-             * falls towards a floor; a boiling one holds it roughly constant.
-             * This reports the measurement rather than asserting a bound, because
-             * the threshold has to come from a recorded baseline.
+             * Temporal-stability measurement. The camera, view and SceneFrame
+             * are frozen, and the flat primary ray has no subpixel jitter. A
+             * Streamline build may still evolve its reconstruction history;
+             * report that change rather than assigning it to the ray sampler.
              */
             {
                 enum {
@@ -2239,8 +2258,13 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 app->exit_code = 1;
                 return 0;
             }
-            if (renderer_last_frame_rgb_checksum(app->renderer) ==
-                source_effect_background_checksum) {
+            /* The DXR primary-visibility reset deliberately traces additive
+             * and glare geometry without adding its emission. Its directed
+             * coverage probe above remains the DXR acceptance check; the
+             * source blend must still alter the OpenGL presentation path. */
+            if (smoke_backend == RENDERER_BACKEND_OPENGL &&
+                renderer_last_frame_rgb_checksum(app->renderer) ==
+                    source_effect_background_checksum) {
                 fprintf(stderr,
                         "[RENDER] GPU %s effect had no visible source blend output for Level %c\n",
                         glare != 0 ? "glare" : "additive", (char)('A' + level_index));

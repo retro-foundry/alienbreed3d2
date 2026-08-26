@@ -575,6 +575,20 @@ Use the `SceneEnvironment` backdrop/sky through a documented lat-long or equival
 
 ## Noisy path tracer
 
+Current reset status (2026-08-26): at the user's direction, the executed DXR
+path has been reduced to primary visibility before rebuilding lighting from a
+known baseline. It traces one pixel-centred camera ray with zero frame-varying
+subpixel jitter, writes the first opaque surface's flat linear base colour,
+writes black on miss, and retains valid
+primary depth/normal/motion guides. Direct and indirect lighting, emission,
+environment radiance, shadow and continuation rays, the specular guide ray,
+ReGIR construction, and temporal/spatial reservoir shading do not execute.
+Source additive layers remain non-occluding but add no radiance. The complete
+estimator code remains present but inactive so each lighting stage can be
+reintroduced and measured independently. The full-estimator jitter described
+below is likewise inactive: without stochastic radiance, it only moves flat
+geometry edges between pixels.
+
 The first complete ray-tracing pass should be simple enough to validate yet physically coherent:
 
 1. Dispatch one camera ray per input-resolution pixel per frame with a deterministic frame-varying subpixel jitter supplied by the same jitter generator used in Streamline constants.
@@ -812,15 +826,13 @@ readback statistics/ID overlays, and PIX validation remain later work.
 
 ### 7. `Add the clean-room noisy PBR path tracer`
 
-Current status: the fresh noisy HDR target, stochastic primary rays, authored
-PBR sampling, Lambertian/GGX mixture, visible-normal specular sampling,
-three-hit indirect paths, global emissive/environment next-event sampling,
-visibility rays, MIS, and CPU finite/PDF checks are implemented for world
-geometry, non-projectile bitmap/vector entities and effects, and the PBR
-companion weapon. Alpha-tested surfaces participate at every ray depth;
-additive/glare commands use unit-scaled authored emission but are not sampled
-as area lights. Later presentation classes and transient projectiles remain
-incomplete.
+Current status: the historical complete estimator remains implemented but is
+inactive during the 2026-08-26 primary-visibility reset recorded above. The
+executed shader covers world geometry, non-projectile bitmap/vector entities,
+and the PBR companion weapon with one flat base-colour camera ray. Alpha-tested
+surfaces still participate in primary visibility; additive/glare geometry is
+passed through without emission. Later presentation classes and transient
+projectiles remain incomplete.
 
 - The pinned 256-spp blue-noise/Owen-scrambled Sobol sampler is implemented
   with explicit dimensions for every environment, emitter, BSDF, and specular
@@ -1341,7 +1353,8 @@ nothing passes any stability bound trivially.
 - ID-independent debug-layer-clean diagnostic create/render/resize/minimize/restore/shutdown loops, including a multi-thousand-frame run.
 - The dedicated foundation test does not require game content. The RTX
   all-level smoke separately renders each world/entity frame twice and requires
-  nonzero, different readback checksums. It additionally requires nonzero GPU
+  nonzero readback checksums; without Streamline, the two frozen flat-primary
+  frames must match exactly. It additionally requires nonzero GPU
   primary-hit coverage for the initial and key-six Rocket Launcher companion;
   on the first requested level it also times the complete Shotgun firing
   animation and rejects any scene rebuild after weapon selection. It requires

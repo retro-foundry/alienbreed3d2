@@ -1977,55 +1977,21 @@ void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
     DiffuseHitDistance[pixel] = 0.0;
 }
 
-/* The primary hit's guide outputs the path integrator also needs: the motion
- * vector, for reprojecting the reservoir and the specular hit distance, and the
- * reprojected hit-distance estimate itself. */
-struct PrimaryGuides
+void writeFlatSurfaceGuides(uint2 pixel, SurfacePayload payload,
+                            SurfaceData surface, uint2 dimensions)
 {
-    float2 motion;
-};
-
-float primarySpecularHitDistance(SurfaceData surface, float3 viewDirection)
-{
-    float3 reflectionDirection = reflect(
-        -viewDirection, surface.shadingNormal);
-    if (dot(surface.geometricNormal, reflectionDirection) <= 0.0) {
-        return 0.0;
-    }
-    RayDesc ray;
-    ray.Origin = surface.position + surface.geometricNormal * RayEpsilon;
-    ray.Direction = reflectionDirection;
-    ray.TMin = RayEpsilon;
-    ray.TMax = SceneFarPlane;
-    SegmentTraversal segment = traceSegment(ray);
-    return segment.payload.hit != 0u ? segment.distance : SceneFarPlane;
-}
-
-PrimaryGuides writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
-                                 SurfaceData surface, float3 viewDirection,
-                                 uint2 dimensions)
-{
-    PrimaryGuides guides;
-    float3 diffuseReflectance = surface.baseColor * (1.0 - surface.metalness);
-    float3 specularColor = surfaceF0(surface);
-    float normalView = saturate(dot(surface.shadingNormal, viewDirection));
-    DiffuseAlbedo[pixel] = float4(diffuseReflectance, 1.0);
-    SpecularAlbedo[pixel] = float4(reconstructionSpecularAlbedo(
-        specularColor, surface.roughness, normalView), 1.0);
+    /* The reset renderer has no specular or indirect signal. Preserve only the
+     * primary surface data Ray Reconstruction needs to reproject the flat base
+     * colour; in particular, do not trace the former mirror guide ray. */
+    DiffuseAlbedo[pixel] = float4(surface.baseColor, 1.0);
+    SpecularAlbedo[pixel] = 0.0;
     ShadingNormal[pixel] = float4(surface.shadingNormal, 1.0);
-    LinearRoughness[pixel] = surface.roughness;
+    LinearRoughness[pixel] = 1.0;
     LinearDepth[pixel] = max(0.0, dot(surface.position - CameraPosition,
                                       CameraForward));
-    guides.motion = surfaceMotion(payload, surface, float2(dimensions));
-    SceneMotion[pixel] = guides.motion;
-    /* DLSS-RR asks for the world-space distance of a specular ray whose origin
-     * lies on the primary surface. A deterministic mirror-direction query is a
-     * stable geometric guide; using the path's randomly selected lobe made the
-     * tagged resource alternate between stale history and a new sample. */
-    SpecularHitDistance[pixel] = primarySpecularHitDistance(
-        surface, viewDirection);
+    SceneMotion[pixel] = surfaceMotion(payload, surface, float2(dimensions));
+    SpecularHitDistance[pixel] = 0.0;
     DiffuseHitDistance[pixel] = 0.0;
-    return guides;
 }
 
 [shader("raygeneration")]
@@ -2047,180 +2013,28 @@ void RayGeneration()
         CameraRight * (unjitteredNdc.x * Aspect * TanHalfFovY) +
         CameraUp * (unjitteredNdc.y * TanHalfFovY));
 
-    /* The camera-attached weapon and room share the same nearest-hit query.
-     * This gives the source-scale geometry ordinary world depth while keeping
-     * its radiance and reconstruction guides in the primary DXR pass. */
+    /* The reset baseline performs primary visibility only. `traceSegment`
+     * continues the same camera ray through source additive layers so they do
+     * not become opaque, but their emission is deliberately discarded. */
     RayDesc primaryRay;
     primaryRay.Origin = CameraPosition;
     primaryRay.Direction = direction;
     primaryRay.TMin = RayEpsilon;
     primaryRay.TMax = SceneFarPlane;
-    /*
-     * The additive effects in front of the primary surface are resolved once
-     * here rather than per sample: their radiance is a deterministic property
-     * of the segment, so re-tracing them for every sample would cost traversals
-     * to reach the same sum.
-     */
     SegmentTraversal primarySegment = traceSegment(primaryRay);
     SurfacePayload primaryPayload = primarySegment.payload;
     uint primaryPrimitive = primaryPayload.hit != 0u ?
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
-    bool primaryViewWeaponHit = primaryPrimitive == ViewWeaponPrimitive;
-
-    /*
-     * A pixel owns one temporal reservoir, not one per SPP sample. Ordinal zero
-     * advances that chain using the primary guides; later ordinals deliberately
-     * remain fresh independent estimates. Do not let their historyless
-     * reservoirs overwrite the temporal result when SamplesPerPixel is above
-     * one.
-     */
-    PackedLightReservoir reservoir = (PackedLightReservoir)0;
-    float3 accumulatedRadiance = 0.0;
-
-    for (uint sampleOrdinal = 0u; sampleOrdinal < SamplesPerPixel;
-         ++sampleOrdinal) {
-    uint effectiveSampleIndex = SampleIndex * SamplesPerPixel + sampleOrdinal;
-    float3 radiance = 0.0;
-    float3 throughput = 1.0;
-    bool firstBounceSpecular = false;
-    PrimaryGuides primaryGuides;
-    primaryGuides.motion = InvalidMotion.xx;
-    RayDesc ray = primaryRay;
-
-    for (uint depth = 0u; depth < MaximumDepth; ++depth) {
-        SurfacePayload payload;
-        float segmentDistance = 0.0;
-        if (depth == 0u) {
-            /* The primary segment's additive radiance is added once, outside
-             * this loop, for the reason given where it is traced. */
-            payload = primaryPayload;
-            segmentDistance = primarySegment.distance;
-        } else {
-            SegmentTraversal segment = traceSegment(ray);
-            payload = segment.payload;
-            segmentDistance = segment.distance;
-            radiance += throughput * segment.additiveRadiance;
-        }
-        if (depth == 1u && !firstBounceSpecular && sampleOrdinal == 0u) {
-            float sampledHitDistance =
-                payload.hit != 0u ? segmentDistance : SceneFarPlane;
-            DiffuseHitDistance[pixel] = sampledHitDistance;
-        }
-        if (payload.hit == 0u) {
-            if (depth == 0u && sampleOrdinal == 0u) {
-                writeMissGuides(pixel, unjitteredDirection,
-                                float2(dimensions));
-            }
-            /* Every preceding surface estimates its local/environment direct
-             * lighting with a BRDF-overlap candidate for the environment.
-             * The continuation ray carries only indirect transport, so an
-             * environment hit here must not be counted a second time. */
-            if (depth > 0u) {
-                break;
-            }
-            radiance += throughput * environmentRadiance(ray.Direction);
-            break;
-        }
-
-        SurfaceData surface = loadSurface(payload, ray.Direction);
-        float3 viewDirection = -ray.Direction;
-        if (depth == 0u && sampleOrdinal == 0u) {
-            primaryGuides = writeSurfaceGuides(pixel, payload, surface,
-                                              viewDirection, dimensions);
-        }
-        if (any(surface.emission > 0.0) && depth == 0u) {
-            radiance += throughput * surface.emission;
-        }
-        /*
-         * The authored zone lighting enters only here, on a bounce, so a
-         * directly visible surface shows the traced lighting alone and picks the
-         * authored level up as fill from whatever surrounds it. No MIS weight
-         * applies: this radiance is not in any emitter's sampling distribution,
-         * so a BSDF-sampled path is the only estimator that ever sees it.
-         */
-        if (depth > 0u) {
-            radiance += throughput * authoredAmbientRadiance(surface);
-        }
-        uint sampleDimension = depth * PathDimensionsPerBounce;
-        if (depth == 0u) {
-            /* Ordinal zero publishes the temporal reservoir and defers its
-             * contribution to SpatialShade. Later SPP ordinals use the same
-             * heterogeneous local/environment initial estimator and exact
-             * environment/BRDF overlap, but do
-             * not overwrite or reuse the pixel's one history chain. */
-            if (sampleOrdinal == 0u) {
-                resampleDirectTemporal(
-                    pixel, dimensions, effectiveSampleIndex, surface,
-                    viewDirection, previousSurfacePosition(payload),
-                    primaryGuides.motion, SceneInstanceMask, true, reservoir);
-            } else {
-                PackedLightReservoir freshReservoir;
-                radiance += throughput * resampleDirectTemporal(
-                    pixel, dimensions, effectiveSampleIndex, surface,
-                    viewDirection, previousSurfacePosition(payload),
-                    primaryGuides.motion, SceneInstanceMask, false,
-                    freshReservoir);
-            }
-        } else {
-            radiance += throughput * sampleSecondaryDirectLighting(
-                pixel, effectiveSampleIndex, depth, surface, viewDirection,
-                SceneInstanceMask);
-        }
-
-        if (depth + 1u >= MaximumDepth) {
-            break;
-        }
-        float3 bounceDirection;
-        BsdfEvaluation bsdf;
-        bool sampledSpecular;
-        float chooseBsdf =
-            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 5u);
-        float2 bsdfSample = float2(
-            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 6u),
-            sampleBlueNoise(pixel, effectiveSampleIndex, sampleDimension + 7u));
-        if (!sampleBsdf(surface, viewDirection, chooseBsdf, bsdfSample,
-                        bounceDirection, bsdf, sampledSpecular)) {
-            break;
-        }
-        if (depth == 0u) {
-            firstBounceSpecular = sampledSpecular;
-        }
-        float normalBounce = saturate(dot(surface.shadingNormal, bounceDirection));
-        throughput *= bsdf.value * (normalBounce / bsdf.pdf);
-        if (luminance(throughput) <= 1.0e-6 ||
-            any(isnan(throughput)) || any(isinf(throughput))) {
-            break;
-        }
-        ray.Origin = surface.position +
-            surface.geometricNormal * RayEpsilon;
-        ray.Direction = bounceDirection;
-        ray.TMin = RayEpsilon;
-        ray.TMax = SceneFarPlane;
+    float3 resolvedRadiance = 0.0;
+    if (primaryPayload.hit == 0u) {
+        writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
+    } else {
+        SurfaceData surface = loadSurface(primaryPayload, primaryRay.Direction);
+        writeFlatSurfaceGuides(pixel, primaryPayload, surface, dimensions);
+        resolvedRadiance = surface.baseColor;
     }
-
-    if (any(isnan(radiance)) || any(isinf(radiance))) {
-        radiance = 0.0;
-    }
-    float radianceLuminance = luminance(radiance);
-    if (radianceLuminance > RadianceClamp) {
-        radiance *= RadianceClamp / radianceLuminance;
-    }
-    accumulatedRadiance += radiance;
-    }  /* end sampleOrdinal loop */
-
-    /*
-     * The primary segment's additive layers land on the resolved estimate,
-     * where every sample would have contributed the same value. They are
-     * deliberately outside the per-sample radiance clamp: an additive texel is
-     * bounded by one and the layer limit bounds how many can stack, so the sum
-     * cannot reach the clamp, and clamping the pixel's traced lighting against
-     * a total that includes an effect in front of it would dim the room instead
-     * of the outlier the clamp exists for.
-     */
-    float3 resolvedRadiance = max(accumulatedRadiance /
-        float(SamplesPerPixel), 0.0) + primarySegment.additiveRadiance;
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
-    if (primaryViewWeaponHit) {
+    if (primaryPrimitive == ViewWeaponPrimitive) {
         uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
         InterlockedAdd(Diagnostics[0], 1u);
         InterlockedAdd(Diagnostics[1],
@@ -2233,16 +2047,14 @@ void RayGeneration()
     if (primaryPrimitive == WorldVectorPrimitive) {
         InterlockedAdd(Diagnostics[3], 1u);
     }
-    /*
-     * Additive effects never become the primary surface, so the counters above
-     * cannot see them. This one counts the pixels a primary ray crossed an
-     * additive layer on, which is the only evidence the hidden smoke has that
-     * glares, additive bitmaps and `predoglare` faces reach the image at all.
-     */
+    /* Keep source-effect geometry observable to the existing smoke diagnostic
+     * even though the reset renderer intentionally discards its emission. */
     if (primarySegment.additiveLayers != 0u) {
         InterlockedAdd(Diagnostics[4], 1u);
     }
-    CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = reservoir;
+    PackedLightReservoir emptyReservoir = (PackedLightReservoir)0;
+    emptyReservoir.emitterIndex = InvalidIndex;
+    CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = emptyReservoir;
 }
 
 /*

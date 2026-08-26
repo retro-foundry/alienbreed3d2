@@ -1343,8 +1343,11 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         history_.input_height == render_height;
     const uint32_t sample_index =
         history_valid ? history_.sample_index + 1u : 0u;
-    const reconstruction::PixelJitter current_jitter =
-        reconstruction::frame_jitter(sample_index);
+    /* Flat primary visibility has no stochastic lighting signal for Ray
+     * Reconstruction to resolve. Moving the camera ray within each pixel only
+     * makes otherwise deterministic geometry edges visibly shake, so keep the
+     * active reset pixel-centred and report the same zero jitter to Streamline. */
+    const reconstruction::PixelJitter current_jitter = {};
     const reconstruction::CameraProjection &previous_camera =
         history_valid ? history_.previous_camera : current_camera;
     const reconstruction::PixelJitter previous_jitter = history_valid ?
@@ -1429,37 +1432,14 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                 shader_record_size * 2u, shader_record_size};
     dispatch.HitGroupTable = {table + shader_record_size * 5u, shader_record_size,
                               shader_record_size};
-    if (reservoir_sample_limit_ > 0u && scene_.emitter_count() > 0u) {
-        /* One column per grid cell and one row per independent RIS entry keeps
-         * both dispatch dimensions modest and mirrors the cell-major buffer. */
-        dispatch.Width = light_grid::cell_count;
-        dispatch.Height = light_grid::lights_per_cell;
-        dispatch.Depth = 1u;
-        command_list->DispatchRays(&dispatch);
-        const D3D12_RESOURCE_BARRIER light_grid_ready =
-            uav_barrier(light_grid_.Get());
-        command_list->ResourceBarrier(1, &light_grid_ready);
-    }
+    /* The primary-visibility reset deliberately skips BuildLightGrid and
+     * SpatialShade. RayGeneration writes flat base colour and valid primary
+     * guides without consuming any emitter, visibility, or continuation rays. */
     dispatch.RayGenerationShaderRecord = {
         table + shader_record_size, shader_record_size};
     dispatch.Width = render_width;
     dispatch.Height = render_height;
     dispatch.Depth = 1;
-    command_list->DispatchRays(&dispatch);
-
-    /* The spatial pass reads the complete temporal field and the noisy HDR
-     * value written above. A UAV barrier makes both whole-dispatch results
-     * visible before any current-frame neighbor is sampled. */
-    const D3D12_RESOURCE_BARRIER temporal_ready[] = {
-        uav_barrier(temporal_reservoirs_.Get()),
-        uav_barrier(reconstruction_targets_[static_cast<size_t>(
-            DxrReconstructionBuffer::noisy_radiance)].Get()),
-    };
-    command_list->ResourceBarrier(2, temporal_ready);
-    command_list->SetComputeRootUnorderedAccessView(
-        10, light_reservoirs_[reservoir_slot]->GetGPUVirtualAddress());
-    dispatch.RayGenerationShaderRecord = {
-        table + shader_record_size * 2u, shader_record_size};
     command_list->DispatchRays(&dispatch);
     if (!record_diagnostics_end(command_list, error)) {
         return false;

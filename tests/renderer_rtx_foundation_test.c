@@ -213,14 +213,16 @@ int main(void)
         }
         const uint64_t scene_checksum =
             renderer_rtx_last_frame_rgb_checksum(renderer);
-        if (scene_frame != 0 && scene_checksum == previous_scene_checksum) {
+#if !defined(AB3D2_ENABLE_STREAMLINE)
+        if (scene_frame != 0 && scene_checksum != previous_scene_checksum) {
             fprintf(stderr,
-                    "DXR stationary scene repeated its temporal sample at frame %d\n",
+                    "DXR flat primary output changed for a stationary scene at frame %d\n",
                     scene_frame);
             renderer_rtx_destroy(renderer);
             SDL_Quit();
             return 1;
         }
+#endif
         previous_scene_checksum = scene_checksum;
     }
     for (size_t vertex = 0; vertex < 3u; ++vertex) {
@@ -228,6 +230,14 @@ int main(void)
     }
     if (!present_scene_frame(renderer, &moving_frame, &view, error,
                              sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+    if (renderer_rtx_last_frame_rgb_checksum(renderer) ==
+        previous_scene_checksum) {
+        fprintf(stderr,
+                "DXR flat primary output did not respond to moved geometry\n");
         renderer_rtx_destroy(renderer);
         SDL_Quit();
         return 1;
