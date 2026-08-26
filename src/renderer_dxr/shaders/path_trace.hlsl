@@ -82,8 +82,8 @@ struct IndirectHistoryPixel
     float2 chroma;
     float depth;
     uint normal;
-    uint sampleCount;
-    float padding;
+    float historyLength;
+    float gradientConfidence;
 };
 
 struct IndirectSignal
@@ -211,6 +211,7 @@ RWTexture2D<float4> IndirectFiltered : register(u17);
 RWStructuredBuffer<float> AutomaticExposure : register(u18);
 RWTexture2D<float2> IndirectChroma : register(u19);
 RWTexture2D<float2> IndirectChromaFiltered : register(u20);
+RWTexture2D<float2> IndirectGradients[2] : register(u21);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -330,6 +331,12 @@ static const int IndirectFilterStep1 = 1;
 static const int IndirectFilterStep2 = 2;
 static const int IndirectFilterStep3 = 4;
 static const float IndirectDeflickerNeighborFactor = 2.0;
+static const uint IndirectGradientPassCount = 7u;
+static const float IndirectTemporalAntilagScale = 0.2;
+static const float IndirectTemporalAntilagHistoryPower = 10.0;
+static const float IndirectTemporalMinimumCurrentWeight = 0.01;
+static const float IndirectGradientConfirmationRate = 0.25;
+static const float IndirectGradientConfirmationThreshold = 0.4;
 static const float IndirectShBasisL0 = 0.282095;
 static const float IndirectShBasisL1 = 0.488603;
 static const float IndirectShIrradianceL0 = 0.886226;
@@ -2469,7 +2476,7 @@ void RayGeneration()
         currentIndirect.depth = primaryDepth;
         currentIndirect.normal = packOctahedralNormal(
             primaryGeometricNormal);
-        currentIndirect.sampleCount = 1u;
+        currentIndirect.historyLength = 1.0;
     }
     IndirectHistories[currentHistorySlot][historyIndex] = currentIndirect;
     if (primaryPrimitive == ViewWeaponPrimitive) {
@@ -2525,12 +2532,196 @@ float3 primaryWorldPosition(uint2 pixel, uint2 dimensions, float depth)
     return CameraPosition + direction * (depth / projected);
 }
 
-/* Temporal stage for the dedicated indirect channel. Zero-valued Monte Carlo
- * samples are valid and enter the running mean; only a guide mismatch rejects
- * history. The regional integration and dedicated deflicker stages below keep
- * rare paths from surviving as isolated history outliers. The configured
- * reservoir limit is reused solely as this bounded history length while
- * screen-space ReSTIR remains disabled. */
+struct IndirectTemporalSample
+{
+    IndirectSignal signal;
+    float historyLength;
+    float gradientConfidence;
+    float weightSum;
+};
+
+IndirectTemporalSample reprojectIndirectHistory(
+    uint2 pixel, uint2 dimensions, float currentDepth, float3 currentNormal)
+{
+    IndirectTemporalSample result;
+    result.signal = emptyIndirectSignal();
+    result.historyLength = 0.0;
+    result.gradientConfidence = 0.0;
+    result.weightSum = 0.0;
+    float2 motion = SceneMotion[pixel];
+    if (HistoryValid == 0u || ReservoirSampleLimit == 0u ||
+        any(abs(motion) >= InvalidMotion)) {
+        return result;
+    }
+
+    /* SceneMotion is previousPixel-currentPixel in pixel units. Keeping the
+     * fractional coordinate and gathering its four surrounding samples avoids
+     * the one-pixel history jumps caused by the former rounded lookup. */
+    float2 previousPosition = float2(pixel) + motion;
+    int2 previousBase = int2(floor(previousPosition));
+    float2 previousFraction = frac(previousPosition);
+    float bilinearWeights[4] = {
+        (1.0 - previousFraction.x) * (1.0 - previousFraction.y),
+        previousFraction.x * (1.0 - previousFraction.y),
+        (1.0 - previousFraction.x) * previousFraction.y,
+        previousFraction.x * previousFraction.y,
+    };
+    int2 offsets[4] = {
+        int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
+    uint previousSlot = 1u - (SampleIndex & 1u);
+    float3 worldPosition = primaryWorldPosition(
+        pixel, dimensions, currentDepth);
+    float expectedPreviousDepth = dot(
+        worldPosition - PreviousCameraPosition,
+        PreviousCameraForward);
+    for (uint tap = 0u; tap < 4u; ++tap) {
+        int2 previousPixel = previousBase + offsets[tap];
+        if (bilinearWeights[tap] <= 0.0 || any(previousPixel < 0) ||
+            any(previousPixel >= int2(dimensions))) {
+            continue;
+        }
+        uint previousIndex = uint(previousPixel.y) * dimensions.x +
+            uint(previousPixel.x);
+        IndirectHistoryPixel previous =
+            IndirectHistories[previousSlot][previousIndex];
+        if (!(previous.historyLength > 0.0)) {
+            continue;
+        }
+        float guideWeight = indirectDepthWeight(
+            expectedPreviousDepth, previous.depth) *
+            indirectNormalWeight(dot(
+                currentNormal, unpackOctahedralNormal(previous.normal)));
+        float weight = bilinearWeights[tap] * guideWeight;
+        if (weight <= 0.0) {
+            continue;
+        }
+        result.signal.luminanceSH += previous.luminanceSH * weight;
+        result.signal.chroma += previous.chroma * weight;
+        result.historyLength += previous.historyLength * weight;
+        result.gradientConfidence +=
+            previous.gradientConfidence * weight;
+        result.weightSum += weight;
+    }
+    if (result.weightSum > 0.0) {
+        float inverseWeight = 1.0 / result.weightSum;
+        result.signal = scaleIndirectSignal(result.signal, inverseWeight);
+        result.historyLength *= inverseWeight;
+        result.gradientConfidence *= inverseWeight;
+    }
+    return result;
+}
+
+/* Q2RTX's low-frequency anti-lag signal compares the sparse current frame to
+ * accumulated history only after averaging over a very broad screen region.
+ * This independent implementation starts with one current/history luminance
+ * pair per guide-compatible 3x3 region. Seven unguided wavelet stages below
+ * spread real lighting changes far enough that isolated path hits do not reset
+ * otherwise useful temporal history. */
+[shader("raygeneration")]
+void BuildIndirectGradient()
+{
+    uint2 lowPixel = DispatchRaysIndex().xy;
+    uint2 lowDimensions = DispatchRaysDimensions().xy;
+    if (any(lowPixel >= lowDimensions)) {
+        return;
+    }
+    uint fullWidth = 0u;
+    uint fullHeight = 0u;
+    DiffuseAlbedo.GetDimensions(fullWidth, fullHeight);
+    uint2 dimensions = uint2(fullWidth, fullHeight);
+    uint2 regionStart = lowPixel * IndirectDownsampleFactor;
+    uint currentSlot = SampleIndex & 1u;
+    float currentLuminance = 0.0;
+    float previousLuminance = 0.0;
+    for (uint offsetY = 0u; offsetY < IndirectDownsampleFactor; ++offsetY) {
+        for (uint offsetX = 0u; offsetX < IndirectDownsampleFactor;
+             ++offsetX) {
+            uint2 pixel = regionStart + uint2(offsetX, offsetY);
+            if (any(pixel >= dimensions)) {
+                continue;
+            }
+            uint historyIndex = pixel.y * dimensions.x + pixel.x;
+            IndirectHistoryPixel current =
+                IndirectHistories[currentSlot][historyIndex];
+            if (!(current.historyLength > 0.0)) {
+                continue;
+            }
+            float3 currentNormal = unpackOctahedralNormal(current.normal);
+            IndirectTemporalSample previous = reprojectIndirectHistory(
+                pixel, dimensions, current.depth, currentNormal);
+            if (!(previous.weightSum > 0.0)) {
+                continue;
+            }
+            currentLuminance += max(current.luminanceSH.w, 0.0);
+            previousLuminance += max(
+                previous.signal.luminanceSH.w, 0.0);
+        }
+    }
+    IndirectGradients[0][lowPixel] =
+        float2(currentLuminance, previousLuminance);
+}
+
+float indirectGradientKernel(int offset)
+{
+    return offset == 0 ? 1.0 : 0.5;
+}
+
+void filterIndirectGradient(uint passIndex)
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    uint source = passIndex & 1u;
+    uint destination = 1u - source;
+    int step = int(1u << passIndex);
+    float2 luminanceSum = 0.0;
+    float weightSum = 0.0;
+    for (int offsetY = -1; offsetY <= 1; ++offsetY) {
+        for (int offsetX = -1; offsetX <= 1; ++offsetX) {
+            int2 samplePixel = int2(pixel) +
+                int2(offsetX, offsetY) * step;
+            if (any(samplePixel < 0) ||
+                any(samplePixel >= int2(dimensions))) {
+                continue;
+            }
+            float weight = indirectGradientKernel(offsetX) *
+                indirectGradientKernel(offsetY);
+            luminanceSum += IndirectGradients[source][samplePixel] * weight;
+            weightSum += weight;
+        }
+    }
+    float2 filtered = weightSum > 0.0 ?
+        luminanceSum / weightSum : 0.0;
+    if (passIndex + 1u == IndirectGradientPassCount) {
+        float maximumLuminance = max(filtered.x, filtered.y);
+        float signedGradient = maximumLuminance > 0.0 ?
+            (filtered.x - filtered.y) / maximumLuminance : 0.0;
+        filtered = float2(signedGradient * signedGradient,
+                          signedGradient);
+    }
+    IndirectGradients[destination][pixel] = filtered;
+}
+
+[shader("raygeneration")]
+void FilterIndirectGradient0() { filterIndirectGradient(0u); }
+[shader("raygeneration")]
+void FilterIndirectGradient1() { filterIndirectGradient(1u); }
+[shader("raygeneration")]
+void FilterIndirectGradient2() { filterIndirectGradient(2u); }
+[shader("raygeneration")]
+void FilterIndirectGradient3() { filterIndirectGradient(3u); }
+[shader("raygeneration")]
+void FilterIndirectGradient4() { filterIndirectGradient(4u); }
+[shader("raygeneration")]
+void FilterIndirectGradient5() { filterIndirectGradient(5u); }
+[shader("raygeneration")]
+void FilterIndirectGradient6() { filterIndirectGradient(6u); }
+
+/* Temporal stage for the dedicated indirect channel. Four guide-validated
+ * history taps provide subpixel reprojection. The broad lighting gradient
+ * shrinks history and raises the current-frame weight when illumination
+ * changes; ordinary sparse path differences retain the bounded running mean.
+ * Screen-space ReSTIR remains disabled because this is reconstruction of an
+ * already unbiased secondary-NEE estimator, not path-reservoir reuse. */
 [shader("raygeneration")]
 void TemporalIndirect()
 {
@@ -2538,49 +2729,48 @@ void TemporalIndirect()
     uint2 dimensions = DispatchRaysDimensions().xy;
     uint historyIndex = pixel.y * dimensions.x + pixel.x;
     uint currentSlot = SampleIndex & 1u;
-    uint previousSlot = 1u - currentSlot;
     IndirectHistoryPixel current =
         IndirectHistories[currentSlot][historyIndex];
-    if (current.sampleCount == 0u) {
+    if (!(current.historyLength > 0.0)) {
         return;
     }
-    float currentDepth = current.depth;
     float3 currentNormal = unpackOctahedralNormal(current.normal);
-
-    float2 motion = SceneMotion[pixel];
-    int2 previousPixel = int2(round(float2(pixel) + motion));
-    bool historyAddressValid = HistoryValid != 0u &&
-        ReservoirSampleLimit > 0u &&
-        all(abs(motion) < InvalidMotion) &&
-        all(previousPixel >= 0) &&
-        all(previousPixel < int2(dimensions));
-    if (historyAddressValid) {
-        uint previousIndex = uint(previousPixel.y) * dimensions.x +
-            uint(previousPixel.x);
-        IndirectHistoryPixel previous =
-            IndirectHistories[previousSlot][previousIndex];
-        float3 worldPosition = primaryWorldPosition(
-            pixel, dimensions, currentDepth);
-        float expectedPreviousDepth = dot(
-            worldPosition - PreviousCameraPosition,
-            PreviousCameraForward);
-        float guideWeight = indirectDepthWeight(
-            expectedPreviousDepth, previous.depth) *
-            indirectNormalWeight(dot(
-                currentNormal, unpackOctahedralNormal(previous.normal)));
-        if (previous.sampleCount > 0u && guideWeight > 0.0) {
-            uint historyCount = min(previous.sampleCount,
-                                    ReservoirSampleLimit);
-            uint combinedCount = min(historyCount + 1u,
-                                     ReservoirSampleLimit);
-            float currentWeight = 1.0 / float(max(combinedCount, 1u));
-            current.luminanceSH = lerp(
-                previous.luminanceSH,
-                current.luminanceSH, currentWeight);
-            current.chroma = lerp(
-                previous.chroma, current.chroma, currentWeight);
-            current.sampleCount = combinedCount;
-        }
+    IndirectTemporalSample previous = reprojectIndirectHistory(
+        pixel, dimensions, current.depth, currentNormal);
+    if (previous.weightSum > 0.0) {
+        uint2 gradientDimensions =
+            (dimensions + IndirectDownsampleFactor - 1u) /
+            IndirectDownsampleFactor;
+        uint2 gradientPixel = min(
+            pixel / IndirectDownsampleFactor, gradientDimensions - 1u);
+        float2 rawGradient = IndirectGradients[1][gradientPixel];
+        float signedGradient = clamp(rawGradient.y, -1.0, 1.0);
+        float gradientConfidence = lerp(
+            previous.gradientConfidence, signedGradient,
+            IndirectGradientConfirmationRate);
+        float confirmation = saturate(
+            (abs(gradientConfidence) -
+             IndirectGradientConfirmationThreshold) /
+            (1.0 - IndirectGradientConfirmationThreshold));
+        float gradient = saturate(rawGradient.x) * confirmation;
+        float antilag = saturate(
+            IndirectTemporalAntilagScale * gradient);
+        float historyLength = min(
+            previous.historyLength * pow(
+                1.0 - antilag,
+                IndirectTemporalAntilagHistoryPower) + 1.0,
+            float(ReservoirSampleLimit));
+        float currentWeight = max(
+            IndirectTemporalMinimumCurrentWeight,
+            1.0 / max(historyLength, 1.0));
+        currentWeight = lerp(currentWeight, 1.0, antilag);
+        current.luminanceSH = lerp(
+            previous.signal.luminanceSH,
+            current.luminanceSH, currentWeight);
+        current.chroma = lerp(
+            previous.signal.chroma, current.chroma, currentWeight);
+        current.historyLength = historyLength;
+        current.gradientConfidence = gradientConfidence;
     }
     IndirectHistories[currentSlot][historyIndex] = current;
 }
@@ -2616,7 +2806,7 @@ float indirectLowSpatialWeight(int2 samplePixel, uint2 dimensions,
         uint(samplePixel.x);
     IndirectHistoryPixel sampleHistory =
         IndirectHistories[currentSlot][sampleIndex];
-    if (sampleHistory.sampleCount == 0u) {
+    if (!(sampleHistory.historyLength > 0.0)) {
         return 0.0;
     }
     float3 sampleNormal = unpackOctahedralNormal(sampleHistory.normal);
@@ -2657,7 +2847,7 @@ void DeflickerIndirect()
     uint currentSlot = SampleIndex & 1u;
     uint2 centerAnchor = indirectLowAnchor(lowPixel, dimensions);
     uint centerIndex = centerAnchor.y * dimensions.x + centerAnchor.x;
-    if (IndirectHistories[currentSlot][centerIndex].sampleCount == 0u) {
+    if (!(IndirectHistories[currentSlot][centerIndex].historyLength > 0.0)) {
         storeIndirectLow(lowPixel, true, emptyIndirectSignal());
         return;
     }
@@ -2714,7 +2904,7 @@ void filterIndirect(uint passIndex, int step)
     uint centerIndex = centerAnchor.y * dimensions.x + centerAnchor.x;
     IndirectHistoryPixel centerHistory =
         IndirectHistories[currentSlot][centerIndex];
-    if (centerHistory.sampleCount == 0u) {
+    if (!(centerHistory.historyLength > 0.0)) {
         storeIndirectLow(lowPixel, outputFiltered, emptyIndirectSignal());
         return;
     }
@@ -2772,7 +2962,7 @@ void FilterIndirect0()
     uint anchorIndex = anchor.y * dimensions.x + anchor.x;
     IndirectHistoryPixel anchorHistory =
         IndirectHistories[currentSlot][anchorIndex];
-    if (anchorHistory.sampleCount == 0u) {
+    if (!(anchorHistory.historyLength > 0.0)) {
         storeIndirectLow(lowPixel, false, emptyIndirectSignal());
         return;
     }
@@ -2841,7 +3031,7 @@ void ReconstructIndirect()
     uint centerIndex = pixel.y * dimensions.x + pixel.x;
     IndirectHistoryPixel centerHistory =
         IndirectHistories[currentSlot][centerIndex];
-    if (centerHistory.sampleCount == 0u) {
+    if (!(centerHistory.historyLength > 0.0)) {
         IndirectFiltered[pixel] = 0.0;
         return;
     }

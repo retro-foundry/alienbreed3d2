@@ -45,7 +45,14 @@ int main()
                   indirect::filter_reach == 22 &&
                   indirect::filter_kernel[0] == 1.0f &&
                   indirect::filter_kernel[1] == 0.5f &&
+                  indirect::gradient_filter_steps[0] == 1 &&
+                  indirect::gradient_filter_steps[6] == 64 &&
                   indirect::deflicker_neighbor_factor == 2.0f &&
+                  indirect::temporal_antilag_scale == 0.2f &&
+                  indirect::temporal_antilag_history_power == 10.0f &&
+                  indirect::temporal_minimum_current_weight == 0.01f &&
+                  indirect::temporal_gradient_confirmation_rate == 0.25f &&
+                  indirect::temporal_gradient_confirmation_threshold == 0.4f &&
                   indirect::sh_basis_l0 == 0.282095f &&
                   indirect::sh_basis_l1 == 0.488603f &&
                   indirect::filter_support_is_continuous() &&
@@ -116,6 +123,57 @@ int main()
         indirect::guide_weight(100.0f, 100.0f, 0.5f) != 0.0f ||
         indirect::guide_weight(0.0f, 100.0f, 1.0f) != 0.0f) {
         return fail("low-frequency indirect guide weighting changed");
+    }
+    const std::array<float, 4> temporal_weights =
+        indirect::temporal_bilinear_weights(0.25f, 0.75f);
+    const float temporal_weight_sum = temporal_weights[0] +
+        temporal_weights[1] + temporal_weights[2] + temporal_weights[3];
+    const indirect::TemporalBlend stable_history =
+        indirect::temporal_blend(20.0f, 0.0f, 256u);
+    const indirect::TemporalBlend changed_history =
+        indirect::temporal_blend(100.0f, 1.0f, 256u);
+    const indirect::TemporalBlend capped_history =
+        indirect::temporal_blend(300.0f, 0.0f, 256u);
+    const indirect::TemporalBlend disabled_history =
+        indirect::temporal_blend(20.0f, 1.0f, 0u);
+    const indirect::GradientConfirmation first_gradient =
+        indirect::confirm_gradient(0.0f, 1.0f);
+    const indirect::GradientConfirmation second_gradient =
+        indirect::confirm_gradient(first_gradient.confidence, 1.0f);
+    const indirect::GradientConfirmation third_gradient =
+        indirect::confirm_gradient(second_gradient.confidence, 1.0f);
+    const indirect::GradientConfirmation alternating_gradient =
+        indirect::confirm_gradient(first_gradient.confidence, -1.0f);
+    const float expected_changed_length =
+        100.0f * std::pow(0.8f, 10.0f) + 1.0f;
+    const float expected_changed_weight =
+        1.0f / expected_changed_length * 0.8f + 0.2f;
+    if (!near(temporal_weights[0], 0.1875f) ||
+        !near(temporal_weights[1], 0.0625f) ||
+        !near(temporal_weights[2], 0.5625f) ||
+        !near(temporal_weights[3], 0.1875f) ||
+        !near(temporal_weight_sum, 1.0f) ||
+        !near(indirect::relative_luminance_gradient(4.0f, 2.0f), 0.25f) ||
+        indirect::relative_luminance_gradient(0.0f, 0.0f) != 0.0f ||
+        !near(stable_history.history_length, 21.0f) ||
+        !near(stable_history.current_weight, 1.0f / 21.0f) ||
+        stable_history.antilag != 0.0f ||
+        !near(changed_history.history_length, expected_changed_length) ||
+        !near(changed_history.current_weight, expected_changed_weight) ||
+        !near(changed_history.antilag, 0.2f) ||
+        !near(capped_history.history_length, 256.0f) ||
+        !near(capped_history.current_weight, 0.01f) ||
+        disabled_history.history_length != 1.0f ||
+        disabled_history.current_weight != 1.0f ||
+        !near(first_gradient.confidence, 0.25f) ||
+        first_gradient.gradient != 0.0f ||
+        !near(second_gradient.confidence, 0.4375f) ||
+        !near(second_gradient.gradient, 0.0625f) ||
+        !near(third_gradient.confidence, 0.578125f) ||
+        !near(third_gradient.gradient, 0.296875f) ||
+        !near(alternating_gradient.confidence, -0.0625f) ||
+        alternating_gradient.gradient != 0.0f) {
+        return fail("low-frequency temporal anti-lag contract changed");
     }
     if (indirect::kernel_weight(-2) != 0.0f ||
         indirect::kernel_weight(-1) != 0.5f ||

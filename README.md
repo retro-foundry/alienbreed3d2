@@ -665,11 +665,16 @@ separate low-frequency channel.
 
 `AB3D2_DXR_RESERVOIR_LIMIT` retains its public name for configuration
 compatibility but now caps the number of validated temporal samples in that
-indirect channel. It defaults to `20`; zero disables temporal accumulation but
+indirect channel. It defaults to `256`; zero disables temporal accumulation but
 still performs the spatial reconstruction. Incident luminance is stored as
 four first-order directional coefficients with two opponent-chroma channels.
-After temporal reprojection, each guide-compatible 3-by-3 full-resolution
-region is integrated into one anchored low-resolution value. A regional
+Temporal reprojection gathers four bilinear, depth/geometric-normal-validated
+history taps rather than rounding motion to one previous pixel. A separate
+one-third-resolution current/history luminance pair is blurred through seven
+wavelet stages over a broad screen region. A persistent signed lighting change
+shortens history and raises the current-frame weight; alternating sparse-path
+noise does not. Each guide-compatible 3-by-3 full-resolution region is then
+integrated into one anchored low-resolution value. A regional
 deflicker bound is followed by three depth/geometric-normal-guided 3-by-3
 wavelet passes at low-resolution steps `1`, `2`, and `4`, then four-tap
 bilateral reconstruction returns the signal to the original pixel grid. The

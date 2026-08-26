@@ -62,10 +62,11 @@ world_light_tessellation=4
 
 # Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
 # primary vertex uses the complete alias table; the indirect vertex uses a
-# camera-centred local ReGIR proposal. The retained reservoir limit is inactive
-# while temporal/spatial screen-space reuse is disabled. Defaults 16 and 20.
+# camera-centred local ReGIR proposal. The retained limit caps the validated
+# temporal history of the separate diffuse-indirect reconstruction. Defaults
+# 16 candidates and 256 history samples; zero disables temporal accumulation.
 #rtx_light_candidates=16
-#rtx_reservoir_limit=20
+#rtx_reservoir_limit=256
 
 # Ceiling on one sample's luminance, which bounds fireflies. Default 200.
 #rtx_radiance_clamp=200

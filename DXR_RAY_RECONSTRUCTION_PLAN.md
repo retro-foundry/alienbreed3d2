@@ -154,10 +154,12 @@ do not characterize a complete ReSTIR estimator. Section 11c now records a
 surface-aware ray-traced bias correction, validated emitter history, temporal
 neighbor search, and staged current-frame spatial/disocclusion reuse. The symptom-level weight clamp and
 boiling filter were removed. The corrected `16 / 20` path passed its interactive
-moving-camera visual check on 2026-08-21 and is now the production default.
-Finer temporal noise reported later led to the heterogeneous completion in
-section 11c, which the user accepted in motion on 2026-08-21. The accepted
-`16 / 20` pair is the renderer-wide production default.
+moving-camera visual check on 2026-08-21 and remains historical evidence for
+the now-dormant screen-space direct-light reservoir path. Finer temporal noise
+reported later led to the heterogeneous completion in section 11c, which the
+user accepted in motion on 2026-08-21. The active stripped diffuse renderer
+keeps 16 fresh RIS candidates and instead defaults its independently
+reconstructed low-frequency history to 256 samples.
 `AB3D2_DXR_RESERVOIR_LIMIT=0` remains the history-off diagnostic; read section
 11 before tuning the estimator.
 
@@ -263,9 +265,10 @@ Local path: `C:\Users\paula\Documents\Projects\Q2RTX`
 
 The audit established behavior and stage boundaries: diffuse continuation plus
 polygon-light NEE at the secondary hit, a separate directional low-frequency
-signal, long validated temporal history, one-third-resolution regional
-integration, explicit regional deflicker, three guided wavelet stages, and
-bilateral reconstruction. It also established that this path is not ReSTIR GI.
+signal, bilinear/bilateral multi-tap temporal history, broad low-resolution
+lighting-change gradients, one-third-resolution regional integration, explicit
+regional deflicker, three guided wavelet stages, and bilateral reconstruction.
+It also established that this path is not ReSTIR GI.
 No GPL source text, shader, table, binary, asset, or generated output was copied,
 adapted, linked, staged, or committed. The HLSL and host implementation here
 were written independently for the existing D3D12 resources; the real
@@ -654,10 +657,15 @@ reconstruction path. The continuation and indirect-light evaluation use the
 second hit's geometric normal, and the continuation distribution deliberately
 covers more grazing directions than an ordinary cosine sample. The path tracer
 stores the incident signal without primary albedo as first-order directional
-luminance plus two opponent-chroma values. Full-resolution history is
-reprojected through dense scene motion, rejected on depth/geometric-normal
-disagreement, and maintained as a bounded running average. Each guide-compatible
-3x3 full-resolution region is then integrated into one anchored value in a
+luminance plus two opponent-chroma values. Full-resolution history is gathered
+from four bilinear taps through dense scene motion, rejected on depth/geometric-
+normal disagreement, and maintained as a bounded running average. One current/
+history luminance pair per 3x3 region is blurred through seven unguided wavelet
+stages. Because this stripped polygon-only estimator is sparser than Q2RTX's
+complete LF input, signed temporal confirmation rejects alternating Monte Carlo
+changes before the resulting gradient shortens history and raises the current-
+frame weight. Each guide-compatible 3x3 full-resolution region is then
+integrated into one anchored value in a
 one-third-resolution working image. An explicit regional deflicker bound runs
 before three guided 3x3 wavelet passes at low-resolution steps 1, 2, and 4. A
 four-tap bilateral reconstruction projects the directional field onto the
@@ -682,7 +690,13 @@ Ray-Reconstruction presentation fell from `0.1080` to `0.0938` while retaining
 the corridor fill. Those are retained historical measurements of the former
 full-resolution B-spline stage. The current directional reduced-resolution
 stage measured `0.0468` in the indirect debug view, a further 29% reduction.
-The composed RR result measured `0.1098`--`0.1113` in repeated runs; its three
+Four-tap temporal reprojection with the 256-sample LF default then measured
+`0.0347` on the same 32-frame saved Level A view. Applying the unconfirmed
+gradient directly worsened that result to `0.0862`; signed confirmation restores
+static-scene convergence while retaining a response to persistent same-direction
+lighting changes. The corresponding composed RR result measured `0.1125`,
+essentially unchanged from the direct/high-frequency-dominated result below.
+The composed RR result measured `0.1098`--`0.1125` in repeated runs; its three
 16-level temporal outliers did not increase, but automatic-exposure convergence
 and unfiltered high-frequency/direct noise keep that whole-image number above
 the former `0.0938` run. This is reconstruction of the explicitly separated
@@ -1241,9 +1255,10 @@ Reprojected and deterministic specular hit-distance guides differed by only
 `0.0024` in the late metric; the deterministic guide was marginally better and
 matches the pinned Streamline contract directly. Reducing the history limit to
 eight worsened the frozen and moving measures (`1.6693` late and `11.9937`
-moving), so `16 / 20` remains the production default rather than extending or
-shortening history. The user then reported the completed signal looked much
-better in motion and accepted `16 / 20` as the renderer-wide defaults. An
+moving), so `16 / 20` remained the production default for that then-active
+ReSTIR path rather than extending or shortening its history. The user then
+reported the completed signal looked much better in motion and accepted
+`16 / 20` for that path. An
 explicit zero history limit retains the history-off diagnostic.
 
 #### 11d. Historical biased temporal approximation and measurements

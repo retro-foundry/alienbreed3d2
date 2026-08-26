@@ -333,11 +333,15 @@ The separate one-bounce diffuse-indirect channel uses project-authored HLSL and
 host code. Its first full-resolution reconstruction was derived and validated
 inside this repository. After the explicit 2026-08-26 direction, the bounded
 Q2RTX audit below identified the missing stage structure. The replacement keeps
-full-resolution validated temporal history, represents incident luminance with
-standard first-order real spherical harmonics plus two opponent-chroma values,
-integrates guide-compatible 3-by-3 regions at one-third resolution, applies a
-regional luminance bound and three guided wavelet stages, and reconstructs with
-four bilateral taps. The stage does not filter the fresh direct/specular signal
+full-resolution validated temporal history gathered through four bilinear taps,
+represents incident luminance with standard first-order real spherical harmonics
+plus two opponent-chroma values, computes a broad seven-stage low-resolution
+lighting-change gradient, integrates guide-compatible 3-by-3 regions at one-
+third resolution, applies a regional luminance bound and three guided wavelet
+stages, and reconstructs with four bilateral taps. The project signal contains
+only sparse polygon-light transport rather than Q2RTX's complete LF input, so
+signed temporal confirmation prevents alternating Monte Carlo changes from
+triggering anti-lag. The stage does not filter the fresh direct/specular signal
 tagged for DLSS Ray Reconstruction.
 
 ### User-authorized Q2RTX behavioral audit
@@ -355,7 +359,7 @@ tagged for DLSS Ray Reconstruction.
 
 Only observable algorithm boundaries and representation choices were recorded:
 secondary-hit polygon-light NEE supplies a directional low-frequency diffuse
-channel; temporal reprojection, large-region change detection, regional
+channel; multi-tap temporal reprojection, large-region change detection, regional
 downsampling, deflicker, guided low-resolution filtering, and bilateral
 reconstruction stabilize it. The inspection also showed that this is not a
 ReSTIR-GI pipeline. No GPL implementation text or expression was copied or
