@@ -44,7 +44,7 @@ int main()
            "4x4 pyramid occupies seven atlas rows");
     expect(level_count(256u, 256u) == 9u &&
                packed_height(256u, 256u) == 511u,
-           "256x256 floor tile produces its complete packed pyramid");
+           "256x256 floor/ceiling tile produces its complete packed pyramid");
     expect(level_count(3u, 5u) == 3u && packed_height(3u, 5u) == 8u,
            "non-power-of-two chains terminate and pack correctly");
 

@@ -882,8 +882,9 @@ void triangleFrame(uint firstVertex, float3 incomingDirection,
 
 /* Ray shaders have no screen-space derivatives. Approximate the primary ray
  * cone at the hit plane, then convert its world-space diameter through the
- * triangle's authored UV gradients. Walls and floors carry a non-zero texture
- * extent and a mip chain; other primitive classes remain exactly level zero. */
+ * triangle's authored UV gradients. Walls, floors, and ceilings carry a
+ * non-zero texture extent and a mip chain; other primitive classes remain
+ * exactly level zero. */
 float worldMaterialMipLevel(SceneMaterial material, SceneVertex first,
                             SceneVertex second, SceneVertex third,
                             float3 geometricNormal,

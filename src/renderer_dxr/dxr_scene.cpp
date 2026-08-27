@@ -900,14 +900,15 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
             return false;
         }
         texture_window_extent = extent_x | (extent_y << 16u);
-    } else if (geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_FLOOR) {
+    } else if (geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_FLOOR ||
+               geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_CEILING) {
         constexpr uint32_t expected_extent =
             floor_texture_extent * world_texture_scale;
         if (material_width != expected_extent ||
             material_height != expected_extent) {
             std::ostringstream report;
-            report << "DXR floor PBR material does not match Draw_Flats' "
-                      "64x64 source tile (record="
+            report << "DXR floor/ceiling PBR material does not match "
+                      "Draw_Flats' 64x64 source tile (record="
                    << geometry.source_record_id << " PBR="
                    << material_width << "x" << material_height << ")";
             error = report.str();

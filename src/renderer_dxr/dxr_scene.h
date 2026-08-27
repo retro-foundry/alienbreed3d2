@@ -43,9 +43,9 @@ struct DxrSceneVertex {
      * Packed 16-bit XY pairs in PBR-atlas image texels. Scene compilation
      * isolates the exact source subwindow selected by hireswall.s:Draw_Wall
      * (word +10 U origin and bytes +18/+16 U/V repeat masks), so wall vertices
-     * carry origin zero and the isolated extent. Floors carry their complete
-     * PBR tile extent for mip LOD. A zero extent explicitly selects the
-     * complete level-zero material image for ceilings, water, sprites,
+     * carry origin zero and the isolated extent. Floors and ceilings carry
+     * their complete PBR tile extent for mip LOD. A zero extent explicitly
+     * selects the complete level-zero material image for water, sprites,
      * vectors, and the view weapon.
      */
     uint32_t texture_window_origin;
@@ -64,8 +64,8 @@ struct DxrSceneMaterial {
     uint32_t atlas_y;
     uint32_t width;
     uint32_t height;
-    /* One for level-zero-only materials. Wall and floor materials carry a
-     * software mip pyramid packed below their level-zero texture window. */
+    /* One for level-zero-only materials. Wall, floor, and ceiling materials
+     * carry a software mip pyramid below their level-zero texture window. */
     uint32_t mip_count;
     float normal_strength;
     float specular_factor;
