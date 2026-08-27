@@ -189,14 +189,15 @@ bool DxrRenderer::initialize(int window_width, int window_height,
     device_ = std::make_unique<DxrDevice>();
     pipeline_ = std::make_unique<DxrPipeline>();
     if (!device_->initialize(
-            window_information.info.win.window, hidden_window,
+            window_information.info.win.window, hidden_window, options,
 #if defined(AB3D2_ENABLE_STREAMLINE)
             streamline_.get(),
 #else
             nullptr,
 #endif
             error) ||
-        !pipeline_->initialize(device_->device(), options, error)) {
+        !pipeline_->initialize(device_->device(), options,
+                               device_->output_configuration(), error)) {
         return false;
     }
     debug_output(

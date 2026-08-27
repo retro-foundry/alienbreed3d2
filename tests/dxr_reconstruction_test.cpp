@@ -219,6 +219,22 @@ int main()
         post::dither_sdr(1.0f, 1.0f) != 1.0f) {
         return fail("linear-HDR bloom or SDR dithering contract changed");
     }
+    const float hdr_black = post::hdr_mapped_nits(0.0f, 1000.0f, 200.0f);
+    const float hdr_paper = post::hdr_mapped_nits(
+        post::hdr_paper_white_curve_level, 1000.0f, 200.0f);
+    const float hdr_highlight = post::hdr_mapped_nits(
+        0.9f, 1000.0f, 200.0f);
+    const float hdr_peak = post::hdr_mapped_nits(1.0f, 1000.0f, 200.0f);
+    if (hdr_black != 0.0f || !near(hdr_paper, 200.0f, 1.0e-3f) ||
+        !(hdr_highlight > hdr_paper && hdr_highlight < hdr_peak) ||
+        !near(hdr_peak, 1000.0f, 1.0e-3f) ||
+        !near(post::hdr_sc_rgb_luminance(1.0f, 1000.0f, 200.0f),
+              12.5f) ||
+        !near(post::hdr_mapped_nits(
+            std::numeric_limits<float>::infinity(), 1000.0f, 200.0f),
+            0.0f)) {
+        return fail("scRGB HDR paper-white and peak mapping changed");
+    }
     if (!near(indirect::guide_weight(100.0f, 100.0f, 1.0f), 1.0f) ||
         !near(indirect::guide_weight(100.0f, 105.0f, 0.75f), 0.125f) ||
         indirect::guide_weight(100.0f, 110.0f, 1.0f) > 1.0e-5f ||

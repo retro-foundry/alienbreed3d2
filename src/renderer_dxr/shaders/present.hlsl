@@ -22,6 +22,9 @@ cbuffer PresentConstants : register(b0)
     uint TargetHeight;
     float Exposure;
     uint FrameIndex;
+    uint HdrOutput;
+    float HdrPeakNits;
+    float HdrPaperWhiteNits;
 };
 
 static const uint ToneCurvePointCount = 129u;
@@ -34,6 +37,8 @@ static const uint BlueNoiseOptimizedDimensions = 8u;
 static const uint BlueNoiseSobolOffset = 0u;
 static const uint BlueNoiseScramblingOffset = 65536u;
 static const uint BlueNoiseRankingOffset = 196608u;
+static const float ScRgbReferenceWhiteNits = 80.0;
+static const float HdrPaperWhiteCurveLevel = 0.75;
 
 struct PixelInput
 {
@@ -106,6 +111,41 @@ float3 ditherSdr(float3 encoded, uint2 pixel)
     return saturate(encoded + (noise - 0.5) / 255.0);
 }
 
+float hdrMappedNits(float mappedLuminance)
+{
+    float peak = max(HdrPeakNits, ScRgbReferenceWhiteNits);
+    float paperWhite = clamp(HdrPaperWhiteNits,
+                             ScRgbReferenceWhiteNits, peak);
+    float mapped = saturate(mappedLuminance);
+    if (mapped <= HdrPaperWhiteCurveLevel) {
+        return mapped * (paperWhite / HdrPaperWhiteCurveLevel);
+    }
+    if (peak <= paperWhite) {
+        return paperWhite;
+    }
+    float t = (mapped - HdrPaperWhiteCurveLevel) /
+        (1.0 - HdrPaperWhiteCurveLevel);
+    /* Match the diffuse-range slope at paper white, then arrive flat at the
+     * configured display peak. */
+    float slope = (paperWhite / HdrPaperWhiteCurveLevel) *
+        (1.0 - HdrPaperWhiteCurveLevel) / (peak - paperWhite);
+    float shoulder = slope * t + (3.0 - 2.0 * slope) * t * t +
+        (slope - 2.0) * t * t * t;
+    return lerp(paperWhite, peak, saturate(shoulder));
+}
+
+float3 encodeDebugOutput(float3 linearColor, uint2 pixel)
+{
+    float3 display = saturate(linearColor);
+    if (HdrOutput != 0u) {
+        float peak = max(HdrPeakNits, ScRgbReferenceWhiteNits);
+        float paperWhite = clamp(HdrPaperWhiteNits,
+                                 ScRgbReferenceWhiteNits, peak);
+        return display * (paperWhite / ScRgbReferenceWhiteNits);
+    }
+    return ditherSdr(linearToSrgb(display), pixel);
+}
+
 float adaptiveToneMapLuminance(float exposedLuminance)
 {
     if (!(exposedLuminance > 0.0) || !isfinite(exposedLuminance)) {
@@ -136,65 +176,85 @@ float4 ps_main(PixelInput input) : SV_Target
         max(float2(TargetWidth, TargetHeight), float2(1.0, 1.0));
     uint2 pixel = min(uint2(normalized * float2(SourceWidth, SourceHeight)),
                       uint2(SourceWidth - 1u, SourceHeight - 1u));
+    uint2 targetPixel = min(uint2(input.position.xy),
+        uint2(max(TargetWidth, 1u) - 1u, max(TargetHeight, 1u) - 1u));
     if (DebugView == 1u) {
-        return float4(displayLinear(DiffuseAlbedo.Load(int3(pixel, 0)).rgb),
-                      1.0);
+        return float4(encodeDebugOutput(
+            DiffuseAlbedo.Load(int3(pixel, 0)).rgb, targetPixel), 1.0);
     }
     if (DebugView == 2u) {
-        return float4(displayLinear(SpecularAlbedo.Load(int3(pixel, 0)).rgb),
-                      1.0);
+        return float4(encodeDebugOutput(
+            SpecularAlbedo.Load(int3(pixel, 0)).rgb, targetPixel), 1.0);
     }
     if (DebugView == 3u) {
         float4 normal = ShadingNormal.Load(int3(pixel, 0));
-        return float4(normal.a > 0.0 ? normal.rgb * 0.5 + 0.5 : 0.0, 1.0);
+        return float4(encodeDebugOutput(
+            normal.a > 0.0 ? normal.rgb * 0.5 + 0.5 : 0.0,
+            targetPixel), 1.0);
     }
     if (DebugView == 4u) {
         float roughness = LinearRoughness.Load(int3(pixel, 0)).r;
-        return float4(roughness.xxx, 1.0);
+        return float4(encodeDebugOutput(roughness.xxx, targetPixel), 1.0);
     }
     if (DebugView == 5u) {
         float depth = LinearDepth.Load(int3(pixel, 0)).r;
-        return float4(saturate(depth / ScalarRange).xxx, 1.0);
+        return float4(encodeDebugOutput(
+            saturate(depth / ScalarRange).xxx, targetPixel), 1.0);
     }
     if (DebugView == 6u) {
         float2 motion = SceneMotion.Load(int3(pixel, 0)).rg;
         if (any(abs(motion) >= 65503.0)) {
-            return float4(1.0, 0.0, 1.0, 1.0);
+            return float4(encodeDebugOutput(
+                float3(1.0, 0.0, 1.0), targetPixel), 1.0);
         }
         float magnitude = length(motion);
         float hue = frac(atan2(motion.y, motion.x) / (2.0 * 3.14159265358979323846) +
                          1.0);
-        return float4(hsvToRgb(float3(hue, magnitude > 0.0 ? 1.0 : 0.0,
-                                      saturate(magnitude / ScalarRange))), 1.0);
+        return float4(encodeDebugOutput(
+            hsvToRgb(float3(hue, magnitude > 0.0 ? 1.0 : 0.0,
+                            saturate(magnitude / ScalarRange))),
+            targetPixel), 1.0);
     }
     if (DebugView == 7u) {
         float distance = SpecularHitDistance.Load(int3(pixel, 0)).r;
-        return float4(saturate(distance / ScalarRange).xxx, 1.0);
+        return float4(encodeDebugOutput(
+            saturate(distance / ScalarRange).xxx, targetPixel), 1.0);
     }
     if (DebugView == 8u) {
         float distance = DiffuseHitDistance.Load(int3(pixel, 0)).r;
-        return float4(saturate(distance / ScalarRange).xxx, 1.0);
+        return float4(encodeDebugOutput(
+            saturate(distance / ScalarRange).xxx, targetPixel), 1.0);
     }
     if (DebugView == 9u) {
         float distance = SpecularHitDistanceHistory.Load(int3(pixel, 0)).r;
-        return float4(saturate(distance / ScalarRange).xxx, 1.0);
+        return float4(encodeDebugOutput(
+            saturate(distance / ScalarRange).xxx, targetPixel), 1.0);
     }
     if (DebugView == 10u) {
-        return float4(displayLinear(
-            IndirectRadiance.Load(int3(pixel, 0)).rgb), 1.0);
+        return float4(encodeDebugOutput(
+            IndirectRadiance.Load(int3(pixel, 0)).rgb, targetPixel), 1.0);
     }
     float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
     float3 exposed = hdr * Exposure;
     float exposedLuminance = dot(exposed, float3(0.2126, 0.7152, 0.0722));
     float mappedLuminance = adaptiveToneMapLuminance(exposedLuminance);
+    if (HdrOutput != 0u) {
+        float scRgbLuminance = hdrMappedNits(mappedLuminance) /
+            ScRgbReferenceWhiteNits;
+        float3 scRgb = exposedLuminance > 0.0 ?
+            exposed * (scRgbLuminance / exposedLuminance) : 0.0;
+        float scRgbPeak = max(HdrPeakNits, ScRgbReferenceWhiteNits) /
+            ScRgbReferenceWhiteNits;
+        float maximumComponent = max(scRgb.r, max(scRgb.g, scRgb.b));
+        scRgb *= min(1.0, scRgbPeak / max(maximumComponent, 1.0e-6));
+        return float4(max(scRgb, 0.0), 1.0);
+    }
     float3 mapped = exposedLuminance > 0.0 ?
         exposed * (mappedLuminance / exposedLuminance) : 0.0;
     /* Preserve hue when a saturated HDR color extends outside the display
      * gamut instead of clipping each component independently. */
     float maximumComponent = max(mapped.r, max(mapped.g, mapped.b));
     mapped /= max(maximumComponent, 1.0);
-    uint2 targetPixel = min(uint2(input.position.xy),
-        uint2(max(TargetWidth, 1u) - 1u, max(TargetHeight, 1u) - 1u));
     return float4(ditherSdr(linearToSrgb(max(mapped, 0.0)), targetPixel),
                   1.0);
 }

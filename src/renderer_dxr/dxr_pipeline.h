@@ -14,6 +14,7 @@
 #include "scene_frame.h"
 #include "dxr_reconstruction_math.h"
 #include "dxr_light_grid.h"
+#include "dxr_output.h"
 #include "dxr_restir_gi.h"
 #include "dxr_scene.h"
 
@@ -60,7 +61,11 @@ class DxrPipeline final {
 public:
     bool initialize(ID3D12Device5 *device,
                     const RendererRayTracingOptions &options,
+                    const DxrOutputConfiguration &output,
                     std::string &error);
+    bool configure_output(ID3D12Device5 *device,
+                          const DxrOutputConfiguration &output,
+                          std::string &error);
     bool update_scene(const SceneFrame &frame, const RenderView &view,
                       UINT width, UINT height, bool &requires_flush,
                       std::string &error);
@@ -108,6 +113,10 @@ public:
         options.radiance_clamp = radiance_clamp_;
         options.exposure = exposure_;
         options.ndf_trim = ndf_trim_;
+        options.output = output_.hdr ? RENDERER_OUTPUT_HDR : RENDERER_OUTPUT_SDR;
+        options.hdr_peak_nits = output_.hdr ? output_.peak_nits : 0.0f;
+        options.hdr_paper_white_nits =
+            output_.hdr ? output_.paper_white_nits : 0.0f;
     }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
@@ -118,9 +127,11 @@ private:
     bool create_diagnostic_pipeline(ID3D12Device5 *device,
                                     const std::vector<unsigned char> &vertex_shader,
                                     const std::vector<unsigned char> &pixel_shader,
+                                    DXGI_FORMAT render_target_format,
                                     std::string &error);
     bool create_present_pipeline(ID3D12Device5 *device,
                                  const std::vector<unsigned char> &vertex_shader,
+                                 DXGI_FORMAT render_target_format,
                                  std::string &error);
     bool create_post_pipeline(ID3D12Device5 *device, std::string &error);
     bool create_raytracing_pipeline(ID3D12Device5 *device, std::string &error);
@@ -235,6 +246,7 @@ private:
         bool pending = false;
     } history_;
     DxrScene scene_;
+    DxrOutputConfiguration output_ = {};
 };
 
 }  // namespace ab3d2::dxr

@@ -436,6 +436,16 @@ of the already pinned and licensed blue-noise/Owen-scrambled Sobol package.
 regression coverage. No additional noise table or third-party bloom code was
 introduced.
 
+The subsequent project-authored output stage detects the window's current
+monitor with DXGI 1.6 and selects either the established 8-bit sRGB swap chain
+or native FP16 scRGB. Its independent Hermite highlight shoulder maps the
+adaptive curve's diffuse range to a configurable paper white and its endpoint
+to the display peak; scRGB conversion uses the platform-defined 80-nit
+reference white. Both graphics PSOs are recreated when the RTV format changes.
+Hidden validation remains explicitly SDR. `dxr_post_processing.h` also mirrors
+the HDR luminance mapping for deterministic black, paper-white, peak, finite,
+and monotonicity regressions.
+
 The user-authorized Q2RTX checkout was inspected to establish presentation
 stage ordering, SDR/HDR output spaces, and the feature gap (adaptive tone
 mapping, bloom, output dithering, and scRGB negotiation). No Q2RTX source text,

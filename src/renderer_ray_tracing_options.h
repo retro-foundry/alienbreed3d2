@@ -25,6 +25,15 @@ typedef enum {
     RENDERER_RAY_RECONSTRUCTION_OFF
 } RendererRayReconstructionMode;
 
+typedef enum {
+    /* Follow the Windows advanced-color state of the window's current monitor. */
+    RENDERER_OUTPUT_AUTO = 0,
+    /* Always present exact sRGB through an 8-bit UNORM swap chain. */
+    RENDERER_OUTPUT_SDR,
+    /* Require an FP16 scRGB swap chain; creation fails if HDR is unavailable. */
+    RENDERER_OUTPUT_HDR
+} RendererOutputMode;
+
 /* Fresh RIS and low-frequency reconstruction defaults. Keep explicit zero
  * available only through reservoir_sample_limit_set for the history-off
  * diagnostic. */
@@ -65,6 +74,11 @@ typedef struct {
     /* DLSS Ray Reconstruction mode, which also sets the path-traced
      * resolution the reconstruction upscales from. */
     RendererRayReconstructionMode reconstruction;
+    /* Display-output policy. Hidden validation windows are always forced SDR. */
+    RendererOutputMode output;
+    /* Zero keeps the detected/default HDR mastering values. */
+    float hdr_peak_nits;
+    float hdr_paper_white_nits;
 } RendererRayTracingOptions;
 
 #endif

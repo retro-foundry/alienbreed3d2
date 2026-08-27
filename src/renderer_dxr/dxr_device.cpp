@@ -7,6 +7,7 @@
 #endif
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -282,7 +283,7 @@ bool DxrDevice::create_swap_chain(std::string &error)
     DXGI_SWAP_CHAIN_DESC1 description = {};
     description.Width = width_;
     description.Height = height_;
-    description.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    description.Format = output_.format;
     description.SampleDesc.Count = 1;
     description.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     description.BufferCount = frame_count;
@@ -314,6 +315,202 @@ bool DxrDevice::create_swap_chain(std::string &error)
     }
     frame_index_ = swap_chain_->GetCurrentBackBufferIndex();
     return true;
+}
+
+bool DxrDevice::choose_output_configuration(
+    DxrOutputConfiguration &output, std::string &display_name,
+    std::string &error) const
+{
+    output = sdr_output_configuration();
+    display_name.clear();
+    if (hidden_window_ || requested_output_ == RENDERER_OUTPUT_SDR) {
+        return true;
+    }
+    Microsoft::WRL::ComPtr<IDXGIOutput> containing_output;
+    HRESULT result = swap_chain_->GetContainingOutput(&containing_output);
+    if (FAILED(result)) {
+        if (requested_output_ == RENDERER_OUTPUT_HDR) {
+            error = hresult_error(
+                "IDXGISwapChain::GetContainingOutput for required HDR", result);
+            return false;
+        }
+        return true;
+    }
+    Microsoft::WRL::ComPtr<IDXGIOutput6> output6;
+    result = containing_output.As(&output6);
+    if (FAILED(result)) {
+        if (requested_output_ == RENDERER_OUTPUT_HDR) {
+            error = "HDR output was explicitly requested, but the current "
+                "monitor does not expose IDXGIOutput6 advanced-color state";
+            return false;
+        }
+        return true;
+    }
+    DXGI_OUTPUT_DESC1 description = {};
+    result = output6->GetDesc1(&description);
+    if (FAILED(result)) {
+        if (requested_output_ == RENDERER_OUTPUT_HDR) {
+            error = hresult_error("IDXGIOutput6::GetDesc1 for required HDR",
+                                  result);
+            return false;
+        }
+        return true;
+    }
+    display_name = wide_to_utf8(description.DeviceName);
+    const bool advanced_color_enabled =
+        description.ColorSpace ==
+            DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 ||
+        (description.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 &&
+         description.BitsPerColor >= 10u);
+    if (!advanced_color_enabled) {
+        if (requested_output_ == RENDERER_OUTPUT_HDR) {
+            error = "HDR output was explicitly requested, but Windows advanced "
+                "color is not enabled on the window's current monitor";
+            return false;
+        }
+        return true;
+    }
+    float peak_nits = requested_hdr_peak_nits_;
+    if (peak_nits == 0.0f) {
+        peak_nits = std::isfinite(description.MaxLuminance) &&
+                description.MaxLuminance >= 80.0f ?
+            std::min(description.MaxLuminance, 10000.0f) : 1000.0f;
+    }
+    if (!std::isfinite(peak_nits) || peak_nits < 80.0f ||
+        peak_nits > 10000.0f) {
+        error = "HDR peak luminance must be 80-10000 nits";
+        return false;
+    }
+    float paper_white_nits = requested_hdr_paper_white_nits_;
+    if (paper_white_nits == 0.0f) {
+        paper_white_nits = std::min(200.0f, peak_nits);
+    }
+    if (!std::isfinite(paper_white_nits) || paper_white_nits < 80.0f ||
+        paper_white_nits > peak_nits) {
+        error = "HDR paper white must be at least 80 nits and no greater "
+            "than the HDR peak luminance";
+        return false;
+    }
+    output = hdr_output_configuration(peak_nits, paper_white_nits);
+    return true;
+}
+
+bool DxrDevice::reconfigure_swap_chain(DxrOutputConfiguration &output,
+                                       UINT width, UINT height,
+                                       bool recreate_render_targets,
+                                       bool allow_hdr_fallback,
+                                       std::string &error)
+{
+    for (FrameContext &frame : frames_) {
+        frame.render_target.Reset();
+    }
+    scene_readback_.Reset();
+    previous_readback_rgb_.clear();
+    const auto resize_to = [&](DXGI_FORMAT format) -> bool {
+        const HRESULT result = swap_chain_->ResizeBuffers(
+            frame_count, width, height, format, 0);
+        if (FAILED(result)) {
+            error = hresult_error("IDXGISwapChain::ResizeBuffers(output format)",
+                                  result);
+            return false;
+        }
+        return true;
+    };
+    if (output.format != output_.format || width != width_ || height != height_) {
+        if (!resize_to(output.format)) {
+            if (!output.hdr || !allow_hdr_fallback) {
+                return false;
+            }
+            debug_output(
+                "DXR output: FP16 swap-chain resize failed; using SDR");
+            output = sdr_output_configuration();
+            error.clear();
+            if (!resize_to(output.format)) {
+                return false;
+            }
+        }
+    }
+    if (output.hdr) {
+        UINT support = 0u;
+        HRESULT result = swap_chain_->CheckColorSpaceSupport(
+            output.color_space, &support);
+        if (FAILED(result) ||
+            (support & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT) == 0u) {
+            if (!allow_hdr_fallback) {
+                error = FAILED(result) ?
+                    hresult_error(
+                        "IDXGISwapChain::CheckColorSpaceSupport(scRGB)", result) :
+                    "HDR output was explicitly requested, but the swap chain "
+                    "cannot present FP16 scRGB on the current monitor";
+                return false;
+            }
+            debug_output(
+                "DXR output: current monitor rejected FP16 scRGB; using SDR");
+            output = sdr_output_configuration();
+            if (!resize_to(output.format)) {
+                return false;
+            }
+        }
+    }
+    HRESULT color_result = swap_chain_->SetColorSpace1(output.color_space);
+    if (FAILED(color_result) && output.hdr && allow_hdr_fallback) {
+        debug_output(
+            "DXR output: scRGB color-space activation failed; using SDR");
+        output = sdr_output_configuration();
+        if (!resize_to(output.format)) {
+            return false;
+        }
+        color_result = swap_chain_->SetColorSpace1(output.color_space);
+    }
+    if (FAILED(color_result)) {
+        error = hresult_error("IDXGISwapChain3::SetColorSpace1", color_result);
+        return false;
+    }
+    output_ = output;
+    width_ = width;
+    height_ = height;
+    frame_index_ = swap_chain_->GetCurrentBackBufferIndex();
+    if (recreate_render_targets && !create_render_targets(error)) {
+        return false;
+    }
+    return true;
+}
+
+bool DxrDevice::refresh_output_configuration(DxrPipeline &pipeline,
+                                             UINT width, UINT height,
+                                             std::string &error)
+{
+    DxrOutputConfiguration desired;
+    std::string display_name;
+    if (!choose_output_configuration(desired, display_name, error)) {
+        return false;
+    }
+    if (desired.format != output_.format ||
+        desired.color_space != output_.color_space) {
+        if (!flush(error) ||
+            !reconfigure_swap_chain(
+                desired, width, height, true,
+                requested_output_ != RENDERER_OUTPUT_HDR, error) ||
+            !pipeline.configure_output(device_.Get(), desired, error) ||
+            !check_debug_messages(error)) {
+            return false;
+        }
+        debug_output(std::string("DXR output: ") +
+            (desired.hdr ? "FP16 scRGB HDR" : "8-bit sRGB SDR") +
+            (display_name.empty() ? std::string() :
+                std::string(" on ") + display_name) +
+            (desired.hdr ?
+                std::string(" peak=") + std::to_string(desired.peak_nits) +
+                    " nits paper white=" +
+                    std::to_string(desired.paper_white_nits) + " nits" :
+                std::string()));
+    } else if (!output_configuration_equal(desired, output_)) {
+        output_ = desired;
+        if (!pipeline.configure_output(device_.Get(), output_, error)) {
+            return false;
+        }
+    }
+    return resize(width, height, error);
 }
 
 bool DxrDevice::create_frame_contexts(std::string &error)
@@ -537,6 +734,7 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
 }
 
 bool DxrDevice::initialize(HWND window, bool hidden_window,
+                           const RendererRayTracingOptions &options,
                            DxrStreamline *streamline, std::string &error)
 {
     RECT client = {};
@@ -548,6 +746,14 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
     window_ = window;
     hidden_window_ = hidden_window;
     streamline_ = streamline;
+    if (options.output < RENDERER_OUTPUT_AUTO ||
+        options.output > RENDERER_OUTPUT_HDR) {
+        error = "DXR output mode is invalid";
+        return false;
+    }
+    requested_output_ = options.output;
+    requested_hdr_peak_nits_ = options.hdr_peak_nits;
+    requested_hdr_paper_white_nits_ = options.hdr_paper_white_nits;
     if (!GetClientRect(window_, &client)) {
         error = hresult_error("GetClientRect(DXR window)",
                               HRESULT_FROM_WIN32(GetLastError()));
@@ -558,10 +764,29 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
 
     if (!enable_diagnostics(error) || !create_factory(error) ||
         !select_adapter_and_device(error) || !create_command_objects(error) ||
-        !create_swap_chain(error) || !create_frame_contexts(error) ||
+        !create_swap_chain(error)) {
+        return false;
+    }
+    DxrOutputConfiguration selected_output;
+    std::string display_name;
+    if (!choose_output_configuration(selected_output, display_name, error) ||
+        !reconfigure_swap_chain(
+            selected_output, width_, height_, false,
+            requested_output_ != RENDERER_OUTPUT_HDR, error) ||
+        !create_frame_contexts(error) ||
         !create_render_targets(error)) {
         return false;
     }
+    debug_output(std::string("DXR output: ") +
+        (output_.hdr ? "FP16 scRGB HDR" : "8-bit sRGB SDR") +
+        (hidden_window_ ? " (hidden validation forced SDR)" :
+            (display_name.empty() ? std::string() :
+                std::string(" on ") + display_name)) +
+        (output_.hdr ?
+            std::string(" peak=") + std::to_string(output_.peak_nits) +
+                " nits paper white=" +
+                std::to_string(output_.paper_white_nits) + " nits" :
+            std::string()));
     return check_debug_messages(error);
 }
 
@@ -622,7 +847,7 @@ bool DxrDevice::resize(UINT width, UINT height, std::string &error)
         frame.render_target.Reset();
     }
     const HRESULT result = swap_chain_->ResizeBuffers(
-        frame_count, width, height, DXGI_FORMAT_R8G8B8A8_UNORM, 0);
+        frame_count, width, height, output_.format, 0);
     if (FAILED(result)) {
         return fail_device_operation("IDXGISwapChain::ResizeBuffers", result, error);
     }
@@ -656,7 +881,9 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     if (client_width <= 0 || client_height <= 0) {
         return true;
     }
-    if (!resize(static_cast<UINT>(client_width), static_cast<UINT>(client_height), error)) {
+    if (!refresh_output_configuration(
+            pipeline, static_cast<UINT>(client_width),
+            static_cast<UINT>(client_height), error)) {
         return false;
     }
     if (!pipeline.update_scene(scene_frame, view, width_, height_,

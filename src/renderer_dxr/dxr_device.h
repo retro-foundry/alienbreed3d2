@@ -12,7 +12,9 @@
 #include <vector>
 
 #include "render_view.h"
+#include "renderer_ray_tracing_options.h"
 #include "scene_frame.h"
+#include "dxr_output.h"
 
 namespace ab3d2::dxr {
 
@@ -28,7 +30,9 @@ public:
     DxrDevice(const DxrDevice &) = delete;
     DxrDevice &operator=(const DxrDevice &) = delete;
 
-    bool initialize(HWND window, bool hidden_window, DxrStreamline *streamline,
+    bool initialize(HWND window, bool hidden_window,
+                    const RendererRayTracingOptions &options,
+                    DxrStreamline *streamline,
                     std::string &error);
     bool render(DxrPipeline &pipeline, const SceneFrame &frame,
                 const RenderView &view, std::string &error);
@@ -57,6 +61,9 @@ public:
     }
 
     ID3D12Device5 *device() const { return device_.Get(); }
+    const DxrOutputConfiguration &output_configuration() const {
+        return output_;
+    }
 
 private:
     struct FrameContext {
@@ -73,6 +80,17 @@ private:
     bool create_swap_chain(std::string &error);
     bool create_frame_contexts(std::string &error);
     bool create_render_targets(std::string &error);
+    bool choose_output_configuration(DxrOutputConfiguration &output,
+                                     std::string &display_name,
+                                     std::string &error) const;
+    bool reconfigure_swap_chain(DxrOutputConfiguration &output,
+                                UINT width, UINT height,
+                                bool recreate_render_targets,
+                                bool allow_hdr_fallback,
+                                std::string &error);
+    bool refresh_output_configuration(DxrPipeline &pipeline,
+                                      UINT width, UINT height,
+                                      std::string &error);
     bool ensure_scene_readback(std::string &error);
     bool collect_scene_readback(UINT64 fence_value, std::string &error);
     bool resize(UINT width, UINT height, std::string &error);
@@ -106,6 +124,10 @@ private:
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT readback_footprint_ = {};
     HANDLE fence_event_ = nullptr;
     DxrStreamline *streamline_ = nullptr;
+    RendererOutputMode requested_output_ = RENDERER_OUTPUT_AUTO;
+    float requested_hdr_peak_nits_ = 0.0f;
+    float requested_hdr_paper_white_nits_ = 0.0f;
+    DxrOutputConfiguration output_ = {};
 
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory_;
 #if defined(AB3D2_ENABLE_STREAMLINE)

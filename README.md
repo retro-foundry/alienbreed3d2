@@ -653,8 +653,19 @@ folded back into the finer levels, and composited with the same linear-HDR image
 that presentation consumes. The curve preserves RGB ratios and final gamut
 compression preserves hue. The current 8-bit SDR path then applies exact sRGB
 encoding and sub-half-code dithering from the renderer's pinned blue-noise/
-Owen-scrambled Sobol package. The configured exposure remains `1` by default
-and multiplies the automatic result as a bias. Set
+Owen-scrambled Sobol package. For a visible DXR window, automatic output mode
+also reads the Windows advanced-colour state of the monitor containing the
+window. An HDR-enabled monitor gets a native `R16G16B16A16_FLOAT` flip-discard
+swap chain in linear scRGB (`1.0` is the scRGB 80-nit reference white); diffuse
+white is anchored to 200 nits by default and the adaptive curve's highlight
+shoulder reaches the display-reported peak. Moving the window between HDR and
+SDR monitors flushes the old buffers and rebuilds both swap-chain PSOs for the
+new RTV format. When Windows HDR is off, the monitor lacks advanced-colour
+support, or FP16 scRGB presentation is rejected, auto mode stays on the exact
+sRGB path. Hidden GPU smoke is deliberately forced to that SDR path so its
+RGBA8 readback metrics and PPM captures remain stable. HDR output stays linear
+and does not apply sRGB encoding or 8-bit dithering. The configured exposure
+remains `1` by default and multiplies the automatic result as a bias. Set
 `AB3D2_DXR_EXPOSURE` to a finite value from `0.001` through `100` for diagnostic
 exposure sweeps. The CTest all-level invocation uses the production default
 without an override.

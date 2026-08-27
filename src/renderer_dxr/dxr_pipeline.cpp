@@ -228,9 +228,12 @@ struct PresentConstants {
     uint32_t target_height;
     float exposure;
     uint32_t frame_index;
+    uint32_t hdr_output;
+    float hdr_peak_nits;
+    float hdr_paper_white_nits;
 };
 
-static_assert(sizeof(PresentConstants) == 8u * sizeof(uint32_t));
+static_assert(sizeof(PresentConstants) == 11u * sizeof(uint32_t));
 
 struct PostConstants {
     uint32_t source_width;
@@ -342,7 +345,8 @@ bool serialize_root_signature(const D3D12_ROOT_SIGNATURE_DESC &description,
 
 D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_description(
     ID3D12RootSignature *root, const std::vector<unsigned char> &vertex_shader,
-    const std::vector<unsigned char> &pixel_shader)
+    const std::vector<unsigned char> &pixel_shader,
+    DXGI_FORMAT render_target_format)
 {
     D3D12_GRAPHICS_PIPELINE_STATE_DESC description = {};
     description.pRootSignature = root;
@@ -365,7 +369,7 @@ D3D12_GRAPHICS_PIPELINE_STATE_DESC graphics_description(
     description.DepthStencilState.StencilEnable = FALSE;
     description.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     description.NumRenderTargets = 1;
-    description.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    description.RTVFormats[0] = render_target_format;
     description.SampleDesc.Count = 1;
     return description;
 }
@@ -724,7 +728,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
 
 bool DxrPipeline::create_diagnostic_pipeline(
     ID3D12Device5 *device, const std::vector<unsigned char> &vertex_shader,
-    const std::vector<unsigned char> &pixel_shader, std::string &error)
+    const std::vector<unsigned char> &pixel_shader,
+    DXGI_FORMAT render_target_format, std::string &error)
 {
     D3D12_ROOT_SIGNATURE_DESC root_description = {};
     root_description.Flags =
@@ -734,7 +739,8 @@ bool DxrPipeline::create_diagnostic_pipeline(
         return false;
     }
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC description = graphics_description(
-        root_signature_.Get(), vertex_shader, pixel_shader);
+        root_signature_.Get(), vertex_shader, pixel_shader,
+        render_target_format);
     const HRESULT result = device->CreateGraphicsPipelineState(
         &description, IID_PPV_ARGS(&pipeline_state_));
     if (FAILED(result)) {
@@ -748,7 +754,7 @@ bool DxrPipeline::create_diagnostic_pipeline(
 
 bool DxrPipeline::create_present_pipeline(
     ID3D12Device5 *device, const std::vector<unsigned char> &vertex_shader,
-    std::string &error)
+    DXGI_FORMAT render_target_format, std::string &error)
 {
     std::vector<unsigned char> pixel_shader;
     if (!load_shader(L"present_ps.dxil", pixel_shader, error)) {
@@ -782,7 +788,8 @@ bool DxrPipeline::create_present_pipeline(
         return false;
     }
     const D3D12_GRAPHICS_PIPELINE_STATE_DESC description = graphics_description(
-        present_root_signature_.Get(), vertex_shader, pixel_shader);
+        present_root_signature_.Get(), vertex_shader, pixel_shader,
+        render_target_format);
     const HRESULT result = device->CreateGraphicsPipelineState(
         &description, IID_PPV_ARGS(&present_pipeline_state_));
     if (FAILED(result)) {
@@ -2048,25 +2055,48 @@ ID3D12Resource *DxrPipeline::reconstruction_resource(
         reconstruction_targets_[index].Get() : nullptr;
 }
 
-bool DxrPipeline::initialize(ID3D12Device5 *device,
-                            const RendererRayTracingOptions &options,
-                            std::string &error)
+bool DxrPipeline::configure_output(ID3D12Device5 *device,
+                                   const DxrOutputConfiguration &output,
+                                   std::string &error)
 {
     std::vector<unsigned char> vertex_shader;
     std::vector<unsigned char> pixel_shader;
     std::vector<unsigned char> present_vertex_shader;
 
     if (!device) {
+        error = "DXR output pipeline received no D3D12 device";
+        return false;
+    }
+    if (pipeline_state_ && present_pipeline_state_ &&
+        output_.format == output.format) {
+        output_ = output;
+        return true;
+    }
+    if (!load_shader(L"diagnostic_vs.dxil", vertex_shader, error) ||
+        !load_shader(L"diagnostic_ps.dxil", pixel_shader, error) ||
+        !load_shader(L"present_vs.dxil", present_vertex_shader, error) ||
+        !create_diagnostic_pipeline(device, vertex_shader, pixel_shader,
+                                    output.format, error) ||
+        !create_present_pipeline(device, present_vertex_shader, output.format,
+                                 error)) {
+        return false;
+    }
+    output_ = output;
+    return true;
+}
+
+bool DxrPipeline::initialize(ID3D12Device5 *device,
+                            const RendererRayTracingOptions &options,
+                            const DxrOutputConfiguration &output,
+                            std::string &error)
+{
+    if (!device) {
         error = "DXR pipeline received no D3D12 device";
         return false;
     }
     return configure_debug_view(error) &&
         configure_resampling(options, error) &&
-        load_shader(L"diagnostic_vs.dxil", vertex_shader, error) &&
-        load_shader(L"diagnostic_ps.dxil", pixel_shader, error) &&
-        load_shader(L"present_vs.dxil", present_vertex_shader, error) &&
-        create_diagnostic_pipeline(device, vertex_shader, pixel_shader, error) &&
-        create_present_pipeline(device, present_vertex_shader, error) &&
+        configure_output(device, output, error) &&
         create_post_pipeline(device, error) &&
         create_blue_noise_sampler(device, error) &&
         create_frame_constant_buffer(device, error) &&
@@ -2778,7 +2808,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         debug_view_, debug_scalar_range_,
         present_post_hdr ? post_width : render_width,
         present_post_hdr ? post_height : render_height,
-        width, height, exposure_, static_cast<uint32_t>(frame_number)};
+        width, height, exposure_, static_cast<uint32_t>(frame_number),
+        output_.hdr ? 1u : 0u, output_.peak_nits,
+        output_.paper_white_nits};
     command_list->SetGraphicsRoot32BitConstants(
         1, sizeof(present_constants) / sizeof(uint32_t), &present_constants, 0);
     command_list->SetGraphicsRootShaderResourceView(

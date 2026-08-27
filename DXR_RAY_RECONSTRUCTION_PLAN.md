@@ -1141,9 +1141,18 @@ classes and transient projectiles remain incomplete.
   composite bright energy in linear HDR before that histogram and tone curve.
   The explicit SDR path retains manual exact sRGB encoding and uses the pinned
   blue-noise/Owen-scrambled Sobol package for sub-half-code final 8-bit
-  quantization dithering. No coverage assertion or checksum threshold was
-  removed. Transmissive/alpha-blended presentation, HUD, text, HDR swap-chain
-  negotiation, and optional NVIDIA transparency guides remain.
+  quantization dithering. Visible auto-mode windows now inspect the current
+  monitor through `IDXGIOutput6`: Windows advanced colour selects an FP16 scRGB
+  swap chain and `RGB_FULL_G10_NONE_P709`, while other monitors retain the SDR
+  swap chain. The pipeline rebuilds both diagnostic and final-present PSOs when
+  a cross-monitor move changes the RTV format. The HDR branch stays linear,
+  anchors diffuse white to 200 nits by default, maps the adaptive highlight
+  shoulder to the display-reported peak, and performs hue-preserving peak
+  compression without sRGB encoding or 8-bit dither. Auto mode falls back to
+  SDR if FP16 scRGB presentation is rejected; an explicit HDR request fails
+  clearly. Hidden validation remains forced SDR and its temporal-blue-noise
+  regression allows only sub-code display variation. Transmissive/alpha-blended
+  presentation, HUD, text, and optional NVIDIA transparency guides remain.
 - Add transmissive/alpha-blended presentation, HUD, text, and optional NVIDIA
   transparency guides if captures prove they are needed.
 - Add scripted camera/dynamic-scene captures, all-level native smoke tests, resize/device-loss tests, packaging, documentation, and licence audit.
@@ -1596,7 +1605,8 @@ nothing passes any stability bound trivially.
 - Polygon triangulation, tangent generation, UVs, winding, and stable identity mapping.
 - PBR sheet extraction, color-space declarations, manifest parsing, hashes, missing/corrupt assets, and deterministic rebuilds.
 - BRDF energy sanity, finite output, PDFs, material guide values, and random-sequence reproducibility.
-- Linear-HDR bloom extraction response and SDR blue-noise quantization bounds.
+- Linear-HDR bloom extraction response, SDR blue-noise quantization bounds, and
+  scRGB paper-white/peak mapping.
 - Current/previous transform lookup, level-generation isolation, camera resets, object births/deaths, and analytical motion vectors.
 - CMake configuration coverage for DXR-disabled, ID-independent DXR discovered through `PATH`, and Streamline-enabled builds discovered through environment variables, including missing-root, invalid-project-GUID, and altered-payload failures.
 - Streamline option/tag construction without invoking the proprietary runtime.
