@@ -48,6 +48,27 @@ int main()
     expect(level_count(3u, 5u) == 3u && packed_height(3u, 5u) == 8u,
            "non-power-of-two chains terminate and pack correctly");
 
+    const FilterFootprint isotropic = filter_footprint(
+        4.0f, 4.0f, 1.0f, 9u);
+    expect(isotropic.sample_count == 1u &&
+               std::abs(isotropic.mip_level - 2.0f) < 1.0e-6f,
+           "isotropic minification selects one trilinear sample");
+    const FilterFootprint grazing = filter_footprint(
+        8.0f, 1.0f, 1.0f, 9u);
+    expect(grazing.sample_count == maximum_filter_taps &&
+               grazing.mip_level == 0.0f,
+           "grazing footprint preserves its narrow-axis detail");
+    const FilterFootprint bounded = filter_footprint(
+        32.0f, 1.0f, 1.0f, 9u);
+    expect(bounded.sample_count == maximum_filter_taps &&
+               std::abs(bounded.mip_level - 2.0f) < 1.0e-6f,
+           "extreme anisotropy is bounded and raises per-tap LOD");
+    const FilterFootprint reconstructed = filter_footprint(
+        1.5f, 1.5f, 2.0f / 3.0f, 9u);
+    expect(reconstructed.sample_count == 1u &&
+               reconstructed.mip_level == 0.0f,
+           "RR selects detail for the displayed rather than input pixel");
+
     Levels levels;
     std::string error;
     expect(generate(Semantic::linear, solid_row({0u, 10u, 20u}),

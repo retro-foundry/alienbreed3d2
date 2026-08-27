@@ -229,8 +229,8 @@ cbuffer FrameConstants : register(b0)
     uint SampleIndex;
     float3 CameraUp;
     uint MaximumDepth;
-    uint AtlasWidth;
-    uint AtlasHeight;
+    uint OutputWidth;
+    uint OutputHeight;
     uint TriangleCount;
     uint EmitterCount;
     float3 PreviousCameraPosition;
@@ -266,6 +266,7 @@ static const uint BlueNoiseScramblingOffset = 65536u;
 static const uint BlueNoiseRankingOffset = 196608u;
 static const uint MaximumDiffusePathDepth = 8u;
 static const uint PathDimensionsPerBounce = 8u;
+static const uint MaximumMaterialFilterTaps = 8u;
 /*
  * The primary lobe choice is stochastic, so only some frames produce a
  * specular continuation ray for a given pixel. Writing zero on the other
@@ -845,6 +846,33 @@ float4 sampleMaterialAtlasTrilinear(
                 footprint.blend);
 }
 
+struct MaterialFilterFootprint
+{
+    float mipLevel;
+    float2 majorAxis;
+    uint sampleCount;
+};
+
+float4 sampleMaterialAtlasFiltered(
+    Texture2D<float4> atlas, SceneMaterial material,
+    float2 textureCoordinate, uint packedWindowOrigin,
+    uint packedWindowExtent, MaterialFilterFootprint filter)
+{
+    float4 value = 0.0;
+    float inverseCount = rcp(float(filter.sampleCount));
+    [loop]
+    for (uint sampleIndex = 0u; sampleIndex < filter.sampleCount;
+         ++sampleIndex) {
+        float position = (float(sampleIndex) + 0.5) * inverseCount - 0.5;
+        MaterialMipSampleFootprint sampleFootprint =
+            materialMipSampleFootprint(
+                material, textureCoordinate + filter.majorAxis * position,
+                packedWindowOrigin, packedWindowExtent, filter.mipLevel);
+        value += sampleMaterialAtlasTrilinear(atlas, sampleFootprint);
+    }
+    return value * inverseCount;
+}
+
 void triangleFrame(uint firstVertex, float3 incomingDirection,
                    out float3 geometricNormal, out float3 tangent,
                    out float3 bitangent)
@@ -880,57 +908,102 @@ void triangleFrame(uint firstVertex, float3 incomingDirection,
     coordinateSystem(geometricNormal, tangent, bitangent);
 }
 
-/* Ray shaders have no screen-space derivatives. Approximate the primary ray
- * cone at the hit plane, then convert its world-space diameter through the
- * triangle's authored UV gradients. Walls, floors, and ceilings carry a
- * non-zero texture extent and a mip chain; other primitive classes remain
- * exactly level zero. */
-float worldMaterialMipLevel(SceneMaterial material, SceneVertex first,
-                            SceneVertex second, SceneVertex third,
-                            float3 geometricNormal,
-                            float3 incomingDirection, float rayDistance)
+/* Ray shaders have no screen-space derivatives. Differentiate the camera ray's
+ * intersection with the hit plane along both screen axes, transform those
+ * axes into authored texel space, and retain the resulting ellipse. The
+ * packed software mip atlas cannot use hardware SampleGrad, so a bounded line
+ * filter covers the long axis while trilinear samples cover the short axis.
+ * Walls, floors, and ceilings have mip chains; other primitives stay exactly
+ * level zero. */
+MaterialFilterFootprint worldMaterialFilterFootprint(
+    SceneMaterial material, SceneVertex first, SceneVertex second,
+    SceneVertex third, float3 surfacePosition, float3 geometricNormal)
 {
+    MaterialFilterFootprint filter;
+    filter.mipLevel = 0.0;
+    filter.majorAxis = 0.0;
+    filter.sampleCount = 1u;
     if (material.mipCount <= 1u || first.textureWindowExtent == 0u) {
-        return 0.0;
-    }
-    float2 firstUvEdge = second.textureCoordinate - first.textureCoordinate;
-    float2 secondUvEdge = third.textureCoordinate - first.textureCoordinate;
-    float determinant = firstUvEdge.x * secondUvEdge.y -
-                        firstUvEdge.y * secondUvEdge.x;
-    if (abs(determinant) <= 1.0e-8) {
-        return 0.0;
+        return filter;
     }
     float3 firstEdge = second.position - first.position;
     float3 secondEdge = third.position - first.position;
-    float3 positionPerU =
-        (firstEdge * secondUvEdge.y - secondEdge * firstUvEdge.y) /
-        determinant;
-    float3 positionPerV =
-        (secondEdge * firstUvEdge.x - firstEdge * secondUvEdge.x) /
-        determinant;
-    float uWorldLength = length(positionPerU);
-    float vWorldLength = length(positionPerV);
-    if (uWorldLength <= 1.0e-6 || vWorldLength <= 1.0e-6) {
-        return 0.0;
+    float firstSquared = dot(firstEdge, firstEdge);
+    float crossed = dot(firstEdge, secondEdge);
+    float secondSquared = dot(secondEdge, secondEdge);
+    float determinant = firstSquared * secondSquared - crossed * crossed;
+    if (determinant <= 1.0e-12) {
+        return filter;
     }
-
+    float3 firstDual =
+        (secondSquared * firstEdge - crossed * secondEdge) / determinant;
+    float3 secondDual =
+        (firstSquared * secondEdge - crossed * firstEdge) / determinant;
+    float2 firstUvEdge = second.textureCoordinate - first.textureCoordinate;
+    float2 secondUvEdge = third.textureCoordinate - first.textureCoordinate;
     MaterialTextureWindow window = materialTextureWindow(
         material, first.textureWindowOrigin, first.textureWindowExtent);
-    float renderHeight = float(max(DispatchRaysDimensions().y, 1u));
-    float pixelWorldSpan = max(rayDistance, RayEpsilon) *
-        (2.0 * TanHalfFovY / renderHeight);
-    /* A ray cone stretches across a plane at grazing incidence. The lower
-     * bound limits only the singular edge-on case where the surface
-     * contributes less than a pixel but an unbounded footprint would erase
-     * it. */
-    float incidence = max(abs(dot(normalize(incomingDirection),
-                                  geometricNormal)), 0.125);
-    pixelWorldSpan /= incidence;
-    float texelFootprint = max(
-        pixelWorldSpan * float(window.extent.x) / uWorldLength,
-        pixelWorldSpan * float(window.extent.y) / vWorldLength);
-    return clamp(log2(max(texelFootprint, 1.0)), 0.0,
-                 float(material.mipCount - 1u));
+    float3 uGradient =
+        (firstUvEdge.x * firstDual + secondUvEdge.x * secondDual) *
+        float(window.extent.x);
+    float3 vGradient =
+        (firstUvEdge.y * firstDual + secondUvEdge.y * secondDual) *
+        float(window.extent.y);
+
+    float3 cameraOffset = surfacePosition - CameraPosition;
+    float viewDepth = dot(cameraOffset, CameraForward);
+    if (viewDepth <= RayEpsilon) {
+        return filter;
+    }
+    float2 renderSize = float2(max(
+        DispatchRaysDimensions().xy, uint2(1u, 1u)));
+    float3 cameraRay = cameraOffset / viewDepth;
+    float planeDenominator = dot(geometricNormal, cameraRay);
+    if (abs(planeDenominator) <= 1.0e-6) {
+        filter.mipLevel = float(material.mipCount - 1u);
+        return filter;
+    }
+    float differentialScale = viewDepth * 2.0 * TanHalfFovY / renderSize.y;
+    float3 xDifferential = differentialScale *
+        (CameraRight - cameraRay *
+            (dot(geometricNormal, CameraRight) / planeDenominator));
+    float3 yDifferential = differentialScale *
+        (CameraUp - cameraRay *
+            (dot(geometricNormal, CameraUp) / planeDenominator));
+    float2 xTexels = float2(dot(uGradient, xDifferential),
+                            dot(vGradient, xDifferential)) *
+        (renderSize.x / float(max(OutputWidth, 1u)));
+    float2 yTexels = float2(dot(uGradient, yDifferential),
+                            dot(vGradient, yDifferential)) *
+        (renderSize.y / float(max(OutputHeight, 1u)));
+
+    /* Singular values of the screen-to-texel Jacobian give the long and short
+     * axes without combining unrelated worst-case directions. */
+    float uu = xTexels.x * xTexels.x + yTexels.x * yTexels.x;
+    float uv = xTexels.x * xTexels.y + yTexels.x * yTexels.y;
+    float vv = xTexels.y * xTexels.y + yTexels.y * yTexels.y;
+    float discriminant = sqrt(max(
+        (uu - vv) * (uu - vv) + 4.0 * uv * uv, 0.0));
+    float majorEigenvalue = max(0.5 * (uu + vv + discriminant), 0.0);
+    float minorEigenvalue = max(0.5 * (uu + vv - discriminant), 0.0);
+    float2 majorDirection;
+    if (abs(uv) > 1.0e-8) {
+        majorDirection = normalize(float2(majorEigenvalue - vv, uv));
+    } else {
+        majorDirection = uu >= vv ? float2(1.0, 0.0) : float2(0.0, 1.0);
+    }
+    float major = max(sqrt(majorEigenvalue), 1.0);
+    float minor = max(sqrt(minorEigenvalue), 1.0);
+    float boundedAnisotropy = min(
+        major / minor, float(MaximumMaterialFilterTaps));
+    filter.sampleCount = uint(ceil(boundedAnisotropy));
+    float perSampleFootprint = max(
+        minor, major / float(filter.sampleCount));
+    filter.mipLevel = clamp(
+        log2(perSampleFootprint), 0.0, float(material.mipCount - 1u));
+    filter.majorAxis = majorDirection * sqrt(majorEigenvalue) /
+        float2(window.extent);
+    return filter;
 }
 
 SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
@@ -958,16 +1031,19 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     triangleFrame(firstVertex, incomingDirection, surface.geometricNormal,
                   tangent, bitangent);
     SceneMaterial material = Materials[surface.materialIndex];
-    float mipLevel = worldMaterialMipLevel(
-        material, first, second, third, surface.geometricNormal,
-        incomingDirection, payload.rayDistance);
-    MaterialMipSampleFootprint footprint = materialMipSampleFootprint(
-        material, surface.textureCoordinate, surface.textureWindowOrigin,
-        surface.textureWindowExtent, mipLevel);
+    MaterialFilterFootprint filter = worldMaterialFilterFootprint(
+        material, first, second, third, surface.position,
+        surface.geometricNormal);
     surface.baseColor = saturate(
-        sampleMaterialAtlasTrilinear(BaseColorAtlas, footprint).rgb);
+        sampleMaterialAtlasFiltered(
+            BaseColorAtlas, material, surface.textureCoordinate,
+            surface.textureWindowOrigin, surface.textureWindowExtent,
+            filter).rgb);
     float3 tangentNormal =
-        sampleMaterialAtlasTrilinear(NormalAtlas, footprint).xyz * 2.0 - 1.0;
+        sampleMaterialAtlasFiltered(
+            NormalAtlas, material, surface.textureCoordinate,
+            surface.textureWindowOrigin, surface.textureWindowExtent,
+            filter).xyz * 2.0 - 1.0;
     tangentNormal.xy *= material.normalStrength;
     tangentNormal = normalize(float3(tangentNormal.xy,
                                      max(tangentNormal.z, 1.0e-4)));
@@ -977,16 +1053,25 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
         surface.shadingNormal = surface.geometricNormal;
     }
     surface.metalness = saturate(
-        sampleMaterialAtlasTrilinear(MetalnessAtlas, footprint).r);
+        sampleMaterialAtlasFiltered(
+            MetalnessAtlas, material, surface.textureCoordinate,
+            surface.textureWindowOrigin, surface.textureWindowExtent,
+            filter).r);
     surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
-        sampleMaterialAtlasTrilinear(RoughnessAtlas, footprint).r,
+        sampleMaterialAtlasFiltered(
+            RoughnessAtlas, material, surface.textureCoordinate,
+            surface.textureWindowOrigin, surface.textureWindowExtent,
+            filter).r,
         0.045, 1.0);
     float emissionScale = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
     surface.emission =
-        sampleMaterialAtlasTrilinear(EmissiveAtlas, footprint).rgb *
+        sampleMaterialAtlasFiltered(
+            EmissiveAtlas, material, surface.textureCoordinate,
+            surface.textureWindowOrigin, surface.textureWindowExtent,
+            filter).rgb *
         material.emissiveFactor * emissionScale;
     return surface;
 }

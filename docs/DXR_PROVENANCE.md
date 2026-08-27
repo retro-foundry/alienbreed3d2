@@ -71,8 +71,23 @@ added to `Draw_FloorTexturesPtr_l`, while the
 renderer-neutral vertices publish the same fixed 64-by-64 logical repeat. DXR
 therefore uses the complete bound 256-by-256 PBR flat image and that authored
 UV scale; it does not infer a tile or scale from its filename.
-The ray-cone LOD and trilinear atlas sampling are project-authored and import no
-Q2RTX texture code, shader, generated mip data, or material package.
+The directional footprint, output-resolution LOD, bounded line filter, and
+trilinear atlas sampling are project-authored and import no Q2RTX texture code,
+shader, generated mip data, or material package.
+
+After the longstanding native texture blur was isolated in the saved Level A
+corridor, the approved Q2RTX comparison tree was inspected on 2026-08-27.
+`src/refresh/vkpt/textures.c`,
+`src/refresh/vkpt/shader/global_textures.h`,
+`src/refresh/vkpt/shader/path_tracer_rgen.h`, and
+`src/refresh/vkpt/main.c` establish only the target behavior:
+linear anisotropic minification, two directional ray-cone gradients, gradient
+texture lookup, and resolution-scale LOD compensation. The DXR implementation
+was independently derived for this project's packed software-mip atlas. It
+differentiates the camera-ray/triangle-plane intersection, computes the texel
+footprint's singular axes, uses a project-selected eight-tap bound, and performs
+manual repeat-aware line/trilinear sampling. No Q2RTX constant, equation, source
+text, sampler layout, texture data, or generated asset was copied.
 Authored sheets without a demonstrated runtime binding remain unbound. Source
 wall IDs 0 and 12 and every otherwise unauthored entry now have committed
 neutral placeholder PBR maps, so the runtime has no decoded-source material

@@ -563,10 +563,13 @@ complete 256-by-256 PBR image corresponding to `Draw_Flats`' selected
 64-by-64 source tile. Both build a software mip pyramid for all five channels. Color and
 emission levels are averaged in linear light, tangent normals are renormalized,
 and metalness/roughness are averaged linearly. The ray shader derives wall,
-floor, and ceiling LOD from the hit ray cone and triangle UV gradients and
-blends adjacent levels. These levels are packed below their isolated level-zero
-window; water, models, billboards, effects, the weapon, and UI retain
-the existing level-zero filter.
+floor, and ceiling texture axes from camera-ray/triangle-plane differentials and
+authored UV gradients. It selects detail for the displayed pixel size under Ray
+Reconstruction, retains the anisotropic footprint with up to eight samples
+along its long axis, and trilinearly blends adjacent software mips along its
+short axis. These levels are packed below their isolated level-zero window;
+water, models, billboards, effects, the weapon, and UI retain the existing
+level-zero filter.
 Weapon and vector-model regions retain
 their source albedo and use roughness 184/255 (the nearest PNG value to 0.72),
 metalness 0, and editable `specular_factor` 0.35, matching the proven material

@@ -614,8 +614,13 @@ cropped to that window. Each floor/ceiling identity uses the complete
 `Draw_Flats`. Their levels
 are vertically packed below level zero. sRGB color/emission are reduced in
 linear light, tangent normals are averaged and renormalized, and scalar
-channels are reduced linearly. The ray shader converts its hit ray cone through
-the authored triangle UV gradients and trilinearly blends adjacent levels.
+channels are reduced linearly. The ray shader differentiates the camera ray's
+hit-plane intersection along both screen axes and converts the result through
+the authored triangle UV gradients. The footprint is scaled from Ray
+Reconstruction input pixels to displayed pixels, its long and short singular
+axes remain separate, up to eight software-atlas samples cover the long axis,
+and each sample trilinearly blends the levels selected for the per-sample
+short-axis footprint.
 Water and non-world material classes remain on the prior level-zero
 path by design.
 

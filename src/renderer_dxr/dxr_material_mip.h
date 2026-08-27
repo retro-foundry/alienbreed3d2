@@ -19,6 +19,45 @@ enum class Semantic {
 
 using Levels = std::vector<std::vector<uint8_t>>;
 
+/* The atlas stores each material's mip pyramid inside hardware level zero, so
+ * the ray shader performs its own bounded anisotropic line filter. Eight taps
+ * retain long grazing-angle detail without multiplying all five PBR channel
+ * reads without limit. */
+inline constexpr uint32_t maximum_filter_taps = 8u;
+
+struct FilterFootprint {
+    float mip_level;
+    uint32_t sample_count;
+};
+
+inline FilterFootprint filter_footprint(float major_texels,
+                                        float minor_texels,
+                                        float render_to_output_scale,
+                                        uint32_t mip_count)
+{
+    if (mip_count <= 1u || !std::isfinite(major_texels) ||
+        !std::isfinite(minor_texels) ||
+        !std::isfinite(render_to_output_scale) ||
+        render_to_output_scale <= 0.0f) {
+        return {0.0f, 1u};
+    }
+    const float minor = std::max(
+        std::min(major_texels, minor_texels) * render_to_output_scale, 1.0f);
+    const float major = std::max(
+        std::max(major_texels, minor_texels) * render_to_output_scale, minor);
+    const float bounded_anisotropy = std::clamp(
+        major / minor, 1.0f, static_cast<float>(maximum_filter_taps));
+    const uint32_t samples =
+        static_cast<uint32_t>(std::ceil(bounded_anisotropy));
+    const float per_sample = std::max(
+        minor, major / static_cast<float>(samples));
+    return {
+        std::clamp(std::log2(per_sample), 0.0f,
+                   static_cast<float>(mip_count - 1u)),
+        samples,
+    };
+}
+
 inline constexpr uint32_t level_extent(uint32_t extent, uint32_t level)
 {
     return std::max(1u, extent >> level);

@@ -185,8 +185,8 @@ struct FrameConstants {
     uint32_t sample_index;
     float camera_up[3];
     uint32_t maximum_depth;
-    uint32_t atlas_width;
-    uint32_t atlas_height;
+    uint32_t output_width;
+    uint32_t output_height;
     uint32_t triangle_count;
     uint32_t emitter_count;
     float previous_camera_position[3];
@@ -2213,8 +2213,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.sample_index = sample_index;
     copy_vector(constants.camera_up, current_camera.up);
     constants.maximum_depth = maximum_depth_;
-    constants.atlas_width = scene_.atlas_width();
-    constants.atlas_height = scene_.atlas_height();
+    constants.output_width = width;
+    constants.output_height = height;
     constants.triangle_count = scene_.triangle_count();
     constants.emitter_count = scene_.emitter_count();
     copy_vector(constants.previous_camera_position, previous_camera.position);
