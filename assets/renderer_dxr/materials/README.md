@@ -18,11 +18,12 @@ columns are not exported. Authored landmark registration is then applied to all
 five channels where replacement artwork does not match source texel boundaries,
 with the same encoded normal-Z floor used by the Q2 package. Native DXR filters
 those maps within each source wall window. At scene load it crops the exact
-`Draw_Wall` U/V window and generates a wall-only mip pyramid: base color and
-emission average in linear light, normals are renormalized, and metalness and
-roughness average linearly. Ray-cone LOD and trilinear sampling use that
-isolated pyramid without changing the level-zero-only behavior of other
-material classes. A wall binding's `v_period` selects
+`Draw_Wall` U/V window; a floor uses its complete 256-by-256 replacement for
+the selected 64-by-64 `Draw_Flats` source tile. Both generate mip pyramids:
+base color and emission average in linear light, normals are renormalized, and
+metalness and roughness average linearly. Ray-cone LOD and trilinear sampling
+use those isolated pyramids without changing ceilings, water, or non-world
+material classes from level zero. A wall binding's `v_period` selects
 the exact packed-WAD interpretation used by its Draw_Wall record. Other
 unauthored channels use the
 neutral defaults listed in

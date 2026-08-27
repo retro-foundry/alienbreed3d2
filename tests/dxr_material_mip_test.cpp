@@ -1,4 +1,4 @@
-#include "renderer_dxr/dxr_wall_mip.h"
+#include "renderer_dxr/dxr_material_mip.h"
 
 #include <cstdint>
 #include <initializer_list>
@@ -32,7 +32,7 @@ std::vector<uint8_t> solid_row(
 
 int main()
 {
-    using namespace ab3d2::dxr::wall_mip;
+    using namespace ab3d2::dxr::material_mip;
 
     expect(level_count(4u, 4u) == 3u,
            "4x4 has level-zero, 2x2, and 1x1");
@@ -42,6 +42,9 @@ int main()
            "software levels are stacked directly below level zero");
     expect(packed_height(4u, 4u) == 7u,
            "4x4 pyramid occupies seven atlas rows");
+    expect(level_count(256u, 256u) == 9u &&
+               packed_height(256u, 256u) == 511u,
+           "256x256 floor tile produces its complete packed pyramid");
     expect(level_count(3u, 5u) == 3u && packed_height(3u, 5u) == 8u,
            "non-power-of-two chains terminate and pack correctly");
 
@@ -78,9 +81,9 @@ int main()
            "invalid RGBA8 payload is rejected");
 
     if (failures != 0) {
-        std::cerr << failures << " wall-mip test(s) failed\n";
+        std::cerr << failures << " material-mip test(s) failed\n";
         return 1;
     }
-    std::cout << "DXR wall mip tests passed\n";
+    std::cout << "DXR material mip tests passed\n";
     return 0;
 }

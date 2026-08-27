@@ -59,12 +59,17 @@ packed channels, or material files.
 The authoritative `shared_wall` IDs come from the wall texture load order in
 `amiga/ab3d2_source/modules/res.s:Res_LoadWallTextures`, as published by
 `game_bootstrap_make_wall_surface` in `SceneMaterial.source_asset_id`.
-The wall-only mip identities and crop rectangles additionally come from
+The wall mip identities and crop rectangles additionally come from
 `amiga/ab3d2_source/hireswall.s:Draw_Wall`: word `+10` is the U origin and
 bytes `+18`/`+16` are the U/V repeat masks published through
 `SceneGeometry.texture_window`. The project-authored DXR scene compiler uses
 those fields directly, rather than filenames or material guesses, to isolate
 each window before generating its five semantic-aware software mip chains.
+Floor mip identity follows `amiga/ab3d2_source/hires.s:Draw_Flats` and
+`draw_FloorLine`: `whichtile` is added to `Draw_FloorTexturesPtr_l`, while the
+renderer-neutral vertices publish the same fixed 64-by-64 logical repeat. DXR
+therefore uses the complete bound 256-by-256 PBR floor image and that authored
+UV scale; it does not infer a tile or scale from its filename.
 The ray-cone LOD and trilinear atlas sampling are project-authored and import no
 Q2RTX texture code, shader, generated mip data, or material package.
 Authored sheets without a demonstrated runtime binding remain unbound. Source

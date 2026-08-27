@@ -546,14 +546,16 @@ so the source-authoritative 128-high and 64-high interpretations of the packed
 stonewall WAD remain distinct materials. This keeps base-color, tangent-normal,
 metalness, and roughness features in the same normalized UV domain without
 compressing extra sheet canvas into it or bleeding from an adjacent material.
-At scene compilation DXR also crops each wall material to the exact U origin,
-U period, and V period selected by `Draw_Wall`, then builds a software mip
-pyramid for all five channels. Color and emission levels are averaged in linear
-light, tangent normals are renormalized, and metalness/roughness are averaged
-linearly. The ray shader derives a wall LOD from the hit ray cone and authored
-triangle UV gradients and blends adjacent levels. These wall-only levels are
-packed below their isolated level-zero window; floors, models, billboards,
-effects, the weapon, and UI retain the existing level-zero filter.
+At scene compilation DXR crops each wall material to the exact U origin,
+U period, and V period selected by `Draw_Wall`; floors use the complete
+256-by-256 PBR image corresponding to `Draw_Flats`' selected 64-by-64 source
+tile. Both build a software mip pyramid for all five channels. Color and
+emission levels are averaged in linear light, tangent normals are renormalized,
+and metalness/roughness are averaged linearly. The ray shader derives wall and
+floor LOD from the hit ray cone and authored triangle UV gradients and blends
+adjacent levels. These levels are packed below their isolated level-zero
+window; ceilings, water, models, billboards, effects, the weapon, and UI retain
+the existing level-zero filter.
 Weapon and vector-model regions retain
 their source albedo and use roughness 184/255 (the nearest PNG value to 0.72),
 metalness 0, and editable `specular_factor` 0.35, matching the proven material

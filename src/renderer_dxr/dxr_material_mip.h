@@ -1,5 +1,5 @@
-#ifndef AB3D2_DXR_WALL_MIP_H
-#define AB3D2_DXR_WALL_MIP_H
+#ifndef AB3D2_DXR_MATERIAL_MIP_H
+#define AB3D2_DXR_MATERIAL_MIP_H
 
 #include <algorithm>
 #include <cmath>
@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace ab3d2::dxr::wall_mip {
+namespace ab3d2::dxr::material_mip {
 
 enum class Semantic {
     srgb,
@@ -85,7 +85,7 @@ inline bool generate(Semantic semantic, const std::vector<uint8_t> &base,
         static_cast<size_t>(width) >
             std::numeric_limits<size_t>::max() / height / 4u ||
         base.size() != static_cast<size_t>(width) * height * 4u) {
-        error = "wall mip generation received an invalid RGBA8 image";
+        error = "material mip generation received an invalid RGBA8 image";
         return false;
     }
     levels.push_back(base);
@@ -189,6 +189,6 @@ inline bool generate(Semantic semantic, const std::vector<uint8_t> &base,
     return true;
 }
 
-}  // namespace ab3d2::dxr::wall_mip
+}  // namespace ab3d2::dxr::material_mip
 
 #endif

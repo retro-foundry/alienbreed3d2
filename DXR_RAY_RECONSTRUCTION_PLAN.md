@@ -604,15 +604,17 @@ output to be exactly four times its declared logical source dimensions.
 Native shading uses a manual repeat-aware four-tap filter for every PBR channel.
 All four loads stay inside the material's packed atlas rectangle, including at
 UV seams, so filtering cannot leak a neighboring material. Alpha-test coverage
-retains its exact point lookup. Walls now receive a software mip pyramid at
-scene compilation. Each material identity includes the exact source U origin,
-U period, and V period from `Draw_Wall`; the five channels are cropped to that
-window before their levels are built and vertically packed below level zero.
-sRGB color/emission are reduced in linear light, tangent normals are averaged
-and renormalized, and scalar channels are reduced linearly. The ray shader
-converts its hit ray cone through the authored triangle UV gradients and
-trilinearly blends the resulting adjacent wall levels. Non-wall material
-classes remain on the prior level-zero path by design.
+retains its exact point lookup. Walls and floors now receive software mip
+pyramids at scene compilation. Each wall identity includes the exact source U
+origin, U period, and V period from `Draw_Wall`, and its five channels are
+cropped to that window. Each floor identity uses the complete 256-by-256 PBR
+image for the fixed 64-by-64 source tile selected by `Draw_Flats`. Their levels
+are vertically packed below level zero. sRGB color/emission are reduced in
+linear light, tangent normals are averaged and renormalized, and scalar
+channels are reduced linearly. The ray shader converts its hit ray cone through
+the authored triangle UV gradients and trilinearly blends adjacent levels.
+Ceilings, water, and non-world material classes remain on the prior level-zero
+path by design.
 
 `tools/compile_pbr_asset_pack.py` rejects missing, extra, malformed, renamed,
 or wrong-sized PNGs and private/absolute provenance paths, hashes files and

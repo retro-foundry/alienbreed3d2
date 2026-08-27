@@ -882,12 +882,12 @@ void triangleFrame(uint firstVertex, float3 incomingDirection,
 
 /* Ray shaders have no screen-space derivatives. Approximate the primary ray
  * cone at the hit plane, then convert its world-space diameter through the
- * triangle's authored UV gradients. Only isolated wall-window materials carry
- * more than one level, so every other primitive remains exactly level zero. */
-float wallMaterialMipLevel(SceneMaterial material, SceneVertex first,
-                           SceneVertex second, SceneVertex third,
-                           float3 geometricNormal,
-                           float3 incomingDirection, float rayDistance)
+ * triangle's authored UV gradients. Walls and floors carry a non-zero texture
+ * extent and a mip chain; other primitive classes remain exactly level zero. */
+float worldMaterialMipLevel(SceneMaterial material, SceneVertex first,
+                            SceneVertex second, SceneVertex third,
+                            float3 geometricNormal,
+                            float3 incomingDirection, float rayDistance)
 {
     if (material.mipCount <= 1u || first.textureWindowExtent == 0u) {
         return 0.0;
@@ -919,8 +919,9 @@ float wallMaterialMipLevel(SceneMaterial material, SceneVertex first,
     float pixelWorldSpan = max(rayDistance, RayEpsilon) *
         (2.0 * TanHalfFovY / renderHeight);
     /* A ray cone stretches across a plane at grazing incidence. The lower
-     * bound limits only the singular edge-on case where the wall contributes
-     * less than a pixel but an unbounded footprint would erase it. */
+     * bound limits only the singular edge-on case where the surface
+     * contributes less than a pixel but an unbounded footprint would erase
+     * it. */
     float incidence = max(abs(dot(normalize(incomingDirection),
                                   geometricNormal)), 0.125);
     pixelWorldSpan /= incidence;
@@ -956,7 +957,7 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     triangleFrame(firstVertex, incomingDirection, surface.geometricNormal,
                   tangent, bitangent);
     SceneMaterial material = Materials[surface.materialIndex];
-    float mipLevel = wallMaterialMipLevel(
+    float mipLevel = worldMaterialMipLevel(
         material, first, second, third, surface.geometricNormal,
         incomingDirection, payload.rayDistance);
     MaterialMipSampleFootprint footprint = materialMipSampleFootprint(
