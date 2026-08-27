@@ -1,4 +1,5 @@
 #include "renderer_dxr/dxr_reconstruction_math.h"
+#include "renderer_dxr/dxr_post_processing.h"
 #include "renderer_dxr/dxr_tone_mapping.h"
 #include "renderer_dxr/dxr_emitter_history.h"
 #include "renderer_dxr/dxr_indirect_reconstruction.h"
@@ -37,6 +38,7 @@ int fail(const char *message)
 int main()
 {
     namespace tone = ab3d2::dxr::tone_mapping;
+    namespace post = ab3d2::dxr::post_processing;
     namespace indirect = ab3d2::dxr::indirect_reconstruction;
     namespace grid = ab3d2::dxr::light_grid;
     namespace gi = ab3d2::dxr::restir_gi;
@@ -197,6 +199,25 @@ int main()
         !(second_curve.exposure > 0.0f) ||
         !std::isfinite(recovered_curve.curve[32])) {
         return fail("post-RR adaptive tone-mapping contract changed");
+    }
+    const float dark_bloom_weight = post::bloom_extraction_weight(0.001f);
+    const float bright_bloom_weight = post::bloom_extraction_weight(2.0f);
+    const float half_code = 0.5f * post::sdr_quantization_step;
+    const float minimum_blue_noise = 0.5f / 256.0f;
+    const float maximum_blue_noise = 255.5f / 256.0f;
+    if (post::bloom_extraction_weight(0.0f) != 0.0f ||
+        post::bloom_extraction_weight(
+            std::numeric_limits<float>::infinity()) != 0.0f ||
+        !(dark_bloom_weight > 0.0f && dark_bloom_weight < 0.05f) ||
+        !(bright_bloom_weight > 0.98f && bright_bloom_weight < 1.0f) ||
+        !near(post::dither_sdr(0.5f, 0.5f), 0.5f) ||
+        !(std::abs(post::dither_sdr(
+              0.5f, minimum_blue_noise) - 0.5f) < half_code) ||
+        !(std::abs(post::dither_sdr(
+              0.5f, maximum_blue_noise) - 0.5f) < half_code) ||
+        post::dither_sdr(0.0f, 0.0f) != 0.0f ||
+        post::dither_sdr(1.0f, 1.0f) != 1.0f) {
+        return fail("linear-HDR bloom or SDR dithering contract changed");
     }
     if (!near(indirect::guide_weight(100.0f, 100.0f, 1.0f), 1.0f) ||
         !near(indirect::guide_weight(100.0f, 105.0f, 0.75f), 0.125f) ||

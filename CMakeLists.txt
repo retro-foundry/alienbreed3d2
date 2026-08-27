@@ -352,6 +352,8 @@ if(AB3D2_ENABLE_DXR)
       "${AB3D2_DXR_SHADER_BUILD_DIR}/post_histogram_cs.dxil")
   set(AB3D2_DXR_POST_CURVE_SHADER
       "${AB3D2_DXR_SHADER_BUILD_DIR}/post_curve_cs.dxil")
+  set(AB3D2_DXR_POST_BLOOM_SHADER
+      "${AB3D2_DXR_SHADER_BUILD_DIR}/post_bloom_cs.dxil")
   add_custom_command(
     OUTPUT "${AB3D2_DXR_VERTEX_SHADER}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
@@ -427,6 +429,17 @@ if(AB3D2_ENABLE_DXR)
     COMMENT "Compile the post-RR adaptive tone-curve shader with DXC"
     VERBATIM
   )
+  add_custom_command(
+    OUTPUT "${AB3D2_DXR_POST_BLOOM_SHADER}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
+    COMMAND "${AB3D2_DXC_EXECUTABLE}" -nologo -WX -Ges -O3 -Qstrip_debug
+            -Qstrip_reflect -T cs_6_6 -E bloom_main
+            -Fo "${AB3D2_DXR_POST_BLOOM_SHADER}"
+            "${AB3D2_DXR_POST_SHADER_SOURCE}"
+    DEPENDS "${AB3D2_DXR_POST_SHADER_SOURCE}"
+    COMMENT "Compile the post-RR linear-HDR bloom shader with DXC"
+    VERBATIM
+  )
   add_custom_target(ab3d2_dxr_shaders
                     DEPENDS "${AB3D2_DXR_VERTEX_SHADER}"
                             "${AB3D2_DXR_PIXEL_SHADER}"
@@ -434,7 +447,8 @@ if(AB3D2_ENABLE_DXR)
                             "${AB3D2_DXR_PRESENT_PIXEL_SHADER}"
                             "${AB3D2_DXR_PATH_TRACE_SHADER}"
                             "${AB3D2_DXR_POST_HISTOGRAM_SHADER}"
-                            "${AB3D2_DXR_POST_CURVE_SHADER}")
+                            "${AB3D2_DXR_POST_CURVE_SHADER}"
+                            "${AB3D2_DXR_POST_BLOOM_SHADER}")
   add_dependencies(ab3d2 ab3d2_dxr_shaders)
 
   set(AB3D2_DXR_MATERIAL_SOURCE_DIR
@@ -490,6 +504,9 @@ if(AB3D2_ENABLE_DXR)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${AB3D2_DXR_POST_CURVE_SHADER}"
             "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/post_curve_cs.dxil"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${AB3D2_DXR_POST_BLOOM_SHADER}"
+            "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/post_bloom_cs.dxil"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${AB3D2_DXR_BLUE_NOISE_PACKAGE}"
             "$<TARGET_FILE_DIR:ab3d2>/renderer_dxr/blue_noise_spp256.bin"
@@ -744,6 +761,9 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "${AB3D2_DXR_POST_CURVE_SHADER}"
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/post_curve_cs.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_POST_BLOOM_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/post_bloom_cs.dxil"
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
               "${AB3D2_DXR_BLUE_NOISE_PACKAGE}"
               "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_foundation_test>/renderer_dxr/blue_noise_spp256.bin"

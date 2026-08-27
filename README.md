@@ -647,9 +647,14 @@ discarding the frame edges. The 2nd--99th percentile interval shapes a
 temporally smoothed monotonic luminance curve, while the 10th--90th percentile
 interval meters exposure. Exposure reacts faster to newly visible highlights
 than to darkness and uses elapsed seconds rather than a frame-dependent blend.
-The curve preserves RGB ratios and final gamut compression preserves hue. The
-configured exposure remains `1` by default and multiplies the automatic result
-as a bias. Set
+Before that meter, bright reconstructed energy is extracted into half-,
+quarter-, and eighth-resolution FP16 buffers, blurred separably at every scale,
+folded back into the finer levels, and composited with the same linear-HDR image
+that presentation consumes. The curve preserves RGB ratios and final gamut
+compression preserves hue. The current 8-bit SDR path then applies exact sRGB
+encoding and sub-half-code dithering from the renderer's pinned blue-noise/
+Owen-scrambled Sobol package. The configured exposure remains `1` by default
+and multiplies the automatic result as a bias. Set
 `AB3D2_DXR_EXPOSURE` to a finite value from `0.001` through `100` for diagnostic
 exposure sweeps. The CTest all-level invocation uses the production default
 without an override.

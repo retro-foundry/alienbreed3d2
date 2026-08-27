@@ -58,7 +58,11 @@ enum DescriptorIndex : UINT {
     post_input_srv = 42,
     post_histogram_uav = 43,
     post_tone_map_state_uav = 44,
-    descriptor_count = 45,
+    bloom_srv_start = 45,
+    post_hdr_srv = 51,
+    bloom_uav_start = 52,
+    post_hdr_uav = 58,
+    descriptor_count = 59,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -149,6 +153,23 @@ constexpr UINT diagnostic_value_count = 11u;
 constexpr UINT tone_map_histogram_bin_count = 128u;
 constexpr UINT tone_map_state_value_count =
     tone_map_histogram_bin_count + 1u + 5u;
+constexpr UINT bloom_target_count = 6u;
+enum BloomOperation : uint32_t {
+    bloom_extract = 0u,
+    bloom_downsample,
+    bloom_blur_horizontal,
+    bloom_blur_vertical,
+    bloom_upsample,
+    bloom_composite,
+};
+enum BloomTargetIndex : UINT {
+    bloom_half_a = 0u,
+    bloom_half_b,
+    bloom_quarter_a,
+    bloom_quarter_b,
+    bloom_eighth_a,
+    bloom_eighth_b,
+};
 constexpr UINT64 frame_constant_stride =
     D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
 constexpr float pi = 3.14159265358979323846f;
@@ -206,18 +227,23 @@ struct PresentConstants {
     uint32_t target_width;
     uint32_t target_height;
     float exposure;
+    uint32_t frame_index;
 };
 
-static_assert(sizeof(PresentConstants) == 7u * sizeof(uint32_t));
+static_assert(sizeof(PresentConstants) == 8u * sizeof(uint32_t));
 
 struct PostConstants {
     uint32_t source_width;
     uint32_t source_height;
+    uint32_t target_width;
+    uint32_t target_height;
     float delta_seconds;
     uint32_t reset_history;
+    uint32_t bloom_operation;
+    uint32_t reserved;
 };
 
-static_assert(sizeof(PostConstants) == 4u * sizeof(uint32_t));
+static_assert(sizeof(PostConstants) == 8u * sizeof(uint32_t));
 
 std::string path_text(const std::filesystem::path &path)
 {
@@ -733,7 +759,7 @@ bool DxrPipeline::create_present_pipeline(
     range.NumDescriptors =
         static_cast<UINT>(DxrReconstructionBuffer::count) + 2u;
     range.BaseShaderRegister = 0;
-    std::array<D3D12_ROOT_PARAMETER, 2> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 3> parameters = {};
     parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     parameters[0].DescriptorTable.NumDescriptorRanges = 1;
     parameters[0].DescriptorTable.pDescriptorRanges = &range;
@@ -743,6 +769,9 @@ bool DxrPipeline::create_present_pipeline(
         sizeof(PresentConstants) / sizeof(uint32_t);
     parameters[1].Constants.ShaderRegister = 0;
     parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    parameters[2].Descriptor.ShaderRegister = 12u;
+    parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     D3D12_ROOT_SIGNATURE_DESC root_description = {};
     root_description.NumParameters = static_cast<UINT>(parameters.size());
     root_description.pParameters = parameters.data();
@@ -770,8 +799,10 @@ bool DxrPipeline::create_post_pipeline(ID3D12Device5 *device,
 {
     std::vector<unsigned char> histogram_shader;
     std::vector<unsigned char> curve_shader;
+    std::vector<unsigned char> bloom_shader;
     if (!load_shader(L"post_histogram_cs.dxil", histogram_shader, error) ||
-        !load_shader(L"post_curve_cs.dxil", curve_shader, error)) {
+        !load_shader(L"post_curve_cs.dxil", curve_shader, error) ||
+        !load_shader(L"post_bloom_cs.dxil", bloom_shader, error)) {
         return false;
     }
 
@@ -783,7 +814,20 @@ bool DxrPipeline::create_post_pipeline(ID3D12Device5 *device,
     ranges[1].NumDescriptors = 2u;
     ranges[1].BaseShaderRegister = 0u;
 
-    std::array<D3D12_ROOT_PARAMETER, 4> parameters = {};
+    D3D12_DESCRIPTOR_RANGE bloom_input_range = {};
+    bloom_input_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    bloom_input_range.NumDescriptors = 1u;
+    bloom_input_range.BaseShaderRegister = 1u;
+    D3D12_DESCRIPTOR_RANGE bloom_low_range = {};
+    bloom_low_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    bloom_low_range.NumDescriptors = 1u;
+    bloom_low_range.BaseShaderRegister = 2u;
+    D3D12_DESCRIPTOR_RANGE bloom_output_range = {};
+    bloom_output_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    bloom_output_range.NumDescriptors = 1u;
+    bloom_output_range.BaseShaderRegister = 3u;
+
+    std::array<D3D12_ROOT_PARAMETER, 7> parameters = {};
     parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     parameters[0].DescriptorTable.NumDescriptorRanges = 1u;
     parameters[0].DescriptorTable.pDescriptorRanges = &ranges[0];
@@ -800,10 +844,39 @@ bool DxrPipeline::create_post_pipeline(ID3D12Device5 *device,
         sizeof(PostConstants) / sizeof(uint32_t);
     parameters[3].Constants.ShaderRegister = 0u;
     parameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    parameters[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[4].DescriptorTable.NumDescriptorRanges = 1u;
+    parameters[4].DescriptorTable.pDescriptorRanges = &bloom_input_range;
+    parameters[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    parameters[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[5].DescriptorTable.NumDescriptorRanges = 1u;
+    parameters[5].DescriptorTable.pDescriptorRanges = &bloom_low_range;
+    parameters[5].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    parameters[6].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[6].DescriptorTable.NumDescriptorRanges = 1u;
+    parameters[6].DescriptorTable.pDescriptorRanges = &bloom_output_range;
+    parameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_STATIC_SAMPLER_DESC linear_sampler = {};
+    linear_sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    linear_sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    linear_sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    linear_sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    linear_sampler.MipLODBias = 0.0f;
+    linear_sampler.MaxAnisotropy = 1u;
+    linear_sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    linear_sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+    linear_sampler.MinLOD = 0.0f;
+    linear_sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    linear_sampler.ShaderRegister = 0u;
+    linear_sampler.RegisterSpace = 0u;
+    linear_sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_ROOT_SIGNATURE_DESC root_description = {};
     root_description.NumParameters = static_cast<UINT>(parameters.size());
     root_description.pParameters = parameters.data();
+    root_description.NumStaticSamplers = 1u;
+    root_description.pStaticSamplers = &linear_sampler;
     if (!serialize_root_signature(
             root_description, device, post_root_signature_,
             L"AB3D2 Post-RR Tone Mapping Root Signature", error)) {
@@ -836,6 +909,18 @@ bool DxrPipeline::create_post_pipeline(ID3D12Device5 *device,
     }
     post_curve_pipeline_state_->SetName(
         L"AB3D2 Post-RR Adaptive Tone Curve Pipeline");
+
+    pipeline_description.CS = {bloom_shader.data(), bloom_shader.size()};
+    result = device->CreateComputePipelineState(
+        &pipeline_description, IID_PPV_ARGS(&post_bloom_pipeline_state_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateComputePipelineState(post-RR bloom)",
+            result);
+        return false;
+    }
+    post_bloom_pipeline_state_->SetName(
+        L"AB3D2 Post-RR Linear-HDR Bloom Pipeline");
     return true;
 }
 
@@ -1416,6 +1501,9 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         indirect_chroma_filtered_ && indirect_gradients_[0] &&
         indirect_gradients_[1] && automatic_exposure_ &&
         tone_map_histogram_ && tone_map_state_ &&
+        bloom_targets_[0] && bloom_targets_[1] && bloom_targets_[2] &&
+        bloom_targets_[3] && bloom_targets_[4] && bloom_targets_[5] &&
+        post_hdr_output_ &&
         indirect_histories_[0] && indirect_histories_[1] &&
         gi_reservoirs_[0] && gi_reservoirs_[1] &&
         gi_reservoir_scratch_ &&
@@ -1446,6 +1534,10 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     automatic_exposure_.Reset();
     tone_map_histogram_.Reset();
     tone_map_state_.Reset();
+    for (auto &target : bloom_targets_) {
+        target.Reset();
+    }
+    post_hdr_output_.Reset();
     for (auto &history : indirect_histories_) {
         history.Reset();
     }
@@ -1743,12 +1835,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             return false;
         }
         streamline_output_->SetName(L"AB3D2 DLSS-RR Reconstructed HDR Output");
-        if (!debug_view_requested_) {
-            srv.Format = description.Format;
-            device->CreateShaderResourceView(
-                streamline_output_.Get(), &srv,
-                cpu_descriptor(reconstruction_srv_start));
-        }
     }
     srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
@@ -1758,6 +1844,107 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         create_streamline_output ? streamline_output_.Get() :
                                    reconstruction_targets_[0].Get(),
         &srv, cpu_descriptor(post_input_srv));
+
+    const UINT post_width = create_streamline_output ? present_width : width;
+    const UINT post_height = create_streamline_output ? present_height : height;
+    const std::array<UINT, 3> bloom_widths = {
+        std::max(1u, (post_width + 1u) / 2u),
+        std::max(1u, (post_width + 3u) / 4u),
+        std::max(1u, (post_width + 7u) / 8u),
+    };
+    const std::array<UINT, 3> bloom_heights = {
+        std::max(1u, (post_height + 1u) / 2u),
+        std::max(1u, (post_height + 3u) / 4u),
+        std::max(1u, (post_height + 7u) / 8u),
+    };
+    constexpr std::array<const wchar_t *, bloom_target_count> bloom_names = {
+        L"AB3D2 Linear-HDR Bloom Half A",
+        L"AB3D2 Linear-HDR Bloom Half B",
+        L"AB3D2 Linear-HDR Bloom Quarter A",
+        L"AB3D2 Linear-HDR Bloom Quarter B",
+        L"AB3D2 Linear-HDR Bloom Eighth A",
+        L"AB3D2 Linear-HDR Bloom Eighth B",
+    };
+    for (UINT index = 0u; index < bloom_target_count; ++index) {
+        D3D12_RESOURCE_DESC bloom_description = {};
+        bloom_description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        bloom_description.Width = bloom_widths[index / 2u];
+        bloom_description.Height = bloom_heights[index / 2u];
+        bloom_description.DepthOrArraySize = 1u;
+        bloom_description.MipLevels = 1u;
+        bloom_description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        bloom_description.SampleDesc.Count = 1u;
+        bloom_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &bloom_description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&bloom_targets_[index]));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(linear-HDR bloom)",
+                result);
+            return false;
+        }
+        bloom_targets_[index]->SetName(bloom_names[index]);
+        D3D12_SHADER_RESOURCE_VIEW_DESC bloom_srv = {};
+        bloom_srv.Format = bloom_description.Format;
+        bloom_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        bloom_srv.Shader4ComponentMapping =
+            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        bloom_srv.Texture2D.MipLevels = 1u;
+        device->CreateShaderResourceView(
+            bloom_targets_[index].Get(), &bloom_srv,
+            cpu_descriptor(bloom_srv_start + index));
+        D3D12_UNORDERED_ACCESS_VIEW_DESC bloom_uav = {};
+        bloom_uav.Format = bloom_description.Format;
+        bloom_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(
+            bloom_targets_[index].Get(), nullptr, &bloom_uav,
+            cpu_descriptor(bloom_uav_start + index));
+    }
+    {
+        D3D12_RESOURCE_DESC output_description = {};
+        output_description.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        output_description.Width = post_width;
+        output_description.Height = post_height;
+        output_description.DepthOrArraySize = 1u;
+        output_description.MipLevels = 1u;
+        output_description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        output_description.SampleDesc.Count = 1u;
+        output_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &output_description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&post_hdr_output_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(post-bloom HDR)",
+                result);
+            return false;
+        }
+        post_hdr_output_->SetName(
+            L"AB3D2 Post-RR Bloom-Composited Linear HDR");
+        D3D12_SHADER_RESOURCE_VIEW_DESC output_srv = {};
+        output_srv.Format = output_description.Format;
+        output_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        output_srv.Shader4ComponentMapping =
+            D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        output_srv.Texture2D.MipLevels = 1u;
+        device->CreateShaderResourceView(
+            post_hdr_output_.Get(), &output_srv,
+            cpu_descriptor(post_hdr_srv));
+        if (!debug_view_requested_) {
+            device->CreateShaderResourceView(
+                post_hdr_output_.Get(), &output_srv,
+                cpu_descriptor(reconstruction_srv_start));
+        }
+        D3D12_UNORDERED_ACCESS_VIEW_DESC output_uav = {};
+        output_uav.Format = output_description.Format;
+        output_uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(
+            post_hdr_output_.Get(), nullptr, &output_uav,
+            cpu_descriptor(post_hdr_uav));
+    }
     /* One temporal scratch reservoir and one double-buffered published history
      * reservoir per render-resolution pixel. Contents are undefined until the
      * first dispatch writes them; recreated invalidates history before any read. */
@@ -1957,7 +2144,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     streamline_active = streamline->active();
 #else
     (void)streamline;
-    (void)frame_number;
 #endif
     const SceneCamera *camera = find_camera(frame);
     if (!camera) {
@@ -2401,6 +2587,14 @@ bool DxrPipeline::record(ID3D12Device5 *device,
 
     ID3D12DescriptorHeap *post_heaps[] = {descriptor_heap_.Get()};
     command_list->SetDescriptorHeaps(1, post_heaps);
+    command_list->SetComputeRootSignature(post_root_signature_.Get());
+    command_list->SetComputeRootDescriptorTable(
+        0, gpu_descriptor(post_input_srv));
+    command_list->SetComputeRootDescriptorTable(
+        1, gpu_descriptor(post_histogram_uav));
+    command_list->SetComputeRootUnorderedAccessView(
+        2, diagnostics_->GetGPUVirtualAddress());
+
     const UINT histogram_clear[4] = {};
     command_list->ClearUnorderedAccessViewUint(
         gpu_descriptor(post_histogram_uav), histogram_clear_descriptor(),
@@ -2409,16 +2603,121 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         uav_barrier(tone_map_histogram_.Get());
     command_list->ResourceBarrier(1, &histogram_cleared);
 
+    const std::array<UINT, 3> bloom_widths = {
+        std::max(1u, (post_width + 1u) / 2u),
+        std::max(1u, (post_width + 3u) / 4u),
+        std::max(1u, (post_width + 7u) / 8u),
+    };
+    const std::array<UINT, 3> bloom_heights = {
+        std::max(1u, (post_height + 1u) / 2u),
+        std::max(1u, (post_height + 3u) / 4u),
+        std::max(1u, (post_height + 7u) / 8u),
+    };
+    const auto run_bloom = [&](BloomOperation operation,
+                               UINT source_width, UINT source_height,
+                               UINT target_width, UINT target_height,
+                               UINT input_descriptor, UINT low_descriptor,
+                               UINT output_descriptor,
+                               ID3D12Resource *output_resource) {
+        const PostConstants pass_constants = {
+            source_width, source_height, target_width, target_height,
+            constants.exposure_delta_seconds, history_valid ? 0u : 1u,
+            static_cast<uint32_t>(operation), 0u};
+        command_list->SetComputeRoot32BitConstants(
+            3, sizeof(pass_constants) / sizeof(uint32_t),
+            &pass_constants, 0u);
+        command_list->SetComputeRootDescriptorTable(
+            4, gpu_descriptor(input_descriptor));
+        command_list->SetComputeRootDescriptorTable(
+            5, gpu_descriptor(low_descriptor));
+        command_list->SetComputeRootDescriptorTable(
+            6, gpu_descriptor(output_descriptor));
+        command_list->SetPipelineState(post_bloom_pipeline_state_.Get());
+        command_list->Dispatch((target_width + 7u) / 8u,
+                               (target_height + 7u) / 8u, 1u);
+        const D3D12_RESOURCE_BARRIER written = uav_barrier(output_resource);
+        command_list->ResourceBarrier(1, &written);
+        const D3D12_RESOURCE_BARRIER readable = transition(
+            output_resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        command_list->ResourceBarrier(1, &readable);
+    };
+    const auto bloom_srv = [](UINT index) {
+        return static_cast<UINT>(bloom_srv_start) + index;
+    };
+    const auto bloom_uav = [](UINT index) {
+        return static_cast<UINT>(bloom_uav_start) + index;
+    };
+    const auto make_bloom_writable = [&](UINT index) {
+        const D3D12_RESOURCE_BARRIER writable = transition(
+            bloom_targets_[index].Get(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        command_list->ResourceBarrier(1, &writable);
+    };
+
+    run_bloom(bloom_extract, post_width, post_height,
+              bloom_widths[0], bloom_heights[0], post_input_srv,
+              post_input_srv, bloom_uav(bloom_half_a),
+              bloom_targets_[bloom_half_a].Get());
+    run_bloom(bloom_blur_horizontal, bloom_widths[0], bloom_heights[0],
+              bloom_widths[0], bloom_heights[0], bloom_srv(bloom_half_a),
+              post_input_srv, bloom_uav(bloom_half_b),
+              bloom_targets_[bloom_half_b].Get());
+    make_bloom_writable(bloom_half_a);
+    run_bloom(bloom_blur_vertical, bloom_widths[0], bloom_heights[0],
+              bloom_widths[0], bloom_heights[0], bloom_srv(bloom_half_b),
+              post_input_srv, bloom_uav(bloom_half_a),
+              bloom_targets_[bloom_half_a].Get());
+
+    run_bloom(bloom_downsample, bloom_widths[0], bloom_heights[0],
+              bloom_widths[1], bloom_heights[1], bloom_srv(bloom_half_a),
+              post_input_srv, bloom_uav(bloom_quarter_a),
+              bloom_targets_[bloom_quarter_a].Get());
+    run_bloom(bloom_blur_horizontal, bloom_widths[1], bloom_heights[1],
+              bloom_widths[1], bloom_heights[1], bloom_srv(bloom_quarter_a),
+              post_input_srv, bloom_uav(bloom_quarter_b),
+              bloom_targets_[bloom_quarter_b].Get());
+    make_bloom_writable(bloom_quarter_a);
+    run_bloom(bloom_blur_vertical, bloom_widths[1], bloom_heights[1],
+              bloom_widths[1], bloom_heights[1], bloom_srv(bloom_quarter_b),
+              post_input_srv, bloom_uav(bloom_quarter_a),
+              bloom_targets_[bloom_quarter_a].Get());
+
+    run_bloom(bloom_downsample, bloom_widths[1], bloom_heights[1],
+              bloom_widths[2], bloom_heights[2], bloom_srv(bloom_quarter_a),
+              post_input_srv, bloom_uav(bloom_eighth_a),
+              bloom_targets_[bloom_eighth_a].Get());
+    run_bloom(bloom_blur_horizontal, bloom_widths[2], bloom_heights[2],
+              bloom_widths[2], bloom_heights[2], bloom_srv(bloom_eighth_a),
+              post_input_srv, bloom_uav(bloom_eighth_b),
+              bloom_targets_[bloom_eighth_b].Get());
+    make_bloom_writable(bloom_eighth_a);
+    run_bloom(bloom_blur_vertical, bloom_widths[2], bloom_heights[2],
+              bloom_widths[2], bloom_heights[2], bloom_srv(bloom_eighth_b),
+              post_input_srv, bloom_uav(bloom_eighth_a),
+              bloom_targets_[bloom_eighth_a].Get());
+
+    make_bloom_writable(bloom_quarter_b);
+    run_bloom(bloom_upsample, bloom_widths[1], bloom_heights[1],
+              bloom_widths[1], bloom_heights[1], bloom_srv(bloom_quarter_a),
+              bloom_srv(bloom_eighth_a), bloom_uav(bloom_quarter_b),
+              bloom_targets_[bloom_quarter_b].Get());
+    make_bloom_writable(bloom_half_b);
+    run_bloom(bloom_upsample, bloom_widths[0], bloom_heights[0],
+              bloom_widths[0], bloom_heights[0], bloom_srv(bloom_half_a),
+              bloom_srv(bloom_quarter_b), bloom_uav(bloom_half_b),
+              bloom_targets_[bloom_half_b].Get());
+    run_bloom(bloom_composite, post_width, post_height,
+              post_width, post_height, bloom_srv(bloom_half_b),
+              post_input_srv, post_hdr_uav, post_hdr_output_.Get());
+
+    command_list->SetComputeRootDescriptorTable(
+        0, gpu_descriptor(post_hdr_srv));
     const PostConstants post_constants = {
-        post_width, post_height, constants.exposure_delta_seconds,
-        history_valid ? 0u : 1u};
-    command_list->SetComputeRootSignature(post_root_signature_.Get());
-    command_list->SetComputeRootDescriptorTable(
-        0, gpu_descriptor(post_input_srv));
-    command_list->SetComputeRootDescriptorTable(
-        1, gpu_descriptor(post_histogram_uav));
-    command_list->SetComputeRootUnorderedAccessView(
-        2, diagnostics_->GetGPUVirtualAddress());
+        post_width, post_height, post_width, post_height,
+        constants.exposure_delta_seconds, history_valid ? 0u : 1u,
+        0u, 0u};
     command_list->SetComputeRoot32BitConstants(
         3, sizeof(post_constants) / sizeof(uint32_t), &post_constants, 0u);
     command_list->SetPipelineState(post_histogram_pipeline_state_.Get());
@@ -2436,6 +2735,11 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         tone_map_state_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
         D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     command_list->ResourceBarrier(1, &tone_state_to_present);
+    const D3D12_RESOURCE_BARRIER post_hdr_to_present = transition(
+        post_hdr_output_.Get(),
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    command_list->ResourceBarrier(1, &post_hdr_to_present);
     if (!record_diagnostics_end(command_list, error)) {
         return false;
     }
@@ -2444,13 +2748,13 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         return false;
     }
 
-    const bool present_streamline_output =
-        streamline_active && !debug_view_requested_;
-    ID3D12Resource *present_resource = present_streamline_output ?
-        streamline_output_.Get() :
+    const bool present_post_hdr = !debug_view_requested_;
+    ID3D12Resource *present_resource = present_post_hdr ?
+        post_hdr_output_.Get() :
         (debug_view_ == static_cast<uint32_t>(DxrReconstructionBuffer::count) ?
             indirect_filtered_.Get() : reconstruction_targets_[debug_view_].Get());
-    if (present_resource != post_resource) {
+    if (present_resource != post_resource &&
+        present_resource != post_hdr_output_.Get()) {
         const D3D12_RESOURCE_BARRIER debug_to_present = transition(
             present_resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
@@ -2472,28 +2776,37 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         0, gpu_descriptor(reconstruction_srv_start));
     const PresentConstants present_constants = {
         debug_view_, debug_scalar_range_,
-        present_streamline_output ? width : render_width,
-        present_streamline_output ? height : render_height,
-        width, height, exposure_};
+        present_post_hdr ? post_width : render_width,
+        present_post_hdr ? post_height : render_height,
+        width, height, exposure_, static_cast<uint32_t>(frame_number)};
     command_list->SetGraphicsRoot32BitConstants(
         1, sizeof(present_constants) / sizeof(uint32_t), &present_constants, 0);
+    command_list->SetGraphicsRootShaderResourceView(
+        2, blue_noise_sampler_->GetGPUVirtualAddress());
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->DrawInstanced(3, 1, 0, 0);
-    std::array<D3D12_RESOURCE_BARRIER, 3> to_next_sample = {};
+    std::array<D3D12_RESOURCE_BARRIER, 10> to_next_sample = {};
     UINT next_sample_barrier_count = 0u;
-    to_next_sample[next_sample_barrier_count++] = transition(
-        present_resource,
-        present_resource == post_resource ? post_shader_resource_state :
-                                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-    if (present_resource != post_resource) {
+    if (present_resource != post_resource &&
+        present_resource != post_hdr_output_.Get()) {
         to_next_sample[next_sample_barrier_count++] = transition(
-            post_resource, post_shader_resource_state,
+            present_resource, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
     to_next_sample[next_sample_barrier_count++] = transition(
+        post_resource, post_shader_resource_state,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    to_next_sample[next_sample_barrier_count++] = transition(
+        post_hdr_output_.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    to_next_sample[next_sample_barrier_count++] = transition(
         tone_map_state_.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
         D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    for (const auto &target : bloom_targets_) {
+        to_next_sample[next_sample_barrier_count++] = transition(
+            target.Get(), D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
     command_list->ResourceBarrier(next_sample_barrier_count,
                                   to_next_sample.data());
     history_.pending_camera = current_camera;

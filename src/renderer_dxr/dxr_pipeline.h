@@ -155,6 +155,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12RootSignature> post_root_signature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> post_histogram_pipeline_state_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> post_curve_pipeline_state_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> post_bloom_pipeline_state_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> ray_root_signature_;
     Microsoft::WRL::ComPtr<ID3D12StateObject> ray_state_object_;
     Microsoft::WRL::ComPtr<ID3D12Resource> shader_table_;
@@ -172,6 +173,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> automatic_exposure_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_histogram_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_state_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 6> bloom_targets_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> post_hdr_output_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> indirect_histories_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> diagnostic_cpu_heap_;

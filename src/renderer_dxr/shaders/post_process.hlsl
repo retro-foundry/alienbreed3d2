@@ -1,14 +1,22 @@
 Texture2D<float4> InputRadiance : register(t0);
+Texture2D<float4> BloomInput : register(t1);
+Texture2D<float4> BloomLow : register(t2);
 RWStructuredBuffer<uint> LuminanceHistogram : register(u0);
 RWStructuredBuffer<float> ToneMapState : register(u1);
 RWStructuredBuffer<uint> Diagnostics : register(u2);
+RWTexture2D<float4> BloomOutput : register(u3);
+SamplerState LinearClampSampler : register(s0);
 
 cbuffer PostConstants : register(b0)
 {
     uint SourceWidth;
     uint SourceHeight;
+    uint TargetWidth;
+    uint TargetHeight;
     float DeltaSeconds;
     uint ResetHistory;
+    uint BloomOperation;
+    uint Reserved;
 };
 
 static const uint HistogramBinCount = 128u;
@@ -25,10 +33,121 @@ static const float MinimumExposure = 1.0 / 32.0;
 static const float MaximumExposure = 4096.0;
 static const float DisplayBlackLog = -8.0;
 static const float DisplayWhiteLog = -0.0740005814; // log2(0.95)
+static const float BloomSoftThreshold = 0.02;
+static const float BloomStrength = 0.08;
+static const float BloomUpsampleWeight = 0.5;
+static const uint BloomExtract = 0u;
+static const uint BloomDownsample = 1u;
+static const uint BloomBlurHorizontal = 2u;
+static const uint BloomBlurVertical = 3u;
+static const uint BloomUpsample = 4u;
+static const uint BloomComposite = 5u;
 
 float luminance(float3 color)
 {
     return dot(color, float3(0.2126, 0.7152, 0.0722));
+}
+
+float3 finiteHdr(float3 color)
+{
+    return all(isfinite(color)) ? clamp(color, 0.0, 65504.0) : 0.0;
+}
+
+float3 extractBloom(float3 color)
+{
+    color = finiteHdr(color);
+    float value = luminance(color);
+    return color * (value / max(value + BloomSoftThreshold, 1.0e-6));
+}
+
+float3 loadBloomClamped(int2 coordinate)
+{
+    int2 maximum = int2(max(SourceWidth, 1u), max(SourceHeight, 1u)) - 1;
+    return finiteHdr(BloomInput.Load(int3(
+        clamp(coordinate, int2(0, 0), maximum), 0)).rgb);
+}
+
+float3 downsampleInput(uint2 pixel, bool extract)
+{
+    uint2 basePixel = pixel * 2u;
+    float3 result = 0.0;
+    [unroll]
+    for (uint y = 0u; y < 2u; ++y) {
+        [unroll]
+        for (uint x = 0u; x < 2u; ++x) {
+            uint2 sourcePixel = min(
+                basePixel + uint2(x, y),
+                uint2(max(SourceWidth, 1u) - 1u,
+                      max(SourceHeight, 1u) - 1u));
+            float3 sampleValue = extract ?
+                InputRadiance.Load(int3(sourcePixel, 0)).rgb :
+                BloomInput.Load(int3(sourcePixel, 0)).rgb;
+            result += extract ? extractBloom(sampleValue) :
+                                finiteHdr(sampleValue);
+        }
+    }
+    return result * 0.25;
+}
+
+float3 blurBloom(uint2 pixel, bool horizontal)
+{
+    static const float weights[5] = {
+        0.2270270270, 0.1945945946, 0.1216216216,
+        0.0540540541, 0.0162162162
+    };
+    int2 axis = horizontal ? int2(1, 0) : int2(0, 1);
+    float3 result = loadBloomClamped(int2(pixel)) * weights[0];
+    [unroll]
+    for (int offset = 1; offset <= 4; ++offset) {
+        result += (loadBloomClamped(int2(pixel) + axis * offset) +
+                   loadBloomClamped(int2(pixel) - axis * offset)) *
+                  weights[offset];
+    }
+    return result;
+}
+
+float3 sampleBloomLow(uint2 pixel)
+{
+    float2 uv = (float2(pixel) + 0.5) /
+        float2(max(TargetWidth, 1u), max(TargetHeight, 1u));
+    return finiteHdr(BloomLow.SampleLevel(LinearClampSampler, uv, 0.0).rgb);
+}
+
+/*
+ * Linear-HDR bloom stays entirely before histogram metering and tone mapping.
+ * Three separately blurred scales give bright source energy a broad footprint;
+ * each larger level is folded into the next finer level before one bounded
+ * composite is written at the reconstructed image resolution.
+ */
+[numthreads(8, 8, 1)]
+void bloom_main(uint3 dispatchThreadId : SV_DispatchThreadID)
+{
+    uint2 pixel = dispatchThreadId.xy;
+    if (pixel.x >= TargetWidth || pixel.y >= TargetHeight) {
+        return;
+    }
+    float3 result = 0.0;
+    if (BloomOperation == BloomExtract) {
+        result = downsampleInput(pixel, true);
+    } else if (BloomOperation == BloomDownsample) {
+        result = downsampleInput(pixel, false);
+    } else if (BloomOperation == BloomBlurHorizontal ||
+               BloomOperation == BloomBlurVertical) {
+        result = blurBloom(pixel,
+            BloomOperation == BloomBlurHorizontal);
+    } else if (BloomOperation == BloomUpsample) {
+        result = loadBloomClamped(int2(pixel)) +
+            sampleBloomLow(pixel) * BloomUpsampleWeight;
+    } else if (BloomOperation == BloomComposite) {
+        float2 uv = (float2(pixel) + 0.5) /
+            float2(max(TargetWidth, 1u), max(TargetHeight, 1u));
+        float3 source = finiteHdr(
+            InputRadiance.Load(int3(pixel, 0)).rgb);
+        float3 bloom = finiteHdr(
+            BloomInput.SampleLevel(LinearClampSampler, uv, 0.0).rgb);
+        result = source + bloom * BloomStrength;
+    }
+    BloomOutput[pixel] = float4(finiteHdr(result), 1.0);
 }
 
 uint histogramIndex(float logLuminance)

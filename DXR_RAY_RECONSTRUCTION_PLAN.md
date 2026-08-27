@@ -200,7 +200,9 @@ SceneFrame
        dense scene motion vectors
        specular ray hit distance
   -> NVIDIA Streamline DLSS Ray Reconstruction
+  -> multiscale linear-HDR bloom
   -> exposure and tone mapping
+  -> output encoding and SDR blue-noise dithering
   -> transparent presentation effects, HUD, and text
   -> DXGI swap chain
 ```
@@ -694,9 +696,10 @@ four-tap bilateral reconstruction projects the directional field onto the
 full-resolution primary geometric normal; primary albedo is then restored and
 direct radiance is added. This reconstructs the bounded polygon-light suffix;
 it neither invents ambient light nor implements ReSTIR GI. After the single
-Ray Reconstruction evaluation, a dedicated compute stage meters the actual
-full-resolution linear-FP16 result through a noise-weighted 128-bin
-log-luminance histogram. Exact black is excluded and local-neighbour
+Ray Reconstruction evaluation, three separably blurred FP16 bloom scales fold
+bright energy back into one full-resolution linear-HDR composite. A dedicated
+compute stage meters that exact composited result through a noise-weighted
+128-bin log-luminance histogram. Exact black is excluded and local-neighbour
 consistency downweights isolated reconstructed fireflies. The 2nd--99th
 percentile interval shapes a temporally smoothed monotonic curve, while the
 10th--90th percentile interval drives bounded elapsed-time exposure with a
@@ -916,7 +919,9 @@ For every rendered game frame:
 7. Tag every resource for this frame with `slSetTagForFrame`, correct extents, lifetimes, and resource states.
 8. Evaluate `sl::kFeatureDLSS_RR` on the D3D12 command list using that same token/viewport.
 9. Restore every command-list state that Streamline documents as host-owned after evaluation.
-10. Tone map and composite post-RR presentation, submit, present, and only then promote current history to previous.
+10. Composite linear-HDR bloom, meter and tone map that post-RR presentation,
+    apply the selected output encoding/dither, submit, present, and only then
+    promote current history to previous.
 
 Ray Reconstruction does not support changing its input resolution in-place without reconstruction reinitialization. Use a fixed input size for the selected mode; on resize or mode change, flush, release RR resources, recreate the size-dependent targets, and set reset for the first valid frame.
 
@@ -1132,9 +1137,13 @@ classes and transient projectiles remain incomplete.
   and the metered percentile range. CTest no longer supplies an exposure
   override, so its
   Level A--P smoke exercises the production presentation and both companion
-  assertions directly. No coverage assertion or checksum threshold was
-  removed. Transmissive/alpha-blended presentation, HUD, text, and optional
-  NVIDIA transparency guides remain.
+  assertions directly. Three separably blurred FP16 scales now extract and
+  composite bright energy in linear HDR before that histogram and tone curve.
+  The explicit SDR path retains manual exact sRGB encoding and uses the pinned
+  blue-noise/Owen-scrambled Sobol package for sub-half-code final 8-bit
+  quantization dithering. No coverage assertion or checksum threshold was
+  removed. Transmissive/alpha-blended presentation, HUD, text, HDR swap-chain
+  negotiation, and optional NVIDIA transparency guides remain.
 - Add transmissive/alpha-blended presentation, HUD, text, and optional NVIDIA
   transparency guides if captures prove they are needed.
 - Add scripted camera/dynamic-scene captures, all-level native smoke tests, resize/device-loss tests, packaging, documentation, and licence audit.
@@ -1587,6 +1596,7 @@ nothing passes any stability bound trivially.
 - Polygon triangulation, tangent generation, UVs, winding, and stable identity mapping.
 - PBR sheet extraction, color-space declarations, manifest parsing, hashes, missing/corrupt assets, and deterministic rebuilds.
 - BRDF energy sanity, finite output, PDFs, material guide values, and random-sequence reproducibility.
+- Linear-HDR bloom extraction response and SDR blue-noise quantization bounds.
 - Current/previous transform lookup, level-generation isolation, camera resets, object births/deaths, and analytical motion vectors.
 - CMake configuration coverage for DXR-disabled, ID-independent DXR discovered through `PATH`, and Streamline-enabled builds discovered through environment variables, including missing-root, invalid-project-GUID, and altered-payload failures.
 - Streamline option/tag construction without invoking the proprietary runtime.

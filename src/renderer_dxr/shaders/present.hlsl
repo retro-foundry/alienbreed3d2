@@ -10,6 +10,7 @@ Texture2D<float4> DiffuseHitDistance : register(t8);
 Texture2D<float4> SpecularHitDistanceHistory : register(t9);
 Texture2D<float4> IndirectRadiance : register(t10);
 StructuredBuffer<float> ToneMapState : register(t11);
+ByteAddressBuffer BlueNoiseSampler : register(t12);
 
 cbuffer PresentConstants : register(b0)
 {
@@ -20,11 +21,19 @@ cbuffer PresentConstants : register(b0)
     uint TargetWidth;
     uint TargetHeight;
     float Exposure;
+    uint FrameIndex;
 };
 
 static const uint ToneCurvePointCount = 129u;
 static const float MinimumLogLuminance = -18.0;
 static const float MaximumLogLuminance = 8.0;
+static const uint BlueNoiseSampleCount = 256u;
+static const uint BlueNoiseDimensionCount = 256u;
+static const uint BlueNoiseTileWidth = 128u;
+static const uint BlueNoiseOptimizedDimensions = 8u;
+static const uint BlueNoiseSobolOffset = 0u;
+static const uint BlueNoiseScramblingOffset = 65536u;
+static const uint BlueNoiseRankingOffset = 196608u;
 
 struct PixelInput
 {
@@ -53,6 +62,48 @@ float3 linearToSrgb(float3 color)
 float3 displayLinear(float3 color)
 {
     return linearToSrgb(saturate(color));
+}
+
+uint blueNoiseByte(uint byteOffset)
+{
+    uint word = BlueNoiseSampler.Load(byteOffset & ~3u);
+    return (word >> ((byteOffset & 3u) * 8u)) & 0xffu;
+}
+
+/* Use the renderer's pinned Heitz et al. Owen-scrambled Sobol package for the
+ * final 8-bit SDR quantization step. Independent optimized dimensions avoid
+ * correlated RGB band edges; every channel remains strictly within half of
+ * one UNORM code so exact black and white still quantize to their endpoints. */
+float sampleBlueNoise(uint2 pixel, uint sampleIndex, uint dimension)
+{
+    dimension &= BlueNoiseDimensionCount - 1u;
+    uint dimensionGroup = dimension / BlueNoiseOptimizedDimensions;
+    uint sampleCycle = sampleIndex / BlueNoiseSampleCount;
+    uint2 tilePixel = (pixel + uint2(
+        dimensionGroup * 37u + sampleCycle * 53u,
+        dimensionGroup * 59u + sampleCycle * 97u)) & 127u;
+    uint tileIndex = tilePixel.x + tilePixel.y * BlueNoiseTileWidth;
+    uint optimizedDimension =
+        dimension & (BlueNoiseOptimizedDimensions - 1u);
+    uint keyIndex = optimizedDimension +
+        tileIndex * BlueNoiseOptimizedDimensions;
+    uint rankedSampleIndex =
+        (sampleIndex & (BlueNoiseSampleCount - 1u)) ^
+        blueNoiseByte(BlueNoiseRankingOffset + keyIndex);
+    uint value = blueNoiseByte(
+        BlueNoiseSobolOffset + dimension +
+        rankedSampleIndex * BlueNoiseDimensionCount);
+    value ^= blueNoiseByte(BlueNoiseScramblingOffset + keyIndex);
+    return (0.5 + float(value)) / float(BlueNoiseSampleCount);
+}
+
+float3 ditherSdr(float3 encoded, uint2 pixel)
+{
+    float3 noise = float3(
+        sampleBlueNoise(pixel, FrameIndex, 0u),
+        sampleBlueNoise(pixel, FrameIndex, 1u),
+        sampleBlueNoise(pixel, FrameIndex, 2u));
+    return saturate(encoded + (noise - 0.5) / 255.0);
 }
 
 float adaptiveToneMapLuminance(float exposedLuminance)
@@ -142,5 +193,8 @@ float4 ps_main(PixelInput input) : SV_Target
      * gamut instead of clipping each component independently. */
     float maximumComponent = max(mapped.r, max(mapped.g, mapped.b));
     mapped /= max(maximumComponent, 1.0);
-    return float4(linearToSrgb(max(mapped, 0.0)), 1.0);
+    uint2 targetPixel = min(uint2(input.position.xy),
+        uint2(max(TargetWidth, 1u) - 1u, max(TargetHeight, 1u) - 1u));
+    return float4(ditherSdr(linearToSrgb(max(mapped, 0.0)), targetPixel),
+                  1.0);
 }

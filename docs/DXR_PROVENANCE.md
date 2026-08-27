@@ -425,6 +425,17 @@ elapsed-time asymmetric adaptation, and a temporally smoothed monotonic
 luminance curve. `dxr_tone_mapping.h` mirrors the GPU contract for deterministic
 CPU regression coverage.
 
+The following project-authored presentation stage extracts bright energy with
+a smooth luminance response, applies separable nine-tap filtering at half,
+quarter, and eighth resolution in linear FP16, folds the broad levels back into
+the finer ones, and composites the bounded result before histogram metering.
+The 8-bit SDR path performs the existing exact sRGB encoding, then sources each
+channel's sub-half-code quantization dither from separate optimized dimensions
+of the already pinned and licensed blue-noise/Owen-scrambled Sobol package.
+`dxr_post_processing.h` mirrors the extraction and quantization bounds for CPU
+regression coverage. No additional noise table or third-party bloom code was
+introduced.
+
 The user-authorized Q2RTX checkout was inspected to establish presentation
 stage ordering, SDR/HDR output spaces, and the feature gap (adaptive tone
 mapping, bloom, output dithering, and scRGB negotiation). No Q2RTX source text,
