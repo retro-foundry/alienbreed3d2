@@ -28,11 +28,10 @@ static const uint LowLuminanceStateIndex = ExposureStateIndex + 3u;
 static const uint HighLuminanceStateIndex = ExposureStateIndex + 4u;
 static const float MinimumLogLuminance = -18.0;
 static const float MaximumLogLuminance = 8.0;
-static const float MiddleGrey = 0.18;
-static const float MinimumExposure = 1.0 / 32.0;
+static const float MeteringKey = 0.014;
+static const float ToneToeLuminance = 0.02;
+static const float MinimumExposure = 0.125;
 static const float MaximumExposure = 4096.0;
-static const float DisplayBlackLog = -8.0;
-static const float DisplayWhiteLog = -0.0740005814; // log2(0.95)
 static const float BloomSoftThreshold = 0.02;
 static const float BloomStrength = 0.08;
 static const float BloomUpsampleWeight = 0.5;
@@ -220,22 +219,23 @@ void histogram_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     InterlockedAdd(LuminanceHistogram[histogramIndex(centerLog)], fixedWeight);
 }
 
-float reinhardWhite(float exposedLuminance)
+float toneMapLuminance(float exposedLuminance)
 {
-    const float whitePoint = 4.0;
-    float mapped = exposedLuminance *
-        (1.0 + exposedLuminance / (whitePoint * whitePoint)) /
-        (1.0 + exposedLuminance);
-    return saturate(mapped);
+    if (!(exposedLuminance > 0.0) || !isfinite(exposedLuminance)) {
+        return 0.0;
+    }
+    float toe = exposedLuminance * exposedLuminance /
+        (exposedLuminance + ToneToeLuminance);
+    return saturate(toe / (1.0 + toe));
 }
 
 /*
  * One thread deliberately owns the 128-bin curve. The work is tiny compared
  * with a frame dispatch and the serial ordering makes the temporal state and
- * diagnostics deterministic. The adaptive branch distributes display range
- * according to a blurred square-root histogram; blending it in log space with
- * a photographic exposure curve preserves monotonicity while giving occupied
- * dark ranges more contrast than a fixed global toe.
+ * diagnostics deterministic. The noise-weighted histogram adapts exposure;
+ * the project-calibrated quadratic toe prevents post-reconstruction near-black
+ * transport from being promoted to visible grey, while the rational shoulder
+ * retains highlight separation without clipping.
  */
 [numthreads(1, 1, 1)]
 void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -255,7 +255,7 @@ void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
             float inputLog = lerp(
                 MinimumLogLuminance, MaximumLogLuminance,
                 float(emptyBin) / float(HistogramBinCount));
-            ToneMapState[emptyBin] = reinhardWhite(exp2(inputLog));
+            ToneMapState[emptyBin] = toneMapLuminance(exp2(inputLog));
         }
         ToneMapState[ExposureStateIndex] = 1.0;
         ToneMapState[TargetExposureStateIndex] = 1.0;
@@ -306,7 +306,7 @@ void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float averageLuminance = meterWeight > 0u ?
         exp2(weightedLogSum / float(meterWeight)) : 0.0;
     float targetExposure = averageLuminance > 0.0 ?
-        clamp(MiddleGrey / averageLuminance,
+        clamp(MeteringKey / averageLuminance,
               MinimumExposure, MaximumExposure) : 1.0;
     float previousExposure = ToneMapState[ExposureStateIndex];
     bool reset = ResetHistory != 0u || !(previousExposure > 0.0) ||
@@ -319,48 +319,14 @@ void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float adaptedExposure = reset ? targetExposure : lerp(
         previousExposure, targetExposure, exposureWeight);
 
-    float importanceSum = 0.0;
-    [loop]
-    for (uint importanceBin = lowBin; importanceBin <= highBin;
-         ++importanceBin) {
-        uint left = importanceBin > 0u ? importanceBin - 1u : 0u;
-        uint right = min(importanceBin + 1u, HistogramBinCount - 1u);
-        float blurred = float(LuminanceHistogram[left]) * 0.25 +
-            float(LuminanceHistogram[importanceBin]) * 0.5 +
-            float(LuminanceHistogram[right]) * 0.25;
-        importanceSum += sqrt(max(blurred / float(totalWeight), 1.0e-8));
-    }
-
-    float accumulatedImportance = 0.0;
     [loop]
     for (uint curvePoint = 0u; curvePoint < ToneCurvePointCount;
          ++curvePoint) {
-        uint sourceBin = min(curvePoint, HistogramBinCount - 1u);
-        if (sourceBin >= lowBin && sourceBin <= highBin) {
-            uint left = sourceBin > 0u ? sourceBin - 1u : 0u;
-            uint right = min(sourceBin + 1u, HistogramBinCount - 1u);
-            float blurred = float(LuminanceHistogram[left]) * 0.25 +
-                float(LuminanceHistogram[sourceBin]) * 0.5 +
-                float(LuminanceHistogram[right]) * 0.25;
-            accumulatedImportance +=
-                sqrt(max(blurred / float(totalWeight), 1.0e-8));
-        }
         float inputLog = lerp(
             MinimumLogLuminance, MaximumLogLuminance,
             float(curvePoint) / float(HistogramBinCount));
-        float baseMapped = reinhardWhite(exp2(inputLog) * adaptedExposure);
-        float targetMapped = baseMapped;
-        if (sourceBin >= lowBin && sourceBin <= highBin &&
-            importanceSum > 0.0) {
-            float adaptivePosition =
-                saturate(accumulatedImportance / importanceSum);
-            float adaptiveMapped = exp2(lerp(
-                DisplayBlackLog, DisplayWhiteLog, adaptivePosition));
-            float baseLog = log2(max(baseMapped, exp2(DisplayBlackLog)));
-            float adaptiveLog = log2(max(
-                adaptiveMapped, exp2(DisplayBlackLog)));
-            targetMapped = exp2(lerp(baseLog, adaptiveLog, 0.35));
-        }
+        float targetMapped = toneMapLuminance(
+            exp2(inputLog) * adaptedExposure);
         float previousMapped = ToneMapState[curvePoint];
         float curveRate = targetMapped > previousMapped ? 2.0 : 6.0;
         float curveWeight = reset || !isfinite(previousMapped) ? 1.0 :

@@ -654,10 +654,14 @@ Presentation builds a noise-weighted 128-bin log-luminance histogram from the
 full-resolution linear-FP16 image returned by Ray Reconstruction. Exact black
 is excluded, local-neighbour consistency downweights isolated reconstructed
 fireflies, and a mild centre weight retains the view direction without
-discarding the frame edges. The 2nd--99th percentile interval shapes a
-temporally smoothed monotonic luminance curve, while the 10th--90th percentile
-interval meters exposure. Exposure reacts faster to newly visible highlights
-than to darkness and uses elapsed seconds rather than a frame-dependent blend.
+discarding the frame edges. The 2nd--99th percentile interval reports the
+occupied luminance span, while the 10th--90th percentile interval meters
+exposure. Exposure reacts faster to newly visible highlights than to darkness
+and uses elapsed seconds rather than a frame-dependent blend. AB3D2's saved
+Level A corridor owns the scene-linear `0.014` key and quadratic `0.02` toe:
+reconstructed near-black transport therefore rolls smoothly to black instead
+of being expanded to middle grey. The rational shoulder remains monotonic and
+retains highlight separation without clipping.
 Before that meter, bright reconstructed energy is extracted into half-,
 quarter-, and eighth-resolution FP16 buffers, blurred separably at every scale,
 folded back into the finer levels, and composited with the same linear-HDR image
@@ -668,7 +672,7 @@ Owen-scrambled Sobol package. For a visible DXR window, automatic output mode
 also reads the Windows advanced-colour state of the monitor containing the
 window. An HDR-enabled monitor gets a native `R16G16B16A16_FLOAT` flip-discard
 swap chain in linear scRGB (`1.0` is the scRGB 80-nit reference white); diffuse
-white is anchored to 200 nits by default and the adaptive curve's highlight
+white is anchored to 200 nits by default and the tone curve's highlight
 shoulder reaches the display-reported peak. Moving the window between HDR and
 SDR monitors flushes the old buffers and rebuilds both swap-chain PSOs for the
 new RTV format. When Windows HDR is off, the monitor lacks advanced-colour

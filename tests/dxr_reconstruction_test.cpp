@@ -158,6 +158,16 @@ int main()
         std::numeric_limits<float>::quiet_NaN();
     const tone::State recovered_curve = tone::build_curve(
         metering_histogram, invalid_previous_curve, true, 1.0f / 60.0f);
+    /* Regression for the post-RR Level A failure reported on 2026-08-27.
+     * Reconstructed near-black transport must remain below the display toe;
+     * it must never be expanded to middle grey just because it dominates the
+     * histogram. */
+    tone::Histogram dark_corridor_histogram = {};
+    tone::add_sample(dark_corridor_histogram, 0.000004f, 10u);
+    tone::add_sample(dark_corridor_histogram, 0.000062f, 80u);
+    tone::add_sample(dark_corridor_histogram, 0.038598f, 10u);
+    const tone::State dark_corridor_curve = tone::build_curve(
+        dark_corridor_histogram, tone::State{}, false, 1.0f / 60.0f);
     bool curve_is_monotonic = true;
     for (uint32_t point = 1u; point < tone::curve_point_count; ++point) {
         curve_is_monotonic = curve_is_monotonic &&
@@ -180,7 +190,7 @@ int main()
         !(metering.low_luminance < metering.average_luminance) ||
         !(metering.high_luminance > metering.average_luminance) ||
         !near(first_curve.target_exposure,
-              tone::middle_grey / expected_metering_average) ||
+              tone::metering_key / expected_metering_average) ||
         !near(first_curve.exposure, first_curve.target_exposure) ||
         !near(one_dark_step, two_dark_steps) ||
         !(light_adaptation_distance > dark_adaptation_distance) ||
@@ -196,6 +206,10 @@ int main()
         !(tone::lookup(first_curve, 0.18f) <
           tone::lookup(first_curve, 8.0f)) ||
         tone::lookup(first_curve, 0.0f) != 0.0f ||
+        !(dark_corridor_curve.target_exposure < 512.0f) ||
+        !(tone::lookup(dark_corridor_curve, 0.000004f) < 0.001f) ||
+        !(tone::lookup(dark_corridor_curve, 0.000062f) < 0.01f) ||
+        !(tone::lookup(dark_corridor_curve, 0.038598f) > 0.5f) ||
         !(second_curve.exposure > 0.0f) ||
         !std::isfinite(recovered_curve.curve[32])) {
         return fail("post-RR adaptive tone-mapping contract changed");

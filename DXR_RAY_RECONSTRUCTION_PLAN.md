@@ -701,12 +701,15 @@ bright energy back into one full-resolution linear-HDR composite. A dedicated
 compute stage meters that exact composited result through a noise-weighted
 128-bin log-luminance histogram. Exact black is excluded and local-neighbour
 consistency downweights isolated reconstructed fireflies. The 2nd--99th
-percentile interval shapes a temporally smoothed monotonic curve, while the
-10th--90th percentile interval drives bounded elapsed-time exposure with a
-faster response to highlights than darkness. `rtx_exposure` remains an
-explicit multiplicative bias. Metering, adaptation, curve constants, and guide
-rejection rules have CPU regression coverage, while hidden GPU smoke reports
-the target and adapted exposure plus the measured luminance span.
+percentile interval reports the occupied span, while the 10th--90th percentile
+interval drives bounded elapsed-time exposure with a faster response to
+highlights than darkness. The saved Level A calibration remains authoritative:
+its `0.014` scene-linear key and quadratic `0.02` toe keep reconstructed
+near-black transport below visible grey, followed by a monotonic rational
+highlight shoulder. `rtx_exposure` remains an explicit multiplicative bias.
+Metering, adaptation, curve constants, the dark-corridor failure distribution,
+and guide rejection rules have CPU regression coverage, while hidden GPU smoke
+reports the target and adapted exposure plus the measured luminance span.
 
 The former equal-weight 3x3 cascade made every successful secondary path visible
 as a square lattice that appeared and faded in dark areas. On the same frozen
@@ -1130,15 +1133,16 @@ classes and transient projectiles remain incomplete.
   surface supplies real world depth and reconstruction guides. The configured
   exposure bias is `1`; a dedicated post-Ray-Reconstruction compute stage now
   meters the actual full-resolution linear-FP16 reconstructed image with a
-  noise-weighted 128-bin histogram. Separate percentile intervals drive its
-  elapsed-time exposure adaptation and temporally smoothed monotonic luminance
-  curve, which retains exact black. The saved Level A corridor provides the
-  calibration capture, and hidden GPU diagnostics expose both exposure values
-  and the metered percentile range. CTest no longer supplies an exposure
-  override, so its
-  Level A--P smoke exercises the production presentation and both companion
-  assertions directly. Three separably blurred FP16 scales now extract and
-  composite bright energy in linear HDR before that histogram and tone curve.
+  noise-weighted 128-bin histogram. Its 10th--90th percentile interval drives
+  elapsed-time exposure adaptation; the 2nd--99th interval diagnoses the
+  occupied span. The saved Level A corridor owns the `0.014` scene-linear key
+  and quadratic `0.02` toe, so reconstruction residue remains dark instead of
+  being redistributed across the display. Hidden GPU diagnostics expose both
+  exposure values and the metered percentile range. CTest no longer supplies
+  an exposure override, so its Level A--P smoke exercises the production
+  presentation and both companion assertions directly. Three separably blurred
+  FP16 scales now extract and composite bright energy in linear HDR before that
+  histogram and tone curve.
   The explicit SDR path retains manual exact sRGB encoding and uses the pinned
   blue-noise/Owen-scrambled Sobol package for sub-half-code final 8-bit
   quantization dithering. Visible auto-mode windows now inspect the current
@@ -1146,7 +1150,7 @@ classes and transient projectiles remain incomplete.
   swap chain and `RGB_FULL_G10_NONE_P709`, while other monitors retain the SDR
   swap chain. The pipeline rebuilds both diagnostic and final-present PSOs when
   a cross-monitor move changes the RTV format. The HDR branch stays linear,
-  anchors diffuse white to 200 nits by default, maps the adaptive highlight
+  anchors diffuse white to 200 nits by default, maps the tone-curve highlight
   shoulder to the display-reported peak, and performs hue-preserving peak
   compression without sRGB encoding or 8-bit dither. Auto mode falls back to
   SDR if FP16 scRGB presentation is rejected; an explicit HDR request fails

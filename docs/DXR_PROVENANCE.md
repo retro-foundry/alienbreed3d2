@@ -420,9 +420,13 @@ above.
 The 2026-08-27 presentation revision meters the full-resolution linear-FP16
 image returned by Ray Reconstruction. Its project-authored compute stage uses a
 128-bin log-luminance histogram, local-consistency noise weighting, separate
-2nd--99th percentile curve bounds and 10th--90th percentile exposure metering,
-elapsed-time asymmetric adaptation, and a temporally smoothed monotonic
-luminance curve. `dxr_tone_mapping.h` mirrors the GPU contract for deterministic
+2nd--99th percentile diagnostic bounds and 10th--90th percentile exposure
+metering, elapsed-time asymmetric adaptation, and a temporally smoothed
+monotonic luminance curve. Its project-owned `0.014` key and quadratic `0.02`
+toe retain the saved Level A calibration and prevent post-reconstruction
+near-black transport from being expanded to middle grey. A rational shoulder
+retains highlight separation without clipping. `dxr_tone_mapping.h` mirrors
+the GPU contract and the reported dark-corridor distribution for deterministic
 CPU regression coverage.
 
 The following project-authored presentation stage extracts bright energy with
@@ -439,7 +443,7 @@ introduced.
 The subsequent project-authored output stage detects the window's current
 monitor with DXGI 1.6 and selects either the established 8-bit sRGB swap chain
 or native FP16 scRGB. Its independent Hermite highlight shoulder maps the
-adaptive curve's diffuse range to a configurable paper white and its endpoint
+tone curve's diffuse range to a configurable paper white and its endpoint
 to the display peak; scRGB conversion uses the platform-defined 80-nit
 reference white. Both graphics PSOs are recreated when the RTV format changes.
 Hidden validation remains explicitly SDR. `dxr_post_processing.h` also mirrors
@@ -450,9 +454,16 @@ The user-authorized Q2RTX checkout was inspected to establish presentation
 stage ordering, SDR/HDR output spaces, and the feature gap (adaptive tone
 mapping, bloom, output dithering, and scRGB negotiation). No Q2RTX source text,
 shader, constant set, curve implementation, table, binary, or asset was copied
-or adapted. The AB3D2 histogram weighting, percentile policy, adaptation rates,
-and curve construction were independently written against this renderer's own
-post-reconstruction Level A diagnostics.
+or adapted. After the first integrated result visibly lifted darkness on
+2026-08-27, `tone_mapping_histogram.comp`, `tone_mapping_curve.comp`,
+`tone_mapping_apply.comp`, and the related defaults in `global_ubo.h` were
+inspected again. The only retained behavioral finding is that reconstructed
+near-black values need an explicit noise-preserving response and must not be
+redistributed across meaningful display contrast. The correction restores
+AB3D2's earlier Level A key, toe, and shoulder rather than any Q2RTX constant or
+implementation. The AB3D2 histogram weighting, percentile policy, adaptation
+rates, and curve construction remain independently written against this
+renderer's own post-reconstruction diagnostics.
 
 ## Historical published-mathematics implementation
 

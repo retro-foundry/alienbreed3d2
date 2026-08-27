@@ -16,8 +16,14 @@ inline constexpr uint32_t histogram_bin_count = 128u;
 inline constexpr uint32_t curve_point_count = histogram_bin_count + 1u;
 inline constexpr float minimum_log_luminance = -18.0f;
 inline constexpr float maximum_log_luminance = 8.0f;
-inline constexpr float middle_grey = 0.18f;
-inline constexpr float minimum_exposure = 1.0f / 32.0f;
+/* AB3D2's traced radiance deliberately uses a small scene-linear scale. This
+ * key and toe were calibrated against the saved Level A corridor before the
+ * meter moved after Ray Reconstruction. Keeping the key below the toe makes
+ * the metered scene value visibly dark instead of promoting reconstruction
+ * residue to photographic middle grey. */
+inline constexpr float metering_key = 0.014f;
+inline constexpr float tone_toe_luminance = 0.02f;
+inline constexpr float minimum_exposure = 0.125f;
 inline constexpr float maximum_exposure = 4096.0f;
 inline constexpr float maximum_delta_seconds = 0.25f;
 
@@ -133,7 +139,7 @@ inline float target_exposure(const Metering &metering)
 {
     return metering.average_luminance > 0.0f &&
                    std::isfinite(metering.average_luminance) ?
-        std::clamp(middle_grey / metering.average_luminance,
+        std::clamp(metering_key / metering.average_luminance,
                    minimum_exposure, maximum_exposure) :
         1.0f;
 }
@@ -153,13 +159,18 @@ inline float adapt_exposure(float previous, float target,
         (1.0f - std::exp(-rate * elapsed));
 }
 
-inline float reinhard_white(float exposed_luminance)
+/* Quadratic toe sends residual reconstructed transport smoothly to exact
+ * black. The rational shoulder retains a broad midrange and approaches white
+ * without clipping. */
+inline float tone_map_luminance(float exposed_luminance)
 {
-    constexpr float white_point = 4.0f;
-    const float mapped = exposed_luminance *
-        (1.0f + exposed_luminance / (white_point * white_point)) /
-        (1.0f + exposed_luminance);
-    return std::clamp(mapped, 0.0f, 1.0f);
+    if (!(exposed_luminance > 0.0f) ||
+        !std::isfinite(exposed_luminance)) {
+        return 0.0f;
+    }
+    const float toe = exposed_luminance * exposed_luminance /
+        (exposed_luminance + tone_toe_luminance);
+    return std::clamp(toe / (1.0f + toe), 0.0f, 1.0f);
 }
 
 inline State build_curve(const Histogram &histogram, const State &previous,
@@ -173,7 +184,7 @@ inline State build_curve(const Histogram &histogram, const State &previous,
                 (maximum_log_luminance - minimum_log_luminance) *
                     static_cast<float>(point) /
                     static_cast<float>(histogram_bin_count);
-            result.curve[point] = reinhard_white(std::exp2(input_log));
+            result.curve[point] = tone_map_luminance(std::exp2(input_log));
         }
         return result;
     }
@@ -185,49 +196,16 @@ inline State build_curve(const Histogram &histogram, const State &previous,
     result.low_luminance = metering.low_luminance;
     result.high_luminance = metering.high_luminance;
 
-    const auto importance = [&histogram](uint32_t index) {
-        const uint32_t left = index > 0u ? index - 1u : 0u;
-        const uint32_t right =
-            std::min(index + 1u, histogram_bin_count - 1u);
-        const float blurred = static_cast<float>(histogram.bins[left]) * 0.25f +
-            static_cast<float>(histogram.bins[index]) * 0.5f +
-            static_cast<float>(histogram.bins[right]) * 0.25f;
-        return std::sqrt(std::max(
-            blurred / static_cast<float>(histogram.total_weight), 1.0e-8f));
-    };
-    float importance_sum = 0.0f;
-    for (uint32_t index = metering.low_bin; index <= metering.high_bin;
-         ++index) {
-        importance_sum += importance(index);
-    }
-    float accumulated_importance = 0.0f;
     const float elapsed = std::clamp(
         std::isfinite(delta_seconds) ? delta_seconds : 0.0f,
         0.0f, maximum_delta_seconds);
     for (uint32_t point = 0u; point < curve_point_count; ++point) {
-        const uint32_t source_bin =
-            std::min(point, histogram_bin_count - 1u);
-        const bool occupied_range =
-            source_bin >= metering.low_bin && source_bin <= metering.high_bin;
-        if (occupied_range) {
-            accumulated_importance += importance(source_bin);
-        }
         const float input_log = minimum_log_luminance +
             (maximum_log_luminance - minimum_log_luminance) *
                 static_cast<float>(point) /
                 static_cast<float>(histogram_bin_count);
-        const float base = reinhard_white(
+        const float target = tone_map_luminance(
             std::exp2(input_log) * result.exposure);
-        float target = base;
-        if (occupied_range && importance_sum > 0.0f) {
-            const float position = std::clamp(
-                accumulated_importance / importance_sum, 0.0f, 1.0f);
-            const float adaptive = std::exp2(
-                -8.0f + (-0.0740005814f + 8.0f) * position);
-            target = std::exp2(
-                std::log2(std::max(base, std::exp2(-8.0f))) * 0.65f +
-                std::log2(std::max(adaptive, std::exp2(-8.0f))) * 0.35f);
-        }
         const float old_value = previous.curve[point];
         const float rate = target > old_value ? 2.0f : 6.0f;
         if (!history_valid || !std::isfinite(old_value)) {
