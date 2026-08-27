@@ -417,14 +417,21 @@ above.
 
 ## Project-owned exposure and presentation
 
-The 2026-08-26 automatic-exposure and tone-mapping revision was designed and
-implemented from this renderer's own Level A HDR diagnostics. It uses a sparse
-64-bin log-luminance histogram, weighted 10th--98th percentile metering,
-elapsed-time asymmetric adaptation, and a luminance-preserving quadratic toe
-with an asymptotic rational shoulder. No external game renderer source, shader,
-constant set, or tone-mapping implementation was inspected or adapted for this
-revision. `dxr_auto_exposure.h` mirrors the shader contract for deterministic
+The 2026-08-27 presentation revision meters the full-resolution linear-FP16
+image returned by Ray Reconstruction. Its project-authored compute stage uses a
+128-bin log-luminance histogram, local-consistency noise weighting, separate
+2nd--99th percentile curve bounds and 10th--90th percentile exposure metering,
+elapsed-time asymmetric adaptation, and a temporally smoothed monotonic
+luminance curve. `dxr_tone_mapping.h` mirrors the GPU contract for deterministic
 CPU regression coverage.
+
+The user-authorized Q2RTX checkout was inspected to establish presentation
+stage ordering, SDR/HDR output spaces, and the feature gap (adaptive tone
+mapping, bloom, output dithering, and scRGB negotiation). No Q2RTX source text,
+shader, constant set, curve implementation, table, binary, or asset was copied
+or adapted. The AB3D2 histogram weighting, percentile policy, adaptation rates,
+and curve construction were independently written against this renderer's own
+post-reconstruction Level A diagnostics.
 
 ## Historical published-mathematics implementation
 

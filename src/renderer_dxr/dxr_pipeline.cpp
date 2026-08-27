@@ -43,7 +43,7 @@ enum DescriptorIndex : UINT {
     emissive_atlas = 15,
     reconstruction_srv_start = 16,
     indirect_radiance_srv = 26,
-    automatic_exposure_srv = 27,
+    tone_map_state_srv = 27,
     diagnostics_uav = 28,
     light_grid_uav = 29,
     indirect_radiance_uav = 30,
@@ -55,7 +55,10 @@ enum DescriptorIndex : UINT {
     indirect_gradient_uav_start = 37,
     gi_reservoir_uav_start = 39,
     gi_reservoir_scratch_uav = 41,
-    descriptor_count = 42,
+    post_input_srv = 42,
+    post_histogram_uav = 43,
+    post_tone_map_state_uav = 44,
+    descriptor_count = 45,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -143,6 +146,9 @@ enum ShaderRecordIndex : UINT {
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
 constexpr UINT diagnostic_value_count = 11u;
+constexpr UINT tone_map_histogram_bin_count = 128u;
+constexpr UINT tone_map_state_value_count =
+    tone_map_histogram_bin_count + 1u + 5u;
 constexpr UINT64 frame_constant_stride =
     D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
 constexpr float pi = 3.14159265358979323846f;
@@ -203,6 +209,15 @@ struct PresentConstants {
 };
 
 static_assert(sizeof(PresentConstants) == 7u * sizeof(uint32_t));
+
+struct PostConstants {
+    uint32_t source_width;
+    uint32_t source_height;
+    float delta_seconds;
+    uint32_t reset_history;
+};
+
+static_assert(sizeof(PostConstants) == 4u * sizeof(uint32_t));
 
 std::string path_text(const std::filesystem::path &path)
 {
@@ -750,6 +765,80 @@ bool DxrPipeline::create_present_pipeline(
     return true;
 }
 
+bool DxrPipeline::create_post_pipeline(ID3D12Device5 *device,
+                                       std::string &error)
+{
+    std::vector<unsigned char> histogram_shader;
+    std::vector<unsigned char> curve_shader;
+    if (!load_shader(L"post_histogram_cs.dxil", histogram_shader, error) ||
+        !load_shader(L"post_curve_cs.dxil", curve_shader, error)) {
+        return false;
+    }
+
+    std::array<D3D12_DESCRIPTOR_RANGE, 2> ranges = {};
+    ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    ranges[0].NumDescriptors = 1u;
+    ranges[0].BaseShaderRegister = 0u;
+    ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    ranges[1].NumDescriptors = 2u;
+    ranges[1].BaseShaderRegister = 0u;
+
+    std::array<D3D12_ROOT_PARAMETER, 4> parameters = {};
+    parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[0].DescriptorTable.NumDescriptorRanges = 1u;
+    parameters[0].DescriptorTable.pDescriptorRanges = &ranges[0];
+    parameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    parameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[1].DescriptorTable.NumDescriptorRanges = 1u;
+    parameters[1].DescriptorTable.pDescriptorRanges = &ranges[1];
+    parameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    parameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[2].Descriptor.ShaderRegister = 2u;
+    parameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    parameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[3].Constants.Num32BitValues =
+        sizeof(PostConstants) / sizeof(uint32_t);
+    parameters[3].Constants.ShaderRegister = 0u;
+    parameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+
+    D3D12_ROOT_SIGNATURE_DESC root_description = {};
+    root_description.NumParameters = static_cast<UINT>(parameters.size());
+    root_description.pParameters = parameters.data();
+    if (!serialize_root_signature(
+            root_description, device, post_root_signature_,
+            L"AB3D2 Post-RR Tone Mapping Root Signature", error)) {
+        return false;
+    }
+
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pipeline_description = {};
+    pipeline_description.pRootSignature = post_root_signature_.Get();
+    pipeline_description.CS = {
+        histogram_shader.data(), histogram_shader.size()};
+    HRESULT result = device->CreateComputePipelineState(
+        &pipeline_description, IID_PPV_ARGS(&post_histogram_pipeline_state_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateComputePipelineState(post-RR histogram)",
+            result);
+        return false;
+    }
+    post_histogram_pipeline_state_->SetName(
+        L"AB3D2 Post-RR Luminance Histogram Pipeline");
+
+    pipeline_description.CS = {curve_shader.data(), curve_shader.size()};
+    result = device->CreateComputePipelineState(
+        &pipeline_description, IID_PPV_ARGS(&post_curve_pipeline_state_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateComputePipelineState(post-RR tone curve)",
+            result);
+        return false;
+    }
+    post_curve_pipeline_state_->SetName(
+        L"AB3D2 Post-RR Adaptive Tone Curve Pipeline");
+    return true;
+}
+
 bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
                                              std::string &error)
 {
@@ -1017,7 +1106,7 @@ bool DxrPipeline::create_descriptor_heap(ID3D12Device5 *device,
         error = "D3D12 returned a zero DXR resource descriptor increment";
         return false;
     }
-    description.NumDescriptors = 1u;
+    description.NumDescriptors = 2u;
     description.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
     const HRESULT cpu_result = device->CreateDescriptorHeap(
         &description, IID_PPV_ARGS(&diagnostic_cpu_heap_));
@@ -1304,6 +1393,15 @@ D3D12_CPU_DESCRIPTOR_HANDLE DxrPipeline::diagnostic_clear_descriptor() const
         D3D12_CPU_DESCRIPTOR_HANDLE{};
 }
 
+D3D12_CPU_DESCRIPTOR_HANDLE DxrPipeline::histogram_clear_descriptor() const
+{
+    D3D12_CPU_DESCRIPTOR_HANDLE handle = diagnostic_clear_descriptor();
+    if (handle.ptr != 0u) {
+        handle.ptr += descriptor_size_;
+    }
+    return handle;
+}
+
 bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
                                                  UINT width, UINT height,
                                                  UINT present_width,
@@ -1317,6 +1415,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         indirect_filtered_ && indirect_chroma_ &&
         indirect_chroma_filtered_ && indirect_gradients_[0] &&
         indirect_gradients_[1] && automatic_exposure_ &&
+        tone_map_histogram_ && tone_map_state_ &&
         indirect_histories_[0] && indirect_histories_[1] &&
         gi_reservoirs_[0] && gi_reservoirs_[1] &&
         gi_reservoir_scratch_ &&
@@ -1345,6 +1444,8 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         gradient.Reset();
     }
     automatic_exposure_.Reset();
+    tone_map_histogram_.Reset();
+    tone_map_state_.Reset();
     for (auto &history : indirect_histories_) {
         history.Reset();
     }
@@ -1565,16 +1666,68 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         device->CreateUnorderedAccessView(
             automatic_exposure_.Get(), nullptr, &uav,
             cpu_descriptor(automatic_exposure_uav));
-        D3D12_SHADER_RESOURCE_VIEW_DESC exposure_srv = {};
-        exposure_srv.Format = DXGI_FORMAT_UNKNOWN;
-        exposure_srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
-        exposure_srv.Shader4ComponentMapping =
+    }
+    {
+        D3D12_RESOURCE_DESC histogram_description = buffer_description(
+            tone_map_histogram_bin_count * sizeof(uint32_t));
+        histogram_description.Flags =
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &histogram_description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&tone_map_histogram_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(post-RR histogram)",
+                result);
+            return false;
+        }
+        tone_map_histogram_->SetName(
+            L"AB3D2 Post-RR Luminance Histogram");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC histogram_uav = {};
+        histogram_uav.Format = DXGI_FORMAT_UNKNOWN;
+        histogram_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        histogram_uav.Buffer.NumElements = tone_map_histogram_bin_count;
+        histogram_uav.Buffer.StructureByteStride = sizeof(uint32_t);
+        device->CreateUnorderedAccessView(
+            tone_map_histogram_.Get(), nullptr, &histogram_uav,
+            cpu_descriptor(post_histogram_uav));
+        device->CreateUnorderedAccessView(
+            tone_map_histogram_.Get(), nullptr, &histogram_uav,
+            histogram_clear_descriptor());
+
+        D3D12_RESOURCE_DESC state_description = buffer_description(
+            tone_map_state_value_count * sizeof(float));
+        state_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &state_description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&tone_map_state_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(post-RR tone state)",
+                result);
+            return false;
+        }
+        tone_map_state_->SetName(L"AB3D2 Post-RR Adaptive Tone State");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC state_uav = {};
+        state_uav.Format = DXGI_FORMAT_UNKNOWN;
+        state_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
+        state_uav.Buffer.NumElements = tone_map_state_value_count;
+        state_uav.Buffer.StructureByteStride = sizeof(float);
+        device->CreateUnorderedAccessView(
+            tone_map_state_.Get(), nullptr, &state_uav,
+            cpu_descriptor(post_tone_map_state_uav));
+        D3D12_SHADER_RESOURCE_VIEW_DESC state_srv = {};
+        state_srv.Format = DXGI_FORMAT_UNKNOWN;
+        state_srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+        state_srv.Shader4ComponentMapping =
             D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-        exposure_srv.Buffer.NumElements = 1u;
-        exposure_srv.Buffer.StructureByteStride = sizeof(float);
+        state_srv.Buffer.NumElements = tone_map_state_value_count;
+        state_srv.Buffer.StructureByteStride = sizeof(float);
         device->CreateShaderResourceView(
-            automatic_exposure_.Get(), &exposure_srv,
-            cpu_descriptor(automatic_exposure_srv));
+            tone_map_state_.Get(), &state_srv,
+            cpu_descriptor(tone_map_state_srv));
     }
     if (create_streamline_output) {
         description.Width = present_width;
@@ -1597,6 +1750,14 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
                 cpu_descriptor(reconstruction_srv_start));
         }
     }
+    srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels = 1u;
+    device->CreateShaderResourceView(
+        create_streamline_output ? streamline_output_.Get() :
+                                   reconstruction_targets_[0].Get(),
+        &srv, cpu_descriptor(post_input_srv));
     /* One temporal scratch reservoir and one double-buffered published history
      * reservoir per render-resolution pixel. Contents are undefined until the
      * first dispatch writes them; recreated invalidates history before any read. */
@@ -1719,6 +1880,7 @@ bool DxrPipeline::initialize(ID3D12Device5 *device,
         load_shader(L"present_vs.dxil", present_vertex_shader, error) &&
         create_diagnostic_pipeline(device, vertex_shader, pixel_shader, error) &&
         create_present_pipeline(device, present_vertex_shader, error) &&
+        create_post_pipeline(device, error) &&
         create_blue_noise_sampler(device, error) &&
         create_frame_constant_buffer(device, error) &&
         create_descriptor_heap(device, error) &&
@@ -2155,17 +2317,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->ResourceBarrier(
         static_cast<UINT>(std::size(indirect_output_ready)),
         indirect_output_ready);
-    dispatch.RayGenerationShaderRecord = {
-        table + shader_record_size * shader_record_calculate_automatic_exposure,
-        shader_record_size};
-    command_list->DispatchRays(&dispatch);
-    const D3D12_RESOURCE_BARRIER automatic_exposure_ready =
-        uav_barrier(automatic_exposure_.Get());
-    command_list->ResourceBarrier(1, &automatic_exposure_ready);
-    if (!record_diagnostics_end(command_list, error)) {
-        return false;
-    }
-
     std::array<D3D12_RESOURCE_BARRIER,
                static_cast<size_t>(DxrReconstructionBuffer::count)>
         guide_barriers = {};
@@ -2235,6 +2386,60 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         command_list->ResourceBarrier(1, &output_barrier);
     }
 #endif
+    ID3D12Resource *const post_resource = streamline_active ?
+        streamline_output_.Get() :
+        reconstruction_resource(DxrReconstructionBuffer::noisy_radiance);
+    const UINT post_width = streamline_active ? width : render_width;
+    const UINT post_height = streamline_active ? height : render_height;
+    constexpr D3D12_RESOURCE_STATES post_shader_resource_state =
+        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE |
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    const D3D12_RESOURCE_BARRIER post_source_ready = transition(
+        post_resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        post_shader_resource_state);
+    command_list->ResourceBarrier(1, &post_source_ready);
+
+    ID3D12DescriptorHeap *post_heaps[] = {descriptor_heap_.Get()};
+    command_list->SetDescriptorHeaps(1, post_heaps);
+    const UINT histogram_clear[4] = {};
+    command_list->ClearUnorderedAccessViewUint(
+        gpu_descriptor(post_histogram_uav), histogram_clear_descriptor(),
+        tone_map_histogram_.Get(), histogram_clear, 0u, nullptr);
+    const D3D12_RESOURCE_BARRIER histogram_cleared =
+        uav_barrier(tone_map_histogram_.Get());
+    command_list->ResourceBarrier(1, &histogram_cleared);
+
+    const PostConstants post_constants = {
+        post_width, post_height, constants.exposure_delta_seconds,
+        history_valid ? 0u : 1u};
+    command_list->SetComputeRootSignature(post_root_signature_.Get());
+    command_list->SetComputeRootDescriptorTable(
+        0, gpu_descriptor(post_input_srv));
+    command_list->SetComputeRootDescriptorTable(
+        1, gpu_descriptor(post_histogram_uav));
+    command_list->SetComputeRootUnorderedAccessView(
+        2, diagnostics_->GetGPUVirtualAddress());
+    command_list->SetComputeRoot32BitConstants(
+        3, sizeof(post_constants) / sizeof(uint32_t), &post_constants, 0u);
+    command_list->SetPipelineState(post_histogram_pipeline_state_.Get());
+    command_list->Dispatch((post_width + 7u) / 8u,
+                           (post_height + 7u) / 8u, 1u);
+    const D3D12_RESOURCE_BARRIER histogram_ready =
+        uav_barrier(tone_map_histogram_.Get());
+    command_list->ResourceBarrier(1, &histogram_ready);
+    command_list->SetPipelineState(post_curve_pipeline_state_.Get());
+    command_list->Dispatch(1u, 1u, 1u);
+    const D3D12_RESOURCE_BARRIER curve_ready =
+        uav_barrier(tone_map_state_.Get());
+    command_list->ResourceBarrier(1, &curve_ready);
+    const D3D12_RESOURCE_BARRIER tone_state_to_present = transition(
+        tone_map_state_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    command_list->ResourceBarrier(1, &tone_state_to_present);
+    if (!record_diagnostics_end(command_list, error)) {
+        return false;
+    }
+
     if (!scene_.record_promote_vertex_history(command_list, error)) {
         return false;
     }
@@ -2245,17 +2450,12 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         streamline_output_.Get() :
         (debug_view_ == static_cast<uint32_t>(DxrReconstructionBuffer::count) ?
             indirect_filtered_.Get() : reconstruction_targets_[debug_view_].Get());
-    const D3D12_RESOURCE_BARRIER to_present_shader = transition(
-        present_resource,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    const D3D12_RESOURCE_BARRIER exposure_to_present_shader = transition(
-        automatic_exposure_.Get(), D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-        D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-    const D3D12_RESOURCE_BARRIER present_inputs[] = {
-        to_present_shader, exposure_to_present_shader};
-    command_list->ResourceBarrier(
-        static_cast<UINT>(std::size(present_inputs)), present_inputs);
+    if (present_resource != post_resource) {
+        const D3D12_RESOURCE_BARRIER debug_to_present = transition(
+            present_resource, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+        command_list->ResourceBarrier(1, &debug_to_present);
+    }
     const D3D12_VIEWPORT viewport = {
         0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height),
         0.0f, 1.0f};
@@ -2279,16 +2479,23 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         1, sizeof(present_constants) / sizeof(uint32_t), &present_constants, 0);
     command_list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     command_list->DrawInstanced(3, 1, 0, 0);
-    const D3D12_RESOURCE_BARRIER to_next_sample[] = {
-        transition(present_resource,
-                   D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-        transition(automatic_exposure_.Get(),
-                   D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                   D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-    };
-    command_list->ResourceBarrier(
-        static_cast<UINT>(std::size(to_next_sample)), to_next_sample);
+    std::array<D3D12_RESOURCE_BARRIER, 3> to_next_sample = {};
+    UINT next_sample_barrier_count = 0u;
+    to_next_sample[next_sample_barrier_count++] = transition(
+        present_resource,
+        present_resource == post_resource ? post_shader_resource_state :
+                                            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    if (present_resource != post_resource) {
+        to_next_sample[next_sample_barrier_count++] = transition(
+            post_resource, post_shader_resource_state,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+    to_next_sample[next_sample_barrier_count++] = transition(
+        tone_map_state_.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    command_list->ResourceBarrier(next_sample_barrier_count,
+                                  to_next_sample.data());
     history_.pending_camera = current_camera;
     history_.pending_jitter = current_jitter;
     history_.pending_history_epoch = frame.history_epoch;

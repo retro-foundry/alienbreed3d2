@@ -1,5 +1,5 @@
 #include "renderer_dxr/dxr_reconstruction_math.h"
-#include "renderer_dxr/dxr_auto_exposure.h"
+#include "renderer_dxr/dxr_tone_mapping.h"
 #include "renderer_dxr/dxr_emitter_history.h"
 #include "renderer_dxr/dxr_indirect_reconstruction.h"
 #include "renderer_dxr/dxr_light_grid.h"
@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -35,7 +36,7 @@ int fail(const char *message)
 
 int main()
 {
-    namespace exposure = ab3d2::dxr::auto_exposure;
+    namespace tone = ab3d2::dxr::tone_mapping;
     namespace indirect = ab3d2::dxr::indirect_reconstruction;
     namespace grid = ab3d2::dxr::light_grid;
     namespace gi = ab3d2::dxr::restir_gi;
@@ -138,65 +139,64 @@ int main()
         std::abs(gi_biased_cosine_mass - 1.0) > 1.0e-4) {
         return fail("ReSTIR GI broad continuation PDF lost unit mass");
     }
-    exposure::Histogram metering_histogram = {};
-    exposure::add_sample(metering_histogram, 0.000001f, 10u);
-    exposure::add_sample(metering_histogram, 0.01f, 80u);
-    exposure::add_sample(metering_histogram, 10.0f, 10u);
-    const exposure::Metering metering =
-        exposure::meter(metering_histogram);
-    const float metering_low = exposure::histogram_luminance(
-        exposure::histogram_index(0.01f));
-    const float metering_high = exposure::histogram_luminance(
-        exposure::histogram_index(10.0f));
-    const float expected_metering_average = std::exp2(
-        (80.0f * std::log2(metering_low) +
-         8.0f * std::log2(metering_high)) / 88.0f);
-    const exposure::Metering neutral_metering = {
-        exposure::metering_key, 0.01f, 0.02f, 1u, 1u};
-    const exposure::Metering dark_metering = {
-        exposure::metering_key / (exposure::maximum_exposure * 2.0f),
-        0.0f, 0.0f, 1u, 1u};
-    const float one_dark_step = exposure::adapt(
+    tone::Histogram metering_histogram = {};
+    tone::add_sample(metering_histogram, 0.000001f, 10u);
+    tone::add_sample(metering_histogram, 0.01f, 80u);
+    tone::add_sample(metering_histogram, 10.0f, 10u);
+    const tone::Metering metering = tone::meter(metering_histogram);
+    const float metering_middle = tone::histogram_luminance(
+        tone::histogram_index(0.01f));
+    const float expected_metering_average = metering_middle;
+    const tone::State first_curve = tone::build_curve(
+        metering_histogram, tone::State{}, false, 1.0f / 60.0f);
+    const tone::State second_curve = tone::build_curve(
+        metering_histogram, first_curve, true, 1.0f / 60.0f);
+    tone::State invalid_previous_curve = first_curve;
+    invalid_previous_curve.curve[32] =
+        std::numeric_limits<float>::quiet_NaN();
+    const tone::State recovered_curve = tone::build_curve(
+        metering_histogram, invalid_previous_curve, true, 1.0f / 60.0f);
+    bool curve_is_monotonic = true;
+    for (uint32_t point = 1u; point < tone::curve_point_count; ++point) {
+        curve_is_monotonic = curve_is_monotonic &&
+            first_curve.curve[point] >= first_curve.curve[point - 1u];
+    }
+    const float one_dark_step = tone::adapt_exposure(
         1.0f, 2.0f, true, 0.2f);
-    const float two_dark_steps = exposure::adapt(
-        exposure::adapt(1.0f, 2.0f, true, 0.1f),
+    const float two_dark_steps = tone::adapt_exposure(
+        tone::adapt_exposure(1.0f, 2.0f, true, 0.1f),
         2.0f, true, 0.1f);
-    const float dark_adaptation_distance = exposure::adapt(
+    const float dark_adaptation_distance = tone::adapt_exposure(
         1.0f, 2.0f, true, 0.1f) - 1.0f;
-    const float light_adaptation_distance = 2.0f - exposure::adapt(
+    const float light_adaptation_distance = 2.0f - tone::adapt_exposure(
         2.0f, 1.0f, true, 0.1f);
-    if (exposure::sample_weight(0.5f, 0.5f) != 2u ||
-        exposure::sample_weight(0.0f, 0.0f) != 1u ||
-        exposure::histogram_index(0.0f) != 0u ||
-        exposure::histogram_index(1000.0f) !=
-            exposure::histogram_bin_count - 1u ||
-        metering.total_weight != 100u || metering.included_weight != 88u ||
-        !near(metering.low_percentile_luminance, metering_low) ||
-        !near(metering.high_percentile_luminance, metering_high) ||
+    if (tone::histogram_index(0.0f) != 0u ||
+        tone::histogram_index(1000.0f) !=
+            tone::histogram_bin_count - 1u ||
+        metering.total_weight != 100u || metering.included_weight != 80u ||
         !near(metering.average_luminance, expected_metering_average) ||
-        !near(exposure::target(neutral_metering), 1.0f) ||
-        exposure::target(dark_metering) != exposure::maximum_exposure ||
-        exposure::target(exposure::Metering{}) != 1.0f ||
+        !(metering.low_luminance < metering.average_luminance) ||
+        !(metering.high_luminance > metering.average_luminance) ||
+        !near(first_curve.target_exposure,
+              tone::middle_grey / expected_metering_average) ||
+        !near(first_curve.exposure, first_curve.target_exposure) ||
         !near(one_dark_step, two_dark_steps) ||
         !(light_adaptation_distance > dark_adaptation_distance) ||
-        exposure::adapt(1.0f, 3.0f, false, 0.1f) != 3.0f ||
-        exposure::adapt(1.0f, 3.0f, true, -1.0f) != 1.0f ||
-        !near(exposure::adapt(1.0f, 2.0f, true, 1.0f),
-              exposure::adapt(1.0f, 2.0f, true,
-                              exposure::maximum_delta_seconds)) ||
-        !near(exposure::tone_map_luminance(0.0f), 0.0f) ||
-        !(exposure::tone_map_luminance(0.0002f) < 0.00001f) ||
-        !(exposure::tone_map_luminance(0.001f) <
-          exposure::tone_map_luminance(0.01f)) ||
-        !(exposure::tone_map_luminance(0.01f) <
-          exposure::tone_map_luminance(0.18f)) ||
-        !(exposure::tone_map_luminance(0.18f) <
-          exposure::tone_map_luminance(1.0f)) ||
-        !(exposure::tone_map_luminance(1.0f) <
-          exposure::tone_map_luminance(8.0f)) ||
-        !(exposure::tone_map_luminance(8.0f) < 1.0f) ||
-        !(exposure::tone_map_luminance(1000000.0f) > 0.999f)) {
-        return fail("automatic exposure contract changed");
+        tone::adapt_exposure(1.0f, 3.0f, false, 0.1f) != 3.0f ||
+        tone::adapt_exposure(1.0f, 3.0f, true, -1.0f) != 1.0f ||
+        !near(tone::adapt_exposure(1.0f, 2.0f, true, 1.0f),
+              tone::adapt_exposure(1.0f, 2.0f, true,
+                                   tone::maximum_delta_seconds)) ||
+        !curve_is_monotonic ||
+        !(tone::lookup(first_curve, 0.01f) > 0.0f) ||
+        !(tone::lookup(first_curve, 0.01f) <
+          tone::lookup(first_curve, 0.18f)) ||
+        !(tone::lookup(first_curve, 0.18f) <
+          tone::lookup(first_curve, 8.0f)) ||
+        tone::lookup(first_curve, 0.0f) != 0.0f ||
+        !(second_curve.exposure > 0.0f) ||
+        !std::isfinite(recovered_curve.curve[32])) {
+        return fail("post-RR adaptive tone-mapping contract changed");
     }
     if (!near(indirect::guide_weight(100.0f, 100.0f, 1.0f), 1.0f) ||
         !near(indirect::guide_weight(100.0f, 105.0f, 0.75f), 0.125f) ||

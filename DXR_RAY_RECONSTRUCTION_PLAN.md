@@ -693,16 +693,17 @@ before three guided 3x3 wavelet passes at low-resolution steps 1, 2, and 4. A
 four-tap bilateral reconstruction projects the directional field onto the
 full-resolution primary geometric normal; primary albedo is then restored and
 direct radiance is added. This reconstructs the bounded polygon-light suffix;
-it neither invents ambient light nor implements ReSTIR GI. A
-sparse 32-by-18 primary-surface grid supplies a
-64-bin log-luminance histogram. Exact black is excluded, the centre region has
-two votes, and the weighted 10th--98th percentile interval drives bounded,
-elapsed-time exposure with a faster response to highlights than darkness. A
-project-owned luminance-preserving toe and asymptotic shoulder replace the
-former uniform seven-stop log lift; `rtx_exposure` remains an explicit
-multiplicative bias. Metering, adaptation, curve constants, and guide rejection
-rules have CPU regression coverage, while hidden GPU smoke reports the target
-and adapted exposure plus the measured luminance span.
+it neither invents ambient light nor implements ReSTIR GI. After the single
+Ray Reconstruction evaluation, a dedicated compute stage meters the actual
+full-resolution linear-FP16 result through a noise-weighted 128-bin
+log-luminance histogram. Exact black is excluded and local-neighbour
+consistency downweights isolated reconstructed fireflies. The 2nd--99th
+percentile interval shapes a temporally smoothed monotonic curve, while the
+10th--90th percentile interval drives bounded elapsed-time exposure with a
+faster response to highlights than darkness. `rtx_exposure` remains an
+explicit multiplicative bias. Metering, adaptation, curve constants, and guide
+rejection rules have CPU regression coverage, while hidden GPU smoke reports
+the target and adapted exposure plus the measured luminance span.
 
 The former equal-weight 3x3 cascade made every successful secondary path visible
 as a square lattice that appeared and faded in dark areas. On the same frozen
@@ -1122,10 +1123,11 @@ classes and transient projectiles remain incomplete.
   checksum from a GPU UAV; the 2026-08-20 Level A
   run passed, and a diffuse-albedo capture confirmed the source-scale lower-view
   surface supplies real world depth and reconstruction guides. The configured
-  exposure bias is `1`; a project-owned 64-bin percentile histogram now derives
-  the automatic scene exposure. It adapts by elapsed time and feeds a
-  luminance-preserving toe/shoulder curve that retains exact black instead of
-  applying the former uniform log lift. The saved Level A corridor provides the
+  exposure bias is `1`; a dedicated post-Ray-Reconstruction compute stage now
+  meters the actual full-resolution linear-FP16 reconstructed image with a
+  noise-weighted 128-bin histogram. Separate percentile intervals drive its
+  elapsed-time exposure adaptation and temporally smoothed monotonic luminance
+  curve, which retains exact black. The saved Level A corridor provides the
   calibration capture, and hidden GPU diagnostics expose both exposure values
   and the metered percentile range. CTest no longer supplies an exposure
   override, so its

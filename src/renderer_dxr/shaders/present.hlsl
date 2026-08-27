@@ -9,7 +9,7 @@ Texture2D<float4> SpecularHitDistance : register(t7);
 Texture2D<float4> DiffuseHitDistance : register(t8);
 Texture2D<float4> SpecularHitDistanceHistory : register(t9);
 Texture2D<float4> IndirectRadiance : register(t10);
-StructuredBuffer<float> AutomaticExposure : register(t11);
+StructuredBuffer<float> ToneMapState : register(t11);
 
 cbuffer PresentConstants : register(b0)
 {
@@ -22,7 +22,9 @@ cbuffer PresentConstants : register(b0)
     float Exposure;
 };
 
-static const float ToneToeLuminance = 0.02;
+static const uint ToneCurvePointCount = 129u;
+static const float MinimumLogLuminance = -18.0;
+static const float MaximumLogLuminance = 8.0;
 
 struct PixelInput
 {
@@ -53,17 +55,21 @@ float3 displayLinear(float3 color)
     return linearToSrgb(saturate(color));
 }
 
-/* Project-owned luminance curve mirrored by dxr_auto_exposure.h. The toe
- * removes residual path noise without lifting exact black. The rational
- * shoulder approaches one without clipping highlights while retaining a
- * useful, approximately linear midsection. */
-float toneMapLuminance(float luminance)
+float adaptiveToneMapLuminance(float exposedLuminance)
 {
-    if (!(luminance > 0.0) || !isfinite(luminance)) {
+    if (!(exposedLuminance > 0.0) || !isfinite(exposedLuminance)) {
         return 0.0;
     }
-    float toe = luminance * luminance / (luminance + ToneToeLuminance);
-    return toe / (1.0 + toe);
+    float inputLog = log2(clamp(
+        exposedLuminance, exp2(MinimumLogLuminance),
+        exp2(MaximumLogLuminance)));
+    float curvePosition = saturate(
+        (inputLog - MinimumLogLuminance) /
+        (MaximumLogLuminance - MinimumLogLuminance)) *
+        float(ToneCurvePointCount - 1u);
+    uint leftPoint = min(uint(curvePosition), ToneCurvePointCount - 2u);
+    return lerp(ToneMapState[leftPoint], ToneMapState[leftPoint + 1u],
+                curvePosition - float(leftPoint));
 }
 
 float3 hsvToRgb(float3 hsv)
@@ -127,9 +133,9 @@ float4 ps_main(PixelInput input) : SV_Target
             IndirectRadiance.Load(int3(pixel, 0)).rgb), 1.0);
     }
     float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
-    float3 exposed = hdr * Exposure * AutomaticExposure[0];
+    float3 exposed = hdr * Exposure;
     float exposedLuminance = dot(exposed, float3(0.2126, 0.7152, 0.0722));
-    float mappedLuminance = toneMapLuminance(exposedLuminance);
+    float mappedLuminance = adaptiveToneMapLuminance(exposedLuminance);
     float3 mapped = exposedLuminance > 0.0 ?
         exposed * (mappedLuminance / exposedLuminance) : 0.0;
     /* Preserve hue when a saturated HDR color extends outside the display

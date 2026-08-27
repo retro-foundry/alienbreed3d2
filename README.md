@@ -639,16 +639,17 @@ set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
 smoke to save the latest presented frame. Weapon, bitmap-entity, and
 vector-entity coverage come from a GPU UAV. Transient projectile, HUD, and text
 coverage are not claimed at this milestone.
-Presentation builds a 64-bin log-luminance histogram from a fixed 32-by-18
-primary-surface grid. Exact black is excluded, the centre region receives a
-modest second vote, and only the 10th--98th percentile interval determines the
-scene key. Exposure reacts faster to newly visible highlights than to darkness
-and uses elapsed seconds rather than a frame-dependent blend. A project-owned
-luminance curve supplies a quadratic black toe and an asymptotic shoulder; its
-RGB ratio and final gamut compression preserve hue. The former uniform
-seven-stop log mapping, which raised `0.0002` scene luminance to visible grey,
-is no longer used. The configured exposure remains `1` by default and is
-multiplied into the automatic value as a bias. Set
+Presentation builds a noise-weighted 128-bin log-luminance histogram from the
+full-resolution linear-FP16 image returned by Ray Reconstruction. Exact black
+is excluded, local-neighbour consistency downweights isolated reconstructed
+fireflies, and a mild centre weight retains the view direction without
+discarding the frame edges. The 2nd--99th percentile interval shapes a
+temporally smoothed monotonic luminance curve, while the 10th--90th percentile
+interval meters exposure. Exposure reacts faster to newly visible highlights
+than to darkness and uses elapsed seconds rather than a frame-dependent blend.
+The curve preserves RGB ratios and final gamut compression preserves hue. The
+configured exposure remains `1` by default and multiplies the automatic result
+as a bias. Set
 `AB3D2_DXR_EXPOSURE` to a finite value from `0.001` through `100` for diagnostic
 exposure sweeps. The CTest all-level invocation uses the production default
 without an override.

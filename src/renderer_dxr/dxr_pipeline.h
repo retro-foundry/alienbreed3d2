@@ -122,6 +122,7 @@ private:
     bool create_present_pipeline(ID3D12Device5 *device,
                                  const std::vector<unsigned char> &vertex_shader,
                                  std::string &error);
+    bool create_post_pipeline(ID3D12Device5 *device, std::string &error);
     bool create_raytracing_pipeline(ID3D12Device5 *device, std::string &error);
     bool create_blue_noise_sampler(ID3D12Device5 *device, std::string &error);
     bool create_frame_constant_buffer(ID3D12Device5 *device,
@@ -141,6 +142,7 @@ private:
     D3D12_CPU_DESCRIPTOR_HANDLE cpu_descriptor(UINT index) const;
     D3D12_GPU_DESCRIPTOR_HANDLE gpu_descriptor(UINT index) const;
     D3D12_CPU_DESCRIPTOR_HANDLE diagnostic_clear_descriptor() const;
+    D3D12_CPU_DESCRIPTOR_HANDLE histogram_clear_descriptor() const;
     bool record_diagnostics_begin(ID3D12GraphicsCommandList4 *command_list,
                                   std::string &error);
     bool record_diagnostics_end(ID3D12GraphicsCommandList4 *command_list,
@@ -150,6 +152,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> pipeline_state_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> present_root_signature_;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> present_pipeline_state_;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> post_root_signature_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> post_histogram_pipeline_state_;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> post_curve_pipeline_state_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> ray_root_signature_;
     Microsoft::WRL::ComPtr<ID3D12StateObject> ray_state_object_;
     Microsoft::WRL::ComPtr<ID3D12Resource> shader_table_;
@@ -165,6 +170,8 @@ private:
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2>
         indirect_gradients_;
     Microsoft::WRL::ComPtr<ID3D12Resource> automatic_exposure_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_histogram_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_state_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> indirect_histories_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> diagnostic_cpu_heap_;
