@@ -108,20 +108,21 @@ int main(void)
     requested.maximum_bounces = 2u;
     requested.light_candidates = 8u;
     requested.reservoir_sample_limit = 24u;
-    requested.radiance_clamp = 150.0f;
-    requested.exposure = 1.5f;
+    requested.radiance_clamp = 0.0f;
+    requested.exposure_bias_stops = -1.5f;
+    requested.exposure_bias_set = UINT8_MAX;
     requested.ndf_trim = 0.8f;
     requested.reconstruction = RENDERER_RAY_RECONSTRUCTION_BALANCED;
     requested.output = RENDERER_OUTPUT_HDR;
     requested.hdr_peak_nits = 1000.0f;
-    requested.hdr_paper_white_nits = 200.0f;
+    requested.hdr_saturation_percent = 100.0f;
+    requested.hdr_saturation_percent_set = UINT8_MAX;
 
     /* Matching one-run environment controls are accepted before hidden
      * validation applies its final forced-SDR decision. */
     if (!SetEnvironmentVariableA("AB3D2_DXR_OUTPUT", "hdr") ||
         !SetEnvironmentVariableA("AB3D2_DXR_HDR_PEAK_NITS", "1200") ||
-        !SetEnvironmentVariableA(
-            "AB3D2_DXR_HDR_PAPER_WHITE_NITS", "203")) {
+        !SetEnvironmentVariableA("AB3D2_DXR_HDR_SATURATION", "105")) {
         fprintf(stderr, "could not set valid DXR output overrides\n");
         SDL_Quit();
         return 1;
@@ -130,7 +131,7 @@ int main(void)
         640, 360, window_title, 0, 1, 1u, &requested, error, sizeof(error));
     (void)SetEnvironmentVariableA("AB3D2_DXR_OUTPUT", NULL);
     (void)SetEnvironmentVariableA("AB3D2_DXR_HDR_PEAK_NITS", NULL);
-    (void)SetEnvironmentVariableA("AB3D2_DXR_HDR_PAPER_WHITE_NITS", NULL);
+    (void)SetEnvironmentVariableA("AB3D2_DXR_HDR_SATURATION", NULL);
     if (!renderer) {
         fprintf(stderr, "DXR foundation creation failed: %s\n", error);
         SDL_Quit();
@@ -142,11 +143,13 @@ int main(void)
         applied.light_candidates != requested.light_candidates ||
         applied.reservoir_sample_limit != requested.reservoir_sample_limit ||
         applied.radiance_clamp != requested.radiance_clamp ||
-        applied.exposure != requested.exposure ||
+        applied.exposure_bias_stops != requested.exposure_bias_stops ||
+        applied.exposure_bias_set == 0u ||
         applied.ndf_trim != requested.ndf_trim ||
         applied.output != RENDERER_OUTPUT_SDR ||
         applied.hdr_peak_nits != 0.0f ||
-        applied.hdr_paper_white_nits != 0.0f) {
+        applied.hdr_saturation_percent != 0.0f ||
+        applied.hdr_saturation_percent_set != 0u) {
         fprintf(stderr,
                 "DXR ray-tracing settings did not reach the renderer "
                 "(spp %u bounces %u candidates %u limit %u)\n",

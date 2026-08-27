@@ -149,8 +149,9 @@ keeps every `world_effect` triangle out of the emitter list, so no next-event
 estimator samples one.
 
 Its strength needs no fitted constant. The packaged emissive channel already
-carries the decoded source blend result, and exposure is one, so the texel is
-the radiance. The one split that is reproduced is `draw_bitmap_glare` adding a
+carries the decoded source blend result, and no scene-linear exposure
+multiplier changes transport, so the texel is the radiance. The one split that
+is reproduced is `draw_bitmap_glare` adding a
 blend-table result where `draw_bitmap_additive` adds the texel at full
 strength: `source_glare_additive_strength` in `dxr_scene.cpp` holds a glare
 bitmap at the same 0.8 that `renderer_opengl.c` does, and a `predoglare` vector
@@ -326,7 +327,8 @@ guidance. After each complete 256-sample block, a deterministic whole-tile
 translation selects a different per-pixel ranking/scrambling key. This retains
 the reference lookup within every block while preventing the aligned full-tile
 pattern from repeating every 256 presented frames. No temporal accumulation,
-radiance clamp, spatial filter, or alternate denoiser was added.
+production radiance clamp, spatial filter, or alternate denoiser was added; the
+retained diagnostic clamp defaults to zero/disabled.
 
 The separate bounded diffuse-indirect channel uses project-authored HLSL and
 host code. `rtx_max_bounces` counts the primary surface and up to seven real
@@ -433,16 +435,18 @@ above.
 ## Project-owned exposure and presentation
 
 The 2026-08-27 presentation revision meters the full-resolution linear-FP16
-image returned by Ray Reconstruction. Its project-authored compute stage uses a
-128-bin log-luminance histogram, local-consistency noise weighting, separate
-2nd--99th percentile diagnostic bounds and 10th--90th percentile exposure
-metering, elapsed-time asymmetric adaptation, and a temporally smoothed
-monotonic luminance curve. Its project-owned `0.014` key and quadratic `0.02`
-toe retain the saved Level A calibration and prevent post-reconstruction
-near-black transport from being expanded to middle grey. A rational shoulder
-retains highlight separation without clipping. `dxr_tone_mapping.h` mirrors
-the GPU contract and the reported dark-corridor distribution for deterministic
-CPU regression coverage.
+image returned by Ray Reconstruction. Its independently written compute stage
+implements the published Eilertsen/Mantiuk/Unger minimum-contrast-distortion
+equations with the observable Q2RTX stage order and defaults requested by the
+user: a centre-weighted tent-filtered 128-bin histogram over `[-24, 8]` stops,
+70th--90th percentile log exposure, seven display stops, a `-12`-stop noise
+floor, Gaussian slope filtering, and elapsed-time curve adaptation. The
+presentation shader applies the observed exposure bias and SDR knee and blends
+the adaptive result equally with auto-exposed Reinhard. Exact black remains
+black. The former pre-meter scene-linear exposure multiplier was replaced by
+the comparator's post-curve `-5` through `0` EV control with a `-1` EV default.
+`dxr_tone_mapping.h` independently mirrors the GPU contract for
+deterministic CPU regression coverage.
 
 The following project-authored presentation stage extracts bright energy with
 a smooth luminance response, applies separable nine-tap filtering at half,
@@ -457,28 +461,39 @@ introduced.
 
 The subsequent project-authored output stage detects the window's current
 monitor with DXGI 1.6 and selects either the established 8-bit sRGB swap chain
-or native FP16 scRGB. Its independent Hermite highlight shoulder maps the
-tone curve's diffuse range to a configurable paper white and its endpoint
-to the display peak; scRGB conversion uses the platform-defined 80-nit
-reference white. Both graphics PSOs are recreated when the RTV format changes.
-Hidden validation remains explicitly SDR. `dxr_post_processing.h` also mirrors
-the HDR luminance mapping for deterministic black, paper-white, peak, finite,
-and monotonicity regressions.
+or native FP16 scRGB. After tone mapping, the HDR scene is scaled by its fixed
+scene target divided by scRGB's platform-defined 80-nit reference and receives
+a luminance-preserving saturation adjustment. The default target is 800 nits
+and default saturation is 100%. The former project-invented Hermite paper-white
+shoulder and component peak clamp were removed. Both graphics PSOs are
+recreated when the RTV format changes. Hidden validation remains explicitly
+SDR. `dxr_post_processing.h` mirrors the HDR scene scale and saturation bounds
+for deterministic CPU regression coverage.
 
 The user-authorized Q2RTX checkout was inspected to establish presentation
 stage ordering, SDR/HDR output spaces, and the feature gap (adaptive tone
 mapping, bloom, output dithering, and scRGB negotiation). No Q2RTX source text,
 shader, constant set, curve implementation, table, binary, or asset was copied
-or adapted. After the first integrated result visibly lifted darkness on
-2026-08-27, `tone_mapping_histogram.comp`, `tone_mapping_curve.comp`,
-`tone_mapping_apply.comp`, and the related defaults in `global_ubo.h` were
-inspected again. The only retained behavioral finding is that reconstructed
-near-black values need an explicit noise-preserving response and must not be
-redistributed across meaningful display contrast. The correction restores
-AB3D2's earlier Level A key, toe, and shoulder rather than any Q2RTX constant or
-implementation. The AB3D2 histogram weighting, percentile policy, adaptation
-rates, and curve construction remain independently written against this
-renderer's own post-reconstruction diagnostics.
+or adapted. On 2026-08-27 the user explicitly compared the two renderers and
+requested Q2RTX's less crushed dark response. `tone_mapping.c`,
+`tone_mapping_utils.glsl`, `tone_mapping_histogram.comp`,
+`tone_mapping_curve.comp`, `tone_mapping_apply.comp`, and the related defaults
+in `global_ubo.h` were inspected at the already recorded clean commit. The HDR
+menu, `main.c`, `draw.c`, and `utils.glsl` were also inspected to establish the
+observable opt-in HDR policy, 800-nit scene target, 300-nit UI target, 100%
+saturation default, and the separation of scene and UI scaling. A repository-
+wide control audit found no Q2RTX path-radiance clamp setting, so AB3D2's
+matching default is disabled. The UI target is not exposed until the pending
+DXR HUD/text compositor can consume it. The audit recorded observable stage
+ordering and runtime defaults; no source expression was transplanted. The
+rejected AB3D2 square-root-histogram
+approximation was removed. Its replacement was independently implemented in
+C++ and HLSL from the equations in Eilertsen, Mantiuk, and Unger, *Real-time
+noise-aware tone mapping*, ACM TOG 34(6), 2015,
+<https://doi.org/10.1145/2816795.2818092>, using the comparator's observed
+configuration. No GPL source text, shader expression, table, binary, asset, or
+generated output was copied or adapted; Q2RTX remains a read-only behavioral
+oracle and is not a build dependency.
 
 ## Historical published-mathematics implementation
 

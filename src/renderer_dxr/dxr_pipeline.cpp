@@ -226,11 +226,11 @@ struct PresentConstants {
     uint32_t source_height;
     uint32_t target_width;
     uint32_t target_height;
-    float exposure;
+    float exposure_bias_stops;
     uint32_t frame_index;
     uint32_t hdr_output;
     float hdr_peak_nits;
-    float hdr_paper_white_nits;
+    float hdr_saturation_scale;
 };
 
 static_assert(sizeof(PresentConstants) == 11u * sizeof(uint32_t));
@@ -586,10 +586,9 @@ bool DxrPipeline::configure_debug_view(std::string &error)
  * incident radiance. The subsequent depth/normal-guided spatial reconstruction
  * is independent of the cap and still runs when it is zero.
  *
- * A zero in the ordinary options means "keep the default", which is what an
- * absent INI key leaves behind. The history-limit set flag preserves zero as an
- * explicit request for current-frame indirect samples while letting an absent
- * key select 20.
+ * Zero keeps the renderer default for quality fields. It explicitly disables
+ * the radiance clamp. Flags distinguish explicit zero from absence for the
+ * history limit and post-curve exposure bias.
  */
 bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                                        std::string &error)
@@ -607,11 +606,20 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.maximum_bounces != 0u) {
         maximum_depth_ = options.maximum_bounces;
     }
-    if (options.radiance_clamp > 0.0f) {
-        radiance_clamp_ = options.radiance_clamp;
+    if (!std::isfinite(options.radiance_clamp) ||
+        options.radiance_clamp < 0.0f || options.radiance_clamp > 100000.0f) {
+        error = "DXR radiance clamp must be 0-100000; zero disables it";
+        return false;
     }
-    if (options.exposure > 0.0f) {
-        exposure_ = options.exposure;
+    radiance_clamp_ = options.radiance_clamp;
+    if (options.exposure_bias_set != 0u) {
+        if (!std::isfinite(options.exposure_bias_stops) ||
+            options.exposure_bias_stops < -5.0f ||
+            options.exposure_bias_stops > 0.0f) {
+            error = "DXR exposure bias must be -5 through 0 EV";
+            return false;
+        }
+        exposure_bias_stops_ = options.exposure_bias_stops;
     }
     if (options.ndf_trim > 0.0f) {
         ndf_trim_ = options.ndf_trim;
@@ -641,25 +649,42 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             char *end = nullptr;
             errno = 0;
             const double parsed = std::strtod(value, &end);
-            if (errno == 0 && end != value && *end == '\0' &&
-                parsed >= 1.0 && parsed <= 100000.0) {
-                radiance_clamp_ = static_cast<float>(parsed);
+            if (errno != 0 || end == value || *end != '\0' ||
+                !std::isfinite(parsed) || parsed < 0.0 || parsed > 100000.0) {
+                error = "AB3D2_DXR_RADIANCE_CLAMP must be 0-100000; zero disables it";
+                return false;
             }
+            radiance_clamp_ = static_cast<float>(parsed);
         }
     }
     {
+        char obsolete[2] = {};
+        const DWORD obsolete_length = GetEnvironmentVariableA(
+            "AB3D2_DXR_EXPOSURE", obsolete,
+            static_cast<DWORD>(sizeof(obsolete)));
+        if (obsolete_length != 0u) {
+            error = "AB3D2_DXR_EXPOSURE was replaced by the Q2RTX-compatible "
+                "AB3D2_DXR_EXPOSURE_BIAS";
+            return false;
+        }
         char value[64] = {};
         const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_EXPOSURE", value,
+            "AB3D2_DXR_EXPOSURE_BIAS", value,
             static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = "AB3D2_DXR_EXPOSURE_BIAS exceeds 63 bytes";
+            return false;
+        }
         if (length > 0u && length < sizeof(value)) {
             char *end = nullptr;
             errno = 0;
             const double parsed = std::strtod(value, &end);
-            if (errno == 0 && end != value && *end == '\0' &&
-                parsed >= 0.001 && parsed <= 100.0) {
-                exposure_ = static_cast<float>(parsed);
+            if (errno != 0 || end == value || *end != '\0' ||
+                !std::isfinite(parsed) || parsed < -5.0 || parsed > 0.0) {
+                error = "AB3D2_DXR_EXPOSURE_BIAS must be -5 through 0 EV";
+                return false;
             }
+            exposure_bias_stops_ = static_cast<float>(parsed);
         }
     }
     {
@@ -720,8 +745,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  std::to_string(maximum_depth_) + " candidates=" +
                  std::to_string(candidate_count_) + " reservoir limit=" +
                  std::to_string(reservoir_sample_limit_) + " radiance clamp=" +
-                 std::to_string(radiance_clamp_) + " exposure=" +
-                 std::to_string(exposure_) + " NDF trim=" +
+                 std::to_string(radiance_clamp_) + " exposure bias=" +
+                 std::to_string(exposure_bias_stops_) + " EV NDF trim=" +
                  std::to_string(ndf_trim_));
     return true;
 }
@@ -1304,7 +1329,7 @@ bool DxrPipeline::create_light_grid(ID3D12Device5 *device,
         heap_properties(D3D12_HEAP_TYPE_DEFAULT);
     const HRESULT result = device->CreateCommittedResource(
         &default_heap, D3D12_HEAP_FLAG_NONE, &description,
-        D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+        D3D12_RESOURCE_STATE_COMMON, nullptr,
         IID_PPV_ARGS(&light_grid_));
     if (FAILED(result)) {
         error = hresult_error(
@@ -1313,6 +1338,7 @@ bool DxrPipeline::create_light_grid(ID3D12Device5 *device,
         return false;
     }
     light_grid_->SetName(L"AB3D2 DXR ReGIR Light Grid");
+    light_grid_needs_initial_transition_ = true;
     D3D12_UNORDERED_ACCESS_VIEW_DESC view = {};
     view.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
     view.Format = DXGI_FORMAT_UNKNOWN;
@@ -1773,7 +1799,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         HRESULT result = device->CreateCommittedResource(
             &default_heap, D3D12_HEAP_FLAG_NONE, &histogram_description,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
             IID_PPV_ARGS(&tone_map_histogram_));
         if (FAILED(result)) {
             error = hresult_error(
@@ -1784,10 +1810,9 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         tone_map_histogram_->SetName(
             L"AB3D2 Post-RR Luminance Histogram");
         D3D12_UNORDERED_ACCESS_VIEW_DESC histogram_uav = {};
-        histogram_uav.Format = DXGI_FORMAT_UNKNOWN;
+        histogram_uav.Format = DXGI_FORMAT_R32_UINT;
         histogram_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
         histogram_uav.Buffer.NumElements = tone_map_histogram_bin_count;
-        histogram_uav.Buffer.StructureByteStride = sizeof(uint32_t);
         device->CreateUnorderedAccessView(
             tone_map_histogram_.Get(), nullptr, &histogram_uav,
             cpu_descriptor(post_histogram_uav));
@@ -1800,7 +1825,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         state_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
         result = device->CreateCommittedResource(
             &default_heap, D3D12_HEAP_FLAG_NONE, &state_description,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            D3D12_RESOURCE_STATE_COMMON, nullptr,
             IID_PPV_ARGS(&tone_map_state_));
         if (FAILED(result)) {
             error = hresult_error(
@@ -2255,8 +2280,14 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         static_cast<SIZE_T>(frame_constant_offset),
         static_cast<SIZE_T>(frame_constant_offset + sizeof(constants))};
     frame_constants_->Unmap(0, &written);
+    if (light_grid_needs_initial_transition_) {
+        const D3D12_RESOURCE_BARRIER light_grid_state = transition(
+            light_grid_.Get(), D3D12_RESOURCE_STATE_COMMON,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        command_list->ResourceBarrier(1, &light_grid_state);
+    }
     if (targets_recreated) {
-        const std::array<D3D12_RESOURCE_BARRIER, 9> history_states = {
+        const std::array<D3D12_RESOURCE_BARRIER, 11> history_states = {
             transition(light_reservoirs_[0].Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
@@ -2282,6 +2313,12 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
             transition(automatic_exposure_.Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition(tone_map_histogram_.Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition(tone_map_state_.Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
         };
@@ -2808,9 +2845,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         debug_view_, debug_scalar_range_,
         present_post_hdr ? post_width : render_width,
         present_post_hdr ? post_height : render_height,
-        width, height, exposure_, static_cast<uint32_t>(frame_number),
+        width, height, exposure_bias_stops_,
+        static_cast<uint32_t>(frame_number),
         output_.hdr ? 1u : 0u, output_.peak_nits,
-        output_.paper_white_nits};
+        output_.saturation_scale};
     command_list->SetGraphicsRoot32BitConstants(
         1, sizeof(present_constants) / sizeof(uint32_t), &present_constants, 0);
     command_list->SetGraphicsRootShaderResourceView(
@@ -2848,6 +2886,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     history_.pending_input_width = render_width;
     history_.pending_input_height = render_height;
     history_.pending = true;
+    light_grid_needs_initial_transition_ = false;
     return true;
 }
 

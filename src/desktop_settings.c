@@ -84,10 +84,7 @@ static int desktop_settings_parse_unsigned(const char *text, unsigned long maxim
     return 1;
 }
 
-/*
- * A positive, finite decimal. The ray-tracing knobs that scale radiance have no
- * meaningful zero, so zero is rejected here and reserved for "renderer default".
- */
+/* A positive, finite decimal for settings whose zero remains an absence marker. */
 static int desktop_settings_parse_positive_float(const char *text, double maximum,
                                                  float *out_value)
 {
@@ -101,6 +98,25 @@ static int desktop_settings_parse_positive_float(const char *text, double maximu
     value = strtod(text, &end);
     if (errno != 0 || end == text || *desktop_settings_trim(end) != '\0' ||
         !(value > 0.0) || value > maximum) {
+        return 0;
+    }
+    *out_value = (float)value;
+    return 1;
+}
+
+static int desktop_settings_parse_float_range(const char *text, double minimum,
+                                              double maximum, float *out_value)
+{
+    char *end;
+    double value;
+
+    if (!text || !*text || !out_value) {
+        return 0;
+    }
+    errno = 0;
+    value = strtod(text, &end);
+    if (errno != 0 || end == text || *desktop_settings_trim(end) != '\0' ||
+        !(value >= minimum && value <= maximum)) {
         return 0;
     }
     *out_value = (float)value;
@@ -271,23 +287,32 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         return 1;
     }
     if (desktop_settings_equals_ci(key, "rtx_radiance_clamp")) {
-        if (!desktop_settings_parse_positive_float(value, 100000.0,
-                                                  &settings->ray_tracing.radiance_clamp)) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.0, 100000.0,
+                &settings->ray_tracing.radiance_clamp)) {
             (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_radiance_clamp must be above 0 and at "
-                           "most 100000", line_number);
+                           "ab3d2.ini line %zu: rtx_radiance_clamp must be 0 through "
+                           "100000", line_number);
             return 0;
         }
         return 1;
     }
     if (desktop_settings_equals_ci(key, "rtx_exposure")) {
-        if (!desktop_settings_parse_positive_float(value, 100.0,
-                                                  &settings->ray_tracing.exposure)) {
+        (void)snprintf(error, error_size,
+                       "ab3d2.ini line %zu: rtx_exposure was replaced by the Q2RTX-compatible rtx_exposure_bias",
+                       line_number);
+        return 0;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_exposure_bias")) {
+        if (!desktop_settings_parse_float_range(
+                value, -5.0, 0.0,
+                &settings->ray_tracing.exposure_bias_stops)) {
             (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_exposure must be above 0 and at most 100",
+                           "ab3d2.ini line %zu: rtx_exposure_bias must be -5 through 0 EV",
                            line_number);
             return 0;
         }
+        settings->ray_tracing.exposure_bias_set = UINT8_MAX;
         return 1;
     }
     if (desktop_settings_equals_ci(key, "rtx_ndf_trim")) {
@@ -338,26 +363,32 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         return 1;
     }
     if (desktop_settings_equals_ci(key, "rtx_hdr_peak_nits")) {
-        if (!desktop_settings_parse_positive_float(
-                value, 10000.0, &settings->ray_tracing.hdr_peak_nits) ||
-            settings->ray_tracing.hdr_peak_nits < 80.0f) {
+        if (!desktop_settings_parse_float_range(
+                value, 100.0, 2000.0,
+                &settings->ray_tracing.hdr_peak_nits)) {
             (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_hdr_peak_nits must be 80 through 10000",
+                           "ab3d2.ini line %zu: rtx_hdr_peak_nits must be 100 through 2000",
                            line_number);
             return 0;
         }
         return 1;
     }
     if (desktop_settings_equals_ci(key, "rtx_hdr_paper_white_nits")) {
-        if (!desktop_settings_parse_positive_float(
-                value, 10000.0,
-                &settings->ray_tracing.hdr_paper_white_nits) ||
-            settings->ray_tracing.hdr_paper_white_nits < 80.0f) {
+        (void)snprintf(error, error_size,
+                       "ab3d2.ini line %zu: rtx_hdr_paper_white_nits was removed; Q2RTX does not apply paper white to the scene",
+                       line_number);
+        return 0;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_hdr_saturation")) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.0, 200.0,
+                &settings->ray_tracing.hdr_saturation_percent)) {
             (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_hdr_paper_white_nits must be 80 through 10000",
+                           "ab3d2.ini line %zu: rtx_hdr_saturation must be 0 through 200 percent",
                            line_number);
             return 0;
         }
+        settings->ray_tracing.hdr_saturation_percent_set = UINT8_MAX;
         return 1;
     }
     return 1;
@@ -373,6 +404,7 @@ void desktop_settings_default(DesktopSettings *settings)
     settings->volume = 100u;
     settings->world_light_tessellation = 4u;
     settings->renderer_backend = RENDERER_BACKEND_OPENGL;
+    settings->ray_tracing.output = RENDERER_OUTPUT_SDR;
 }
 
 int desktop_settings_parse(DesktopSettings *settings, const char *text, size_t text_size,
@@ -411,14 +443,6 @@ int desktop_settings_parse(DesktopSettings *settings, const char *text, size_t t
         if (!desktop_settings_apply_line(settings, trimmed, line_number, error, error_size)) {
             return 0;
         }
-    }
-    if (settings->ray_tracing.hdr_peak_nits != 0.0f &&
-        settings->ray_tracing.hdr_paper_white_nits >
-            settings->ray_tracing.hdr_peak_nits) {
-        desktop_settings_set_error(
-            error, error_size,
-            "ab3d2.ini: rtx_hdr_paper_white_nits must not exceed rtx_hdr_peak_nits");
-        return 0;
     }
     return 1;
 }

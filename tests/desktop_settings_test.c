@@ -133,11 +133,8 @@ int main(void)
         }
     }
 
-    /*
-     * Ray-traced backend settings. Every field defaults to zero, which is what
-     * the renderer reads as "keep your own default", so an INI that mentions
-     * none of them must leave the whole block zeroed.
-     */
+    /* Ray-traced numeric settings remain absent by default. Display output is
+     * explicitly SDR because Q2RTX makes HDR opt-in. */
     if (RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES != 16 ||
         RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT != 256) {
         fprintf(stderr, "fresh-light/LF-history production defaults changed\n");
@@ -150,13 +147,15 @@ int main(void)
         settings.ray_tracing.reservoir_sample_limit != 0u ||
         settings.ray_tracing.reservoir_sample_limit_set != 0u ||
         settings.ray_tracing.radiance_clamp != 0.0f ||
-        settings.ray_tracing.exposure != 0.0f ||
+        settings.ray_tracing.exposure_bias_stops != 0.0f ||
+        settings.ray_tracing.exposure_bias_set != 0u ||
         settings.ray_tracing.ndf_trim != 0.0f ||
         settings.ray_tracing.reconstruction !=
             RENDERER_RAY_RECONSTRUCTION_DEFAULT ||
-        settings.ray_tracing.output != RENDERER_OUTPUT_AUTO ||
+        settings.ray_tracing.output != RENDERER_OUTPUT_SDR ||
         settings.ray_tracing.hdr_peak_nits != 0.0f ||
-        settings.ray_tracing.hdr_paper_white_nits != 0.0f) {
+        settings.ray_tracing.hdr_saturation_percent != 0.0f ||
+        settings.ray_tracing.hdr_saturation_percent_set != 0u) {
         fprintf(stderr, "ray-tracing settings did not default to the renderer's own\n");
         return 1;
     }
@@ -166,13 +165,13 @@ int main(void)
             "rtx_max_bounces=2\n"
             "rtx_light_candidates=16\n"
             "rtx_reservoir_limit=32\n"
-            "rtx_radiance_clamp=50.5\n"
-            "rtx_exposure=1.25\n"
+            "rtx_radiance_clamp=0\n"
+            "rtx_exposure_bias=-1.25\n"
             "rtx_ndf_trim=0.75\n"
             "rtx_ray_reconstruction=performance\n"
             "rtx_output=hdr\n"
             "rtx_hdr_peak_nits=1200\n"
-            "rtx_hdr_paper_white_nits=203\n";
+            "rtx_hdr_saturation=125\n";
 
         desktop_settings_default(&settings);
         if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u,
@@ -182,25 +181,42 @@ int main(void)
             settings.ray_tracing.light_candidates != 16u ||
             settings.ray_tracing.reservoir_sample_limit != 32u ||
             settings.ray_tracing.reservoir_sample_limit_set == 0u ||
-            settings.ray_tracing.radiance_clamp < 50.4f ||
-            settings.ray_tracing.radiance_clamp > 50.6f ||
-            settings.ray_tracing.exposure < 1.24f ||
-            settings.ray_tracing.exposure > 1.26f ||
+            settings.ray_tracing.radiance_clamp != 0.0f ||
+            settings.ray_tracing.exposure_bias_stops < -1.26f ||
+            settings.ray_tracing.exposure_bias_stops > -1.24f ||
+            settings.ray_tracing.exposure_bias_set == 0u ||
             settings.ray_tracing.ndf_trim < 0.74f ||
             settings.ray_tracing.ndf_trim > 0.76f ||
             settings.ray_tracing.reconstruction !=
                 RENDERER_RAY_RECONSTRUCTION_PERFORMANCE ||
             settings.ray_tracing.output != RENDERER_OUTPUT_HDR ||
             settings.ray_tracing.hdr_peak_nits != 1200.0f ||
-            settings.ray_tracing.hdr_paper_white_nits != 203.0f) {
+            settings.ray_tracing.hdr_saturation_percent != 125.0f ||
+            settings.ray_tracing.hdr_saturation_percent_set == 0u) {
             fprintf(stderr, "ray-tracing settings were not applied: %s\n", error);
             return 1;
         }
     }
+    {
+        static const char text[] =
+            "rtx_exposure_bias=0\n"
+            "rtx_hdr_saturation=0\n";
+
+        desktop_settings_default(&settings);
+        if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u,
+                                    error, sizeof(error)) ||
+            settings.ray_tracing.exposure_bias_stops != 0.0f ||
+            settings.ray_tracing.exposure_bias_set == 0u ||
+            settings.ray_tracing.hdr_saturation_percent != 0.0f ||
+            settings.ray_tracing.hdr_saturation_percent_set == 0u) {
+            fprintf(stderr, "zero EV/saturation settings were not preserved: %s\n",
+                    error);
+            return 1;
+        }
+    }
     /*
-     * Zero means "renderer default" on every field, so a key that names it has
-     * to be rejected rather than silently meaning nothing. The reservoir limit
-     * is the exception: zero is a real setting there and is also its default.
+     * Zero is meaningful for the radiance clamp, exposure bias, reservoir
+     * limit, and HDR saturation. Other zero/default sentinels remain invalid.
      */
     {
         static const char *const rejected[] = {
@@ -208,16 +224,20 @@ int main(void)
             "rtx_samples_per_pixel=9\n",
             "rtx_max_bounces=0\n",
             "rtx_light_candidates=0\n",
-            "rtx_radiance_clamp=0\n",
-            "rtx_exposure=0\n",
+            "rtx_radiance_clamp=-0.1\n",
+            "rtx_radiance_clamp=100001\n",
+            "rtx_exposure_bias=-5.1\n",
+            "rtx_exposure_bias=0.1\n",
+            "rtx_exposure=1\n",
             "rtx_ndf_trim=0\n",
             "rtx_ndf_trim=1.5\n",
             "rtx_ray_reconstruction=fastest\n",
             "rtx_output=automatic\n",
-            "rtx_hdr_peak_nits=79\n",
-            "rtx_hdr_peak_nits=10001\n",
-            "rtx_hdr_paper_white_nits=79\n",
-            "rtx_hdr_peak_nits=500\nrtx_hdr_paper_white_nits=501\n",
+            "rtx_hdr_peak_nits=99\n",
+            "rtx_hdr_peak_nits=2001\n",
+            "rtx_hdr_paper_white_nits=200\n",
+            "rtx_hdr_saturation=-1\n",
+            "rtx_hdr_saturation=201\n",
         };
         size_t index;
 

@@ -44,7 +44,8 @@ extern "C" RendererRtx *renderer_rtx_create(
         }
         renderer->implementation = std::make_unique<ab3d2::dxr::DxrRenderer>();
         std::string implementation_error;
-        const RendererRayTracingOptions defaults = {};
+        RendererRayTracingOptions defaults = {};
+        defaults.output = RENDERER_OUTPUT_SDR;
         if (!renderer->implementation->initialize(
                 window_width, window_height, window_title,
                 desktop_window != 0, hidden_window != 0,

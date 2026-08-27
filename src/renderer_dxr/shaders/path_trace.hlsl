@@ -4174,7 +4174,7 @@ void SpatialShade()
         directRadiance = 0.0;
     }
     float directLuminance = luminance(directRadiance);
-    if (directLuminance > RadianceClamp) {
+    if (RadianceClamp > 0.0 && directLuminance > RadianceClamp) {
         directRadiance *= RadianceClamp / directLuminance;
     }
     float4 noisy = NoisyRadiance[pixel];

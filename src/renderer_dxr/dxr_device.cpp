@@ -329,7 +329,9 @@ bool DxrDevice::configure_output_request(
     }
     requested_output_ = options.output;
     requested_hdr_peak_nits_ = options.hdr_peak_nits;
-    requested_hdr_paper_white_nits_ = options.hdr_paper_white_nits;
+    requested_hdr_saturation_percent_ =
+        options.hdr_saturation_percent_set != 0u ?
+            options.hdr_saturation_percent : 100.0f;
 
     char output_value[64] = {};
     DWORD length = GetEnvironmentVariableA(
@@ -351,16 +353,27 @@ bool DxrDevice::configure_output_request(
             return false;
         }
     }
-    struct NitsOverride {
+    char obsolete_paper_white[2] = {};
+    if (GetEnvironmentVariableA(
+            "AB3D2_DXR_HDR_PAPER_WHITE_NITS", obsolete_paper_white,
+            static_cast<DWORD>(sizeof(obsolete_paper_white))) != 0u) {
+        error = "AB3D2_DXR_HDR_PAPER_WHITE_NITS was removed; Q2RTX has no "
+            "scene paper-white remap";
+        return false;
+    }
+    struct FloatOverride {
         const char *name;
+        double minimum;
+        double maximum;
         float *target;
     };
-    const NitsOverride overrides[] = {
-        {"AB3D2_DXR_HDR_PEAK_NITS", &requested_hdr_peak_nits_},
-        {"AB3D2_DXR_HDR_PAPER_WHITE_NITS",
-         &requested_hdr_paper_white_nits_},
+    const FloatOverride overrides[] = {
+        {"AB3D2_DXR_HDR_PEAK_NITS", 100.0, 2000.0,
+         &requested_hdr_peak_nits_},
+        {"AB3D2_DXR_HDR_SATURATION", 0.0, 200.0,
+         &requested_hdr_saturation_percent_},
     };
-    for (const NitsOverride &entry : overrides) {
+    for (const FloatOverride &entry : overrides) {
         char value[64] = {};
         length = GetEnvironmentVariableA(
             entry.name, value, static_cast<DWORD>(sizeof(value)));
@@ -375,27 +388,24 @@ bool DxrDevice::configure_output_request(
         errno = 0;
         const double parsed = std::strtod(value, &end);
         if (errno != 0 || end == value || *end != '\0' ||
-            !std::isfinite(parsed) || parsed < 80.0 || parsed > 10000.0) {
-            error = std::string(entry.name) + " must be 80-10000";
+            !std::isfinite(parsed) || parsed < entry.minimum ||
+            parsed > entry.maximum) {
+            error = std::string(entry.name) + " must be " +
+                std::to_string(entry.minimum) + "-" +
+                std::to_string(entry.maximum);
             return false;
         }
         *entry.target = static_cast<float>(parsed);
     }
     if ((requested_hdr_peak_nits_ != 0.0f &&
          (!std::isfinite(requested_hdr_peak_nits_) ||
-          requested_hdr_peak_nits_ < 80.0f ||
-          requested_hdr_peak_nits_ > 10000.0f)) ||
-        (requested_hdr_paper_white_nits_ != 0.0f &&
-         (!std::isfinite(requested_hdr_paper_white_nits_) ||
-          requested_hdr_paper_white_nits_ < 80.0f ||
-          requested_hdr_paper_white_nits_ > 10000.0f))) {
-        error = "DXR HDR peak and paper-white settings must be 80-10000 nits";
-        return false;
-    }
-    if (requested_hdr_peak_nits_ != 0.0f &&
-        requested_hdr_paper_white_nits_ > requested_hdr_peak_nits_) {
-        error = "AB3D2_DXR_HDR_PAPER_WHITE_NITS/rtx_hdr_paper_white_nits "
-            "must not exceed the HDR peak luminance";
+          requested_hdr_peak_nits_ < 100.0f ||
+          requested_hdr_peak_nits_ > 2000.0f)) ||
+        !std::isfinite(requested_hdr_saturation_percent_) ||
+        requested_hdr_saturation_percent_ < 0.0f ||
+        requested_hdr_saturation_percent_ > 200.0f) {
+        error = "DXR HDR peak must be 100-2000 nits and saturation must be "
+            "0-200 percent";
         return false;
     }
     return true;
@@ -456,26 +466,15 @@ bool DxrDevice::choose_output_configuration(
     }
     float peak_nits = requested_hdr_peak_nits_;
     if (peak_nits == 0.0f) {
-        peak_nits = std::isfinite(description.MaxLuminance) &&
-                description.MaxLuminance >= 80.0f ?
-            std::min(description.MaxLuminance, 10000.0f) : 1000.0f;
+        peak_nits = 800.0f;
     }
-    if (!std::isfinite(peak_nits) || peak_nits < 80.0f ||
-        peak_nits > 10000.0f) {
-        error = "HDR peak luminance must be 80-10000 nits";
+    if (!std::isfinite(peak_nits) || peak_nits < 100.0f ||
+        peak_nits > 2000.0f) {
+        error = "HDR peak luminance must be 100-2000 nits";
         return false;
     }
-    float paper_white_nits = requested_hdr_paper_white_nits_;
-    if (paper_white_nits == 0.0f) {
-        paper_white_nits = std::min(200.0f, peak_nits);
-    }
-    if (!std::isfinite(paper_white_nits) || paper_white_nits < 80.0f ||
-        paper_white_nits > peak_nits) {
-        error = "HDR paper white must be at least 80 nits and no greater "
-            "than the HDR peak luminance";
-        return false;
-    }
-    output = hdr_output_configuration(peak_nits, paper_white_nits);
+    output = hdr_output_configuration(
+        peak_nits, requested_hdr_saturation_percent_ * 0.01f);
     return true;
 }
 
@@ -585,8 +584,8 @@ bool DxrDevice::refresh_output_configuration(DxrPipeline &pipeline,
                 std::string(" on ") + display_name) +
             (desired.hdr ?
                 std::string(" peak=") + std::to_string(desired.peak_nits) +
-                    " nits paper white=" +
-                    std::to_string(desired.paper_white_nits) + " nits" :
+                    " nits saturation=" +
+                    std::to_string(desired.saturation_scale * 100.0f) + "%" :
                 std::string());
         debug_output(output_message);
         if (!hidden_window_) {
@@ -867,8 +866,8 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
                 std::string(" on ") + display_name)) +
         (output_.hdr ?
             std::string(" peak=") + std::to_string(output_.peak_nits) +
-                " nits paper white=" +
-                std::to_string(output_.paper_white_nits) + " nits" :
+                " nits saturation=" +
+                std::to_string(output_.saturation_scale * 100.0f) + "%" :
             std::string());
     debug_output(output_message);
     if (!hidden_window_) {

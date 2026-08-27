@@ -260,13 +260,17 @@ Local path: `C:\Users\paula\Documents\Projects\Q2RTX`
   detailed renderer breakdown and directed continued investigation of Q2RTX's
   lower temporal noise.
 - Files inspected: `doc/client.md`, `src/refresh/vkpt/asvgf.c`,
-  `src/refresh/vkpt/global_ubo.h`, `src/refresh/vkpt/bsp_mesh.c`,
+  `src/refresh/vkpt/shader/global_ubo.h`, `src/refresh/vkpt/bsp_mesh.c`,
   `src/refresh/vkpt/material.c`, `src/refresh/vkpt/textures.c`,
-  `src/refresh/vkpt/vertex_buffer.c`, `src/refresh/vkpt/main.c`, and the
+  `src/refresh/vkpt/vertex_buffer.c`, `src/refresh/vkpt/main.c`,
+  `src/refresh/vkpt/tone_mapping.c`, and the
   shaders `asvgf.glsl`, `indirect_lighting.rgen`, `utils.glsl`,
   `path_tracer_rgen.h`, `light_lists.h`, `asvgf_gradient_reproject.comp`,
   `asvgf_gradient_img.comp`, `asvgf_gradient_atrous.comp`,
   `asvgf_temporal.comp`, `asvgf_lf.comp`, and `asvgf_atrous.comp`.
+  The later presentation comparison also inspected
+  `tone_mapping_utils.glsl`, `tone_mapping_histogram.comp`,
+  `tone_mapping_curve.comp`, and `tone_mapping_apply.comp`.
 
 The audit established behavior and stage boundaries: diffuse continuation plus
 polygon-light NEE at the secondary hit, a separate directional low-frequency
@@ -283,6 +287,14 @@ inside the rectangle, it preserves the emissive texture's integrated energy
 rather than creating extra light. The converted AB3D2 map supplies full default
 radiance to `floor_0101` and a `0.9` BSP surface factor to `technolights`; it
 does not carry native Gouraud shade rows into either polygon-light power.
+The 2026-08-27 presentation comparison established that Q2RTX assigns display
+contrast through an adaptive histogram-shaped luminance curve and blends that
+result with an auto-exposed Reinhard response. After the user rejected an
+approximate shadow curve, the approved audit also recorded the comparator's
+observable stage order and defaults. The implementation independently expresses
+the published Eilertsen/Mantiuk/Unger minimum-contrast-distortion equations in
+project-owned C++ and HLSL and uses those observed defaults; it does not retain
+the rejected square-root-histogram approximation.
 No GPL source text, shader, table, binary, asset, or generated output was copied,
 adapted, linked, staged, or committed. The HLSL and host implementation here
 were written independently for the existing D3D12 resources; the real
@@ -703,18 +715,37 @@ direct radiance is added. This reconstructs the bounded polygon-light suffix;
 it neither invents ambient light nor implements ReSTIR GI. After the single
 Ray Reconstruction evaluation, three separably blurred FP16 bloom scales fold
 bright energy back into one full-resolution linear-HDR composite. A dedicated
-compute stage meters that exact composited result through a noise-weighted
-128-bin log-luminance histogram. Exact black is excluded and local-neighbour
-consistency downweights isolated reconstructed fireflies. The 2nd--99th
-percentile interval reports the occupied span, while the 10th--90th percentile
-interval drives bounded elapsed-time exposure with a faster response to
-highlights than darkness. The saved Level A calibration remains authoritative:
-its `0.014` scene-linear key and quadratic `0.02` toe keep reconstructed
-near-black transport below visible grey, followed by a monotonic rational
-highlight shoulder. `rtx_exposure` remains an explicit multiplicative bias.
-Metering, adaptation, curve constants, the dark-corridor failure distribution,
-and guide rejection rules have CPU regression coverage, while hidden GPU smoke
-reports the target and adapted exposure plus the measured luminance span.
+compute stage meters that exact composited result through Q2RTX's observable
+128-bin, `[-24, 8]`-stop luminance contract: exact black is excluded, samples
+are tent-filtered with centre weighting, and each bin receives one pseudocount.
+The 70th--90th percentile log average drives bounded elapsed-time adaptation
+with the observed luminance bounds and asymmetric rates. The adaptive branch
+independently implements the published Eilertsen/Mantiuk/Unger minimum-contrast-
+distortion equations for a seven-stop display, removes histogram energy below
+the `-12`-stop noise floor, Gaussian-filters the slopes, blends sub-noise values
+towards autoexposure, and filters the log curve over time. Presentation applies
+the observed `-1`-stop default bias and SDR knee, then blends the result equally
+with the auto-exposed Reinhard branch. `rtx_exposure_bias` configures that same
+post-curve log2 bias from `-5` through `0` EV; it does not alter histogram
+metering or scene radiance. Metering, adaptation, monotonicity,
+dark-corridor ordering, exact black, knee endpoints, and the observed defaults
+have CPU regression coverage; hidden GPU smoke reports adapted/target
+luminance, diagnostics, and the presented image.
+
+The matched 2026-08-27 saved Level A comparison used the same 32-frame frozen
+camera, scene, quality RR mode, and the `rtx_exposure_bias=-1` default. The rejected square-root-
+histogram attempt produced `40,182` saturated pixels and an 8-bit luma
+10th-percentile/mean/90th-percentile distribution of `39 / 87.5 / 200`; the
+user's back-wall crop exposed its muddy lifted shadows, so that implementation
+was removed. The Q2RTX-contract capture measured late display delta `0.5060`,
+only `54` saturated pixels, no 16-level temporal outliers, and luma
+`20 / 45.0 / 115`. It keeps darks neutral and structured instead of raising the
+black floor. The subsequent full-chain audit moved the configurable bias to the
+same post-curve stage, disabled the non-comparator 200-luminance clamp, and
+made HDR opt-in without changing those display metrics: the saved-state GPU
+capture checksum was `4e9a305d595e92b8`, with luma `20 / 44.9834 / 115` and the same
+`0.5060 / 54 / 0` stability tuple. Transport, materials, and incident radiance
+remain unscaled.
 
 The former equal-weight 3x3 cascade made every successful secondary path visible
 as a square lattice that appeared and faded in dark areas. On the same frozen
@@ -880,7 +911,7 @@ Start with separate, inspectable guide textures rather than packing normal/rough
 | Linear depth | `R32_FLOAT` | RR input | `kBufferTypeLinearDepth` | Positive camera/view-space ray depth using one documented clear sentinel |
 | Scene motion | `R16G16_FLOAT` initially | RR input | `kBufferTypeMotionVectors` | Dense camera and dynamic-object motion in pixel units |
 | Specular hit distance | `R32_FLOAT` | RR input | `kBufferTypeSpecularHitDistance` | World-space distance from the primary surface ray origin to its specular-ray hit; documented miss value |
-| Exposure | `R32_FLOAT`, 1x1 | 1x1 | `kBufferTypeExposure` if required by the pinned integration | Explicit exposure shared by RR and tone mapping |
+| Exposure | none | n/a | not tagged | RR receives un-pre-exposed linear HDR (`preExposure=1`); the Q2RTX exposure bias runs only after reconstruction and histogram metering |
 
 Use specular hit distance for the first complete integration, not specular motion vectors. Trace a deterministic mirror direction from the primary surface and report its world-space distance (or the far plane on a miss), avoiding a separate virtual-reflection motion pipeline. Supply the exact additional world/view camera matrices named by the pinned `sl_dlss_d.h`. Once baseline quality is validated, specular motion vectors may be evaluated as a measured alternative, never as two simultaneously ambiguous inputs.
 
@@ -976,7 +1007,7 @@ Establish the opaque RR path before adding ambiguous presentation layers:
 
 Add a DXR debug-view selection that can display each resource without tone-map ambiguity:
 
-- Noisy HDR with controllable exposure.
+- Noisy scene-linear HDR before exposure and tone mapping.
 - Diffuse albedo.
 - Specular albedo.
 - World normal remapped to display range.
@@ -1136,14 +1167,15 @@ classes and transient projectiles remain incomplete.
   checksum from a GPU UAV; the 2026-08-20 Level A
   run passed, and a diffuse-albedo capture confirmed the source-scale lower-view
   surface supplies real world depth and reconstruction guides. The configured
-  exposure bias is `1`; a dedicated post-Ray-Reconstruction compute stage now
+  exposure bias defaults to `-1` EV; a dedicated post-Ray-Reconstruction compute stage now
   meters the actual full-resolution linear-FP16 reconstructed image with a
-  noise-weighted 128-bin histogram. Its 10th--90th percentile interval drives
-  elapsed-time exposure adaptation; the 2nd--99th interval diagnoses the
-  occupied span. The saved Level A corridor owns the `0.014` scene-linear key
-  and quadratic `0.02` toe, so reconstruction residue remains dark instead of
-  being redistributed across the display. Hidden GPU diagnostics expose both
-  exposure values and the metered percentile range. CTest no longer supplies
+  centre-weighted, tent-filtered 128-bin histogram over `[-24, 8]` stops. Its
+  70th--90th percentile interval drives log-domain exposure adaptation. The
+  seven-stop adaptive curve is the independently expressed published
+  minimum-contrast-distortion solution with Q2RTX's observed noise-floor,
+  slope-filter, temporal, bias, SDR-knee, and Reinhard-blend defaults. Exact
+  black remains black and no incident radiance is added. Hidden GPU diagnostics
+  expose adapted/target luminance and the metered range. CTest no longer supplies
   an exposure override, so its Level A--P smoke exercises the production
   presentation and both companion assertions directly. Three separably blurred
   FP16 scales now extract and composite bright energy in linear HDR before that
@@ -1154,20 +1186,22 @@ classes and transient projectiles remain incomplete.
   monitor through `IDXGIOutput6`: Windows advanced colour selects an FP16 scRGB
   swap chain and `RGB_FULL_G10_NONE_P709`, while other monitors retain the SDR
   swap chain. The pipeline rebuilds both diagnostic and final-present PSOs when
-  a cross-monitor move changes the RTV format. The HDR branch stays linear,
-  anchors diffuse white to 200 nits by default, maps the tone-curve highlight
-  shoulder to the display-reported peak, and performs hue-preserving peak
-  compression without sRGB encoding or 8-bit dither. Auto mode falls back to
+  a cross-monitor move changes the RTV format. SDR is the Q2RTX-matching default.
+  The HDR branch stays linear, multiplies mapped scene output by its fixed
+  800-nit default target divided by scRGB's 80-nit reference, and applies the
+  comparator's 100% default luminance-preserving saturation adjustment. It has
+  no project-invented paper-white shoulder or component peak compression and
+  performs no sRGB encoding or 8-bit dither. Explicit auto mode falls back to
   SDR if FP16 scRGB presentation is rejected; an explicit HDR request fails
   clearly. Hidden validation remains forced SDR and its temporal-blue-noise
   regression allows only sub-code display variation. Transmissive/alpha-blended
   presentation, HUD, text, and optional NVIDIA transparency guides remain.
-  `rtx_output=auto|sdr|hdr`, `rtx_hdr_peak_nits`, and
-  `rtx_hdr_paper_white_nits` expose that contract through `ab3d2.ini`; matching
+  `rtx_output=auto|sdr|hdr`, `rtx_hdr_peak_nits=100..2000`, and
+  `rtx_hdr_saturation=0..200` expose that contract through `ab3d2.ini`; matching
   `AB3D2_DXR_OUTPUT`, `AB3D2_DXR_HDR_PEAK_NITS`, and
-  `AB3D2_DXR_HDR_PAPER_WHITE_NITS` environment overrides take precedence for
-  one-run validation. The parser bounds both nit values to 80--10000 and rejects
-  paper white above an explicitly configured peak.
+  `AB3D2_DXR_HDR_SATURATION` environment overrides take precedence for one-run
+  validation. Q2RTX's separate 300-nit UI scale is intentionally not exposed
+  until the remaining DXR HUD/text compositor supplies pixels for it to affect.
 - Add transmissive/alpha-blended presentation, HUD, text, and optional NVIDIA
   transparency guides if captures prove they are needed.
 - Add scripted camera/dynamic-scene captures, all-level native smoke tests, resize/device-loss tests, packaging, documentation, and licence audit.
@@ -1206,9 +1240,11 @@ metric is reported rather than bounded until each stage has a recorded baseline.
   a miss reports the far plane. Streamline 2.12 does not list diffuse hit
   distance as a DLSS-RR input, so that stochastic diagnostic is no longer
   tagged. These changes stabilize geometry guides, not radiance.
-- No radiance clamp was added. A firefly clamp is biased and would be a visual
-  workaround for the estimator defects 11b and 11c remove; the saturated-pixel
-  count exists to measure whether outliers actually survive.
+- No production radiance clamp is active. A firefly clamp is biased and would
+  be a visual workaround for the estimator defects 11b and 11c remove, so the
+  Q2RTX-matching default is zero/disabled. The retained positive
+  `rtx_radiance_clamp` range is explicitly diagnostic; the saturated-pixel
+  count measures whether outliers actually survive without it.
 
 Measured on a frozen Level A camera with DLSS-RR active, mean absolute
 per-component frame-to-frame difference over the final four frames:
@@ -1621,7 +1657,7 @@ nothing passes any stability bound trivially.
 - PBR sheet extraction, color-space declarations, manifest parsing, hashes, missing/corrupt assets, and deterministic rebuilds.
 - BRDF energy sanity, finite output, PDFs, material guide values, and random-sequence reproducibility.
 - Linear-HDR bloom extraction response, SDR blue-noise quantization bounds, and
-  scRGB paper-white/peak mapping.
+  Q2RTX-compatible scRGB scene scaling/saturation.
 - Current/previous transform lookup, level-generation isolation, camera resets, object births/deaths, and analytical motion vectors.
 - CMake configuration coverage for DXR-disabled, ID-independent DXR discovered through `PATH`, and Streamline-enabled builds discovered through environment variables, including missing-root, invalid-project-GUID, and altered-payload failures.
 - Streamline option/tag construction without invoking the proprietary runtime.

@@ -1,7 +1,7 @@
 Texture2D<float4> InputRadiance : register(t0);
 Texture2D<float4> BloomInput : register(t1);
 Texture2D<float4> BloomLow : register(t2);
-RWStructuredBuffer<uint> LuminanceHistogram : register(u0);
+RWBuffer<uint> LuminanceHistogram : register(u0);
 RWStructuredBuffer<float> ToneMapState : register(u1);
 RWStructuredBuffer<uint> Diagnostics : register(u2);
 RWTexture2D<float4> BloomOutput : register(u3);
@@ -21,17 +21,23 @@ cbuffer PostConstants : register(b0)
 
 static const uint HistogramBinCount = 128u;
 static const uint ToneCurvePointCount = HistogramBinCount + 1u;
-static const uint ExposureStateIndex = ToneCurvePointCount;
-static const uint TargetExposureStateIndex = ExposureStateIndex + 1u;
-static const uint AverageLuminanceStateIndex = ExposureStateIndex + 2u;
-static const uint LowLuminanceStateIndex = ExposureStateIndex + 3u;
-static const uint HighLuminanceStateIndex = ExposureStateIndex + 4u;
-static const float MinimumLogLuminance = -18.0;
+static const uint AdaptedLuminanceStateIndex = ToneCurvePointCount;
+static const uint TargetLuminanceStateIndex = AdaptedLuminanceStateIndex + 1u;
+static const uint AverageLuminanceStateIndex = AdaptedLuminanceStateIndex + 2u;
+static const uint LowLuminanceStateIndex = AdaptedLuminanceStateIndex + 3u;
+static const uint HighLuminanceStateIndex = AdaptedLuminanceStateIndex + 4u;
+static const float MinimumLogLuminance = -24.0;
 static const float MaximumLogLuminance = 8.0;
-static const float MeteringKey = 0.014;
-static const float ToneToeLuminance = 0.02;
-static const float MinimumExposure = 0.125;
-static const float MaximumExposure = 4096.0;
+static const float DisplayDynamicRangeStops = 7.0;
+static const float MinimumSceneLuminance = 0.0002;
+static const float MaximumSceneLuminance = 1.0;
+static const float NoiseFloorStops = -12.0;
+static const float NoiseFloorBlend = 0.5;
+static const float SlopeBlurSigma = 12.0;
+static const int SlopeBlurRadius = 13;
+static const float ExposureSpeedDown = 1.0;
+static const float ExposureSpeedUp = 2.0;
+static const float HistogramFractionScale = 128.0;
 static const float BloomSoftThreshold = 0.02;
 static const float BloomStrength = 0.08;
 static const float BloomUpsampleWeight = 0.5;
@@ -149,28 +155,26 @@ void bloom_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     BloomOutput[pixel] = float4(finiteHdr(result), 1.0);
 }
 
-uint histogramIndex(float logLuminance)
+float histogramPosition(float logLuminance)
 {
     float normalized = saturate(
         (logLuminance - MinimumLogLuminance) /
         (MaximumLogLuminance - MinimumLogLuminance));
-    return min(uint(normalized * float(HistogramBinCount)),
-               HistogramBinCount - 1u);
+    return min(normalized * float(HistogramBinCount),
+               float(HistogramBinCount - 1u));
 }
 
 float histogramLogLuminance(uint index)
 {
     return lerp(MinimumLogLuminance, MaximumLogLuminance,
-                (float(min(index, HistogramBinCount - 1u)) + 0.5) /
+                float(min(index, HistogramBinCount - 1u)) /
                     float(HistogramBinCount));
 }
 
 /*
- * The histogram consumes the post-reconstruction image. Isolated luminance
- * impulses receive less weight than values supported by their four immediate
- * neighbours, preventing one reconstructed firefly from steering the whole
- * frame. A mild centre weighting keeps the view direction important without
- * excluding the hallway and doorway at the image edge.
+ * Q2RTX behavior requested on 2026-08-27: ignore exact black, tent-filter log
+ * luminance between adjacent bins, and give the center of the view the largest
+ * metering weight. Curve construction handles the explicit noise floor.
  */
 [numthreads(8, 8, 1)]
 void histogram_main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -179,63 +183,35 @@ void histogram_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (pixel.x >= SourceWidth || pixel.y >= SourceHeight) {
         return;
     }
-    float centerLuminance = luminance(max(
+    float value = luminance(max(
         InputRadiance.Load(int3(pixel, 0)).rgb, 0.0));
-    if (!(centerLuminance > 0.0) || !isfinite(centerLuminance)) {
+    if (!(value > 0.0) || !isfinite(value)) {
         return;
     }
-    float centerLog = log2(clamp(centerLuminance,
-                                 exp2(MinimumLogLuminance),
-                                 exp2(MaximumLogLuminance)));
-    int2 offsets[4] = {
-        int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1)
-    };
-    float neighbourLogSum = 0.0;
-    float neighbourCount = 0.0;
-    [unroll]
-    for (uint sampleIndex = 0u; sampleIndex < 4u; ++sampleIndex) {
-        int2 neighbourPixel = clamp(
-            int2(pixel) + offsets[sampleIndex], int2(0, 0),
-            int2(SourceWidth - 1u, SourceHeight - 1u));
-        float neighbourLuminance = luminance(max(
-            InputRadiance.Load(int3(neighbourPixel, 0)).rgb, 0.0));
-        if (neighbourLuminance > 0.0 && isfinite(neighbourLuminance)) {
-            neighbourLogSum += log2(clamp(
-                neighbourLuminance, exp2(MinimumLogLuminance),
-                exp2(MaximumLogLuminance)));
-            neighbourCount += 1.0;
-        }
+    float valueLog = log2(clamp(value, exp2(MinimumLogLuminance),
+                                exp2(MaximumLogLuminance)));
+    float position = histogramPosition(valueLog);
+    uint left = uint(position);
+    uint right = left + 1u;
+    float2 uv = (float2(pixel) + 0.5) /
+        float2(SourceWidth, SourceHeight);
+    float spatialWeight = clamp(
+        1.0 - length(uv - 0.5) * 1.5, 0.01, 1.0);
+    float rightWeight = frac(position) * spatialWeight;
+    float leftWeight = spatialWeight - rightWeight;
+    InterlockedAdd(LuminanceHistogram[left],
+                   uint(leftWeight * HistogramFractionScale));
+    if (right < HistogramBinCount) {
+        InterlockedAdd(LuminanceHistogram[right],
+                       uint(rightWeight * HistogramFractionScale));
     }
-    float logDifference = neighbourCount > 0.0 ?
-        abs(centerLog - neighbourLogSum / neighbourCount) : 4.0;
-    float consistency = exp2(-min(logDifference, 8.0));
-    float2 normalizedPosition =
-        (float2(pixel) + 0.5) / float2(SourceWidth, SourceHeight);
-    float2 centered = normalizedPosition * 2.0 - 1.0;
-    float centreWeight = lerp(0.75, 1.25,
-        saturate(1.0 - dot(centered, centered) * 0.5));
-    uint fixedWeight = max(1u, uint(round(
-        16.0 * centreWeight * lerp(0.25, 1.0, consistency))));
-    InterlockedAdd(LuminanceHistogram[histogramIndex(centerLog)], fixedWeight);
-}
-
-float toneMapLuminance(float exposedLuminance)
-{
-    if (!(exposedLuminance > 0.0) || !isfinite(exposedLuminance)) {
-        return 0.0;
-    }
-    float toe = exposedLuminance * exposedLuminance /
-        (exposedLuminance + ToneToeLuminance);
-    return saturate(toe / (1.0 + toe));
 }
 
 /*
- * One thread deliberately owns the 128-bin curve. The work is tiny compared
- * with a frame dispatch and the serial ordering makes the temporal state and
- * diagnostics deterministic. The noise-weighted histogram adapts exposure;
- * the project-calibrated quadratic toe prevents post-reconstruction near-black
- * transport from being promoted to visible grey, while the rational shoulder
- * retains highlight separation without clipping.
+ * Independent serial evaluation of the Eilertsen/Mantiuk/Unger
+ * minimum-contrast-distortion equations with Q2RTX's observable defaults.
+ * One thread avoids a second shared-memory reduction implementation; 128 bins
+ * once per frame are negligible beside Ray Reconstruction.
  */
 [numthreads(1, 1, 1)]
 void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
@@ -243,110 +219,192 @@ void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     if (any(dispatchThreadId != 0u)) {
         return;
     }
-    uint totalWeight = 0u;
+    uint integerWeight = 0u;
+    float distribution[HistogramBinCount];
+    float distributionSum = 0.0;
     [loop]
     for (uint bin = 0u; bin < HistogramBinCount; ++bin) {
-        totalWeight += LuminanceHistogram[bin];
+        integerWeight += LuminanceHistogram[bin];
+        distribution[bin] = 1.0 +
+            float(LuminanceHistogram[bin]) / HistogramFractionScale;
+        distributionSum += distribution[bin];
+    }
+    [loop]
+    for (uint normalizeBin = 0u; normalizeBin < HistogramBinCount;
+         ++normalizeBin) {
+        distribution[normalizeBin] /= distributionSum;
     }
 
-    if (totalWeight == 0u) {
-        [loop]
-        for (uint emptyBin = 0u; emptyBin < ToneCurvePointCount; ++emptyBin) {
-            float inputLog = lerp(
-                MinimumLogLuminance, MaximumLogLuminance,
-                float(emptyBin) / float(HistogramBinCount));
-            ToneMapState[emptyBin] = toneMapLuminance(exp2(inputLog));
-        }
-        ToneMapState[ExposureStateIndex] = 1.0;
-        ToneMapState[TargetExposureStateIndex] = 1.0;
-        ToneMapState[AverageLuminanceStateIndex] = 0.0;
-        ToneMapState[LowLuminanceStateIndex] = 0.0;
-        ToneMapState[HighLuminanceStateIndex] = 0.0;
-        Diagnostics[5] = asuint(1.0);
-        Diagnostics[6] = asuint(1.0);
-        Diagnostics[7] = 0u;
-        Diagnostics[8] = 0u;
-        Diagnostics[9] = 0u;
-        Diagnostics[10] = 0u;
-        return;
-    }
-
-    uint lowRank = totalWeight * 2u / 100u;
-    uint highRank = max(lowRank + 1u, totalWeight * 99u / 100u);
-    uint meterLowRank = totalWeight * 10u / 100u;
-    uint meterHighRank = max(meterLowRank + 1u, totalWeight * 90u / 100u);
-    uint cumulative = 0u;
+    float cumulative = 0.0;
     uint lowBin = 0u;
     uint highBin = HistogramBinCount - 1u;
-    uint meterWeight = 0u;
+    float meterWeight = 0.0;
     float weightedLogSum = 0.0;
     bool lowFound = false;
     bool highFound = false;
     [loop]
     for (uint scanBin = 0u; scanBin < HistogramBinCount; ++scanBin) {
-        uint next = cumulative + LuminanceHistogram[scanBin];
-        if (!lowFound && next > lowRank) {
+        float next = cumulative + distribution[scanBin];
+        if (!lowFound && next > 0.02) {
             lowBin = scanBin;
             lowFound = true;
         }
-        if (!highFound && next >= highRank) {
+        if (!highFound && next >= 0.99) {
             highBin = scanBin;
             highFound = true;
         }
-        uint includedBegin = max(cumulative, meterLowRank);
-        uint includedEnd = min(next, meterHighRank);
-        if (includedEnd > includedBegin) {
-            uint included = includedEnd - includedBegin;
-            weightedLogSum += float(included) *
+        if (0.70 <= next && cumulative <= 0.90) {
+            weightedLogSum += distribution[scanBin] *
                 histogramLogLuminance(scanBin);
-            meterWeight += included;
+            meterWeight += distribution[scanBin];
         }
         cumulative = next;
     }
     float averageLuminance = meterWeight > 0u ?
         exp2(weightedLogSum / float(meterWeight)) : 0.0;
-    float targetExposure = averageLuminance > 0.0 ?
-        clamp(MeteringKey / averageLuminance,
-              MinimumExposure, MaximumExposure) : 1.0;
-    float previousExposure = ToneMapState[ExposureStateIndex];
-    bool reset = ResetHistory != 0u || !(previousExposure > 0.0) ||
-        !isfinite(previousExposure);
+    float targetLuminance = clamp(
+        averageLuminance, MinimumSceneLuminance, MaximumSceneLuminance);
+    float previousLuminance = ToneMapState[AdaptedLuminanceStateIndex];
+    bool reset = ResetHistory != 0u || !(previousLuminance > 0.0) ||
+        !isfinite(previousLuminance);
     float elapsed = clamp(isfinite(DeltaSeconds) ? DeltaSeconds : 0.0,
                           0.0, 0.25);
-    float exposureRate = targetExposure > previousExposure ? 1.0 : 4.0;
-    float exposureWeight = reset ? 1.0 :
-        1.0 - exp(-exposureRate * elapsed);
-    float adaptedExposure = reset ? targetExposure : lerp(
-        previousExposure, targetExposure, exposureWeight);
+    float targetLog = log2(targetLuminance);
+    float previousLog = log2(max(previousLuminance, 1.0e-8));
+    float exposureRate = previousLog < targetLog ?
+        ExposureSpeedUp : ExposureSpeedDown;
+    float adaptedLog = reset ? targetLog : lerp(
+        targetLog, previousLog, exp(-exposureRate * elapsed));
+    float adaptedLuminance = exp2(adaptedLog);
+
+    float inverseDistribution[HistogramBinCount];
+    [loop]
+    for (uint noiseBin = 0u; noiseBin < HistogramBinCount; ++noiseBin) {
+        if (histogramLogLuminance(noiseBin) < NoiseFloorStops) {
+            distribution[noiseBin] = 0.0;
+        }
+        inverseDistribution[noiseBin] = distribution[noiseBin] > 0.0 ?
+            1.0 / distribution[noiseBin] : 0.0;
+    }
+
+    const float binWidth =
+        (MaximumLogLuminance - MinimumLogLuminance) /
+        float(HistogramBinCount);
+    const float outputRangeBins = DisplayDynamicRangeStops / binWidth;
+    float threshold = 1.0e-16;
+    float activeCount = 0.0;
+    float inverseSum = 0.0;
+    [loop]
+    for (uint thresholdPass = 0u; thresholdPass < 16u; ++thresholdPass) {
+        activeCount = 0.0;
+        inverseSum = 0.0;
+        [loop]
+        for (uint thresholdBin = 0u; thresholdBin < HistogramBinCount;
+             ++thresholdBin) {
+            if (distribution[thresholdBin] >= threshold) {
+                activeCount += 1.0;
+                inverseSum += inverseDistribution[thresholdBin];
+            }
+        }
+        threshold = inverseSum > 0.0 ?
+            (activeCount - outputRangeBins) / inverseSum : 0.0;
+    }
+
+    float slopes[HistogramBinCount];
+    [loop]
+    for (uint slopeBin = 0u; slopeBin < HistogramBinCount; ++slopeBin) {
+        slopes[slopeBin] =
+            distribution[slopeBin] >= threshold && inverseSum > 0.0 ?
+            1.0 + inverseDistribution[slopeBin] *
+                (outputRangeBins - activeCount) / inverseSum : 0.0;
+    }
+
+    float gaussian[SlopeBlurRadius + 1];
+    float gaussianSum = 0.0;
+    [loop]
+    for (int gaussianIndex = 0; gaussianIndex <= SlopeBlurRadius;
+         ++gaussianIndex) {
+        gaussian[gaussianIndex] = exp(
+            -float(gaussianIndex * gaussianIndex) /
+            (2.0 * SlopeBlurSigma * SlopeBlurSigma));
+        gaussianSum += gaussian[gaussianIndex] *
+            (gaussianIndex == 0 ? 1.0 : 2.0);
+    }
+    [loop]
+    for (int normalizeIndex = 0; normalizeIndex <= SlopeBlurRadius;
+         ++normalizeIndex) {
+        gaussian[normalizeIndex] /= gaussianSum;
+    }
+
+    float filteredSlopes[HistogramBinCount];
+    [loop]
+    for (int destinationBin = 0;
+         destinationBin < int(HistogramBinCount); ++destinationBin) {
+        float filtered = 0.0;
+        [loop]
+        for (int offset = -SlopeBlurRadius; offset <= SlopeBlurRadius;
+             ++offset) {
+            int sourceBin = clamp(destinationBin + offset, 0,
+                                  int(HistogramBinCount) - 1);
+            filtered += slopes[sourceBin] * gaussian[abs(offset)];
+        }
+        filteredSlopes[destinationBin] = filtered;
+    }
+
+    float targetCurve[ToneCurvePointCount];
+    float prefix = 0.0;
+    [loop]
+    for (uint curveBin = 0u; curveBin < HistogramBinCount; ++curveBin) {
+        targetCurve[curveBin] = prefix * binWidth -
+            DisplayDynamicRangeStops;
+        prefix += filteredSlopes[curveBin];
+    }
+    targetCurve[HistogramBinCount] = 0.0;
+
+    float noisePosition = clamp(
+        (NoiseFloorStops - MinimumLogLuminance) /
+            (MaximumLogLuminance - MinimumLogLuminance) *
+            float(HistogramBinCount),
+        1.0, float(HistogramBinCount - 1u));
+    uint noiseIndex = uint(noisePosition);
+    float curveAtNoise = targetCurve[noiseIndex - 1u];
+    float inputAtNoise = histogramLogLuminance(noiseIndex - 1u);
+    float correction = abs(targetLog) > 1.0e-8 ?
+        -(curveAtNoise - inputAtNoise) / targetLog : 1.0;
+    [loop]
+    for (uint darkBin = 0u; darkBin < noiseIndex; ++darkBin) {
+        float automatic = histogramLogLuminance(darkBin) -
+            targetLog * correction;
+        float transition = lerp(
+            smoothstep(noisePosition * 0.5, noisePosition, float(darkBin)),
+            1.0, NoiseFloorBlend);
+        targetCurve[darkBin] = lerp(automatic,
+                                    targetCurve[darkBin], transition);
+    }
 
     [loop]
     for (uint curvePoint = 0u; curvePoint < ToneCurvePointCount;
          ++curvePoint) {
-        float inputLog = lerp(
-            MinimumLogLuminance, MaximumLogLuminance,
-            float(curvePoint) / float(HistogramBinCount));
-        float targetMapped = toneMapLuminance(
-            exp2(inputLog) * adaptedExposure);
-        float previousMapped = ToneMapState[curvePoint];
-        float curveRate = targetMapped > previousMapped ? 2.0 : 6.0;
-        float curveWeight = reset || !isfinite(previousMapped) ? 1.0 :
-            1.0 - exp(-curveRate * elapsed);
-        ToneMapState[curvePoint] = reset || !isfinite(previousMapped) ?
-            targetMapped : saturate(lerp(
-                previousMapped, targetMapped, curveWeight));
+        float previousCurve = ToneMapState[curvePoint];
+        float curveRate = previousCurve < targetCurve[curvePoint] ?
+            ExposureSpeedUp : ExposureSpeedDown;
+        ToneMapState[curvePoint] = reset || !isfinite(previousCurve) ?
+            targetCurve[curvePoint] : lerp(
+                targetCurve[curvePoint], previousCurve,
+                exp(-curveRate * elapsed));
     }
 
     float lowLuminance = exp2(histogramLogLuminance(lowBin));
     float highLuminance = exp2(histogramLogLuminance(highBin));
-    ToneMapState[ExposureStateIndex] = adaptedExposure;
-    ToneMapState[TargetExposureStateIndex] = targetExposure;
+    ToneMapState[AdaptedLuminanceStateIndex] = adaptedLuminance;
+    ToneMapState[TargetLuminanceStateIndex] = targetLuminance;
     ToneMapState[AverageLuminanceStateIndex] = averageLuminance;
     ToneMapState[LowLuminanceStateIndex] = lowLuminance;
     ToneMapState[HighLuminanceStateIndex] = highLuminance;
-    Diagnostics[5] = asuint(targetExposure);
-    Diagnostics[6] = asuint(adaptedExposure);
+    Diagnostics[5] = asuint(exp2(-3.0) / targetLuminance);
+    Diagnostics[6] = asuint(exp2(-3.0) / adaptedLuminance);
     Diagnostics[7] = asuint(averageLuminance);
     Diagnostics[8] = asuint(lowLuminance);
     Diagnostics[9] = asuint(highLuminance);
-    Diagnostics[10] = totalWeight;
+    Diagnostics[10] = integerWeight;
 }

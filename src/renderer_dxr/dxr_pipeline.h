@@ -111,12 +111,14 @@ public:
         options.reservoir_sample_limit = reservoir_sample_limit_;
         options.reservoir_sample_limit_set = UINT8_MAX;
         options.radiance_clamp = radiance_clamp_;
-        options.exposure = exposure_;
+        options.exposure_bias_stops = exposure_bias_stops_;
+        options.exposure_bias_set = UINT8_MAX;
         options.ndf_trim = ndf_trim_;
         options.output = output_.hdr ? RENDERER_OUTPUT_HDR : RENDERER_OUTPUT_SDR;
         options.hdr_peak_nits = output_.hdr ? output_.peak_nits : 0.0f;
-        options.hdr_paper_white_nits =
-            output_.hdr ? output_.paper_white_nits : 0.0f;
+        options.hdr_saturation_percent =
+            output_.hdr ? output_.saturation_scale * 100.0f : 0.0f;
+        options.hdr_saturation_percent_set = output_.hdr ? UINT8_MAX : 0u;
     }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
@@ -206,8 +208,8 @@ private:
         RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES;
     uint32_t reservoir_sample_limit_ =
         RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT;
-    float radiance_clamp_ = 200.0f;
-    float exposure_ = 1.0f;
+    float radiance_clamp_ = 0.0f;
+    float exposure_bias_stops_ = -1.0f;
     float ndf_trim_ = 0.9f;
     uint32_t spp_ = 1u;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
@@ -229,6 +231,7 @@ private:
     float last_metered_high_luminance_ = 0.0f;
     uint32_t last_metered_weight_ = 0u;
     bool diagnostics_have_output_ = false;
+    bool light_grid_needs_initial_transition_ = false;
     struct DxrFrameHistory {
         reconstruction::CameraProjection previous_camera = {};
         reconstruction::PixelJitter previous_jitter = {};

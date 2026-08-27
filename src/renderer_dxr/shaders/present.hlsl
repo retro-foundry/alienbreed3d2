@@ -20,16 +20,20 @@ cbuffer PresentConstants : register(b0)
     uint SourceHeight;
     uint TargetWidth;
     uint TargetHeight;
-    float Exposure;
+    float ExposureBiasStops;
     uint FrameIndex;
     uint HdrOutput;
     float HdrPeakNits;
-    float HdrPaperWhiteNits;
+    float HdrSaturationScale;
 };
 
 static const uint ToneCurvePointCount = 129u;
-static const float MinimumLogLuminance = -18.0;
+static const uint AdaptedLuminanceStateIndex = ToneCurvePointCount;
+static const float MinimumLogLuminance = -24.0;
 static const float MaximumLogLuminance = 8.0;
+static const float ToneReinhardBlend = 0.5;
+static const float ToneKneeStart = 0.6;
+static const float ToneWhitePoint = 10.0;
 static const uint BlueNoiseSampleCount = 256u;
 static const uint BlueNoiseDimensionCount = 256u;
 static const uint BlueNoiseTileWidth = 128u;
@@ -38,7 +42,6 @@ static const uint BlueNoiseSobolOffset = 0u;
 static const uint BlueNoiseScramblingOffset = 65536u;
 static const uint BlueNoiseRankingOffset = 196608u;
 static const float ScRgbReferenceWhiteNits = 80.0;
-static const float HdrPaperWhiteCurveLevel = 0.75;
 
 struct PixelInput
 {
@@ -111,37 +114,11 @@ float3 ditherSdr(float3 encoded, uint2 pixel)
     return saturate(encoded + (noise - 0.5) / 255.0);
 }
 
-float hdrMappedNits(float mappedLuminance)
-{
-    float peak = max(HdrPeakNits, ScRgbReferenceWhiteNits);
-    float paperWhite = clamp(HdrPaperWhiteNits,
-                             ScRgbReferenceWhiteNits, peak);
-    float mapped = saturate(mappedLuminance);
-    if (mapped <= HdrPaperWhiteCurveLevel) {
-        return mapped * (paperWhite / HdrPaperWhiteCurveLevel);
-    }
-    if (peak <= paperWhite) {
-        return paperWhite;
-    }
-    float t = (mapped - HdrPaperWhiteCurveLevel) /
-        (1.0 - HdrPaperWhiteCurveLevel);
-    /* Match the diffuse-range slope at paper white, then arrive flat at the
-     * configured display peak. */
-    float slope = (paperWhite / HdrPaperWhiteCurveLevel) *
-        (1.0 - HdrPaperWhiteCurveLevel) / (peak - paperWhite);
-    float shoulder = slope * t + (3.0 - 2.0 * slope) * t * t +
-        (slope - 2.0) * t * t * t;
-    return lerp(paperWhite, peak, saturate(shoulder));
-}
-
 float3 encodeDebugOutput(float3 linearColor, uint2 pixel)
 {
     float3 display = saturate(linearColor);
     if (HdrOutput != 0u) {
-        float peak = max(HdrPeakNits, ScRgbReferenceWhiteNits);
-        float paperWhite = clamp(HdrPaperWhiteNits,
-                                 ScRgbReferenceWhiteNits, peak);
-        return display * (paperWhite / ScRgbReferenceWhiteNits);
+        return display * (HdrPeakNits / ScRgbReferenceWhiteNits);
     }
     return ditherSdr(linearToSrgb(display), pixel);
 }
@@ -159,8 +136,40 @@ float adaptiveToneMapLuminance(float exposedLuminance)
         (MaximumLogLuminance - MinimumLogLuminance)) *
         float(ToneCurvePointCount - 1u);
     uint leftPoint = min(uint(curvePosition), ToneCurvePointCount - 2u);
-    return lerp(ToneMapState[leftPoint], ToneMapState[leftPoint + 1u],
-                curvePosition - float(leftPoint));
+    float mappedLog = lerp(
+        ToneMapState[leftPoint], ToneMapState[leftPoint + 1u],
+        curvePosition - float(leftPoint));
+    return exp2(mappedLog + ExposureBiasStops);
+}
+
+float3 applyDisplayKnee(float3 color)
+{
+    float coefficient =
+        (ToneKneeStart * (ToneKneeStart - 2.0) + ToneWhitePoint) /
+        (ToneWhitePoint - 1.0);
+    float3 curved = (coefficient * color - ToneKneeStart * ToneKneeStart) /
+        max(color + coefficient - 2.0 * ToneKneeStart, 1.0e-6);
+    return select(color >= ToneKneeStart, curved, color);
+}
+
+float automaticToneMapLuminance(float inputLuminance, bool hdrOutput)
+{
+    float adaptedLuminance = max(
+        ToneMapState[AdaptedLuminanceStateIndex], 1.0e-8);
+    float scaled = exp2(ExposureBiasStops - 2.0) *
+        inputLuminance / adaptedLuminance;
+    float selectedWhitePoint = hdrOutput ?
+        max(ToneWhitePoint,
+            max(HdrPeakNits, ScRgbReferenceWhiteNits) /
+                ScRgbReferenceWhiteNits) : ToneWhitePoint;
+    float whiteSquared = selectedWhitePoint * selectedWhitePoint;
+    return scaled * (1.0 + scaled / whiteSquared) / (1.0 + scaled);
+}
+
+float3 applySaturationScale(float3 color, float saturationScale)
+{
+    float value = dot(color, float3(0.2126, 0.7152, 0.0722));
+    return max(lerp(value.xxx, color, saturationScale), 0.0);
 }
 
 float3 hsvToRgb(float3 hsv)
@@ -235,26 +244,23 @@ float4 ps_main(PixelInput input) : SV_Target
             IndirectRadiance.Load(int3(pixel, 0)).rgb, targetPixel), 1.0);
     }
     float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
-    float3 exposed = hdr * Exposure;
-    float exposedLuminance = dot(exposed, float3(0.2126, 0.7152, 0.0722));
-    float mappedLuminance = adaptiveToneMapLuminance(exposedLuminance);
-    if (HdrOutput != 0u) {
-        float scRgbLuminance = hdrMappedNits(mappedLuminance) /
-            ScRgbReferenceWhiteNits;
-        float3 scRgb = exposedLuminance > 0.0 ?
-            exposed * (scRgbLuminance / exposedLuminance) : 0.0;
-        float scRgbPeak = max(HdrPeakNits, ScRgbReferenceWhiteNits) /
-            ScRgbReferenceWhiteNits;
-        float maximumComponent = max(scRgb.r, max(scRgb.g, scRgb.b));
-        scRgb *= min(1.0, scRgbPeak / max(maximumComponent, 1.0e-6));
-        return float4(max(scRgb, 0.0), 1.0);
+    float inputLuminance = dot(hdr, float3(0.2126, 0.7152, 0.0722));
+    float adaptiveLuminance = adaptiveToneMapLuminance(inputLuminance);
+    float3 adaptiveColor = inputLuminance > 0.0 ?
+        hdr * (adaptiveLuminance / inputLuminance) : 0.0;
+    if (HdrOutput == 0u) {
+        adaptiveColor = applyDisplayKnee(adaptiveColor);
     }
-    float3 mapped = exposedLuminance > 0.0 ?
-        exposed * (mappedLuminance / exposedLuminance) : 0.0;
-    /* Preserve hue when a saturated HDR color extends outside the display
-     * gamut instead of clipping each component independently. */
-    float maximumComponent = max(mapped.r, max(mapped.g, mapped.b));
-    mapped /= max(maximumComponent, 1.0);
-    return float4(ditherSdr(linearToSrgb(max(mapped, 0.0)), targetPixel),
-                  1.0);
+    float automaticLuminance = automaticToneMapLuminance(
+        inputLuminance, HdrOutput != 0u);
+    float3 automaticColor = inputLuminance > 0.0 ?
+        hdr * (automaticLuminance / inputLuminance) : 0.0;
+    float3 mapped = lerp(adaptiveColor, automaticColor,
+                         ToneReinhardBlend);
+    if (HdrOutput != 0u) {
+        mapped *= HdrPeakNits / ScRgbReferenceWhiteNits;
+        mapped = applySaturationScale(mapped, HdrSaturationScale);
+        return float4(mapped, 1.0);
+    }
+    return float4(ditherSdr(linearToSrgb(saturate(mapped)), targetPixel), 1.0);
 }

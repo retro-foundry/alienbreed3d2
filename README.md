@@ -87,15 +87,15 @@ default, so the shipped template lists them commented out with their defaults:
   path tracer renders at before reconstruction upscales it. That makes it the
   largest single performance lever: at 2560x1440 the three fastest measured
   12.7, 10.4 and 8.5 ms a frame. The default is `quality`;
-- `rtx_output=auto|sdr|hdr` controls final display negotiation. `auto`, the
-  default, follows the Windows advanced-colour state of the monitor containing
-  the window and falls back with a DXR diagnostic to exact 8-bit sRGB when FP16
-  scRGB is unavailable. `sdr` is the explicit compatibility/fallback mode.
+- `rtx_output=auto|sdr|hdr` controls final display negotiation. The default is
+  `sdr`, matching Q2RTX's opt-in HDR policy. `auto` explicitly follows the
+  Windows advanced-colour state of the monitor containing the window and falls
+  back with a DXR diagnostic to exact 8-bit sRGB when FP16 scRGB is unavailable.
   `hdr` requires native FP16 scRGB and fails clearly if Windows HDR is off or
-  the current monitor cannot present it. `rtx_hdr_peak_nits=80..10000` overrides
-  the monitor-reported peak (`1000` is used when no usable report exists), and
-  `rtx_hdr_paper_white_nits=80..10000` overrides the default 200-nit diffuse/UI
-  white; paper white may not exceed the selected peak;
+  the current monitor cannot present it. `rtx_hdr_peak_nits=100..2000` defaults
+  to Q2RTX's fixed 800-nit scene target, while `rtx_hdr_saturation=0..200`
+  defaults to its identity 100%; the comparator's separate 300-nit UI output
+  remains with the pending DXR HUD/text implementation;
 - `rtx_light_candidates=1` through `1024` controls fresh RIS at every diffuse
   vertex. Candidates are evaluated without shadow rays, one survivor traces
   visibility, and the unbiased reservoir normalization preserves brightness.
@@ -105,16 +105,17 @@ default, so the shipped template lists them commented out with their defaults:
   caps the running history of the separate low-frequency indirect channel; zero
   keeps only the current frame while its depth/normal-guided spatial filter
   remains active; and
-- `rtx_radiance_clamp=200` bounds each combined diffuse sample before SPP averaging.
-  `rtx_ndf_trim=0.9` remains inactive because no GGX lobe executes, while
-  `rtx_exposure=1` is a bias multiplied by the renderer's automatic exposure
-  before tone mapping.
+- `rtx_radiance_clamp=0..100000` is a diagnostic per-sample firefly ceiling.
+  Its Q2RTX-matching default is `0`, disabled, because the comparator has no
+  path-radiance clamp control. `rtx_ndf_trim=0.9` remains inactive because no
+  GGX lobe executes, while `rtx_exposure_bias=-5..0` is applied after the tone
+  curve in log2 stops and defaults to Q2RTX's `-1` EV.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_MAX_BOUNCES`, `AB3D2_DXR_CANDIDATES`,
 `AB3D2_DXR_RESERVOIR_LIMIT`, `AB3D2_DXR_RADIANCE_CLAMP`,
-`AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, `AB3D2_DXR_RR_MODE`,
+`AB3D2_DXR_EXPOSURE_BIAS`, `AB3D2_DXR_NDF_TRIM`, `AB3D2_DXR_RR_MODE`,
 `AB3D2_DXR_OUTPUT`, `AB3D2_DXR_HDR_PEAK_NITS`, and
-`AB3D2_DXR_HDR_PAPER_WHITE_NITS` still
+`AB3D2_DXR_HDR_SATURATION` still
 override the file for one run, which is how a setting gets swept without
 editing it. The ordinary hidden `--gpu-smoke` path
 deliberately reads no `ab3d2.ini`, so its measurements stay independent of the
@@ -653,38 +654,41 @@ set `AB3D2_DXR_CAPTURE_PPM` to an absolute `.ppm` path while using hidden GPU
 smoke to save the latest presented frame. Weapon, bitmap-entity, and
 vector-entity coverage come from a GPU UAV. Transient projectile, HUD, and text
 coverage are not claimed at this milestone.
-Presentation builds a noise-weighted 128-bin log-luminance histogram from the
-full-resolution linear-FP16 image returned by Ray Reconstruction. Exact black
-is excluded, local-neighbour consistency downweights isolated reconstructed
-fireflies, and a mild centre weight retains the view direction without
-discarding the frame edges. The 2nd--99th percentile interval reports the
-occupied luminance span, while the 10th--90th percentile interval meters
-exposure. Exposure reacts faster to newly visible highlights than to darkness
-and uses elapsed seconds rather than a frame-dependent blend. AB3D2's saved
-Level A corridor owns the scene-linear `0.014` key and quadratic `0.02` toe:
-reconstructed near-black transport therefore rolls smoothly to black instead
-of being expanded to middle grey. The rational shoulder remains monotonic and
-retains highlight separation without clipping.
+Presentation applies the Q2RTX tone-mapping behavior requested on 2026-08-27
+to the full-resolution linear-FP16 image returned by Ray Reconstruction. Exact
+black is excluded; remaining log luminance is tent-filtered into 128 bins over
+`[-24, 8]` stops with Q2RTX's centre weighting and one pseudocount per bin. The
+70th--90th percentile log average drives exposure adaptation, clamped to
+`[0.0002, 1]`, with rates `1` down and `2` up. The adaptive branch implements
+the published Eilertsen/Mantiuk/Unger minimum-contrast-distortion curve for a
+seven-stop display, discards histogram energy below the `-12`-stop noise floor,
+Gaussian-filters slopes (`sigma=12`, radius 13), blends the sub-noise curve
+towards autoexposure by `0.5`, and filters the curve over elapsed time. Output
+uses the observed `-1`-stop bias, a `0.6`/`10` SDR knee, and a 50/50 blend with
+the auto-exposed Reinhard branch. Exact black remains black; this is display
+contrast allocation, not ambient fill or a shadow-lift curve.
 Before that meter, bright reconstructed energy is extracted into half-,
 quarter-, and eighth-resolution FP16 buffers, blurred separably at every scale,
 folded back into the finer levels, and composited with the same linear-HDR image
-that presentation consumes. The curve preserves RGB ratios and final gamut
-compression preserves hue. The current 8-bit SDR path then applies exact sRGB
-encoding and sub-half-code dithering from the renderer's pinned blue-noise/
-Owen-scrambled Sobol package. For a visible DXR window, automatic output mode
-also reads the Windows advanced-colour state of the monitor containing the
-window. An HDR-enabled monitor gets a native `R16G16B16A16_FLOAT` flip-discard
-swap chain in linear scRGB (`1.0` is the scRGB 80-nit reference white); diffuse
-white is anchored to 200 nits by default and the tone curve's highlight
-shoulder reaches the display-reported peak. Moving the window between HDR and
-SDR monitors flushes the old buffers and rebuilds both swap-chain PSOs for the
+that presentation consumes. Luminance tone mapping preserves RGB ratios until
+the comparator's component-wise SDR knee. The current 8-bit SDR path then
+applies exact sRGB encoding and sub-half-code dithering from the renderer's pinned blue-noise/
+Owen-scrambled Sobol package. SDR is the shipped default. Explicit automatic
+output mode reads the Windows advanced-colour state of the monitor containing
+the window. An HDR-enabled monitor gets a native `R16G16B16A16_FLOAT`
+flip-discard swap chain in linear scRGB (`1.0` is the scRGB 80-nit reference white); diffuse
+scene output is multiplied by the Q2RTX scene target divided by 80 after tone
+mapping, using 800 nits by default, then receives its luminance-preserving HDR
+saturation adjustment. There is no invented paper-white shoulder or component
+peak clamp. Moving the window between HDR and SDR monitors flushes the old
+buffers and rebuilds both swap-chain PSOs for the
 new RTV format. When Windows HDR is off, the monitor lacks advanced-colour
 support, or FP16 scRGB presentation is rejected, auto mode stays on the exact
 sRGB path. Hidden GPU smoke is deliberately forced to that SDR path so its
 RGBA8 readback metrics and PPM captures remain stable. HDR output stays linear
-and does not apply sRGB encoding or 8-bit dithering. The configured exposure
-remains `1` by default and multiplies the automatic result as a bias. Set
-`AB3D2_DXR_EXPOSURE` to a finite value from `0.001` through `100` for diagnostic
+and does not apply sRGB encoding or 8-bit dithering. Exposure bias is applied
+inside both tone-mapping branches after metering; it defaults to `-1` EV. Set
+`AB3D2_DXR_EXPOSURE_BIAS` to a finite value from `-5` through `0` for diagnostic
 exposure sweeps. The CTest all-level invocation uses the production default
 without an override.
 

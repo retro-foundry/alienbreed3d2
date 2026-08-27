@@ -146,22 +146,18 @@ int main()
     tone::add_sample(metering_histogram, 0.01f, 80u);
     tone::add_sample(metering_histogram, 10.0f, 10u);
     const tone::Metering metering = tone::meter(metering_histogram);
-    const float metering_middle = tone::histogram_luminance(
-        tone::histogram_index(0.01f));
-    const float expected_metering_average = metering_middle;
     const tone::State first_curve = tone::build_curve(
         metering_histogram, tone::State{}, false, 1.0f / 60.0f);
     const tone::State second_curve = tone::build_curve(
         metering_histogram, first_curve, true, 1.0f / 60.0f);
     tone::State invalid_previous_curve = first_curve;
-    invalid_previous_curve.curve[32] =
+    invalid_previous_curve.log_curve[32] =
         std::numeric_limits<float>::quiet_NaN();
     const tone::State recovered_curve = tone::build_curve(
         metering_histogram, invalid_previous_curve, true, 1.0f / 60.0f);
-    /* Regression for the post-RR Level A failure reported on 2026-08-27.
-     * Reconstructed near-black transport must remain below the display toe;
-     * it must never be expanded to middle grey just because it dominates the
-     * histogram. */
+    /* Regression for the Q2RTX parity request on 2026-08-27. These are the
+     * checked-in comparator defaults and the published minimum-distortion
+     * stage contract, not a fitted AB3D2 shadow curve. */
     tone::Histogram dark_corridor_histogram = {};
     tone::add_sample(dark_corridor_histogram, 0.000004f, 10u);
     tone::add_sample(dark_corridor_histogram, 0.000062f, 80u);
@@ -171,47 +167,65 @@ int main()
     bool curve_is_monotonic = true;
     for (uint32_t point = 1u; point < tone::curve_point_count; ++point) {
         curve_is_monotonic = curve_is_monotonic &&
-            first_curve.curve[point] >= first_curve.curve[point - 1u];
+            first_curve.log_curve[point] >=
+                first_curve.log_curve[point - 1u];
     }
-    const float one_dark_step = tone::adapt_exposure(
-        1.0f, 2.0f, true, 0.2f);
-    const float two_dark_steps = tone::adapt_exposure(
-        tone::adapt_exposure(1.0f, 2.0f, true, 0.1f),
-        2.0f, true, 0.1f);
-    const float dark_adaptation_distance = tone::adapt_exposure(
-        1.0f, 2.0f, true, 0.1f) - 1.0f;
-    const float light_adaptation_distance = 2.0f - tone::adapt_exposure(
-        2.0f, 1.0f, true, 0.1f);
+    const float one_bright_step = tone::adapt_luminance(
+        0.001f, 0.01f, true, 0.2f);
+    const float two_bright_steps = tone::adapt_luminance(
+        tone::adapt_luminance(0.001f, 0.01f, true, 0.1f),
+        0.01f, true, 0.1f);
+    const float dark_corridor_low =
+        tone::lookup(dark_corridor_curve, 0.000004f);
+    const float dark_corridor_middle =
+        tone::lookup(dark_corridor_curve, 0.000062f);
+    const float dark_corridor_high =
+        tone::lookup(dark_corridor_curve, 0.038598f);
     if (tone::histogram_index(0.0f) != 0u ||
         tone::histogram_index(1000.0f) !=
             tone::histogram_bin_count - 1u ||
-        metering.total_weight != 100u || metering.included_weight != 80u ||
-        !near(metering.average_luminance, expected_metering_average) ||
+        metering_histogram.total_weight >
+            100u * tone::histogram_fraction_scale ||
+        metering_histogram.total_weight <
+            100u * (tone::histogram_fraction_scale - 1u) ||
+        !near(metering.total_weight, 1.0f) ||
+        !(metering.included_weight > 0.0f) ||
+        !(metering.average_luminance > 0.0f) ||
         !(metering.low_luminance < metering.average_luminance) ||
         !(metering.high_luminance > metering.average_luminance) ||
-        !near(first_curve.target_exposure,
-              tone::metering_key / expected_metering_average) ||
-        !near(first_curve.exposure, first_curve.target_exposure) ||
-        !near(one_dark_step, two_dark_steps) ||
-        !(light_adaptation_distance > dark_adaptation_distance) ||
-        tone::adapt_exposure(1.0f, 3.0f, false, 0.1f) != 3.0f ||
-        tone::adapt_exposure(1.0f, 3.0f, true, -1.0f) != 1.0f ||
-        !near(tone::adapt_exposure(1.0f, 2.0f, true, 1.0f),
-              tone::adapt_exposure(1.0f, 2.0f, true,
-                                   tone::maximum_delta_seconds)) ||
+        first_curve.target_luminance < tone::minimum_scene_luminance ||
+        first_curve.target_luminance > tone::maximum_scene_luminance ||
+        !near(first_curve.adapted_luminance,
+              first_curve.target_luminance) ||
+        !near(one_bright_step, two_bright_steps) ||
+        tone::adapt_luminance(1.0f, 0.5f, false, 0.1f) != 0.5f ||
+        tone::adapt_luminance(1.0f, 0.5f, true, -1.0f) != 1.0f ||
+        !near(tone::adapt_luminance(0.001f, 0.01f, true, 1.0f),
+              tone::adapt_luminance(0.001f, 0.01f, true,
+                                    tone::maximum_delta_seconds)) ||
         !curve_is_monotonic ||
         !(tone::lookup(first_curve, 0.01f) > 0.0f) ||
         !(tone::lookup(first_curve, 0.01f) <
           tone::lookup(first_curve, 0.18f)) ||
         !(tone::lookup(first_curve, 0.18f) <
           tone::lookup(first_curve, 8.0f)) ||
+        tone::curve_position(std::exp2(tone::maximum_log_luminance)) !=
+            float(tone::histogram_bin_count) ||
         tone::lookup(first_curve, 0.0f) != 0.0f ||
-        !(dark_corridor_curve.target_exposure < 512.0f) ||
-        !(tone::lookup(dark_corridor_curve, 0.000004f) < 0.001f) ||
-        !(tone::lookup(dark_corridor_curve, 0.000062f) < 0.01f) ||
-        !(tone::lookup(dark_corridor_curve, 0.038598f) > 0.5f) ||
-        !(second_curve.exposure > 0.0f) ||
-        !std::isfinite(recovered_curve.curve[32])) {
+        !(dark_corridor_low >= 0.0f) ||
+        !(dark_corridor_low < dark_corridor_middle) ||
+        !(dark_corridor_middle < dark_corridor_high) ||
+        !(second_curve.adapted_luminance > 0.0f) ||
+        !std::isfinite(recovered_curve.log_curve[32]) ||
+        !near(tone::knee(tone::knee_start), tone::knee_start) ||
+        !near(tone::knee(tone::white_point), 1.0f) ||
+        tone::display_dynamic_range_stops != 7.0f ||
+        tone::exposure_bias_stops != -1.0f ||
+        tone::noise_floor_stops != -12.0f ||
+        tone::noise_floor_blend != 0.5f ||
+        tone::reinhard_blend != 0.5f ||
+        tone::slope_blur_sigma != 12.0f ||
+        tone::knee_start != 0.6f || tone::white_point != 10.0f) {
         return fail("post-RR adaptive tone-mapping contract changed");
     }
     const float dark_bloom_weight = post::bloom_extraction_weight(0.001f);
@@ -233,21 +247,20 @@ int main()
         post::dither_sdr(1.0f, 1.0f) != 1.0f) {
         return fail("linear-HDR bloom or SDR dithering contract changed");
     }
-    const float hdr_black = post::hdr_mapped_nits(0.0f, 1000.0f, 200.0f);
-    const float hdr_paper = post::hdr_mapped_nits(
-        post::hdr_paper_white_curve_level, 1000.0f, 200.0f);
-    const float hdr_highlight = post::hdr_mapped_nits(
-        0.9f, 1000.0f, 200.0f);
-    const float hdr_peak = post::hdr_mapped_nits(1.0f, 1000.0f, 200.0f);
-    if (hdr_black != 0.0f || !near(hdr_paper, 200.0f, 1.0e-3f) ||
-        !(hdr_highlight > hdr_paper && hdr_highlight < hdr_peak) ||
-        !near(hdr_peak, 1000.0f, 1.0e-3f) ||
-        !near(post::hdr_sc_rgb_luminance(1.0f, 1000.0f, 200.0f),
-              12.5f) ||
-        !near(post::hdr_mapped_nits(
-            std::numeric_limits<float>::infinity(), 1000.0f, 200.0f),
-            0.0f)) {
-        return fail("scRGB HDR paper-white and peak mapping changed");
+    if (!near(post::hdr_scene_scale(800.0f), 10.0f) ||
+        !near(post::hdr_scene_scale(1000.0f), 12.5f) ||
+        post::hdr_scene_scale(
+            std::numeric_limits<float>::infinity()) != 0.0f ||
+        post::hdr_sc_rgb_luminance(0.0f, 800.0f) != 0.0f ||
+        !near(post::hdr_sc_rgb_luminance(1.0f, 800.0f), 10.0f) ||
+        !near(post::hdr_sc_rgb_luminance(1.5f, 800.0f), 15.0f) ||
+        post::hdr_sc_rgb_luminance(
+            std::numeric_limits<float>::infinity(), 800.0f) != 0.0f ||
+        !near(post::hdr_saturation_channel(1.0f, 0.5f, 0.0f), 0.5f) ||
+        !near(post::hdr_saturation_channel(1.0f, 0.5f, 1.0f), 1.0f) ||
+        !near(post::hdr_saturation_channel(1.0f, 0.5f, 2.0f), 1.5f) ||
+        post::hdr_saturation_channel(0.0f, 0.5f, 2.0f) != 0.0f) {
+        return fail("Q2RTX-compatible scRGB scale or HDR saturation changed");
     }
     if (!near(indirect::guide_weight(100.0f, 100.0f, 1.0f), 1.0f) ||
         !near(indirect::guide_weight(100.0f, 105.0f, 0.75f), 0.125f) ||

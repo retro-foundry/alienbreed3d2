@@ -126,9 +126,9 @@ private:
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT readback_footprint_ = {};
     HANDLE fence_event_ = nullptr;
     DxrStreamline *streamline_ = nullptr;
-    RendererOutputMode requested_output_ = RENDERER_OUTPUT_AUTO;
+    RendererOutputMode requested_output_ = RENDERER_OUTPUT_SDR;
     float requested_hdr_peak_nits_ = 0.0f;
-    float requested_hdr_paper_white_nits_ = 0.0f;
+    float requested_hdr_saturation_percent_ = 100.0f;
     DxrOutputConfiguration output_ = {};
 
     Microsoft::WRL::ComPtr<IDXGIFactory6> factory_;

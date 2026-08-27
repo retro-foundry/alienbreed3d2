@@ -9,11 +9,14 @@
  * trade image quality against frame cost.
  *
  * Zero on a quality/nit field normally means "keep the renderer's own default".
- * Output mode zero is the explicit automatic-monitor policy.
- * The reservoir history limit is the exception because zero is its explicit
- * diagnostic/off value; reservoir_sample_limit_set distinguishes that value
- * from an absent setting. The tuned defaults and the measurements behind them
- * live with the code that uses them, in renderer_dxr/dxr_pipeline.cpp.
+ * Output mode zero is the explicit automatic-monitor policy, although the
+ * desktop application's shipped default is SDR to match Q2RTX's opt-in HDR.
+ * The radiance clamp uses zero as its explicit off value. The reservoir history
+ * limit likewise accepts zero; reservoir_sample_limit_set distinguishes that
+ * value from an absent setting. Exposure bias and HDR saturation also accept
+ * zero, so their accompanying set flags distinguish it from an absent setting.
+ * The tuned defaults and measurements live with the code that uses them, in
+ * renderer_dxr/dxr_pipeline.cpp.
  */
 
 typedef enum {
@@ -66,10 +69,11 @@ typedef struct {
      */
     uint32_t reservoir_sample_limit;
     uint8_t reservoir_sample_limit_set;
-    /* Ceiling on a single sample's luminance, which bounds fireflies. */
+    /* Zero disables the diagnostic per-sample firefly clamp. */
     float radiance_clamp;
-    /* Linear multiplier applied before tone mapping. */
-    float exposure;
+    /* Post-tone-curve log2 exposure bias, -5 through 0 EV. */
+    float exposure_bias_stops;
+    uint8_t exposure_bias_set;
     /* GGX visible-normal sampling trim. */
     float ndf_trim;
     /* DLSS Ray Reconstruction mode, which also sets the path-traced
@@ -77,9 +81,11 @@ typedef struct {
     RendererRayReconstructionMode reconstruction;
     /* Display-output policy. Hidden validation windows are always forced SDR. */
     RendererOutputMode output;
-    /* Zero keeps the detected/default HDR mastering values. */
+    /* Zero keeps Q2RTX's 800-nit scene default. */
     float hdr_peak_nits;
-    float hdr_paper_white_nits;
+    /* Q2RTX-compatible percentage, 0 through 200; default 100. */
+    float hdr_saturation_percent;
+    uint8_t hdr_saturation_percent_set;
 } RendererRayTracingOptions;
 
 #endif
