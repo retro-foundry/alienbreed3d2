@@ -42,6 +42,7 @@ struct SceneMaterial
     uint atlasY;
     uint width;
     uint height;
+    uint mipCount;
     float normalStrength;
     float specularFactor;
     float3 emissiveFactor;
@@ -745,25 +746,77 @@ struct MaterialSampleFootprint
     float2 blend;
 };
 
+MaterialSampleFootprint materialSampleFootprintLevel(
+    SceneMaterial material, float2 textureCoordinate,
+    uint packedWindowOrigin, uint packedWindowExtent, uint level);
+
 MaterialSampleFootprint materialSampleFootprint(
     SceneMaterial material, float2 textureCoordinate,
     uint packedWindowOrigin, uint packedWindowExtent)
 {
+    return materialSampleFootprintLevel(
+        material, textureCoordinate, packedWindowOrigin,
+        packedWindowExtent, 0u);
+}
+
+uint materialMipYOffset(uint baseHeight, uint level)
+{
+    uint offset = 0u;
+    for (uint index = 0u; index < level; ++index) {
+        offset += max(1u, baseHeight >> index);
+    }
+    return offset;
+}
+
+MaterialSampleFootprint materialSampleFootprintLevel(
+    SceneMaterial material, float2 textureCoordinate,
+    uint packedWindowOrigin, uint packedWindowExtent, uint level)
+{
     MaterialTextureWindow window = materialTextureWindow(
         material, packedWindowOrigin, packedWindowExtent);
-    float2 dimensions = float2(window.extent);
+    uint2 levelExtent = max(uint2(1u, 1u), window.extent >> level);
+    float2 dimensions = float2(levelExtent);
     float2 position = frac(textureCoordinate) * dimensions - 0.5;
     int2 lower = int2(floor(position));
-    int2 size = int2(window.extent);
+    int2 size = int2(levelExtent);
     int2 lowerWrapped = (lower + size) % size;
     int2 upperWrapped = (lower + 1 + size) % size;
-    uint2 origin = uint2(material.atlasX, material.atlasY) + window.origin;
+    uint2 origin = uint2(material.atlasX, material.atlasY) +
+        uint2(window.origin.x >> level,
+              materialMipYOffset(material.height, level) +
+                  (window.origin.y >> level));
     MaterialSampleFootprint footprint;
     footprint.texel00 = origin + uint2(lowerWrapped.x, lowerWrapped.y);
     footprint.texel10 = origin + uint2(upperWrapped.x, lowerWrapped.y);
     footprint.texel01 = origin + uint2(lowerWrapped.x, upperWrapped.y);
     footprint.texel11 = origin + uint2(upperWrapped.x, upperWrapped.y);
     footprint.blend = frac(position);
+    return footprint;
+}
+
+struct MaterialMipSampleFootprint
+{
+    MaterialSampleFootprint lower;
+    MaterialSampleFootprint upper;
+    float blend;
+};
+
+MaterialMipSampleFootprint materialMipSampleFootprint(
+    SceneMaterial material, float2 textureCoordinate,
+    uint packedWindowOrigin, uint packedWindowExtent, float mipLevel)
+{
+    uint mipCount = max(material.mipCount, 1u);
+    float boundedLevel = clamp(mipLevel, 0.0, float(mipCount - 1u));
+    uint lowerLevel = uint(floor(boundedLevel));
+    uint upperLevel = min(lowerLevel + 1u, mipCount - 1u);
+    MaterialMipSampleFootprint footprint;
+    footprint.lower = materialSampleFootprintLevel(
+        material, textureCoordinate, packedWindowOrigin,
+        packedWindowExtent, lowerLevel);
+    footprint.upper = materialSampleFootprintLevel(
+        material, textureCoordinate, packedWindowOrigin,
+        packedWindowExtent, upperLevel);
+    footprint.blend = frac(boundedLevel);
     return footprint;
 }
 
@@ -777,6 +830,19 @@ float4 sampleMaterialAtlas(Texture2D<float4> atlas,
                         atlas.Load(int3(footprint.texel11, 0)),
                         footprint.blend.x);
     return lerp(upper, lower, footprint.blend.y);
+}
+
+float4 sampleMaterialAtlasTrilinear(
+    Texture2D<float4> atlas, MaterialMipSampleFootprint footprint)
+{
+    float4 lower = sampleMaterialAtlas(atlas, footprint.lower);
+    /* Preserve the one four-tap lookup used by every level-zero-only material,
+     * and by a wall landing exactly on an integer LOD. */
+    if (footprint.blend <= 0.0) {
+        return lower;
+    }
+    return lerp(lower, sampleMaterialAtlas(atlas, footprint.upper),
+                footprint.blend);
 }
 
 void triangleFrame(uint firstVertex, float3 incomingDirection,
@@ -814,6 +880,57 @@ void triangleFrame(uint firstVertex, float3 incomingDirection,
     coordinateSystem(geometricNormal, tangent, bitangent);
 }
 
+/* Ray shaders have no screen-space derivatives. Approximate the primary ray
+ * cone at the hit plane, then convert its world-space diameter through the
+ * triangle's authored UV gradients. Only isolated wall-window materials carry
+ * more than one level, so every other primitive remains exactly level zero. */
+float wallMaterialMipLevel(SceneMaterial material, SceneVertex first,
+                           SceneVertex second, SceneVertex third,
+                           float3 geometricNormal,
+                           float3 incomingDirection, float rayDistance)
+{
+    if (material.mipCount <= 1u || first.textureWindowExtent == 0u) {
+        return 0.0;
+    }
+    float2 firstUvEdge = second.textureCoordinate - first.textureCoordinate;
+    float2 secondUvEdge = third.textureCoordinate - first.textureCoordinate;
+    float determinant = firstUvEdge.x * secondUvEdge.y -
+                        firstUvEdge.y * secondUvEdge.x;
+    if (abs(determinant) <= 1.0e-8) {
+        return 0.0;
+    }
+    float3 firstEdge = second.position - first.position;
+    float3 secondEdge = third.position - first.position;
+    float3 positionPerU =
+        (firstEdge * secondUvEdge.y - secondEdge * firstUvEdge.y) /
+        determinant;
+    float3 positionPerV =
+        (secondEdge * firstUvEdge.x - firstEdge * secondUvEdge.x) /
+        determinant;
+    float uWorldLength = length(positionPerU);
+    float vWorldLength = length(positionPerV);
+    if (uWorldLength <= 1.0e-6 || vWorldLength <= 1.0e-6) {
+        return 0.0;
+    }
+
+    MaterialTextureWindow window = materialTextureWindow(
+        material, first.textureWindowOrigin, first.textureWindowExtent);
+    float renderHeight = float(max(DispatchRaysDimensions().y, 1u));
+    float pixelWorldSpan = max(rayDistance, RayEpsilon) *
+        (2.0 * TanHalfFovY / renderHeight);
+    /* A ray cone stretches across a plane at grazing incidence. The lower
+     * bound limits only the singular edge-on case where the wall contributes
+     * less than a pixel but an unbounded footprint would erase it. */
+    float incidence = max(abs(dot(normalize(incomingDirection),
+                                  geometricNormal)), 0.125);
+    pixelWorldSpan /= incidence;
+    float texelFootprint = max(
+        pixelWorldSpan * float(window.extent.x) / uWorldLength,
+        pixelWorldSpan * float(window.extent.y) / vWorldLength);
+    return clamp(log2(max(texelFootprint, 1.0)), 0.0,
+                 float(material.mipCount - 1u));
+}
+
 SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
 {
     uint firstVertex = payload.primitiveIndex * 3u;
@@ -839,14 +956,16 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     triangleFrame(firstVertex, incomingDirection, surface.geometricNormal,
                   tangent, bitangent);
     SceneMaterial material = Materials[surface.materialIndex];
-    MaterialSampleFootprint footprint =
-        materialSampleFootprint(material, surface.textureCoordinate,
-                                surface.textureWindowOrigin,
-                                surface.textureWindowExtent);
+    float mipLevel = wallMaterialMipLevel(
+        material, first, second, third, surface.geometricNormal,
+        incomingDirection, payload.rayDistance);
+    MaterialMipSampleFootprint footprint = materialMipSampleFootprint(
+        material, surface.textureCoordinate, surface.textureWindowOrigin,
+        surface.textureWindowExtent, mipLevel);
     surface.baseColor = saturate(
-        sampleMaterialAtlas(BaseColorAtlas, footprint).rgb);
+        sampleMaterialAtlasTrilinear(BaseColorAtlas, footprint).rgb);
     float3 tangentNormal =
-        sampleMaterialAtlas(NormalAtlas, footprint).xyz * 2.0 - 1.0;
+        sampleMaterialAtlasTrilinear(NormalAtlas, footprint).xyz * 2.0 - 1.0;
     tangentNormal.xy *= material.normalStrength;
     tangentNormal = normalize(float3(tangentNormal.xy,
                                      max(tangentNormal.z, 1.0e-4)));
@@ -856,14 +975,16 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
         surface.shadingNormal = surface.geometricNormal;
     }
     surface.metalness = saturate(
-        sampleMaterialAtlas(MetalnessAtlas, footprint).r);
+        sampleMaterialAtlasTrilinear(MetalnessAtlas, footprint).r);
     surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
-        sampleMaterialAtlas(RoughnessAtlas, footprint).r, 0.045, 1.0);
+        sampleMaterialAtlasTrilinear(RoughnessAtlas, footprint).r,
+        0.045, 1.0);
     float emissionScale = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
-    surface.emission = sampleMaterialAtlas(EmissiveAtlas, footprint).rgb *
+    surface.emission =
+        sampleMaterialAtlasTrilinear(EmissiveAtlas, footprint).rgb *
         material.emissiveFactor * emissionScale;
     return surface;
 }

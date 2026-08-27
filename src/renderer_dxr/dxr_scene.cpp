@@ -1,5 +1,6 @@
 #include "dxr_scene.h"
 #include "dxr_emitter_history.h"
+#include "dxr_wall_mip.h"
 
 #include "dxr_alias_table.h"
 #include "dxr_debug.h"
@@ -94,6 +95,9 @@ struct DxrWorldVectorCompilation {
 namespace {
 
 constexpr uint32_t atlas_maximum_extent = 8192u;
+/* tools/world_material_images.py expands each authoritative world texel to a
+ * 4x4 PBR block. This is part of the packaged world-material contract. */
+constexpr uint32_t world_texture_scale = 4u;
 constexpr uint8_t world_instance_mask = 0x01u;
 constexpr uint64_t fnv_prime = UINT64_C(1099511628211);
 /*
@@ -149,9 +153,12 @@ struct MaterialKey {
     SceneMaterialSource source;
     uint32_t source_asset_id;
     uint32_t texture_v_period;
+    uint32_t texture_u_offset;
+    uint32_t texture_u_period;
 
     auto tie() const {
-        return std::tie(source, source_asset_id, texture_v_period);
+        return std::tie(source, source_asset_id, texture_v_period,
+                        texture_u_offset, texture_u_period);
     }
     bool operator<(const MaterialKey &other) const { return tie() < other.tie(); }
 };
@@ -164,11 +171,21 @@ struct MaterialImage {
     uint32_t height = 0;
     uint32_t x = 0;
     uint32_t y = 0;
+    uint32_t mip_count = 1u;
+    bool wall_mips = false;
+    std::array<wall_mip::Levels,
+               static_cast<size_t>(DxrMaterialChannel::count)> mip_pixels;
     float normal_strength = 1.0f;
     float specular_factor = 1.0f;
     float emissive_factor[3] = {};
     float maximum_emissive_luminance = 0.0f;
 };
+
+uint32_t material_packed_height(const MaterialImage &image)
+{
+    return image.wall_mips ?
+        wall_mip::packed_height(image.width, image.height) : image.height;
+}
 
 bool compile_view_weapon(
     const SceneFrame &frame,
@@ -663,6 +680,93 @@ float maximum_emissive_luminance(const MaterialImage &image)
     return static_cast<float>(maximum_luminance);
 }
 
+bool build_wall_material_image(const SceneGeometry &geometry,
+                               const DxrMaterialDefinition &pbr,
+                               MaterialImage &image, std::string &error)
+{
+    const uint32_t origin_x =
+        static_cast<uint32_t>(geometry.texture_window.u_offset) *
+        world_texture_scale;
+    const uint32_t extent_x =
+        static_cast<uint32_t>(geometry.texture_window.u_period) *
+        world_texture_scale;
+    const uint32_t extent_y =
+        static_cast<uint32_t>(geometry.texture_window.v_period) *
+        world_texture_scale;
+    if (extent_x == 0u || extent_y == 0u) {
+        error = "DXR wall geometry has no source texture window";
+        return false;
+    }
+    if (origin_x > pbr.width || extent_x > pbr.width - origin_x ||
+        extent_y != pbr.height) {
+        std::ostringstream report;
+        report << "DXR wall PBR texture window does not match its material image"
+               << " (record=" << geometry.source_record_id
+               << " source=" << geometry.texture_window.u_offset << ","
+               << geometry.texture_window.u_period << "x"
+               << geometry.texture_window.v_period
+               << " PBR=" << pbr.width << "x" << pbr.height << ")";
+        error = report.str();
+        return false;
+    }
+    if (extent_x > UINT16_MAX || extent_y > UINT16_MAX ||
+        static_cast<size_t>(pbr.width) >
+            std::numeric_limits<size_t>::max() / pbr.height / 4u) {
+        error = "DXR wall PBR texture window exceeds its supported range";
+        return false;
+    }
+
+    const size_t source_bytes =
+        static_cast<size_t>(pbr.width) * pbr.height * 4u;
+    const size_t destination_bytes =
+        static_cast<size_t>(extent_x) * extent_y * 4u;
+    image.width = extent_x;
+    image.height = extent_y;
+    for (size_t channel = 0u;
+         channel < static_cast<size_t>(DxrMaterialChannel::count);
+         ++channel) {
+        const std::vector<uint8_t> &source = pbr.pixels[channel];
+        if (source.size() != source_bytes) {
+            error = "DXR wall PBR channel does not match its declared image";
+            return false;
+        }
+        std::vector<uint8_t> &destination = image.pixels[channel];
+        destination.resize(destination_bytes);
+        for (uint32_t row = 0u; row < extent_y; ++row) {
+            std::memcpy(
+                destination.data() +
+                    static_cast<size_t>(row) * extent_x * 4u,
+                source.data() +
+                    (static_cast<size_t>(row) * pbr.width + origin_x) * 4u,
+                static_cast<size_t>(extent_x) * 4u);
+        }
+    }
+
+    image.maximum_emissive_luminance = maximum_emissive_luminance(image);
+    constexpr std::array<wall_mip::Semantic,
+                         static_cast<size_t>(DxrMaterialChannel::count)>
+        semantics = {
+            wall_mip::Semantic::srgb,
+            wall_mip::Semantic::normal,
+            wall_mip::Semantic::linear,
+            wall_mip::Semantic::linear,
+            wall_mip::Semantic::srgb,
+        };
+    image.mip_count = wall_mip::level_count(image.width, image.height);
+    image.wall_mips = true;
+    for (size_t channel = 0u; channel < semantics.size(); ++channel) {
+        if (!wall_mip::generate(semantics[channel], image.pixels[channel],
+                                image.width, image.height,
+                                image.mip_pixels[channel], error)) {
+            error = "DXR wall PBR mip generation failed: " + error;
+            return false;
+        }
+        image.pixels[channel].clear();
+        image.pixels[channel].shrink_to_fit();
+    }
+    return true;
+}
+
 D3D12_HEAP_PROPERTIES heap_properties(D3D12_HEAP_TYPE type)
 {
     D3D12_HEAP_PROPERTIES properties = {};
@@ -738,18 +842,13 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
                               std::vector<DxrSceneVertex> &vertices,
                               std::string &error)
 {
-    /*
-     * tools/world_material_images.py expands every authoritative world texel
-     * to a 4x4 PBR block. Keep the source Draw_Wall window integer-aligned in
-     * that image so filtering can wrap inside the selected packed-WAD strip.
-     */
-    constexpr uint32_t world_texture_scale = 4u;
+    /* Wall materials are cropped to the exact hireswall.s:Draw_Wall window
+     * before atlas packing. The zero origin therefore isolates filtering from
+     * adjacent packed-WAD strips, while the non-zero extent still identifies
+     * this vertex as a wall to the shader's mip-LOD path. */
     uint32_t texture_window_origin = 0u;
     uint32_t texture_window_extent = 0u;
     if (geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL) {
-        const uint32_t origin_x =
-            static_cast<uint32_t>(geometry.texture_window.u_offset) *
-            world_texture_scale;
         const uint32_t extent_x =
             static_cast<uint32_t>(geometry.texture_window.u_period) *
             world_texture_scale;
@@ -760,15 +859,13 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
             error = "DXR wall geometry has no source texture window";
             return false;
         }
-        if (origin_x > UINT16_MAX || extent_x > UINT16_MAX ||
-            extent_y > UINT16_MAX) {
+        if (extent_x > UINT16_MAX || extent_y > UINT16_MAX) {
             error = "DXR wall PBR texture window exceeds its packed vertex range";
             return false;
         }
-        if (origin_x > material_width || extent_x > material_width - origin_x ||
-            extent_y != material_height) {
+        if (extent_x != material_width || extent_y != material_height) {
             std::ostringstream report;
-            report << "DXR wall PBR texture window does not match its material image"
+            report << "DXR cropped wall PBR material does not match its source window"
                    << " (record=" << geometry.source_record_id
                    << " source=" << geometry.texture_window.u_offset << ","
                    << geometry.texture_window.u_period << "x"
@@ -788,7 +885,6 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
             error = report.str();
             return false;
         }
-        texture_window_origin = origin_x;
         texture_window_extent = extent_x | (extent_y << 16u);
     }
     uint32_t *indices = nullptr;
@@ -1106,9 +1202,10 @@ bool DxrScene::compile(const SceneFrame &frame,
             const SceneMeshSurface &surface = mesh.surfaces[surface_index];
             const SceneGeometry &geometry = surface.geometry;
             const DxrMaterialDefinition *surface_pbr = nullptr;
+            const bool wall =
+                geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL;
             const uint32_t texture_v_period =
-                geometry.primitive == SCENE_GEOMETRY_PRIMITIVE_WALL ?
-                geometry.texture_window.v_period : 0u;
+                wall ? geometry.texture_window.v_period : 0u;
             if (!material_library_.resolve(
                     surface.material.source,
                     surface.material.source_asset_id,
@@ -1120,6 +1217,8 @@ bool DxrScene::compile(const SceneFrame &frame,
                 surface.material.source,
                 surface.material.source_asset_id,
                 texture_v_period,
+                wall ? geometry.texture_window.u_offset : 0u,
+                wall ? geometry.texture_window.u_period : 0u,
             };
             uint32_t material_index;
             auto found = material_indices.find(key);
@@ -1127,15 +1226,22 @@ bool DxrScene::compile(const SceneFrame &frame,
                 MaterialImage image;
                 image.key = key;
                 const DxrMaterialDefinition *pbr = surface_pbr;
-                image.width = pbr->width;
-                image.height = pbr->height;
-                image.pixels = pbr->pixels;
                 image.normal_strength = pbr->normal_strength;
                 image.specular_factor = pbr->specular_factor;
                 std::memcpy(image.emissive_factor, pbr->emissive_factor,
                             sizeof(image.emissive_factor));
-                image.maximum_emissive_luminance =
-                    maximum_emissive_luminance(image);
+                if (wall) {
+                    if (!build_wall_material_image(geometry, *pbr, image,
+                                                   error)) {
+                        return false;
+                    }
+                } else {
+                    image.width = pbr->width;
+                    image.height = pbr->height;
+                    image.pixels = pbr->pixels;
+                    image.maximum_emissive_luminance =
+                        maximum_emissive_luminance(image);
+                }
                 material_index = static_cast<uint32_t>(images.size());
                 material_indices.emplace(key, material_index);
                 images.push_back(std::move(image));
@@ -1144,15 +1250,18 @@ bool DxrScene::compile(const SceneFrame &frame,
                 report << "DXR PBR PNG material: " << pbr->name
                        << " source=" << static_cast<unsigned>(key.source)
                        << " asset=" << key.source_asset_id
-                       << " v_period=" << key.texture_v_period;
+                       << " window=" << key.texture_u_offset << ","
+                       << key.texture_u_period << "x"
+                       << key.texture_v_period
+                       << " mips=" << images[material_index].mip_count;
                 debug_output(report.str());
             } else {
                 material_index = found->second;
             }
             compiled_surface_material_indices.push_back(material_index);
             if (!append_geometry_vertices(geometry, material_index,
-                                          surface_pbr->width,
-                                          surface_pbr->height,
+                                          images[material_index].width,
+                                          images[material_index].height,
                                           compiled_vertices, error)) {
                 return false;
             }
@@ -1508,6 +1617,8 @@ bool DxrScene::compile(const SceneFrame &frame,
             uint32_t row_height = 0u;
             bool fits = true;
             for (MaterialImage &image : images) {
+                const uint32_t packed_height =
+                    material_packed_height(image);
                 if (image.width > candidate_width) {
                     fits = false;
                     break;
@@ -1517,14 +1628,14 @@ bool DxrScene::compile(const SceneFrame &frame,
                     y += row_height;
                     row_height = 0u;
                 }
-                if (y + image.height > atlas_maximum_extent) {
+                if (y + packed_height > atlas_maximum_extent) {
                     fits = false;
                     break;
                 }
                 image.x = x;
                 image.y = y;
                 x += image.width;
-                row_height = std::max(row_height, image.height);
+                row_height = std::max(row_height, packed_height);
             }
             if (fits) {
                 atlas_width = candidate_width;
@@ -1535,7 +1646,7 @@ bool DxrScene::compile(const SceneFrame &frame,
         }
         if (!packed || static_cast<size_t>(atlas_width) >
                            std::numeric_limits<size_t>::max() / atlas_height / 4u) {
-            error = "DXR source-albedo atlas exceeds the 8192-pixel limit";
+            error = "DXR PBR atlas exceeds the 8192-pixel limit";
             return false;
         }
         const size_t atlas_bytes =
@@ -1548,14 +1659,28 @@ bool DxrScene::compile(const SceneFrame &frame,
             for (size_t channel = 0;
                  channel < static_cast<size_t>(DxrMaterialChannel::count);
                  ++channel) {
-                for (uint32_t row = 0; row < image.height; ++row) {
-                    std::memcpy(
-                        compiled_atlases[channel].data() +
-                            (static_cast<size_t>(image.y + row) * atlas_width +
-                             image.x) * 4u,
-                        image.pixels[channel].data() +
-                            static_cast<size_t>(row) * image.width * 4u,
-                        static_cast<size_t>(image.width) * 4u);
+                for (uint32_t level = 0u; level < image.mip_count; ++level) {
+                    const uint32_t level_width =
+                        wall_mip::level_extent(image.width, level);
+                    const uint32_t level_height =
+                        wall_mip::level_extent(image.height, level);
+                    const uint32_t level_y = image.y +
+                        (image.wall_mips ?
+                             wall_mip::level_y_offset(image.height, level) :
+                             0u);
+                    const std::vector<uint8_t> &level_pixels =
+                        image.wall_mips ?
+                            image.mip_pixels[channel][level] :
+                            image.pixels[channel];
+                    for (uint32_t row = 0u; row < level_height; ++row) {
+                        std::memcpy(
+                            compiled_atlases[channel].data() +
+                                (static_cast<size_t>(level_y + row) *
+                                     atlas_width + image.x) * 4u,
+                            level_pixels.data() +
+                                static_cast<size_t>(row) * level_width * 4u,
+                            static_cast<size_t>(level_width) * 4u);
+                    }
                 }
             }
             DxrSceneMaterial &material = compiled_materials[image_index];
@@ -1563,6 +1688,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             material.atlas_y = image.y;
             material.width = image.width;
             material.height = image.height;
+            material.mip_count = image.mip_count;
             material.normal_strength = image.normal_strength;
             material.specular_factor = image.specular_factor;
             std::memcpy(material.emissive, image.emissive_factor,

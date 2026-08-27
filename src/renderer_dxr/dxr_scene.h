@@ -40,11 +40,12 @@ struct DxrSceneVertex {
     uint32_t emitter_index;
     uint32_t primitive;
     /*
-     * Packed 16-bit XY pairs in PBR-atlas image texels. Walls carry the exact
-     * source subwindow selected by hireswall.s:Draw_Wall: word +10 supplies
-     * the U origin and bytes +18/+16 supply the U/V repeat masks. A zero
-     * extent explicitly means the complete material image for flats, sprites,
-     * vectors, and the view weapon.
+     * Packed 16-bit XY pairs in PBR-atlas image texels. Scene compilation
+     * isolates the exact source subwindow selected by hireswall.s:Draw_Wall
+     * (word +10 U origin and bytes +18/+16 U/V repeat masks), so wall vertices
+     * carry origin zero and the isolated extent. A zero extent explicitly
+     * means the complete material image for flats, sprites, vectors, and the
+     * view weapon.
      */
     uint32_t texture_window_origin;
     uint32_t texture_window_extent;
@@ -62,12 +63,15 @@ struct DxrSceneMaterial {
     uint32_t atlas_y;
     uint32_t width;
     uint32_t height;
+    /* One for all non-wall materials. Wall materials carry a software mip
+     * pyramid packed below their isolated level-zero texture window. */
+    uint32_t mip_count;
     float normal_strength;
     float specular_factor;
     float emissive[3];
 };
 
-static_assert(sizeof(DxrSceneMaterial) == 36u);
+static_assert(sizeof(DxrSceneMaterial) == 40u);
 
 /*
  * Layout mirrored by `EmissiveTriangle` in shaders/path_trace.hlsl. The alias
