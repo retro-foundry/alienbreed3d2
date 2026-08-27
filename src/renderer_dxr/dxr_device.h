@@ -80,6 +80,8 @@ private:
     bool create_swap_chain(std::string &error);
     bool create_frame_contexts(std::string &error);
     bool create_render_targets(std::string &error);
+    bool configure_output_request(const RendererRayTracingOptions &options,
+                                  std::string &error);
     bool choose_output_configuration(DxrOutputConfiguration &output,
                                      std::string &display_name,
                                      std::string &error) const;

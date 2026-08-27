@@ -87,6 +87,15 @@ default, so the shipped template lists them commented out with their defaults:
   path tracer renders at before reconstruction upscales it. That makes it the
   largest single performance lever: at 2560x1440 the three fastest measured
   12.7, 10.4 and 8.5 ms a frame. The default is `quality`;
+- `rtx_output=auto|sdr|hdr` controls final display negotiation. `auto`, the
+  default, follows the Windows advanced-colour state of the monitor containing
+  the window and falls back with a DXR diagnostic to exact 8-bit sRGB when FP16
+  scRGB is unavailable. `sdr` is the explicit compatibility/fallback mode.
+  `hdr` requires native FP16 scRGB and fails clearly if Windows HDR is off or
+  the current monitor cannot present it. `rtx_hdr_peak_nits=80..10000` overrides
+  the monitor-reported peak (`1000` is used when no usable report exists), and
+  `rtx_hdr_paper_white_nits=80..10000` overrides the default 200-nit diffuse/UI
+  white; paper white may not exceed the selected peak;
 - `rtx_light_candidates=1` through `1024` controls fresh RIS at every diffuse
   vertex. Candidates are evaluated without shadow rays, one survivor traces
   visibility, and the unbiased reservoir normalization preserves brightness.
@@ -103,7 +112,9 @@ default, so the shipped template lists them commented out with their defaults:
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_MAX_BOUNCES`, `AB3D2_DXR_CANDIDATES`,
 `AB3D2_DXR_RESERVOIR_LIMIT`, `AB3D2_DXR_RADIANCE_CLAMP`,
-`AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, and `AB3D2_DXR_RR_MODE` still
+`AB3D2_DXR_EXPOSURE`, `AB3D2_DXR_NDF_TRIM`, `AB3D2_DXR_RR_MODE`,
+`AB3D2_DXR_OUTPUT`, `AB3D2_DXR_HDR_PEAK_NITS`, and
+`AB3D2_DXR_HDR_PAPER_WHITE_NITS` still
 override the file for one run, which is how a setting gets swept without
 editing it. The ordinary hidden `--gpu-smoke` path
 deliberately reads no `ab3d2.ini`, so its measurements stay independent of the

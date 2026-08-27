@@ -7,8 +7,10 @@
 #endif
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -317,6 +319,88 @@ bool DxrDevice::create_swap_chain(std::string &error)
     return true;
 }
 
+bool DxrDevice::configure_output_request(
+    const RendererRayTracingOptions &options, std::string &error)
+{
+    if (options.output < RENDERER_OUTPUT_AUTO ||
+        options.output > RENDERER_OUTPUT_HDR) {
+        error = "DXR output mode is invalid";
+        return false;
+    }
+    requested_output_ = options.output;
+    requested_hdr_peak_nits_ = options.hdr_peak_nits;
+    requested_hdr_paper_white_nits_ = options.hdr_paper_white_nits;
+
+    char output_value[64] = {};
+    DWORD length = GetEnvironmentVariableA(
+        "AB3D2_DXR_OUTPUT", output_value,
+        static_cast<DWORD>(sizeof(output_value)));
+    if (length >= sizeof(output_value)) {
+        error = "AB3D2_DXR_OUTPUT exceeds 63 bytes";
+        return false;
+    }
+    if (length != 0u) {
+        if (_stricmp(output_value, "auto") == 0) {
+            requested_output_ = RENDERER_OUTPUT_AUTO;
+        } else if (_stricmp(output_value, "sdr") == 0) {
+            requested_output_ = RENDERER_OUTPUT_SDR;
+        } else if (_stricmp(output_value, "hdr") == 0) {
+            requested_output_ = RENDERER_OUTPUT_HDR;
+        } else {
+            error = "AB3D2_DXR_OUTPUT must be auto, sdr, or hdr";
+            return false;
+        }
+    }
+    struct NitsOverride {
+        const char *name;
+        float *target;
+    };
+    const NitsOverride overrides[] = {
+        {"AB3D2_DXR_HDR_PEAK_NITS", &requested_hdr_peak_nits_},
+        {"AB3D2_DXR_HDR_PAPER_WHITE_NITS",
+         &requested_hdr_paper_white_nits_},
+    };
+    for (const NitsOverride &entry : overrides) {
+        char value[64] = {};
+        length = GetEnvironmentVariableA(
+            entry.name, value, static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = std::string(entry.name) + " exceeds 63 bytes";
+            return false;
+        }
+        if (length == 0u) {
+            continue;
+        }
+        char *end = nullptr;
+        errno = 0;
+        const double parsed = std::strtod(value, &end);
+        if (errno != 0 || end == value || *end != '\0' ||
+            !std::isfinite(parsed) || parsed < 80.0 || parsed > 10000.0) {
+            error = std::string(entry.name) + " must be 80-10000";
+            return false;
+        }
+        *entry.target = static_cast<float>(parsed);
+    }
+    if ((requested_hdr_peak_nits_ != 0.0f &&
+         (!std::isfinite(requested_hdr_peak_nits_) ||
+          requested_hdr_peak_nits_ < 80.0f ||
+          requested_hdr_peak_nits_ > 10000.0f)) ||
+        (requested_hdr_paper_white_nits_ != 0.0f &&
+         (!std::isfinite(requested_hdr_paper_white_nits_) ||
+          requested_hdr_paper_white_nits_ < 80.0f ||
+          requested_hdr_paper_white_nits_ > 10000.0f))) {
+        error = "DXR HDR peak and paper-white settings must be 80-10000 nits";
+        return false;
+    }
+    if (requested_hdr_peak_nits_ != 0.0f &&
+        requested_hdr_paper_white_nits_ > requested_hdr_peak_nits_) {
+        error = "AB3D2_DXR_HDR_PAPER_WHITE_NITS/rtx_hdr_paper_white_nits "
+            "must not exceed the HDR peak luminance";
+        return false;
+    }
+    return true;
+}
+
 bool DxrDevice::choose_output_configuration(
     DxrOutputConfiguration &output, std::string &display_name,
     std::string &error) const
@@ -495,7 +579,7 @@ bool DxrDevice::refresh_output_configuration(DxrPipeline &pipeline,
             !check_debug_messages(error)) {
             return false;
         }
-        debug_output(std::string("DXR output: ") +
+        const std::string output_message = std::string("DXR output: ") +
             (desired.hdr ? "FP16 scRGB HDR" : "8-bit sRGB SDR") +
             (display_name.empty() ? std::string() :
                 std::string(" on ") + display_name) +
@@ -503,7 +587,11 @@ bool DxrDevice::refresh_output_configuration(DxrPipeline &pipeline,
                 std::string(" peak=") + std::to_string(desired.peak_nits) +
                     " nits paper white=" +
                     std::to_string(desired.paper_white_nits) + " nits" :
-                std::string()));
+                std::string());
+        debug_output(output_message);
+        if (!hidden_window_) {
+            std::fprintf(stdout, "[RENDER] %s\n", output_message.c_str());
+        }
     } else if (!output_configuration_equal(desired, output_)) {
         output_ = desired;
         if (!pipeline.configure_output(device_.Get(), output_, error)) {
@@ -746,14 +834,9 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
     window_ = window;
     hidden_window_ = hidden_window;
     streamline_ = streamline;
-    if (options.output < RENDERER_OUTPUT_AUTO ||
-        options.output > RENDERER_OUTPUT_HDR) {
-        error = "DXR output mode is invalid";
+    if (!configure_output_request(options, error)) {
         return false;
     }
-    requested_output_ = options.output;
-    requested_hdr_peak_nits_ = options.hdr_peak_nits;
-    requested_hdr_paper_white_nits_ = options.hdr_paper_white_nits;
     if (!GetClientRect(window_, &client)) {
         error = hresult_error("GetClientRect(DXR window)",
                               HRESULT_FROM_WIN32(GetLastError()));
@@ -777,7 +860,7 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
         !create_render_targets(error)) {
         return false;
     }
-    debug_output(std::string("DXR output: ") +
+    const std::string output_message = std::string("DXR output: ") +
         (output_.hdr ? "FP16 scRGB HDR" : "8-bit sRGB SDR") +
         (hidden_window_ ? " (hidden validation forced SDR)" :
             (display_name.empty() ? std::string() :
@@ -786,7 +869,11 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
             std::string(" peak=") + std::to_string(output_.peak_nits) +
                 " nits paper white=" +
                 std::to_string(output_.paper_white_nits) + " nits" :
-            std::string()));
+            std::string());
+    debug_output(output_message);
+    if (!hidden_window_) {
+        std::fprintf(stdout, "[RENDER] %s\n", output_message.c_str());
+    }
     return check_debug_messages(error);
 }
 

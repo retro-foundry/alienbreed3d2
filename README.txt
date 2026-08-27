@@ -35,6 +35,8 @@ Edit ab3d2.ini beside the executable before starting the game. It supports:
 - volume=0 through 100
 - always_run=0 or 1
 - renderer=opengl or rtx (opengl by default; rtx requires an opt-in DXR build)
+- rtx_output=auto, sdr, or hdr (auto by default; hdr requires Windows HDR)
+- rtx_hdr_peak_nits and rtx_hdr_paper_white_nits accept 80 through 10000
 - world_light_tessellation=1, 2, 4, or 8 (4 by default)
 
 The default build reports that DXR was compiled out and never silently

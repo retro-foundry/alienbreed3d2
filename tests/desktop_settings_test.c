@@ -153,7 +153,10 @@ int main(void)
         settings.ray_tracing.exposure != 0.0f ||
         settings.ray_tracing.ndf_trim != 0.0f ||
         settings.ray_tracing.reconstruction !=
-            RENDERER_RAY_RECONSTRUCTION_DEFAULT) {
+            RENDERER_RAY_RECONSTRUCTION_DEFAULT ||
+        settings.ray_tracing.output != RENDERER_OUTPUT_AUTO ||
+        settings.ray_tracing.hdr_peak_nits != 0.0f ||
+        settings.ray_tracing.hdr_paper_white_nits != 0.0f) {
         fprintf(stderr, "ray-tracing settings did not default to the renderer's own\n");
         return 1;
     }
@@ -166,7 +169,10 @@ int main(void)
             "rtx_radiance_clamp=50.5\n"
             "rtx_exposure=1.25\n"
             "rtx_ndf_trim=0.75\n"
-            "rtx_ray_reconstruction=performance\n";
+            "rtx_ray_reconstruction=performance\n"
+            "rtx_output=hdr\n"
+            "rtx_hdr_peak_nits=1200\n"
+            "rtx_hdr_paper_white_nits=203\n";
 
         desktop_settings_default(&settings);
         if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u,
@@ -183,7 +189,10 @@ int main(void)
             settings.ray_tracing.ndf_trim < 0.74f ||
             settings.ray_tracing.ndf_trim > 0.76f ||
             settings.ray_tracing.reconstruction !=
-                RENDERER_RAY_RECONSTRUCTION_PERFORMANCE) {
+                RENDERER_RAY_RECONSTRUCTION_PERFORMANCE ||
+            settings.ray_tracing.output != RENDERER_OUTPUT_HDR ||
+            settings.ray_tracing.hdr_peak_nits != 1200.0f ||
+            settings.ray_tracing.hdr_paper_white_nits != 203.0f) {
             fprintf(stderr, "ray-tracing settings were not applied: %s\n", error);
             return 1;
         }
@@ -204,6 +213,11 @@ int main(void)
             "rtx_ndf_trim=0\n",
             "rtx_ndf_trim=1.5\n",
             "rtx_ray_reconstruction=fastest\n",
+            "rtx_output=automatic\n",
+            "rtx_hdr_peak_nits=79\n",
+            "rtx_hdr_peak_nits=10001\n",
+            "rtx_hdr_paper_white_nits=79\n",
+            "rtx_hdr_peak_nits=500\nrtx_hdr_paper_white_nits=501\n",
         };
         size_t index;
 
@@ -214,6 +228,25 @@ int main(void)
                                        error, sizeof(error))) {
                 fprintf(stderr, "ray-tracing setting \"%s\" was accepted\n",
                         rejected[index]);
+                return 1;
+            }
+        }
+    }
+    {
+        static const char *const values[] = {"auto", "sdr", "hdr"};
+        static const RendererOutputMode modes[] = {
+            RENDERER_OUTPUT_AUTO, RENDERER_OUTPUT_SDR, RENDERER_OUTPUT_HDR};
+        size_t index;
+        for (index = 0u; index < sizeof(values) / sizeof(values[0]); ++index) {
+            char text[64];
+            int length = snprintf(text, sizeof(text), "rtx_output=%s\n",
+                                  values[index]);
+            desktop_settings_default(&settings);
+            if (length <= 0 || !desktop_settings_parse(
+                    &settings, text, (size_t)length, error, sizeof(error)) ||
+                settings.ray_tracing.output != modes[index]) {
+                fprintf(stderr, "rtx_output=%s was rejected: %s\n",
+                        values[index], error);
                 return 1;
             }
         }

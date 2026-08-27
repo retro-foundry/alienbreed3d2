@@ -74,6 +74,27 @@ int main(void)
         SDL_Quit();
         return 1;
     }
+#if !defined(AB3D2_ENABLE_STREAMLINE)
+    /* The signed Streamline runtime deliberately supports one verified
+     * initialize/shutdown lifecycle per process, so exercise this early device
+     * rejection only in the native-DXGI foundation target. */
+    if (!SetEnvironmentVariableA("AB3D2_DXR_OUTPUT", "wide-gamut")) {
+        fprintf(stderr, "could not set DXR output override for validation\n");
+        SDL_Quit();
+        return 1;
+    }
+    error[0] = '\0';
+    invalid = renderer_rtx_create(
+        640, 360, window_title, 0, 1, 1u, NULL, error, sizeof(error));
+    (void)SetEnvironmentVariableA("AB3D2_DXR_OUTPUT", NULL);
+    if (invalid || strstr(error, "AB3D2_DXR_OUTPUT") == NULL) {
+        fprintf(stderr, "DXR invalid output override was not explicit: %s\n",
+                error);
+        renderer_rtx_destroy(invalid);
+        SDL_Quit();
+        return 1;
+    }
+#endif
 
     /*
      * ab3d2.ini's ray-tracing settings, as the desktop entry point hands them
@@ -91,9 +112,25 @@ int main(void)
     requested.exposure = 1.5f;
     requested.ndf_trim = 0.8f;
     requested.reconstruction = RENDERER_RAY_RECONSTRUCTION_BALANCED;
+    requested.output = RENDERER_OUTPUT_HDR;
+    requested.hdr_peak_nits = 1000.0f;
+    requested.hdr_paper_white_nits = 200.0f;
 
+    /* Matching one-run environment controls are accepted before hidden
+     * validation applies its final forced-SDR decision. */
+    if (!SetEnvironmentVariableA("AB3D2_DXR_OUTPUT", "hdr") ||
+        !SetEnvironmentVariableA("AB3D2_DXR_HDR_PEAK_NITS", "1200") ||
+        !SetEnvironmentVariableA(
+            "AB3D2_DXR_HDR_PAPER_WHITE_NITS", "203")) {
+        fprintf(stderr, "could not set valid DXR output overrides\n");
+        SDL_Quit();
+        return 1;
+    }
     RendererRtx *renderer = renderer_rtx_create(
         640, 360, window_title, 0, 1, 1u, &requested, error, sizeof(error));
+    (void)SetEnvironmentVariableA("AB3D2_DXR_OUTPUT", NULL);
+    (void)SetEnvironmentVariableA("AB3D2_DXR_HDR_PEAK_NITS", NULL);
+    (void)SetEnvironmentVariableA("AB3D2_DXR_HDR_PAPER_WHITE_NITS", NULL);
     if (!renderer) {
         fprintf(stderr, "DXR foundation creation failed: %s\n", error);
         SDL_Quit();
@@ -106,7 +143,10 @@ int main(void)
         applied.reservoir_sample_limit != requested.reservoir_sample_limit ||
         applied.radiance_clamp != requested.radiance_clamp ||
         applied.exposure != requested.exposure ||
-        applied.ndf_trim != requested.ndf_trim) {
+        applied.ndf_trim != requested.ndf_trim ||
+        applied.output != RENDERER_OUTPUT_SDR ||
+        applied.hdr_peak_nits != 0.0f ||
+        applied.hdr_paper_white_nits != 0.0f) {
         fprintf(stderr,
                 "DXR ray-tracing settings did not reach the renderer "
                 "(spp %u bounces %u candidates %u limit %u)\n",

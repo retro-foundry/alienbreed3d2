@@ -30,8 +30,8 @@ typedef struct {
     uint8_t world_light_tessellation;
     /* Desktop graphics backend; OpenGL remains the documented default. */
     RendererBackend renderer_backend;
-    /* Ray-traced backend quality settings. Any field left zero keeps the
-     * renderer's own default, so an absent INI key changes nothing. */
+    /* Ray-traced backend quality and output settings. Absent keys retain the
+     * renderer defaults; output mode zero is automatic monitor detection. */
     RendererRayTracingOptions ray_tracing;
 } DesktopSettings;
 

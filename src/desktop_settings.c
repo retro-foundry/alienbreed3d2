@@ -322,6 +322,44 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         }
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_output")) {
+        if (desktop_settings_equals_ci(value, "auto")) {
+            settings->ray_tracing.output = RENDERER_OUTPUT_AUTO;
+        } else if (desktop_settings_equals_ci(value, "sdr")) {
+            settings->ray_tracing.output = RENDERER_OUTPUT_SDR;
+        } else if (desktop_settings_equals_ci(value, "hdr")) {
+            settings->ray_tracing.output = RENDERER_OUTPUT_HDR;
+        } else {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_output must be auto, sdr, or hdr",
+                           line_number);
+            return 0;
+        }
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_hdr_peak_nits")) {
+        if (!desktop_settings_parse_positive_float(
+                value, 10000.0, &settings->ray_tracing.hdr_peak_nits) ||
+            settings->ray_tracing.hdr_peak_nits < 80.0f) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_hdr_peak_nits must be 80 through 10000",
+                           line_number);
+            return 0;
+        }
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_hdr_paper_white_nits")) {
+        if (!desktop_settings_parse_positive_float(
+                value, 10000.0,
+                &settings->ray_tracing.hdr_paper_white_nits) ||
+            settings->ray_tracing.hdr_paper_white_nits < 80.0f) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_hdr_paper_white_nits must be 80 through 10000",
+                           line_number);
+            return 0;
+        }
+        return 1;
+    }
     return 1;
 }
 
@@ -373,6 +411,14 @@ int desktop_settings_parse(DesktopSettings *settings, const char *text, size_t t
         if (!desktop_settings_apply_line(settings, trimmed, line_number, error, error_size)) {
             return 0;
         }
+    }
+    if (settings->ray_tracing.hdr_peak_nits != 0.0f &&
+        settings->ray_tracing.hdr_paper_white_nits >
+            settings->ray_tracing.hdr_peak_nits) {
+        desktop_settings_set_error(
+            error, error_size,
+            "ab3d2.ini: rtx_hdr_paper_white_nits must not exceed rtx_hdr_peak_nits");
+        return 0;
     }
     return 1;
 }

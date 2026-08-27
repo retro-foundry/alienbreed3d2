@@ -8,7 +8,8 @@
  * to the renderer boundary. None of them touch source assets or gameplay: they
  * trade image quality against frame cost.
  *
- * Zero on a quality field normally means "keep the renderer's own default".
+ * Zero on a quality/nit field normally means "keep the renderer's own default".
+ * Output mode zero is the explicit automatic-monitor policy.
  * The reservoir history limit is the exception because zero is its explicit
  * diagnostic/off value; reservoir_sample_limit_set distinguishes that value
  * from an absent setting. The tuned defaults and the measurements behind them

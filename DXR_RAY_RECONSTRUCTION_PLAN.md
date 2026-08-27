@@ -1153,6 +1153,12 @@ classes and transient projectiles remain incomplete.
   clearly. Hidden validation remains forced SDR and its temporal-blue-noise
   regression allows only sub-code display variation. Transmissive/alpha-blended
   presentation, HUD, text, and optional NVIDIA transparency guides remain.
+  `rtx_output=auto|sdr|hdr`, `rtx_hdr_peak_nits`, and
+  `rtx_hdr_paper_white_nits` expose that contract through `ab3d2.ini`; matching
+  `AB3D2_DXR_OUTPUT`, `AB3D2_DXR_HDR_PEAK_NITS`, and
+  `AB3D2_DXR_HDR_PAPER_WHITE_NITS` environment overrides take precedence for
+  one-run validation. The parser bounds both nit values to 80--10000 and rejects
+  paper white above an explicitly configured peak.
 - Add transmissive/alpha-blended presentation, HUD, text, and optional NVIDIA
   transparency guides if captures prove they are needed.
 - Add scripted camera/dynamic-scene captures, all-level native smoke tests, resize/device-loss tests, packaging, documentation, and licence audit.

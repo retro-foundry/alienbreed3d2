@@ -59,6 +59,18 @@ world_light_tessellation=4
 # performance 8.5 ms. Default quality.
 #rtx_ray_reconstruction=quality
 
+# Display output: auto follows the Windows advanced-colour state of the monitor
+# containing the window; sdr always uses exact 8-bit sRGB; hdr requires native
+# FP16 scRGB and fails clearly if Windows HDR is unavailable. Hidden GPU smoke
+# is always forced SDR. Default auto.
+#rtx_output=auto
+
+# HDR mastering targets in nits. Absence uses the monitor-reported peak
+# (1000 when unavailable) and a 200-nit paper white. Paper white must be at
+# least 80 and no greater than the selected peak; both accept 80 through 10000.
+#rtx_hdr_peak_nits=1000
+#rtx_hdr_paper_white_nits=200
+
 # Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
 # primary vertex uses the complete alias table; the indirect vertex uses a
 # camera-centred local ReGIR proposal. The retained limit caps the validated
