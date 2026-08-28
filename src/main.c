@@ -1593,7 +1593,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
         fprintf(stdout,
                 "[RENDER] saved-state Level %c frozen frames=%u checksum=%016llx "
                 "delta=%.4f reprojected=%.4f saturated=%llu outliers16=%llu "
-                "reprojected_outliers16=%llu reprojected_pixels=%llu\n",
+                "reprojected_outliers16=%llu reprojected_samples=%llu\n",
                 (char)('A' + app->game.active_level_index),
                 (unsigned)GAME_APP_SAVED_GPU_SMOKE_FRAMES,
                 (unsigned long long)checksum, delta, reprojected_delta,
@@ -1717,7 +1717,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 "[RENDER] saved-state Level %c Shotgun updates=%u subframe=%u/4 "
                 "presentations=%u checksum=%016llx "
                 "delta=%.4f reprojected=%.4f weapon_pixels=%zu outliers16=%llu "
-                "reprojected_outliers16=%llu reprojected_pixels=%llu\n",
+                "reprojected_outliers16=%llu reprojected_samples=%llu\n",
                 (char)('A' + app->game.active_level_index),
                 shot_frames, shot_subframe, shot_presentations,
                 (unsigned long long)checksum, delta, reprojected_delta,

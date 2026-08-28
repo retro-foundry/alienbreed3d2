@@ -38,6 +38,7 @@ inline Difference measure_reprojected_rgb(
     uint32_t output_width, uint32_t output_height,
     const std::vector<uint16_t> &motion_xy,
     uint32_t motion_width, uint32_t motion_height,
+    uint32_t sampling_stride = 1u,
     float outlier_threshold = 16.0f)
 {
     Difference result;
@@ -46,7 +47,7 @@ inline Difference measure_reprojected_rgb(
     const size_t motion_pixels =
         static_cast<size_t>(motion_width) * motion_height;
     if (output_width == 0u || output_height == 0u ||
-        motion_width == 0u || motion_height == 0u ||
+        motion_width == 0u || motion_height == 0u || sampling_stride == 0u ||
         current_rgb.size() != output_pixels * 3u ||
         previous_rgb.size() != current_rgb.size() ||
         motion_xy.size() != motion_pixels * 2u) {
@@ -58,8 +59,8 @@ inline Difference measure_reprojected_rgb(
             (static_cast<size_t>(y) * motion_width + x) * 2u + component]);
     };
     double difference_sum = 0.0;
-    for (uint32_t y = 0u; y < output_height; ++y) {
-        for (uint32_t x = 0u; x < output_width; ++x) {
+    for (uint32_t y = 0u; y < output_height; y += sampling_stride) {
+        for (uint32_t x = 0u; x < output_width; x += sampling_stride) {
             const float motion_x =
                 (static_cast<float>(x) + 0.5f) * motion_width /
                     output_width - 0.5f;

@@ -75,6 +75,7 @@ public:
     }
     uint64_t last_scene_reprojected_pixel_count() const
     {
+        /* A validation sample count, not a full-frame population. */
         return last_scene_reprojected_pixel_count_;
     }
     bool enable_noisy_radiance_readback();

@@ -172,13 +172,16 @@ Date: 2026-08-27
   supplied to Ray Reconstruction. It bilinearly maps output pixels to the
   render-resolution guide, follows its current-to-previous vector into the
   prior presented frame, rejects invalid or off-screen correspondences, and
-  reports `reprojected`, `reprojected_outliers16`, and the compared-pixel count.
-  Ordinary visible rendering still incurs no readback or synchronization.
+  reports `reprojected`, `reprojected_outliers16`, and the sampled-pixel count.
+  The metric evaluates every fourth pixel in each axis; its 1/16 validation
+  grid keeps the all-level Debug smoke below its 120-second gate while retaining
+  bilinear subpixel reprojection. Ordinary visible rendering still incurs no
+  readback or synchronization.
 - The locked production path measures `delta=0.5046` and
-  `reprojected=0.5046` for the frozen endpoint. During the yawing Shotgun
-  endpoint it measures screen-space `delta=4.8584 / outliers16=77288`, but
-  motion-compensated `reprojected=0.6871 /
-  reprojected_outliers16=2582` over `917293` valid pixels. Future direct-light
+  sampled `reprojected=0.5074` for the frozen endpoint. During the yawing
+  Shotgun endpoint it measures screen-space `delta=4.8599 /
+  outliers16=77327`, but motion-compensated `reprojected=0.7057 /
+  reprojected_outliers16=192` over `57261` valid samples. Future direct-light
   changes must improve the reprojected result without increasing screen-space
   trails or degrading the captured left-wall/panel detail.
 

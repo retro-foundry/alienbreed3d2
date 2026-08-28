@@ -1040,7 +1040,7 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
         temporal_metrics::measure_reprojected_rgb(
             current_rgb, previous_readback_rgb_, readback_width_,
             readback_height_, current_motion, motion_readback_width_,
-            motion_readback_height_) : temporal_metrics::Difference{};
+            motion_readback_height_, 4u) : temporal_metrics::Difference{};
     last_scene_reprojected_frame_delta_ =
         reprojected.mean_absolute_component;
     last_scene_reprojected_temporal_outlier_pixels_ =
@@ -1061,7 +1061,7 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
                << " reprojected=" << last_scene_reprojected_frame_delta_
                << " reprojected16="
                << last_scene_reprojected_temporal_outlier_pixels_
-               << " reprojectedPixels="
+               << " reprojectedSamples="
                << last_scene_reprojected_pixel_count_
                << " reprojectedMax=" << reprojected.maximum_component;
     debug_output(statistics.str());
