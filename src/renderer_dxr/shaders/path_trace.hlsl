@@ -222,9 +222,10 @@ RWStructuredBuffer<PackedLightReservoir> CurrentReservoirs : register(u10);
  * in the unordered-access state and the frame needs no state transitions. */
 RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
 /* Primary-ray coverage occupies words 0--4. Automatic-exposure diagnostics
- * occupy words 5--10. Direct-light lobe coverage occupies words 11--12, and
- * word 13 counts non-finite radiance or mandatory RR guides. Hidden GPU smoke
- * reads them after the dispatch; none is used to shade the image. */
+ * occupy words 5--10. Direct-light lobe coverage occupies words 11--12, word
+ * 13 counts non-finite radiance or mandatory RR guides, and word 14 records
+ * smooth-GGX path coverage. Hidden GPU smoke reads them after the dispatch;
+ * none is used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
 /* Demodulated diffuse-suffix lighting. RayGeneration writes the raw bounded
@@ -3505,11 +3506,16 @@ void RayGeneration()
                     inverseDirectCount;
                 float3 averageDirectSpecular = directRadiance.specular *
                     inverseDirectCount;
+                float3 averageSmoothSpecular = smoothSpecularRadiance *
+                    inverseDirectCount;
                 if (luminance(averageDirectDiffuse) > 1.0e-6) {
                     InterlockedAdd(Diagnostics[11], 1u);
                 }
                 if (luminance(averageDirectSpecular) > 1.0e-6) {
                     InterlockedAdd(Diagnostics[12], 1u);
+                }
+                if (luminance(averageSmoothSpecular) > 1.0e-6) {
+                    InterlockedAdd(Diagnostics[14], 1u);
                 }
                 if (RadianceChannel == RadianceChannelCombined ||
                     RadianceChannel == RadianceChannelDirectDiffuse) {
@@ -3521,8 +3527,7 @@ void RayGeneration()
                 }
                 if (RadianceChannel == RadianceChannelCombined ||
                     RadianceChannel == RadianceChannelSmoothSpecular) {
-                    resolvedRadiance += smoothSpecularRadiance *
-                        inverseDirectCount;
+                    resolvedRadiance += averageSmoothSpecular;
                 }
             }
             if (indirectSampleCount > 0u) {

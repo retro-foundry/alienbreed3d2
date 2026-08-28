@@ -706,7 +706,12 @@ catalog. It requires an unlit non-emissive surface to remain exact black,
 direct GGX coverage to be absent below roughness `0.16` and present at `0.20`,
 and a fully metallic receiver to have zero direct diffuse coverage with nonzero
 specular coverage. Additional `0.30` and fully rough cases keep those material
-guides and lobes finite through repeated frames.
+guides and lobes finite through repeated frames. The same test separately
+requires a smooth-GGX miss to stay black, an offset source behind the camera to
+appear only through the smooth reflection, and a reflected non-emissive wall
+to receive its own local-light NEE. A side emitter is measured once visible to
+the receiver and again behind an off-screen blocker; the latter must have zero
+direct-lobe coverage and exact-black output.
 
 The RTX smoke renders each Level A--P frame twice. A starting view with no
 visible source and no sampled emitter connection may correctly be black;

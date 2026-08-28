@@ -14,6 +14,7 @@ enum { REFERENCE_FRAME_COUNT = 4 };
 #define REFERENCE_ROUGHNESS_100 UINT32_C(0xF0000004)
 #define REFERENCE_METAL_ROUGHNESS_020 UINT32_C(0xF0000005)
 #define REFERENCE_EMITTER UINT32_C(0xF0000006)
+#define REFERENCE_METAL_BELOW_016 UINT32_C(0xF0000007)
 
 typedef struct {
     uint32_t material_id;
@@ -89,6 +90,42 @@ static int validate_direct_case(RendererRtx *renderer, SceneFrame *frame,
     return 1;
 }
 
+static int validate_transport_case(RendererRtx *renderer, SceneFrame *frame,
+                                   RenderView *view, const char *name,
+                                   int expect_direct_diffuse,
+                                   int expect_direct_specular,
+                                   int expect_smooth_specular,
+                                   int expect_radiance, char *error,
+                                   size_t error_size)
+{
+    for (int frame_index = 0; frame_index < REFERENCE_FRAME_COUNT;
+         ++frame_index) {
+        if (!present_reference(renderer, frame, view, error, error_size)) {
+            return 0;
+        }
+        const size_t direct_diffuse =
+            renderer_rtx_last_direct_diffuse_coverage(renderer);
+        const size_t direct_specular =
+            renderer_rtx_last_direct_specular_coverage(renderer);
+        const size_t smooth_specular =
+            renderer_rtx_last_smooth_specular_coverage(renderer);
+        const uint64_t checksum =
+            renderer_rtx_last_frame_rgb_checksum(renderer);
+        if ((direct_diffuse != 0u) != expect_direct_diffuse ||
+            (direct_specular != 0u) != expect_direct_specular ||
+            (smooth_specular != 0u) != expect_smooth_specular ||
+            (checksum != UINT64_C(0)) != expect_radiance) {
+            fprintf(stderr,
+                    "DXR transport case %s failed at frame %d "
+                    "(direct=%zu/%zu smooth=%zu checksum=%llu)\n",
+                    name, frame_index, direct_diffuse, direct_specular,
+                    smooth_specular, (unsigned long long)checksum);
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int main(void)
 {
     static const DirectMaterialCase material_cases[] = {
@@ -112,7 +149,7 @@ int main(void)
     options.indirect_samples_per_pixel = 1u;
     options.diffuse_gi_scale = 0.0f;
     options.diffuse_gi_scale_set = UINT8_MAX;
-    options.maximum_bounces = 1u;
+    options.maximum_bounces = 2u;
     options.light_candidates = 16u;
     options.reservoir_sample_limit = 0u;
     options.reservoir_sample_limit_set = UINT8_MAX;
@@ -142,7 +179,7 @@ int main(void)
     emitter_vertices[1].position = (SceneWorldPoint){80, -12800, 160};
     emitter_vertices[2].position = (SceneWorldPoint){0, -15360, 160};
 
-    SceneMeshSurface surfaces[2] = {0};
+    SceneMeshSurface surfaces[3] = {0};
     initialize_wall_surface(&surfaces[0], receiver_vertices, 6u,
                             REFERENCE_ROUGHNESS_020);
     initialize_wall_surface(&surfaces[1], emitter_vertices, 3u,
@@ -184,6 +221,115 @@ int main(void)
             SDL_Quit();
             return 1;
         }
+    }
+
+    /* With no geometry behind a sub-0.16 pure-metal receiver, its companion
+     * GGX ray misses and every named radiance channel remains black. */
+    surfaces[0].material.source_asset_id = REFERENCE_METAL_BELOW_016;
+    commands[1].data.geometry_instance.mesh.surface_count = 1u;
+    if (!validate_transport_case(renderer, &frame, &view, "specular-miss",
+                                 0, 0, 0, 0, error, sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+
+    /* A large emitter behind and offset from the camera is invisible to the
+     * primary ray. The smooth-GGX companion is the only path that can reach
+     * it from the camera-facing metal receiver. */
+    SceneVertex reflected_emitter_vertices[6] = {0};
+    reflected_emitter_vertices[0].position =
+        (SceneWorldPoint){-320, 23040, -160};
+    reflected_emitter_vertices[1].position =
+        (SceneWorldPoint){480, 23040, -160};
+    reflected_emitter_vertices[2].position =
+        (SceneWorldPoint){480, -23040, -160};
+    reflected_emitter_vertices[3] = reflected_emitter_vertices[0];
+    reflected_emitter_vertices[4] = reflected_emitter_vertices[2];
+    reflected_emitter_vertices[5].position =
+        (SceneWorldPoint){-320, -23040, -160};
+    initialize_wall_surface(&surfaces[1], reflected_emitter_vertices, 6u,
+                            REFERENCE_EMITTER);
+    commands[1].data.geometry_instance.mesh.surface_count = 2u;
+    if (!validate_transport_case(renderer, &frame, &view,
+                                 "reflected-off-camera-emitter", 0, 0, 1, 1,
+                                 error, sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+
+    /* Replace the reflected source with a non-emissive wall. A separate
+     * off-axis emitter sits between it and the camera but outside the mirror
+     * segment, so the reached wall's local-light NEE supplies the reflection. */
+    SceneVertex reflected_wall_vertices[6] = {0};
+    reflected_wall_vertices[0].position =
+        (SceneWorldPoint){-480, 23040, -160};
+    reflected_wall_vertices[1].position =
+        (SceneWorldPoint){480, 23040, -160};
+    reflected_wall_vertices[2].position =
+        (SceneWorldPoint){480, -23040, -160};
+    reflected_wall_vertices[3] = reflected_wall_vertices[0];
+    reflected_wall_vertices[4] = reflected_wall_vertices[2];
+    reflected_wall_vertices[5].position =
+        (SceneWorldPoint){-480, -23040, -160};
+    SceneVertex reflected_light_vertices[3] = {0};
+    reflected_light_vertices[0].position =
+        (SceneWorldPoint){350, 7680, -80};
+    reflected_light_vertices[1].position =
+        (SceneWorldPoint){450, 7680, -80};
+    reflected_light_vertices[2].position =
+        (SceneWorldPoint){400, -7680, -80};
+    initialize_wall_surface(&surfaces[1], reflected_wall_vertices, 6u,
+                            REFERENCE_ROUGHNESS_100);
+    initialize_wall_surface(&surfaces[2], reflected_light_vertices, 3u,
+                            REFERENCE_EMITTER);
+    commands[1].data.geometry_instance.mesh.surface_count = 3u;
+    if (!validate_transport_case(renderer, &frame, &view,
+                                 "reflected-locally-lit-wall", 0, 0, 1, 1,
+                                 error, sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+
+    /* Put the emitter far outside the primary frustum. A nearby off-screen
+     * blocker covers its complete receiver-to-light cone, turning a proven
+     * direct response back into exact black without affecting camera rays. */
+    SceneVertex side_light_vertices[3] = {0};
+    side_light_vertices[0].position =
+        (SceneWorldPoint){480, 5120, 160};
+    side_light_vertices[1].position =
+        (SceneWorldPoint){640, 5120, 160};
+    side_light_vertices[2].position =
+        (SceneWorldPoint){560, -5120, 160};
+    SceneVertex blocker_vertices[6] = {0};
+    blocker_vertices[0].position = (SceneWorldPoint){380, 12800, 180};
+    blocker_vertices[1].position = (SceneWorldPoint){620, 12800, 180};
+    blocker_vertices[2].position = (SceneWorldPoint){620, -12800, 180};
+    blocker_vertices[3] = blocker_vertices[0];
+    blocker_vertices[4] = blocker_vertices[2];
+    blocker_vertices[5].position = (SceneWorldPoint){380, -12800, 180};
+    surfaces[0].material.source_asset_id = REFERENCE_ROUGHNESS_020;
+    initialize_wall_surface(&surfaces[1], side_light_vertices, 3u,
+                            REFERENCE_EMITTER);
+    initialize_wall_surface(&surfaces[2], blocker_vertices, 6u,
+                            REFERENCE_ROUGHNESS_100);
+    commands[1].data.geometry_instance.mesh.surface_count = 2u;
+    if (!validate_transport_case(renderer, &frame, &view,
+                                 "unoccluded-off-screen-direct", 1, 1, 0, 1,
+                                 error, sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+    commands[1].data.geometry_instance.mesh.surface_count = 3u;
+    if (!validate_transport_case(renderer, &frame, &view,
+                                 "occluded-off-screen-direct", 0, 0, 0, 0,
+                                 error, sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
     }
 
     renderer_rtx_destroy(renderer);

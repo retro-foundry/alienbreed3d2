@@ -90,9 +90,18 @@ Date: 2026-08-27
   tinted specular coverage. `77/255` (approximately `0.30`) and fully rough
   dielectric cases also remain lit and finite. Native Debug and Streamline
   Release runs pass all cases over four consecutive frames each.
+- The isolated test also distinguishes the smooth-GGX estimator from primary
+  direct NEE through GPU readback. It requires a specular miss to remain exact
+  black, an offset emitter behind the camera to appear with smooth-specular
+  coverage and no direct-lobe coverage, and a reflected non-emissive wall to
+  receive the separate emitter through reached-surface local-light sampling.
+  A far side emitter first proves nonzero direct diffuse/GGX response; adding
+  an off-screen blocker over its complete receiver cone then requires zero
+  direct and smooth coverage plus an exact-black checksum. Native Debug and
+  Streamline Release runs pass these cases.
 - This is partial GPU-reference coverage, not completion of the list below.
-  Reflected/occluded/additive cases and isolated-channel sum equality still
-  require deterministic reference scenes and assertions.
+  Additive geometry on a reflected segment and isolated-channel sum equality
+  still require deterministic reference scenes and assertions.
 
 ## Goal
 

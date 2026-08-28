@@ -46,6 +46,7 @@ public:
     size_t last_direct_diffuse_coverage() const;
     size_t last_direct_specular_coverage() const;
     size_t last_invalid_lighting_or_guide_pixels() const;
+    size_t last_smooth_specular_coverage() const;
     bool active_ray_tracing_options(RendererRayTracingOptions &options) const;
 
 private:

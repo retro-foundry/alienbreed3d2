@@ -109,6 +109,9 @@ public:
     size_t last_invalid_lighting_or_guide_pixels() const {
         return last_invalid_lighting_or_guide_pixels_;
     }
+    size_t last_smooth_specular_coverage() const {
+        return last_smooth_specular_coverage_;
+    }
     /* The settings actually in force, after ab3d2.ini and any environment
      * override have been applied over the tuned defaults. */
     void active_ray_tracing_options(RendererRayTracingOptions &options) const {
@@ -256,6 +259,7 @@ private:
     size_t last_direct_diffuse_coverage_ = 0u;
     size_t last_direct_specular_coverage_ = 0u;
     size_t last_invalid_lighting_or_guide_pixels_ = 0u;
+    size_t last_smooth_specular_coverage_ = 0u;
     float last_target_exposure_ = 1.0f;
     float last_automatic_exposure_ = 1.0f;
     float last_metered_average_luminance_ = 0.0f;

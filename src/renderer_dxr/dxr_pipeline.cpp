@@ -154,7 +154,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 14u;
+constexpr UINT diagnostic_value_count = 15u;
 constexpr UINT tone_map_histogram_bin_count = 128u;
 constexpr UINT tone_map_state_value_count =
     tone_map_histogram_bin_count + 1u + 5u;
@@ -1548,6 +1548,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     last_direct_diffuse_coverage_ = values[11];
     last_direct_specular_coverage_ = values[12];
     last_invalid_lighting_or_guide_pixels_ = values[13];
+    last_smooth_specular_coverage_ = values[14];
     const D3D12_RANGE no_write = {0, 0};
     diagnostics_readback_->Unmap(0, &no_write);
     debug_output(
@@ -1567,7 +1568,9 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
         " direct_specular=" +
         std::to_string(last_direct_specular_coverage_) +
         " invalid_lighting_or_guides=" +
-        std::to_string(last_invalid_lighting_or_guide_pixels_));
+        std::to_string(last_invalid_lighting_or_guide_pixels_) +
+        " smooth_specular=" +
+        std::to_string(last_smooth_specular_coverage_));
     return true;
 }
 
