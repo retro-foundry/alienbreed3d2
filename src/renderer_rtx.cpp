@@ -203,6 +203,36 @@ extern "C" size_t renderer_rtx_last_smooth_specular_coverage(
         renderer->implementation->last_smooth_specular_coverage() : 0u;
 }
 
+extern "C" int renderer_rtx_enable_noisy_radiance_readback(
+    RendererRtx *renderer)
+{
+    return renderer && renderer->implementation &&
+        renderer->implementation->enable_noisy_radiance_readback() ? 1 : 0;
+}
+
+extern "C" int renderer_rtx_select_radiance_channel(
+    RendererRtx *renderer, RendererRtxRadianceChannel channel)
+{
+    return renderer && renderer->implementation &&
+        renderer->implementation->select_radiance_channel(
+            static_cast<uint32_t>(channel)) ? 1 : 0;
+}
+
+extern "C" size_t renderer_rtx_last_noisy_radiance_value_count(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_noisy_radiance_value_count() : 0u;
+}
+
+extern "C" int renderer_rtx_copy_last_noisy_radiance(
+    const RendererRtx *renderer, uint16_t *out_values, size_t value_count)
+{
+    return renderer && renderer->implementation &&
+        renderer->implementation->copy_last_noisy_radiance(
+            out_values, value_count) ? 1 : 0;
+}
+
 extern "C" int renderer_rtx_active_ray_tracing_options(
     const RendererRtx *renderer, RendererRayTracingOptions *out_options)
 {

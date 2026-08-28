@@ -77,6 +77,7 @@ public:
                  std::string &error);
     void commit_presented_frame();
     bool collect_diagnostics(std::string &error);
+    bool select_radiance_channel(uint32_t channel);
 
     ID3D12RootSignature *root_signature() const { return root_signature_.Get(); }
     ID3D12PipelineState *pipeline_state() const { return pipeline_state_.Get(); }

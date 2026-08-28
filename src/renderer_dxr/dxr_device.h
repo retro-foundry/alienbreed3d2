@@ -62,6 +62,13 @@ public:
     {
         return last_scene_temporal_outlier_pixels_;
     }
+    bool enable_noisy_radiance_readback();
+    size_t last_noisy_radiance_value_count() const
+    {
+        return last_noisy_radiance_rgb_.size();
+    }
+    bool copy_last_noisy_radiance(uint16_t *out_values,
+                                  size_t value_count) const;
 
     ID3D12Device5 *device() const { return device_.Get(); }
     const DxrOutputConfiguration &output_configuration() const {
@@ -98,6 +105,9 @@ private:
                                       std::string &error);
     bool ensure_scene_readback(std::string &error);
     bool collect_scene_readback(UINT64 fence_value, std::string &error);
+    bool ensure_noisy_radiance_readback(ID3D12Resource *source,
+                                        std::string &error);
+    bool collect_noisy_radiance_readback(std::string &error);
     bool resize(UINT width, UINT height, std::string &error);
     bool wait_for_frame(FrameContext &frame, std::string &error);
     bool wait_for_fence(UINT64 fence_value, const char *operation,
@@ -122,6 +132,13 @@ private:
     std::chrono::steady_clock::time_point previous_render_time_ = {};
     bool previous_render_time_valid_ = false;
     std::vector<uint8_t> previous_readback_rgb_;
+    bool noisy_radiance_readback_enabled_ = false;
+    std::vector<uint16_t> last_noisy_radiance_rgb_;
+    UINT noisy_readback_width_ = 0;
+    UINT noisy_readback_height_ = 0;
+    UINT noisy_readback_row_count_ = 0;
+    UINT64 noisy_readback_total_bytes_ = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT noisy_readback_footprint_ = {};
     UINT readback_width_ = 0;
     UINT readback_height_ = 0;
     UINT readback_row_count_ = 0;
@@ -152,6 +169,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> command_list_;
     Microsoft::WRL::ComPtr<ID3D12Fence> fence_;
     Microsoft::WRL::ComPtr<ID3D12Resource> scene_readback_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> noisy_radiance_readback_;
     std::array<FrameContext, frame_count> frames_ = {};
 };
 

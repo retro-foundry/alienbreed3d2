@@ -3241,4 +3241,14 @@ void DxrPipeline::commit_presented_frame()
     scene_.mark_history_promoted();
 }
 
+bool DxrPipeline::select_radiance_channel(uint32_t channel)
+{
+    if (channel > static_cast<uint32_t>(
+            indirect_reconstruction::RadianceChannel::rough_specular)) {
+        return false;
+    }
+    radiance_channel_ = channel;
+    return true;
+}
+
 }  // namespace ab3d2::dxr

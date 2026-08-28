@@ -124,6 +124,14 @@ def build_reference_package(source_dir: Path, output_dir: Path) -> Path:
         ),
         build_material(
             source_dir,
+            "reference_roughness_025",
+            0xF0000008,
+            (128, 128, 128, 255),
+            0,
+            64,
+        ),
+        build_material(
+            source_dir,
             "reference_emitter",
             0xF0000006,
             (255, 255, 255, 255),

@@ -730,6 +730,128 @@ bool DxrDevice::ensure_scene_readback(std::string &error)
     return true;
 }
 
+bool DxrDevice::ensure_noisy_radiance_readback(
+    ID3D12Resource *source, std::string &error)
+{
+    if (!source) {
+        error = "DXR noisy-radiance readback has no source texture";
+        return false;
+    }
+    const D3D12_RESOURCE_DESC source_description = source->GetDesc();
+    if (source_description.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+        source_description.Format != DXGI_FORMAT_R16G16B16A16_FLOAT ||
+        source_description.Width == 0u ||
+        source_description.Width > std::numeric_limits<UINT>::max() ||
+        source_description.Height == 0u) {
+        error = "DXR noisy-radiance readback source has an invalid format";
+        return false;
+    }
+    const UINT source_width = static_cast<UINT>(source_description.Width);
+    if (noisy_radiance_readback_ &&
+        noisy_readback_width_ == source_width &&
+        noisy_readback_height_ == source_description.Height) {
+        return true;
+    }
+    noisy_radiance_readback_.Reset();
+    last_noisy_radiance_rgb_.clear();
+    UINT64 row_bytes = 0u;
+    device_->GetCopyableFootprints(
+        &source_description, 0u, 1u, 0u, &noisy_readback_footprint_,
+        &noisy_readback_row_count_, &row_bytes,
+        &noisy_readback_total_bytes_);
+    if (noisy_readback_total_bytes_ == 0u ||
+        noisy_readback_row_count_ != source_description.Height ||
+        row_bytes != static_cast<UINT64>(source_width) * 8u) {
+        error = "D3D12 returned invalid noisy-radiance readback footprints";
+        return false;
+    }
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_READBACK;
+    heap.CreationNodeMask = 1u;
+    heap.VisibleNodeMask = 1u;
+    D3D12_RESOURCE_DESC buffer = {};
+    buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer.Width = noisy_readback_total_bytes_;
+    buffer.Height = 1u;
+    buffer.DepthOrArraySize = 1u;
+    buffer.MipLevels = 1u;
+    buffer.SampleDesc.Count = 1u;
+    buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    const HRESULT result = device_->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &buffer,
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+        IID_PPV_ARGS(&noisy_radiance_readback_));
+    if (FAILED(result)) {
+        return fail_device_operation(
+            "ID3D12Device::CreateCommittedResource(noisy radiance readback)",
+            result, error);
+    }
+    noisy_radiance_readback_->SetName(
+        L"AB3D2 DXR Noisy Radiance Validation Readback");
+    noisy_readback_width_ = source_width;
+    noisy_readback_height_ = source_description.Height;
+    return true;
+}
+
+bool DxrDevice::collect_noisy_radiance_readback(std::string &error)
+{
+    if (!noisy_radiance_readback_ || noisy_readback_width_ == 0u ||
+        noisy_readback_height_ == 0u) {
+        error = "DXR noisy-radiance validation readback is unavailable";
+        return false;
+    }
+    const D3D12_RANGE read_range = {
+        0u, static_cast<SIZE_T>(noisy_readback_total_bytes_)};
+    void *mapped = nullptr;
+    const HRESULT result = noisy_radiance_readback_->Map(
+        0u, &read_range, &mapped);
+    if (FAILED(result)) {
+        return fail_device_operation(
+            "ID3D12Resource::Map(noisy radiance readback)", result, error);
+    }
+    const size_t pixel_count =
+        static_cast<size_t>(noisy_readback_width_) * noisy_readback_height_;
+    last_noisy_radiance_rgb_.resize(pixel_count * 3u);
+    const auto *pixels = static_cast<const uint8_t *>(mapped) +
+        noisy_readback_footprint_.Offset;
+    for (UINT y = 0u; y < noisy_readback_height_; ++y) {
+        const uint8_t *row = pixels + static_cast<size_t>(y) *
+            noisy_readback_footprint_.Footprint.RowPitch;
+        for (UINT x = 0u; x < noisy_readback_width_; ++x) {
+            const auto *pixel = reinterpret_cast<const uint16_t *>(
+                row + static_cast<size_t>(x) * 8u);
+            const size_t destination =
+                (static_cast<size_t>(y) * noisy_readback_width_ + x) * 3u;
+            std::copy_n(pixel, 3u,
+                        last_noisy_radiance_rgb_.begin() + destination);
+        }
+    }
+    const D3D12_RANGE no_write = {0u, 0u};
+    noisy_radiance_readback_->Unmap(0u, &no_write);
+    return true;
+}
+
+bool DxrDevice::enable_noisy_radiance_readback()
+{
+    if (!hidden_window_) {
+        return false;
+    }
+    noisy_radiance_readback_enabled_ = true;
+    return true;
+}
+
+bool DxrDevice::copy_last_noisy_radiance(
+    uint16_t *out_values, size_t value_count) const
+{
+    if (!out_values || last_noisy_radiance_rgb_.empty() ||
+        value_count != last_noisy_radiance_rgb_.size()) {
+        return false;
+    }
+    std::copy(last_noisy_radiance_rgb_.begin(),
+              last_noisy_radiance_rgb_.end(), out_values);
+    return true;
+}
+
 bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
 {
     if (!scene_readback_ || !wait_for_fence(
@@ -1078,6 +1200,34 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         return false;
     }
     const bool capture_scene = hidden_window_ && pipeline.has_scene();
+    ID3D12Resource *const noisy_radiance = pipeline.reconstruction_resource(
+        DxrReconstructionBuffer::noisy_radiance);
+    const bool capture_noisy_radiance = capture_scene &&
+        noisy_radiance_readback_enabled_;
+    if (capture_noisy_radiance) {
+        if (!ensure_noisy_radiance_readback(noisy_radiance, error)) {
+            return false;
+        }
+        const D3D12_RESOURCE_BARRIER to_noisy_copy = transition_barrier(
+            noisy_radiance, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        command_list_->ResourceBarrier(1u, &to_noisy_copy);
+        D3D12_TEXTURE_COPY_LOCATION noisy_destination = {};
+        noisy_destination.pResource = noisy_radiance_readback_.Get();
+        noisy_destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        noisy_destination.PlacedFootprint = noisy_readback_footprint_;
+        D3D12_TEXTURE_COPY_LOCATION noisy_source = {};
+        noisy_source.pResource = noisy_radiance;
+        noisy_source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        command_list_->CopyTextureRegion(
+            &noisy_destination, 0u, 0u, 0u, &noisy_source, nullptr);
+        const D3D12_RESOURCE_BARRIER from_noisy_copy = transition_barrier(
+            noisy_radiance, D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        command_list_->ResourceBarrier(1u, &from_noisy_copy);
+    } else if (noisy_radiance_readback_enabled_) {
+        last_noisy_radiance_rgb_.clear();
+    }
     if (capture_scene) {
         if (!ensure_scene_readback(error)) {
             return false;
@@ -1134,10 +1284,13 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         return fail_device_operation("ID3D12CommandQueue::Signal(frame)", result, error);
     }
     frame.fence_value = fence_value;
-    if (capture_scene &&
-        (!collect_scene_readback(fence_value, error) ||
-         !pipeline.collect_diagnostics(error))) {
-        return false;
+    if (capture_scene) {
+        if (!collect_scene_readback(fence_value, error) ||
+            (capture_noisy_radiance &&
+             !collect_noisy_radiance_readback(error)) ||
+            !pipeline.collect_diagnostics(error)) {
+            return false;
+        }
     }
     return check_debug_messages(error);
 }
@@ -1268,6 +1421,7 @@ void DxrDevice::shutdown(bool flush_queue)
     }
     command_list_.Reset();
     scene_readback_.Reset();
+    noisy_radiance_readback_.Reset();
     render_target_view_heap_.Reset();
     swap_chain_.Reset();
     if (frame_latency_waitable_object_) {
@@ -1304,11 +1458,19 @@ void DxrDevice::shutdown(bool flush_queue)
     last_scene_temporal_outlier_pixels_ = 0;
     previous_readback_rgb_.clear();
     previous_readback_rgb_.shrink_to_fit();
+    noisy_radiance_readback_enabled_ = false;
+    last_noisy_radiance_rgb_.clear();
+    last_noisy_radiance_rgb_.shrink_to_fit();
     readback_width_ = 0;
     readback_height_ = 0;
     readback_row_count_ = 0;
     readback_total_bytes_ = 0;
     readback_footprint_ = {};
+    noisy_readback_width_ = 0;
+    noisy_readback_height_ = 0;
+    noisy_readback_row_count_ = 0;
+    noisy_readback_total_bytes_ = 0;
+    noisy_readback_footprint_ = {};
 }
 
 }  // namespace ab3d2::dxr

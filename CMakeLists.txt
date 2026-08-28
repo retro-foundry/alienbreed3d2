@@ -815,8 +815,12 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     )
     add_test(NAME ab3d2_renderer_rtx_lighting_reference_test
              COMMAND $<TARGET_FILE:ab3d2_renderer_rtx_lighting_reference_test>)
+    add_test(NAME ab3d2_renderer_rtx_radiance_channels_test
+             COMMAND $<TARGET_FILE:ab3d2_renderer_rtx_lighting_reference_test>
+                     --channel-sum)
     set_tests_properties(
-      ab3d2_renderer_rtx_lighting_reference_test PROPERTIES TIMEOUT 60)
+      ab3d2_renderer_rtx_lighting_reference_test
+      ab3d2_renderer_rtx_radiance_channels_test PROPERTIES TIMEOUT 60)
     add_executable(ab3d2_renderer_rtx_foundation_test
       tests/renderer_rtx_foundation_test.c
       ${AB3D2_RENDERER_RTX_SOURCES}

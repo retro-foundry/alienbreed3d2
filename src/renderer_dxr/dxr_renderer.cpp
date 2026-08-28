@@ -308,6 +308,28 @@ size_t DxrRenderer::last_smooth_specular_coverage() const
     return pipeline_ ? pipeline_->last_smooth_specular_coverage() : 0u;
 }
 
+bool DxrRenderer::enable_noisy_radiance_readback()
+{
+    return device_ && device_->enable_noisy_radiance_readback();
+}
+
+bool DxrRenderer::select_radiance_channel(uint32_t channel)
+{
+    return pipeline_ && pipeline_->select_radiance_channel(channel);
+}
+
+size_t DxrRenderer::last_noisy_radiance_value_count() const
+{
+    return device_ ? device_->last_noisy_radiance_value_count() : 0u;
+}
+
+bool DxrRenderer::copy_last_noisy_radiance(
+    uint16_t *out_values, size_t value_count) const
+{
+    return device_ &&
+        device_->copy_last_noisy_radiance(out_values, value_count);
+}
+
 bool DxrRenderer::active_ray_tracing_options(
     RendererRayTracingOptions &options) const
 {

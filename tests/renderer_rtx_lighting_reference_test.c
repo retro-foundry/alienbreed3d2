@@ -3,10 +3,13 @@
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
 
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-enum { REFERENCE_FRAME_COUNT = 4 };
+enum { REFERENCE_FRAME_COUNT = 4, RADIANCE_CHANNEL_COUNT = 7 };
 
 #define REFERENCE_ROUGHNESS_BELOW_016 UINT32_C(0xF0000001)
 #define REFERENCE_ROUGHNESS_020 UINT32_C(0xF0000002)
@@ -15,6 +18,7 @@ enum { REFERENCE_FRAME_COUNT = 4 };
 #define REFERENCE_METAL_ROUGHNESS_020 UINT32_C(0xF0000005)
 #define REFERENCE_EMITTER UINT32_C(0xF0000006)
 #define REFERENCE_METAL_BELOW_016 UINT32_C(0xF0000007)
+#define REFERENCE_ROUGHNESS_025 UINT32_C(0xF0000008)
 #define REFERENCE_ADDITIVE UINT32_C(0xF0000100)
 
 typedef struct {
@@ -23,6 +27,11 @@ typedef struct {
     int expect_diffuse;
     int expect_specular;
 } DirectMaterialCase;
+
+typedef struct {
+    uint16_t *values;
+    size_t value_count;
+} RadianceCapture;
 
 static void initialize_wall_surface(SceneMeshSurface *surface,
                                     SceneVertex *vertices,
@@ -59,6 +68,242 @@ static int present_reference(RendererRtx *renderer, SceneFrame *frame,
         return 0;
     }
     return 1;
+}
+
+static int capture_radiance_channel(
+    RendererRtx *renderer, RendererRtxRadianceChannel selection,
+    const char *channel, SceneFrame *frame, RenderView *view,
+    RadianceCapture *capture, char *error, size_t error_size)
+{
+    if (!renderer_rtx_select_radiance_channel(renderer, selection)) {
+        fprintf(stderr, "Could not select DXR radiance channel %s\n", channel);
+        return 0;
+    }
+    if (!present_reference(renderer, frame, view, error, error_size)) {
+        fprintf(stderr, "DXR channel %s readback failed\n", channel);
+        return 0;
+    }
+    capture->value_count =
+        renderer_rtx_last_noisy_radiance_value_count(renderer);
+    capture->values = capture->value_count != 0u ?
+        (uint16_t *)malloc(capture->value_count * sizeof(*capture->values)) :
+        NULL;
+    if (!capture->values ||
+        !renderer_rtx_copy_last_noisy_radiance(
+            renderer, capture->values, capture->value_count)) {
+        fprintf(stderr, "DXR channel %s returned no noisy-HDR readback\n",
+                channel);
+        free(capture->values);
+        *capture = (RadianceCapture){0};
+        return 0;
+    }
+    return 1;
+}
+
+static float half_to_float(uint16_t encoded)
+{
+    const uint32_t sign = encoded >> 15u;
+    const uint32_t exponent = (encoded >> 10u) & 0x1fu;
+    const uint32_t mantissa = encoded & 0x3ffu;
+    float magnitude;
+    if (exponent == 0u) {
+        magnitude = ldexpf((float)mantissa, -24);
+    } else if (exponent == 0x1fu) {
+        magnitude = mantissa == 0u ? INFINITY : NAN;
+    } else {
+        magnitude = ldexpf((float)(0x400u + mantissa),
+                           (int)exponent - 25);
+    }
+    return sign != 0u ? -magnitude : magnitude;
+}
+
+static float half_ulp(uint16_t encoded)
+{
+    const uint32_t exponent = (encoded >> 10u) & 0x1fu;
+    if (exponent == 0x1fu) {
+        return INFINITY;
+    }
+    return ldexpf(1.0f, exponent == 0u ? -24 : (int)exponent - 25);
+}
+
+static int validate_radiance_channel_sum(
+    const char *const *channel_names, RadianceCapture *captures)
+{
+    const size_t value_count = captures[0].value_count;
+    size_t positive_values[RADIANCE_CHANNEL_COUNT] = {0};
+    size_t mismatches = 0u;
+    float maximum_error = 0.0f;
+    float maximum_tolerance = 0.0f;
+    for (size_t channel = 1u; channel < RADIANCE_CHANNEL_COUNT; ++channel) {
+        if (captures[channel].value_count != value_count) {
+            fprintf(stderr, "DXR channel %s readback size did not match\n",
+                    channel_names[channel]);
+            return 0;
+        }
+    }
+    for (size_t index = 0u; index < value_count; ++index) {
+        const float combined = half_to_float(captures[0].values[index]);
+        float isolated_sum = 0.0f;
+        float tolerance = 2.0f * half_ulp(captures[0].values[index]);
+        positive_values[0] += combined > 0.0f;
+        for (size_t channel = 1u; channel < RADIANCE_CHANNEL_COUNT;
+             ++channel) {
+            const float isolated =
+                half_to_float(captures[channel].values[index]);
+            if (!isfinite(isolated)) {
+                fprintf(stderr, "DXR channel %s stored non-finite radiance\n",
+                        channel_names[channel]);
+                return 0;
+            }
+            isolated_sum += isolated;
+            tolerance += half_ulp(captures[channel].values[index]);
+            positive_values[channel] += isolated > 0.0f;
+        }
+        if (!isfinite(combined)) {
+            fprintf(stderr, "DXR combined channel stored non-finite radiance\n");
+            return 0;
+        }
+        const float difference = fabsf(combined - isolated_sum);
+        if (difference > maximum_error) {
+            maximum_error = difference;
+            maximum_tolerance = tolerance;
+        }
+        mismatches += difference > tolerance;
+    }
+    for (size_t channel = 0u; channel < RADIANCE_CHANNEL_COUNT; ++channel) {
+        if (positive_values[channel] == 0u) {
+            fprintf(stderr, "DXR channel %s had no positive stored radiance\n",
+                    channel_names[channel]);
+            return 0;
+        }
+    }
+    if (mismatches != 0u) {
+        fprintf(stderr,
+                "DXR combined radiance exceeded accumulated FP16 storage "
+                "tolerance in %zu values (maximum error=%g tolerance=%g)\n",
+                mismatches, maximum_error, maximum_tolerance);
+        return 0;
+    }
+    return 1;
+}
+
+static int run_radiance_channel_reference(void)
+{
+    static const char *const channel_names[RADIANCE_CHANNEL_COUNT] = {
+        "combined", "emission", "direct-diffuse", "direct-specular",
+        "indirect", "smooth-specular", "rough-specular",
+    };
+    char error[1024] = {0};
+    RenderView view = {0};
+    RendererRayTracingOptions options = {0};
+    options.samples_per_pixel = 8u;
+    options.indirect_samples_per_pixel = 8u;
+    options.diffuse_gi_scale = 0.75f;
+    options.diffuse_gi_scale_set = UINT8_MAX;
+    options.maximum_bounces = 2u;
+    options.light_candidates = 16u;
+    options.reservoir_sample_limit = 0u;
+    options.reservoir_sample_limit_set = UINT8_MAX;
+    options.radiance_clamp = 0.0f;
+    options.exposure_bias_stops = -1.0f;
+    options.exposure_bias_set = UINT8_MAX;
+    options.ndf_trim = 0.9f;
+    options.reconstruction = RENDERER_RAY_RECONSTRUCTION_OFF;
+    options.output = RENDERER_OUTPUT_SDR;
+
+    SceneVertex receiver_vertices[6] = {0};
+    receiver_vertices[0].position = (SceneWorldPoint){-160, 7680, 320};
+    receiver_vertices[1].position = (SceneWorldPoint){160, 7680, 320};
+    receiver_vertices[2].position = (SceneWorldPoint){160, -7680, 320};
+    receiver_vertices[3] = receiver_vertices[0];
+    receiver_vertices[4] = receiver_vertices[2];
+    receiver_vertices[5].position = (SceneWorldPoint){-160, -7680, 320};
+    SceneVertex wall_vertices[6] = {0};
+    wall_vertices[0].position = (SceneWorldPoint){-480, 23040, -160};
+    wall_vertices[1].position = (SceneWorldPoint){480, 23040, -160};
+    wall_vertices[2].position = (SceneWorldPoint){480, -23040, -160};
+    wall_vertices[3] = wall_vertices[0];
+    wall_vertices[4] = wall_vertices[2];
+    wall_vertices[5].position = (SceneWorldPoint){-480, -23040, -160};
+    SceneVertex light_vertices[3] = {0};
+    light_vertices[0].position = (SceneWorldPoint){350, 7680, -80};
+    light_vertices[1].position = (SceneWorldPoint){450, 7680, -80};
+    light_vertices[2].position = (SceneWorldPoint){400, -7680, -80};
+    SceneMeshSurface surfaces[3] = {0};
+    initialize_wall_surface(&surfaces[0], receiver_vertices, 6u,
+                            REFERENCE_ROUGHNESS_025);
+    initialize_wall_surface(&surfaces[1], wall_vertices, 6u,
+                            REFERENCE_ROUGHNESS_100);
+    initialize_wall_surface(&surfaces[2], light_vertices, 3u,
+                            REFERENCE_EMITTER);
+    SceneCommand commands[3] = {0};
+    commands[0].type = SCENE_COMMAND_CAMERA;
+    commands[1].type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+    commands[1].data.geometry_instance.source_instance_id = 3u;
+    commands[1].data.geometry_instance.mesh.source_mesh_id = 3u;
+    commands[1].data.geometry_instance.mesh.acceleration_class =
+        SCENE_ACCELERATION_CLASS_STATIC;
+    commands[1].data.geometry_instance.mesh.surfaces = surfaces;
+    commands[1].data.geometry_instance.mesh.surface_count = 3u;
+    commands[2].type = SCENE_COMMAND_SPRITE_INSTANCE;
+    commands[2].data.sprite_instance.source_mesh_id = 4u;
+    commands[2].data.sprite_instance.acceleration_class =
+        SCENE_ACCELERATION_CLASS_DYNAMIC;
+    commands[2].data.sprite_instance.sprite.position =
+        (SceneWorldPoint){0, 0, 160};
+    commands[2].data.sprite_instance.sprite.source =
+        SCENE_SPRITE_SOURCE_OBJECT_BITMAP;
+    commands[2].data.sprite_instance.sprite.presentation =
+        SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+    commands[2].data.sprite_instance.sprite.surface_attachment =
+        SCENE_SPRITE_SURFACE_FREE;
+    commands[2].data.sprite_instance.sprite.source_asset_id =
+        REFERENCE_ADDITIVE;
+    commands[2].data.sprite_instance.sprite.source_record_id = 4u;
+    commands[2].data.sprite_instance.sprite.source_width = 200u;
+    commands[2].data.sprite_instance.sprite.source_height = 100u;
+    commands[2].data.sprite_instance.sprite.flags =
+        SCENE_SPRITE_FLAG_ADDITIVE;
+    commands[2].data.sprite_instance.sprite.source_clip_top_y = -32768;
+    commands[2].data.sprite_instance.sprite.source_clip_bottom_y = 32767;
+    SceneFrame frame = {0};
+    frame.commands = commands;
+    frame.count = 3u;
+
+    if (_putenv_s("AB3D2_DXR_RADIANCE_CHANNEL", "combined") != 0 ||
+        _putenv_s("AB3D2_DXR_INDIRECT_RECONSTRUCTION", "raw") != 0) {
+        fprintf(stderr, "Could not configure DXR channel-sum reference\n");
+        return 0;
+    }
+    RendererRtx *renderer = renderer_rtx_create(
+        640, 360, "AB3D2 DXR radiance-channel reference", 0, 1, 1u,
+        &options, error, sizeof(error));
+    if (!renderer) {
+        fprintf(stderr, "DXR channel reference creation failed: %s\n", error);
+        return 0;
+    }
+    RadianceCapture captures[RADIANCE_CHANNEL_COUNT] = {0};
+    int valid = renderer_rtx_enable_noisy_radiance_readback(renderer);
+    for (size_t channel = 0u;
+         valid && channel < RADIANCE_CHANNEL_COUNT; ++channel) {
+        /* A new epoch invalidates temporal history and returns every channel
+         * to sample zero without reinitializing Streamline's interposer. */
+        frame.history_epoch = channel;
+        valid = capture_radiance_channel(
+            renderer, (RendererRtxRadianceChannel)channel,
+            channel_names[channel], &frame, &view, &captures[channel],
+            error, sizeof(error));
+    }
+    if (valid) {
+        valid = validate_radiance_channel_sum(channel_names, captures);
+    }
+    for (size_t channel = 0u; channel < RADIANCE_CHANNEL_COUNT; ++channel) {
+        free(captures[channel].values);
+    }
+    renderer_rtx_destroy(renderer);
+    (void)_putenv_s("AB3D2_DXR_RADIANCE_CHANNEL", "");
+    (void)_putenv_s("AB3D2_DXR_INDIRECT_RECONSTRUCTION", "");
+    return valid;
 }
 
 static int validate_direct_case(RendererRtx *renderer, SceneFrame *frame,
@@ -127,7 +372,7 @@ static int validate_transport_case(RendererRtx *renderer, SceneFrame *frame,
     return 1;
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     static const DirectMaterialCase material_cases[] = {
         {REFERENCE_ROUGHNESS_BELOW_016, "roughness-below-0.16", 1, 0},
@@ -143,6 +388,21 @@ int main(void)
     SDL_SetMainReady();
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         fprintf(stderr, "SDL initialization failed: %s\n", SDL_GetError());
+        return 1;
+    }
+    if (argc == 2 && strcmp(argv[1], "--channel-sum") == 0) {
+        const int valid = run_radiance_channel_reference();
+        SDL_Quit();
+        return valid ? 0 : 1;
+    }
+    if (argc != 1) {
+        fprintf(stderr, "Unknown DXR lighting reference argument\n");
+        SDL_Quit();
+        return 1;
+    }
+    if (_putenv_s("AB3D2_DXR_RADIANCE_CHANNEL", "combined") != 0) {
+        fprintf(stderr, "Could not select the combined DXR reference channel\n");
+        SDL_Quit();
         return 1;
     }
     RendererRayTracingOptions options = {0};

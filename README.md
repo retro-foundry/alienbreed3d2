@@ -716,6 +716,13 @@ billboard behind the camera must likewise appear only on a smooth reflected
 segment, remain absent from both direct lobes, and leave the segment
 non-occluding. This also guards continuation transport in scenes where the
 additive effect is intentionally absent from the polygon-emitter distribution.
+The final reference scene activates all seven radiance selections from the
+same sample-zero paths. An opt-in hidden-validation copy reads the actual
+`R16G16B16A16_FLOAT` noisy-HDR target before RR and post processing; every RGB
+value in `combined` must match the sum of the six isolated channels within the
+accumulated FP16 storage ULPs. CTest runs this as the separate
+`ab3d2_renderer_rtx_radiance_channels_test` invocation. This copy is disabled
+for ordinary rendering.
 
 The RTX smoke renders each Level A--P frame twice. A starting view with no
 visible source and no sampled emitter connection may correctly be black;

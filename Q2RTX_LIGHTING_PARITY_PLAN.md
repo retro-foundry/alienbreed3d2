@@ -4,7 +4,7 @@ Status: indoor-core implementation present; validation in progress. Primary
 direct diffuse/GGX, full-rate direct sampling, active RR guides, real smooth
 specular, packed-F0 rough reconstruction, and radiance isolations were
 implemented on 2026-08-28. Reference-scene and all-level parity acceptance
-remain open.
+now pass; moving-specular visual acceptance remains open.
 
 Date: 2026-08-27
 
@@ -49,7 +49,8 @@ Date: 2026-08-27
   Isolated `smooth-specular` measured `0.5129 / 0 / 0`; isolated
   `rough-specular` measured `0.5025 / 0 / 0` in the same tuple order.
 - The moving Shotgun endpoint measured `4.8305`, so moving-specular visual
-  acceptance and the deterministic GPU reference scenes below remain open.
+  acceptance remains open. The deterministic GPU reference scenes below are
+  now complete.
 
 ### Direct stability follow-up (2026-08-28)
 
@@ -77,7 +78,7 @@ Date: 2026-08-27
   consecutive frames and zero non-finite combined radiance or mandatory RR
   guides. The native Debug and Streamline Release foundation runs pass. The
   earlier empty-scene phase still requires an exact-zero RGB checksum.
-- The complete native Debug CTest suite passes `28/28`, including both GPU
+- The complete native Debug CTest suite passes `29/29`, including all GPU
   reference targets, the updated foundation, and the all-level RTX game smoke.
   The Streamline Release
   foundation also passes with the same direct-light and finite-guide contract.
@@ -106,10 +107,17 @@ Date: 2026-08-27
   suppressed every continuation ray in additive-only scenes even though
   additive geometry is correctly excluded from the polygon-emitter list. The
   native Debug and Streamline Release reference runs pass all four frames, and
-  the complete native Debug suite passes `28/28`.
-- This is partial GPU-reference coverage, not completion of the list below.
-  Isolated-channel sum equality still requires deterministic reference scenes
-  and assertions.
+  the complete native Debug suite passes `29/29`.
+- A final synthetic scene activates visible additive emission, primary direct
+  diffuse/GGX, diffuse continuation, real smooth specular, and reconstructed
+  rough specular on the same deterministic sample-zero paths. Each of the
+  seven diagnostic selections is rendered independently and copied from the
+  actual `R16G16B16A16_FLOAT` noisy-HDR target before RR or post processing.
+  All channels must contain positive stored radiance, and every combined RGB
+  half-float must equal the sum of the six isolated values within their
+  accumulated FP16 ULPs. The readback is opt-in and hidden-validation-only, so
+  ordinary frames incur no copy or CPU synchronization. The dedicated native
+  Debug and Streamline Release channel-sum invocations pass.
 
 ## Goal
 

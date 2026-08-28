@@ -47,6 +47,11 @@ public:
     size_t last_direct_specular_coverage() const;
     size_t last_invalid_lighting_or_guide_pixels() const;
     size_t last_smooth_specular_coverage() const;
+    bool enable_noisy_radiance_readback();
+    bool select_radiance_channel(uint32_t channel);
+    size_t last_noisy_radiance_value_count() const;
+    bool copy_last_noisy_radiance(uint16_t *out_values,
+                                  size_t value_count) const;
     bool active_ray_tracing_options(RendererRayTracingOptions &options) const;
 
 private:

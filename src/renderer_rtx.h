@@ -19,6 +19,16 @@
  */
 typedef struct RendererRtx RendererRtx;
 
+typedef enum {
+    RENDERER_RTX_RADIANCE_COMBINED = 0,
+    RENDERER_RTX_RADIANCE_EMISSION = 1,
+    RENDERER_RTX_RADIANCE_DIRECT_DIFFUSE = 2,
+    RENDERER_RTX_RADIANCE_DIRECT_SPECULAR = 3,
+    RENDERER_RTX_RADIANCE_INDIRECT = 4,
+    RENDERER_RTX_RADIANCE_SMOOTH_SPECULAR = 5,
+    RENDERER_RTX_RADIANCE_ROUGH_SPECULAR = 6,
+} RendererRtxRadianceChannel;
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
@@ -53,6 +63,18 @@ size_t renderer_rtx_last_direct_specular_coverage(const RendererRtx *renderer);
 size_t renderer_rtx_last_invalid_lighting_or_guide_pixels(
     const RendererRtx *renderer);
 size_t renderer_rtx_last_smooth_specular_coverage(const RendererRtx *renderer);
+/* Opt-in hidden-validation readback of the RGB half-floats at the final noisy
+ * HDR boundary before Ray Reconstruction and post processing. Production
+ * rendering incurs no copy unless this is enabled before presentation. */
+int renderer_rtx_enable_noisy_radiance_readback(RendererRtx *renderer);
+/* Validation-only composition switch. It does not alter scene/sample history;
+ * a caller requiring sample zero must advance SceneFrame::history_epoch. */
+int renderer_rtx_select_radiance_channel(
+    RendererRtx *renderer, RendererRtxRadianceChannel channel);
+size_t renderer_rtx_last_noisy_radiance_value_count(
+    const RendererRtx *renderer);
+int renderer_rtx_copy_last_noisy_radiance(
+    const RendererRtx *renderer, uint16_t *out_values, size_t value_count);
 /* Reports the ray-tracing settings in force. Zero on failure. */
 int renderer_rtx_active_ray_tracing_options(
     const RendererRtx *renderer, RendererRayTracingOptions *out_options);
