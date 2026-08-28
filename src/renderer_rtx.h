@@ -35,6 +35,9 @@ int renderer_rtx_prepare_resources(
     size_t *out_prepared_vector_material_count, char *error, size_t error_size);
 int renderer_rtx_get_presentation_size(
     const RendererRtx *renderer, int *out_width, int *out_height);
+/* Throttle the flip queue before input is sampled for the next frame. */
+int renderer_rtx_wait_for_present(
+    RendererRtx *renderer, char *error, size_t error_size);
 int renderer_rtx_present(
     RendererRtx *renderer, const SceneFrame *frame, const RenderView *view,
     char *error, size_t error_size);

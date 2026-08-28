@@ -22,7 +22,6 @@ namespace {
 
 constexpr float camera_near_plane = reconstruction::scene_near_plane;
 constexpr float camera_far_plane = reconstruction::scene_far_plane;
-constexpr float invalid_motion_value = 65504.0f;
 const sl::ViewportHandle rr_viewport{1u};
 
 std::string result_error(const char *operation, sl::Result result)
@@ -219,7 +218,7 @@ sl::DLSSDOptions make_options(DxrStreamline::Mode mode, UINT output_width,
     options.preExposure = 1.0f;
     options.exposureScale = 1.0f;
     options.colorBuffersHDR = sl::Boolean::eTrue;
-    options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::eUnpacked;
+    options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked;
     options.alphaUpscalingEnabled = sl::Boolean::eFalse;
     if (camera) {
         options.cameraViewToWorld = camera_to_world(*camera);
@@ -278,7 +277,6 @@ sl::Constants make_constants(
     constants.cameraFar = camera_far_plane;
     constants.cameraFOV = 2.0f * std::atan(current_camera.tan_half_fov_y);
     constants.cameraAspectRatio = current_camera.aspect;
-    constants.motionVectorsInvalidValue = invalid_motion_value;
     constants.depthInverted = sl::Boolean::eFalse;
     constants.cameraMotionIncluded = sl::Boolean::eTrue;
     constants.motionVectors3D = sl::Boolean::eFalse;
@@ -294,9 +292,10 @@ bool complete_resources(const DxrStreamlineResources &resources)
 {
     return resources.noisy_radiance && resources.output &&
         resources.diffuse_albedo && resources.specular_albedo &&
-        resources.shading_normal && resources.linear_roughness &&
-        resources.linear_depth && resources.scene_motion &&
-        resources.specular_hit_distance;
+        resources.shading_normal && resources.linear_depth &&
+        resources.scene_motion && resources.specular_hit_distance &&
+        resources.disocclusion_mask &&
+        resources.bias_current_color;
 }
 
 }  // namespace
@@ -587,6 +586,10 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
 
     UINT selected_width = output_width;
     UINT selected_height = output_height;
+    UINT selected_min_width = selected_width;
+    UINT selected_min_height = selected_height;
+    UINT selected_max_width = selected_width;
+    UINT selected_max_height = selected_height;
     if (active()) {
         sl::DLSSDOptimalSettings settings{};
         const sl::DLSSDOptions options = make_options(
@@ -596,8 +599,20 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
             error = result_error("slDLSSDGetOptimalSettings", result);
             return false;
         }
-        selected_width = settings.optimalRenderWidth;
-        selected_height = settings.optimalRenderHeight;
+        selected_min_width = settings.renderWidthMin;
+        selected_min_height = settings.renderHeightMin;
+        selected_max_width = settings.renderWidthMax;
+        selected_max_height = settings.renderHeightMax;
+        /* Ultra Performance is the explicit speed-first mode. Streamline's
+         * reported minimum remains inside the feature's supported dynamic
+         * input range, and reduces every render-resolution trace/guide/history
+         * allocation as well as the rays themselves. Other modes retain the
+         * SDK's quality-tuned optimum. */
+        const bool use_minimum_input = mode_ == Mode::ultra_performance;
+        selected_width = use_minimum_input ? selected_min_width :
+            settings.optimalRenderWidth;
+        selected_height = use_minimum_input ? selected_min_height :
+            settings.optimalRenderHeight;
         if (selected_width == 0 || selected_height == 0 ||
             selected_width > output_width || selected_height > output_height ||
             (selected_width == output_width && selected_height == output_height)) {
@@ -617,7 +632,11 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
                  std::to_string(render_width_) + "x" +
                  std::to_string(render_height_) + " -> " +
                  std::to_string(output_width_) + "x" +
-                 std::to_string(output_height_));
+                 std::to_string(output_height_) + " (valid " +
+                 std::to_string(selected_min_width) + "x" +
+                 std::to_string(selected_min_height) + " through " +
+                 std::to_string(selected_max_width) + "x" +
+                 std::to_string(selected_max_height) + ")");
     return true;
 }
 
@@ -660,7 +679,7 @@ bool DxrStreamline::evaluate(
     }
 
     constexpr uint32_t uav_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    std::array<sl::Resource, 9> native_resources = {
+    std::array<sl::Resource, 10> native_resources = {
         sl::Resource(sl::ResourceType::eTex2d, resources.noisy_radiance,
                      uav_state),
         sl::Resource(sl::ResourceType::eTex2d, resources.output, uav_state),
@@ -670,18 +689,20 @@ bool DxrStreamline::evaluate(
                      uav_state),
         sl::Resource(sl::ResourceType::eTex2d, resources.shading_normal,
                      uav_state),
-        sl::Resource(sl::ResourceType::eTex2d, resources.linear_roughness,
-                     uav_state),
         sl::Resource(sl::ResourceType::eTex2d, resources.linear_depth,
                      uav_state),
         sl::Resource(sl::ResourceType::eTex2d, resources.scene_motion,
                      uav_state),
         sl::Resource(sl::ResourceType::eTex2d,
                      resources.specular_hit_distance, uav_state),
+        sl::Resource(sl::ResourceType::eTex2d,
+                     resources.disocclusion_mask, uav_state),
+        sl::Resource(sl::ResourceType::eTex2d,
+                     resources.bias_current_color, uav_state),
     };
     const sl::Extent input_extent{0, 0, render_width_, render_height_};
     const sl::Extent output_extent{0, 0, output_width_, output_height_};
-    std::array<sl::ResourceTag, 9> tags = {
+    std::array<sl::ResourceTag, 10> tags = {
         sl::ResourceTag(&native_resources[0], sl::kBufferTypeScalingInputColor,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
@@ -694,19 +715,22 @@ bool DxrStreamline::evaluate(
         sl::ResourceTag(&native_resources[3], sl::kBufferTypeSpecularAlbedo,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
-        sl::ResourceTag(&native_resources[4], sl::kBufferTypeNormals,
+        sl::ResourceTag(&native_resources[4], sl::kBufferTypeNormalRoughness,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
-        sl::ResourceTag(&native_resources[5], sl::kBufferTypeRoughness,
+        sl::ResourceTag(&native_resources[5], sl::kBufferTypeLinearDepth,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
-        sl::ResourceTag(&native_resources[6], sl::kBufferTypeLinearDepth,
+        sl::ResourceTag(&native_resources[6], sl::kBufferTypeMotionVectors,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
-        sl::ResourceTag(&native_resources[7], sl::kBufferTypeMotionVectors,
+        sl::ResourceTag(&native_resources[7], sl::kBufferTypeSpecularHitDistance,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
-        sl::ResourceTag(&native_resources[8], sl::kBufferTypeSpecularHitDistance,
+        sl::ResourceTag(&native_resources[8], sl::kBufferTypeDisocclusionMask,
+                        sl::ResourceLifecycle::eValidUntilEvaluate,
+                        &input_extent),
+        sl::ResourceTag(&native_resources[9], sl::kBufferTypeBiasCurrentColorHint,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
     };

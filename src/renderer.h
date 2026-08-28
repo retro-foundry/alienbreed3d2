@@ -48,6 +48,9 @@ int renderer_is_running(const Renderer *renderer);
 void renderer_request_quit(Renderer *renderer);
 /* Live drawable extent used by both presentation and relative-mouse scaling. */
 int renderer_get_presentation_size(const Renderer *renderer, int *out_width, int *out_height);
+/* Pace the next presentation before polling input. OpenGL is already paced by
+ * its preceding buffer swap; DXR waits for its one-frame flip-queue slot. */
+int renderer_wait_for_present(Renderer *renderer, char *error, size_t error_size);
 int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderView *view,
                      char *error, size_t error_size);
 /* Nonzero only when hidden GPU smoke rendered visible UI glyph pixels. */

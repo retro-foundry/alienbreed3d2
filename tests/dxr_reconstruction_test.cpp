@@ -70,6 +70,11 @@ int main()
                   indirect::temporal_minimum_current_weight == 0.01f &&
                   indirect::temporal_gradient_confirmation_rate == 0.25f &&
                   indirect::temporal_gradient_confirmation_threshold == 0.4f &&
+                  indirect::stable_indirect_sample_count == 1u &&
+                  indirect::stable_indirect_sampling_phase_count == 4u &&
+                  indirect::stable_direct_sampling_phase_count == 2u &&
+                  indirect::adaptive_history_maturity_tolerance == 0.5f &&
+                  indirect::stable_schedule_covers_gradient_region() &&
                   indirect::maximum_path_depth == 8u &&
                   indirect::path_dimensions_per_continuation == 8u &&
                   indirect::direction_dimension_x == 6u &&
@@ -86,9 +91,46 @@ int main()
                   indirect::filter_support_is_continuous() &&
                   indirect::continuation_radial_power == 0.4f);
     static_assert(sizeof(gi::PackedReservoir) == 32u);
+    static_assert(sizeof(indirect::PackedHistoryPixel) == 24u);
+    static_assert(grid::refresh_phase_count == 16u &&
+                  grid::lights_per_cell == 512u &&
+                  grid::entry_count == 2097152u &&
+                  grid::lights_per_cell / grid::refresh_phase_count == 32u);
     static_assert(gi::initial_candidate_count == 4u &&
                   gi::spatial_sample_count == 4u &&
-                  gi::spatial_radius == 32);
+                  gi::spatial_radius == 32 &&
+                  !gi::spatial_reuse_requires_primary_guide_match);
+    const grid::Position quantized_grid_center = grid::quantized_center(
+        {511.0f, -1.0f, 1024.0f});
+    const uint16_t encoded_full_history =
+        indirect::encode_history_length(24.0f, 24u, 4u);
+    const uint16_t encoded_large_single_sample =
+        indirect::encode_history_length(1.0f, 65536u, 4u);
+    if (encoded_full_history != UINT16_MAX ||
+        encoded_large_single_sample == 0u ||
+        !near(indirect::decode_history_length(
+                  encoded_full_history, 24u, 4u), 24.0f) ||
+        !near(indirect::decode_history_length(
+                  UINT16_MAX, 65536u, 4u), 65536.0f) ||
+        !near(indirect::decode_history_length(
+                  indirect::encode_history_length(4.0f, 0u, 4u),
+                  0u, 4u), 4.0f)) {
+        return fail("packed indirect history did not preserve its limits");
+    }
+    if (!near(quantized_grid_center.x, 0.0f) ||
+        !near(quantized_grid_center.y, -512.0f) ||
+        !near(quantized_grid_center.z, 1024.0f) ||
+        grid::cache_needs_rebuild(
+            quantized_grid_center, 7u, quantized_grid_center, 7u, true) ||
+        !grid::cache_needs_rebuild(
+            quantized_grid_center, 7u, quantized_grid_center, 8u, true) ||
+        !grid::cache_needs_rebuild(
+            quantized_grid_center, 7u, {512.0f, -512.0f, 1024.0f},
+            7u, true) ||
+        !grid::cache_needs_rebuild(
+            quantized_grid_center, 7u, quantized_grid_center, 7u, false)) {
+        return fail("ReGIR quantized cache invalidation changed");
+    }
     const gi::Vec3 gi_primary = {0.0f, 0.0f, 0.0f};
     const gi::Vec3 gi_secondary = {
         1.7320508075688772f, 0.0f, 1.0f};
@@ -96,6 +138,12 @@ int main()
     const gi::Vec3 gi_secondary_normal = gi::multiply(gi_direction, -1.0f);
     const gi::Vec3 gi_incident = gi::reconnect_incident(
         gi_primary, {0.0f, 0.0f, 1.0f}, gi_secondary,
+        gi_secondary_normal, {3.0f, 2.0f, 1.0f});
+    /* The same secondary sample remains a valid proposal for a perpendicular
+     * primary face. The GPU path additionally reconstructs current geometry
+     * and traces fresh visibility before accepting this cross-corner reuse. */
+    const gi::Vec3 gi_cross_corner_incident = gi::reconnect_incident(
+        gi_primary, {1.0f, 0.0f, 0.0f}, gi_secondary,
         gi_secondary_normal, {3.0f, 2.0f, 1.0f});
     const float gi_solid_angle_pdf =
         gi::low_frequency_solid_angle_pdf(0.5f);
@@ -116,6 +164,7 @@ int main()
         !near(gi_incident.z, gi_directional_bias / (8.0f * gi::pi)) ||
         !near(gi_area_pdf, gi_solid_angle_pdf / 4.0f) ||
         !(gi_directional_bias > 1.0f) ||
+        !(gi::luminance(gi_cross_corner_incident) > 0.0f) ||
         !near(gi_final_weight, 1.0f / gi_area_pdf) ||
         !near(gi::reused_candidate_weight(gi_target, gi_final_weight, 1u),
               gi_initial_weight) ||
@@ -274,13 +323,15 @@ int main()
     const float temporal_weight_sum = temporal_weights[0] +
         temporal_weights[1] + temporal_weights[2] + temporal_weights[3];
     const indirect::TemporalBlend stable_history =
-        indirect::temporal_blend(20.0f, 0.0f, 256u);
+        indirect::temporal_blend(20.0f, 4.0f, 0.0f, 32u);
     const indirect::TemporalBlend changed_history =
-        indirect::temporal_blend(100.0f, 1.0f, 256u);
+        indirect::temporal_blend(100.0f, 4.0f, 1.0f, 32u);
     const indirect::TemporalBlend capped_history =
-        indirect::temporal_blend(300.0f, 0.0f, 256u);
+        indirect::temporal_blend(300.0f, 4.0f, 0.0f, 32u);
     const indirect::TemporalBlend disabled_history =
-        indirect::temporal_blend(20.0f, 1.0f, 0u);
+        indirect::temporal_blend(20.0f, 4.0f, 1.0f, 0u);
+    const indirect::TemporalBlend eighth_four_ray_frame =
+        indirect::temporal_blend(28.0f, 4.0f, 0.0f, 32u);
     const indirect::GradientConfirmation first_gradient =
         indirect::confirm_gradient(0.0f, 1.0f);
     const indirect::GradientConfirmation second_gradient =
@@ -289,10 +340,18 @@ int main()
         indirect::confirm_gradient(second_gradient.confidence, 1.0f);
     const indirect::GradientConfirmation alternating_gradient =
         indirect::confirm_gradient(first_gradient.confidence, -1.0f);
+    const auto adaptive_samples = [](float history, float confidence,
+                                     uint32_t limit, bool valid,
+                                     indirect::Mode mode =
+                                         indirect::Mode::full,
+                                     bool scheduled = true) {
+        return indirect::adaptive_indirect_sample_count(
+            4u, history, confidence, limit, valid, mode, scheduled);
+    };
     const float expected_changed_length =
-        100.0f * std::pow(0.8f, 10.0f) + 1.0f;
+        100.0f * std::pow(0.8f, 10.0f) + 4.0f;
     const float expected_changed_weight =
-        1.0f / expected_changed_length * 0.8f + 0.2f;
+        4.0f / expected_changed_length * 0.8f + 0.2f;
     if (!near(temporal_weights[0], 0.1875f) ||
         !near(temporal_weights[1], 0.0625f) ||
         !near(temporal_weights[2], 0.5625f) ||
@@ -300,16 +359,18 @@ int main()
         !near(temporal_weight_sum, 1.0f) ||
         !near(indirect::relative_luminance_gradient(4.0f, 2.0f), 0.25f) ||
         indirect::relative_luminance_gradient(0.0f, 0.0f) != 0.0f ||
-        !near(stable_history.history_length, 21.0f) ||
-        !near(stable_history.current_weight, 1.0f / 21.0f) ||
+        !near(stable_history.history_length, 24.0f) ||
+        !near(stable_history.current_weight, 1.0f / 6.0f) ||
         stable_history.antilag != 0.0f ||
         !near(changed_history.history_length, expected_changed_length) ||
         !near(changed_history.current_weight, expected_changed_weight) ||
         !near(changed_history.antilag, 0.2f) ||
-        !near(capped_history.history_length, 256.0f) ||
-        !near(capped_history.current_weight, 0.01f) ||
-        disabled_history.history_length != 1.0f ||
+        !near(capped_history.history_length, 32.0f) ||
+        !near(capped_history.current_weight, 0.125f) ||
+        disabled_history.history_length != 4.0f ||
         disabled_history.current_weight != 1.0f ||
+        !near(eighth_four_ray_frame.history_length, 32.0f) ||
+        !near(eighth_four_ray_frame.current_weight, 0.125f) ||
         !near(first_gradient.confidence, 0.25f) ||
         first_gradient.gradient != 0.0f ||
         !near(second_gradient.confidence, 0.4375f) ||
@@ -317,8 +378,38 @@ int main()
         !near(third_gradient.confidence, 0.578125f) ||
         !near(third_gradient.gradient, 0.296875f) ||
         !near(alternating_gradient.confidence, -0.0625f) ||
-        alternating_gradient.gradient != 0.0f) {
-        return fail("low-frequency temporal anti-lag contract changed");
+        alternating_gradient.gradient != 0.0f ||
+        adaptive_samples(0.0f, 0.0f, 32u, false) != 4u ||
+        adaptive_samples(28.0f, 0.0f, 32u, true) != 4u ||
+        adaptive_samples(31.49f, 0.0f, 32u, true) != 4u ||
+        adaptive_samples(31.5f, 0.0f, 32u, true) != 1u ||
+        adaptive_samples(31.5f, 0.0f, 32u, true,
+                         indirect::Mode::full, false) != 0u ||
+        adaptive_samples(32.0f, 0.39f, 32u, true) != 1u ||
+        adaptive_samples(32.0f, 0.4f, 32u, true) != 4u ||
+        adaptive_samples(32.0f, 0.0f, 0u, true) != 4u ||
+        adaptive_samples(32.0f, 0.0f, 32u, true,
+                         indirect::Mode::raw) != 4u ||
+        adaptive_samples(32.0f, 0.0f, 32u, true,
+                         indirect::Mode::restir) != 4u ||
+        indirect::adaptive_indirect_sample_count(
+            1u, 0.0f, 0.0f, 32u, false,
+            indirect::Mode::full, false) != 1u ||
+        indirect::adaptive_indirect_sample_count(
+            1u, 32.0f, 0.0f, 32u, true,
+            indirect::Mode::full, false) != 0u ||
+        !indirect::stable_indirect_sample_scheduled(0u, 0u, 0u) ||
+        !indirect::stable_indirect_sample_scheduled(1u, 0u, 1u) ||
+        !indirect::stable_indirect_sample_scheduled(0u, 1u, 2u) ||
+        !indirect::stable_indirect_sample_scheduled(1u, 1u, 3u) ||
+        indirect::stable_indirect_sample_scheduled(0u, 0u, 1u) ||
+        !indirect::stable_direct_sample_scheduled(0u, 0u, 0u) ||
+        !indirect::stable_direct_sample_scheduled(1u, 0u, 1u) ||
+        indirect::stable_direct_sample_scheduled(0u, 0u, 1u) ||
+        adaptive_samples(std::numeric_limits<float>::quiet_NaN(),
+                         0.0f, 32u, true) != 4u) {
+        return fail(
+            "low-frequency temporal/adaptive sampling contract changed");
     }
     if (indirect::kernel_weight(-2) != 0.0f ||
         indirect::kernel_weight(-1) != 0.5f ||

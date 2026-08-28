@@ -31,6 +31,7 @@ public:
                     std::string &error);
     bool present(const SceneFrame &frame, const RenderView &view,
                  std::string &error);
+    bool wait_for_present(std::string &error);
     bool presentation_size(int &width, int &height) const;
     uint64_t last_scene_rgb_checksum() const;
     double last_scene_frame_delta() const;

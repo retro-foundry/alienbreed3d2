@@ -55,9 +55,13 @@ struct DxrSceneVertex {
      * their measured additive strength without turning source Gouraud/ZoneT
      * raster lighting into emitted radiance. */
     float emissive_scale;
+    /* Camera-local source position for the view weapon. World geometry leaves
+     * this zero. Keeping the small authored offset avoids losing its motion to
+     * cancellation after attachment to a large world-space camera position. */
+    float view_weapon_position[3];
 };
 
-static_assert(sizeof(DxrSceneVertex) == 44u);
+static_assert(sizeof(DxrSceneVertex) == 56u);
 
 struct DxrSceneMaterial {
     uint32_t atlas_x;
@@ -89,7 +93,7 @@ struct DxrEmissiveTriangle {
 
 class DxrScene final {
 public:
-    static constexpr uint32_t upload_frame_count = 3u;
+    static constexpr uint32_t upload_frame_count = 2u;
 
     bool update(const SceneFrame &frame,
                 const reconstruction::CameraProjection *camera,
@@ -110,6 +114,7 @@ public:
     D3D12_GPU_VIRTUAL_ADDRESS previous_vertex_address() const;
     D3D12_GPU_VIRTUAL_ADDRESS material_address() const;
     D3D12_GPU_VIRTUAL_ADDRESS emitter_address() const;
+    bool view_weapon_pose_hash(uint64_t &pose_hash) const;
     uint32_t atlas_width() const { return atlas_width_; }
     uint32_t atlas_height() const { return atlas_height_; }
     uint32_t triangle_count() const {
@@ -117,6 +122,9 @@ public:
     }
     uint32_t emitter_count() const {
         return static_cast<uint32_t>(emissive_triangles_.size());
+    }
+    uint64_t light_grid_layout_hash() const {
+        return light_grid_layout_hash_;
     }
     uint64_t rebuild_count() const { return rebuild_count_; }
     bool history_reset_pending() const { return history_reset_pending_; }
@@ -172,6 +180,7 @@ private:
     std::vector<DxrSceneVertex> vertices_;
     std::vector<DxrSceneMaterial> materials_;
     std::vector<DxrEmissiveTriangle> emissive_triangles_;
+    uint64_t light_grid_layout_hash_ = 0u;
     std::vector<uint32_t> surface_material_indices_;
     std::vector<float> material_emissive_bound_;
     uint32_t view_weapon_first_material_ = 0u;

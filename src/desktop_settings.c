@@ -255,6 +255,28 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.samples_per_pixel = (uint8_t)number;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_indirect_samples")) {
+        if (!desktop_settings_parse_unsigned(value, 32u, &number) || number == 0u) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_indirect_samples must be 1 through 32",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.indirect_samples_per_pixel = (uint8_t)number;
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_diffuse_gi")) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.0, 1.0,
+                &settings->ray_tracing.diffuse_gi_scale)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_diffuse_gi must be 0 through 1",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.diffuse_gi_scale_set = UINT8_MAX;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_max_bounces")) {
         if (!desktop_settings_parse_unsigned(value, 8u, &number) || number == 0u) {
             (void)snprintf(error, error_size,

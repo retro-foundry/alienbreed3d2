@@ -131,6 +131,25 @@ int renderer_get_presentation_size(const Renderer *renderer, int *out_width, int
     }
 }
 
+int renderer_wait_for_present(Renderer *renderer, char *error, size_t error_size)
+{
+    if (!renderer) {
+        renderer_set_error(error, error_size,
+                           "renderer frame-latency wait received invalid state");
+        return 0;
+    }
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_OPENGL:
+        return 1;
+    case RENDERER_BACKEND_RTX:
+        return renderer_rtx_wait_for_present(renderer->rtx, error, error_size);
+    default:
+        renderer_set_error(error, error_size,
+                           "requested renderer backend is not available");
+        return 0;
+    }
+}
+
 int renderer_present(Renderer *renderer, const SceneFrame *frame, const RenderView *view,
                      char *error, size_t error_size)
 {

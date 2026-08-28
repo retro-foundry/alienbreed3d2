@@ -7,10 +7,11 @@ Texture2D<float4> LinearDepth : register(t5);
 Texture2D<float4> SceneMotion : register(t6);
 Texture2D<float4> SpecularHitDistance : register(t7);
 Texture2D<float4> DiffuseHitDistance : register(t8);
-Texture2D<float4> SpecularHitDistanceHistory : register(t9);
+Texture2D<float4> DiffuseHitDistanceHistory : register(t9);
 Texture2D<float4> IndirectRadiance : register(t10);
 StructuredBuffer<float> ToneMapState : register(t11);
 ByteAddressBuffer BlueNoiseSampler : register(t12);
+SamplerState LinearClampSampler : register(s0);
 
 cbuffer PresentConstants : register(b0)
 {
@@ -235,7 +236,7 @@ float4 ps_main(PixelInput input) : SV_Target
             saturate(distance / ScalarRange).xxx, targetPixel), 1.0);
     }
     if (DebugView == 9u) {
-        float distance = SpecularHitDistanceHistory.Load(int3(pixel, 0)).r;
+        float distance = DiffuseHitDistanceHistory.Load(int3(pixel, 0)).r;
         return float4(encodeDebugOutput(
             saturate(distance / ScalarRange).xxx, targetPixel), 1.0);
     }
@@ -243,7 +244,11 @@ float4 ps_main(PixelInput input) : SV_Target
         return float4(encodeDebugOutput(
             IndirectRadiance.Load(int3(pixel, 0)).rgb, targetPixel), 1.0);
     }
-    float3 hdr = max(NoisyRadiance.Load(int3(pixel, 0)).rgb, 0.0);
+    /* The speed-first RR path reconstructs below the swap-chain extent. Sample
+     * its linear-HDR output continuously here; debug guides intentionally keep
+     * their exact nearest-value visualization above. */
+    float3 hdr = max(NoisyRadiance.SampleLevel(
+        LinearClampSampler, normalized, 0.0).rgb, 0.0);
     float inputLuminance = dot(hdr, float3(0.2126, 0.7152, 0.0722));
     float adaptiveLuminance = adaptiveToneMapLuminance(inputLuminance);
     float3 adaptiveColor = inputLuminance > 0.0 ?

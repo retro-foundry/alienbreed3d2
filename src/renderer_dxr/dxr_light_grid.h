@@ -9,20 +9,22 @@
 namespace ab3d2::dxr::light_grid {
 
 /*
- * Project-owned regular-grid ReGIR configuration. The grid is rebuilt around
- * the current camera every frame. It covers 8192 world units on each axis;
+ * Project-owned regular-grid ReGIR configuration. The grid has a world-stable
+ * center quantized to one cell around the camera. It covers 8192 world units on each axis;
  * surfaces outside it deliberately use the complete global emitter proposal.
  * Each cell contains 512
  * independently presampled RIS entries built from eight candidates. There is
  * no emitter-count cap: the global alias table is the complete build proposal,
  * and each stored inverse probability corrects the selected entry. The 16 MiB
- * grid is rebuilt around the current camera every frame.
+ * grid is rebuilt when that center or emitter identity layout changes; one
+ * interleaved sixteenth of its entries is refreshed on each ordinary frame.
  */
 inline constexpr uint32_t cells_per_axis = 16u;
 inline constexpr uint32_t cell_count =
     cells_per_axis * cells_per_axis * cells_per_axis;
 inline constexpr uint32_t lights_per_cell = 512u;
 inline constexpr uint32_t build_samples = 8u;
+inline constexpr uint32_t refresh_phase_count = 16u;
 inline constexpr float cell_size = 512.0f;
 inline constexpr float grid_extent = cell_size * cells_per_axis;
 inline constexpr uint32_t entry_count = cell_count * lights_per_cell;
@@ -34,12 +36,34 @@ struct Entry {
 
 static_assert(sizeof(Entry) == 8u);
 static_assert(entry_count == 2097152u);
+static_assert(lights_per_cell % refresh_phase_count == 0u);
 
 struct Position {
     float x;
     float y;
     float z;
 };
+
+inline Position quantized_center(Position position)
+{
+    return {
+        std::floor(position.x / cell_size) * cell_size,
+        std::floor(position.y / cell_size) * cell_size,
+        std::floor(position.z / cell_size) * cell_size,
+    };
+}
+
+inline bool cache_needs_rebuild(Position cached_center,
+                                uint64_t cached_layout_hash,
+                                Position current_center,
+                                uint64_t current_layout_hash,
+                                bool cache_valid)
+{
+    return !cache_valid || cached_layout_hash != current_layout_hash ||
+        cached_center.x != current_center.x ||
+        cached_center.y != current_center.y ||
+        cached_center.z != current_center.z;
+}
 
 inline bool world_position_to_cell(Position position, Position center,
                                    uint32_t &cell_index)

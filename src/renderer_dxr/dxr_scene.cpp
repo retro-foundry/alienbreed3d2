@@ -151,6 +151,24 @@ uint64_t hash_bytes(uint64_t hash, const void *data, size_t size)
     return hash;
 }
 
+uint64_t compute_light_grid_layout_hash(
+    const std::vector<DxrEmissiveTriangle> &emitters)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    const size_t emitter_count = emitters.size();
+    hash = hash_bytes(hash, &emitter_count, sizeof(emitter_count));
+    for (const DxrEmissiveTriangle &emitter : emitters) {
+        /* A cached entry already stores the proposal probability that created
+         * it. Power and position changes therefore remain valid; only a slot
+         * naming a different triangle/sample-space area invalidates identity. */
+        hash = hash_bytes(hash, &emitter.first_vertex,
+                          sizeof(emitter.first_vertex));
+        hash = hash_bytes(hash, &emitter.inverse_area,
+                          sizeof(emitter.inverse_area));
+    }
+    return hash;
+}
+
 struct MaterialKey {
     SceneMaterialSource source;
     uint32_t source_asset_id;
@@ -327,6 +345,9 @@ bool compile_view_weapon(
              * objdrawhires.s:doapoly flat/Gouraud modulation. Authored PBR
              * emission remains unscaled and all incident light is traced. */
             vertex.emissive_scale = 1.0f;
+            vertex.view_weapon_position[0] = source.x;
+            vertex.view_weapon_position[1] = source.y;
+            vertex.view_weapon_position[2] = source.z;
             result.layout_hash = hash_bytes(
                 result.layout_hash, vertex.texture_coordinate,
                 sizeof(vertex.texture_coordinate));
@@ -1058,6 +1079,28 @@ D3D12_GPU_VIRTUAL_ADDRESS DxrScene::previous_vertex_address() const
         previous_vertex_buffer_->GetGPUVirtualAddress() : 0;
 }
 
+bool DxrScene::view_weapon_pose_hash(uint64_t &pose_hash) const
+{
+    pose_hash = UINT64_C(1469598103934665603);
+    for (const CompiledInstance &instance : instances_) {
+        if (!instance.view_weapon ||
+            instance.first_vertex > vertices_.size() ||
+            instance.vertex_count > vertices_.size() - instance.first_vertex) {
+            continue;
+        }
+        for (size_t vertex_index = 0u;
+             vertex_index < instance.vertex_count; ++vertex_index) {
+            const DxrSceneVertex &vertex =
+                vertices_[instance.first_vertex + vertex_index];
+            pose_hash = hash_bytes(
+                pose_hash, vertex.view_weapon_position,
+                sizeof(vertex.view_weapon_position));
+        }
+        return true;
+    }
+    return false;
+}
+
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::material_address() const
 {
     return material_buffer_ ? material_buffer_->GetGPUVirtualAddress() : 0;
@@ -1737,6 +1780,8 @@ bool DxrScene::compile(const SceneFrame &frame,
     vertices_ = std::move(compiled_vertices);
     materials_ = std::move(compiled_materials);
     emissive_triangles_ = std::move(compiled_emitters);
+    light_grid_layout_hash_ =
+        compute_light_grid_layout_hash(emissive_triangles_);
     surface_material_indices_ =
         std::move(compiled_surface_material_indices);
     material_emissive_bound_ =
@@ -2046,6 +2091,8 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
          */
         history_reset_pending_ = true;
     }
+    light_grid_layout_hash_ =
+        compute_light_grid_layout_hash(compiled_emitters);
     vertices_ = std::move(compiled_vertices);
     instances_ = std::move(compiled_instances);
     emissive_triangles_ = std::move(compiled_emitters);

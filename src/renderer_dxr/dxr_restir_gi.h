@@ -26,6 +26,12 @@ inline constexpr uint32_t invalid_primitive = 0xffffffffu;
 inline constexpr uint32_t initial_candidate_count = 4u;
 inline constexpr uint32_t spatial_sample_count = 4u;
 inline constexpr int spatial_radius = 32;
+/* A neighboring primary normal/depth is not a validity condition for a stored
+ * secondary-surface sample. The sample is reconstructed in current geometry,
+ * retargeted at the new primary, and freshly visibility tested, which permits
+ * useful paths to cross a geometric corner without copying irradiance across
+ * it. Screen-space radius still bounds the proposal domain. */
+inline constexpr bool spatial_reuse_requires_primary_guide_match = false;
 inline constexpr float continuation_radial_power = 0.4f;
 inline constexpr float pi = 3.14159265358979323846f;
 

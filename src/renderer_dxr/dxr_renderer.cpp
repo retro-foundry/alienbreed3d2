@@ -223,6 +223,15 @@ bool DxrRenderer::present(const SceneFrame &frame, const RenderView &view,
     return device_->render(*pipeline_, frame, view, error);
 }
 
+bool DxrRenderer::wait_for_present(std::string &error)
+{
+    if (!device_ || !pipeline_) {
+        error = "D3D12/DXR renderer is not initialized";
+        return false;
+    }
+    return device_->wait_for_present(error);
+}
+
 bool DxrRenderer::presentation_size(int &width, int &height) const
 {
     return device_ && device_->presentation_size(width, height);

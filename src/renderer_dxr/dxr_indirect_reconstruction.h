@@ -56,6 +56,64 @@ inline constexpr float temporal_antilag_history_power = 10.0f;
 inline constexpr float temporal_minimum_current_weight = 0.01f;
 inline constexpr float temporal_gradient_confirmation_rate = 0.25f;
 inline constexpr float temporal_gradient_confirmation_threshold = 0.4f;
+/* Production reconstruction treats the configured indirect SPP as a burst
+ * ceiling. Guide-valid pixels keep that ceiling until their effective history
+ * reaches the temporal cap, then a rotating 2x2 phase spends one fresh path
+ * while the other pixels retain validated reprojected history. A persistent
+ * lighting gradient restores the ceiling everywhere. Half a sample of
+ * tolerance prevents bilinear reprojection round-off from holding an otherwise
+ * full history in burst mode forever. */
+inline constexpr uint32_t stable_indirect_sample_count = 1u;
+inline constexpr uint32_t stable_indirect_sampling_phase_count = 4u;
+inline constexpr uint32_t stable_direct_sampling_phase_count = 2u;
+inline constexpr float adaptive_history_maturity_tolerance = 0.5f;
+
+inline constexpr uint32_t stable_indirect_sampling_phase(
+    uint32_t pixel_x, uint32_t pixel_y)
+{
+    return (pixel_x & 1u) | ((pixel_y & 1u) << 1u);
+}
+
+inline constexpr bool stable_indirect_sample_scheduled(
+    uint32_t pixel_x, uint32_t pixel_y, uint32_t sample_index)
+{
+    return stable_indirect_sampling_phase(pixel_x, pixel_y) ==
+        sample_index % stable_indirect_sampling_phase_count;
+}
+
+inline constexpr bool stable_direct_sample_scheduled(
+    uint32_t pixel_x, uint32_t pixel_y, uint32_t sample_index)
+{
+    return ((pixel_x + pixel_y) & 1u) ==
+        sample_index % stable_direct_sampling_phase_count;
+}
+
+inline constexpr bool stable_schedule_covers_gradient_region()
+{
+    for (uint32_t origin_y = 0u; origin_y < 2u; ++origin_y) {
+        for (uint32_t origin_x = 0u; origin_x < 2u; ++origin_x) {
+            for (uint32_t phase = 0u;
+                 phase < stable_indirect_sampling_phase_count; ++phase) {
+                bool covered = false;
+                for (uint32_t y = 0u;
+                     y < static_cast<uint32_t>(downsample_factor); ++y) {
+                    for (uint32_t x = 0u;
+                         x < static_cast<uint32_t>(downsample_factor); ++x) {
+                        covered = covered ||
+                            stable_indirect_sampling_phase(
+                                origin_x + x, origin_y + y) == phase;
+                    }
+                }
+                if (!covered) {
+                    return false;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+static_assert(stable_schedule_covers_gradient_region());
 /* Runtime path-depth and dimension contracts mirrored by path_trace.hlsl.
  * Depth counts the primary surface. The first continuation consumes dimensions
  * 6/7 from group zero; every later continuation advances by one eight-value
@@ -80,19 +138,40 @@ inline constexpr uint32_t continuation_count(uint32_t path_depth)
  * distributional property, not its implementation. */
 inline constexpr float continuation_radial_power = 0.4f;
 
-/* GPU history layout mirrored by IndirectHistoryPixel in path_trace.hlsl.
- * `normal` is the primary geometric normal: normal-map detail must not split
- * room-scale indirect reconstruction into unrelated high-frequency patches. */
-struct HistoryPixel {
-    float luminance_sh[4];
-    float chroma[2];
+/* GPU history layout mirrored by PackedIndirectHistoryPixel in
+ * path_trace.hlsl. Six signed signal coefficients use binary16, history uses a
+ * limit-relative UNORM16, and confidence uses binary16. Depth remains FP32 and
+ * `normal` remains the exact packed primary geometric normal. */
+struct PackedHistoryPixel {
+    uint32_t luminance_sh_01;
+    uint32_t luminance_sh_23;
+    uint32_t chroma;
     float depth;
     uint32_t normal;
-    float history_length;
-    float gradient_confidence;
+    uint32_t history_and_confidence;
 };
 
-static_assert(sizeof(HistoryPixel) == 40u);
+static_assert(sizeof(PackedHistoryPixel) == 24u);
+
+inline uint16_t encode_history_length(float history_length,
+                                      uint32_t history_limit,
+                                      uint32_t indirect_sample_count)
+{
+    const float scale = static_cast<float>(history_limit > 0u ?
+        history_limit : std::max(indirect_sample_count, 1u));
+    const float normalized = std::isfinite(history_length) ?
+        std::clamp(history_length / scale, 0.0f, 1.0f) : 0.0f;
+    return static_cast<uint16_t>(std::lround(normalized * 65535.0f));
+}
+
+inline float decode_history_length(uint16_t encoded_history,
+                                   uint32_t history_limit,
+                                   uint32_t indirect_sample_count)
+{
+    const float scale = static_cast<float>(history_limit > 0u ?
+        history_limit : std::max(indirect_sample_count, 1u));
+    return static_cast<float>(encoded_history) * (scale / 65535.0f);
+}
 
 struct Signal {
     float luminance_sh[4];
@@ -115,6 +194,31 @@ struct GradientConfirmation {
     float confidence;
     float gradient;
 };
+
+inline uint32_t adaptive_indirect_sample_count(
+    uint32_t configured_maximum, float previous_history_length,
+    float previous_gradient_confidence, uint32_t history_limit,
+    bool history_valid, Mode mode, bool stable_sample_scheduled)
+{
+    configured_maximum = std::max(
+        configured_maximum, stable_indirect_sample_count);
+    if (mode == Mode::raw || mode == Mode::restir ||
+        history_limit == 0u || !history_valid ||
+        !(previous_history_length > 0.0f) ||
+        !std::isfinite(previous_history_length) ||
+        !std::isfinite(previous_gradient_confidence)) {
+        return configured_maximum;
+    }
+    const float mature_history = std::max(
+        1.0f, static_cast<float>(history_limit) -
+            adaptive_history_maturity_tolerance);
+    if (previous_history_length < mature_history ||
+        std::fabs(previous_gradient_confidence) >=
+            temporal_gradient_confirmation_threshold) {
+        return configured_maximum;
+    }
+    return stable_sample_scheduled ? stable_indirect_sample_count : 0u;
+}
 
 inline Signal signal_from_radiance(Color color, float direction_x,
                                    float direction_y, float direction_z)
@@ -230,23 +334,29 @@ inline GradientConfirmation confirm_gradient(float previous_confidence,
 }
 
 inline TemporalBlend temporal_blend(float previous_history_length,
+                                    float current_sample_count,
                                     float gradient,
                                     uint32_t history_limit)
 {
+    current_sample_count = std::max(
+        1.0f, std::isfinite(current_sample_count) ?
+            current_sample_count : 1.0f);
     if (history_limit == 0u || !(previous_history_length > 0.0f) ||
         !std::isfinite(previous_history_length)) {
-        return {1.0f, 1.0f, 0.0f};
+        return {current_sample_count, 1.0f, 0.0f};
     }
     gradient = std::max(0.0f, std::min(1.0f, gradient));
     const float antilag = std::max(0.0f, std::min(
         1.0f, temporal_antilag_scale * gradient));
+    const float retained_history = previous_history_length * std::pow(
+        1.0f - antilag, temporal_antilag_history_power);
     const float history_length = std::min(
-        previous_history_length * std::pow(
-            1.0f - antilag, temporal_antilag_history_power) + 1.0f,
+        retained_history + current_sample_count,
         static_cast<float>(history_limit));
     const float base_weight = std::max(
         temporal_minimum_current_weight,
-        1.0f / std::max(history_length, 1.0f));
+        std::min(1.0f, current_sample_count /
+            std::max(history_length, current_sample_count)));
     const float current_weight = base_weight +
         (1.0f - base_weight) * antilag;
     return {history_length, current_weight, antilag};

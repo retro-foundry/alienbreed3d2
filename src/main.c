@@ -568,7 +568,10 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     if (!audio_sdl_is_available(app->audio)) {
         fprintf(stderr, "[AUDIO] disabled: %s\n", error);
     }
-    audio_sdl_set_volume(app->audio, app->desktop_settings.volume);
+    /* Hidden validation must never emit host audio, including the save-game
+     * path that deliberately loads the user's adjacent desktop settings. */
+    audio_sdl_set_volume(
+        app->audio, app->gpu_smoke ? 0u : app->desktop_settings.volume);
     if (!scene_frame_init(&app->source_frame, 1024u)) {
         fprintf(stderr, "[SCENE] unable to allocate frame command buffer\n");
         return 0;
@@ -651,7 +654,8 @@ static int game_app_init(GameApp *app, int argc, char **argv)
                 (char)('A' + app->game.active_level_index), app->quicksave_path);
     }
     /* hires.s:Game_Begin's mt_init begins the source-selected packedtest module. */
-    audio_sdl_set_music_enabled(app->audio, app->game.preferences.play_music);
+    audio_sdl_set_music_enabled(
+        app->audio, app->gpu_smoke ? 0 : app->game.preferences.play_music);
     render_view_init(&app->view);
     render_view_set_source_yaw(&app->view, app->game.player.yaw);
     render_view_set_source_look(&app->view, app->game.player.aim_speed,
@@ -712,14 +716,12 @@ static int game_app_capture_source_frame(GameApp *app)
         scene_vector_pose_history_update(&app->vector_pose_history, &app->source_frame);
 }
 
-static int game_app_build_presentation_frame(GameApp *app)
+static int game_app_build_presentation_frame_at_alpha(GameApp *app,
+                                                       float interpolation_alpha)
 {
-    float interpolation_alpha;
-
     if (!app) {
         return 0;
     }
-    interpolation_alpha = game_vblank_clock_interpolation_alpha(&app->vblank_clock);
     if (!scene_frame_interpolate(
                     &app->frame, &app->previous_source_frame, &app->source_frame,
                     interpolation_alpha) ||
@@ -735,6 +737,15 @@ static int game_app_build_presentation_frame(GameApp *app)
      */
     app->frame.commands[0u].data.camera.yaw = render_view_yaw(&app->view);
     return 1;
+}
+
+static int game_app_build_presentation_frame(GameApp *app)
+{
+    if (!app) {
+        return 0;
+    }
+    return game_app_build_presentation_frame_at_alpha(
+        app, game_vblank_clock_interpolation_alpha(&app->vblank_clock));
 }
 
 static void game_app_clear_transition_input(GameApp *app)
@@ -913,6 +924,14 @@ static void game_app_tick(GameApp *app)
     int quickload_requested = 0;
 
     if (!app || !renderer_is_running(app->renderer)) {
+        return;
+    }
+    /* Wait on the DXGI latency object before polling input so the mouse and
+     * keyboard state used by this presentation is as fresh as possible. */
+    if (!renderer_wait_for_present(app->renderer, error, sizeof(error))) {
+        fprintf(stderr, "[RENDER] %s\n", error);
+        app->exit_code = 1;
+        renderer_request_quit(app->renderer);
         return;
     }
     if (app->phase != GAME_APP_PHASE_GAMEPLAY) {
@@ -1502,15 +1521,60 @@ static int game_app_run_gpu_smoke(GameApp *app)
         app->desktop_settings.renderer_backend;
 
     if (app->gpu_smoke_saved_game) {
-        enum { GAME_APP_SAVED_GPU_SMOKE_FRAMES = 32 };
+        enum {
+            GAME_APP_SAVED_GPU_SMOKE_FRAMES = 32,
+            GAME_APP_SAVED_GPU_SMOKE_WEAPON_SETTLE_FRAMES = 8,
+            GAME_APP_SAVED_GPU_SMOKE_PRESENTATIONS_PER_UPDATE = 4,
+            /* One real host mouse count per presentation sweeps the saved
+             * camera while the camera-attached weapon animates. */
+            GAME_APP_SAVED_GPU_SMOKE_MOUSE_YAW_PER_PRESENTATION = 1,
+            /* Stop during the Shotgun's authored pose transition so a capture
+             * exercises view-weapon motion/history at the saved camera rather
+             * than returning to its idle pose before readback. */
+            GAME_APP_SAVED_GPU_SMOKE_SHOT_FRAMES = 9,
+            GAME_APP_SAVED_GPU_SMOKE_SHOT_SUBFRAME = 2
+        };
         uint64_t checksum = UINT64_C(0);
         double delta = -1.0;
+        unsigned shot_frames = GAME_APP_SAVED_GPU_SMOKE_SHOT_FRAMES;
+        unsigned shot_subframe = GAME_APP_SAVED_GPU_SMOKE_SHOT_SUBFRAME;
+        unsigned shot_presentations = 0u;
+        const char *shot_frames_override =
+            getenv("AB3D2_DXR_SAVED_SMOKE_SHOT_FRAMES");
+        const char *shot_subframe_override =
+            getenv("AB3D2_DXR_SAVED_SMOKE_SHOT_SUBFRAME");
+
+        if (shot_frames_override && shot_frames_override[0] != '\0') {
+            char *end = NULL;
+            const unsigned long parsed =
+                strtoul(shot_frames_override, &end, 10);
+            if (!end || end == shot_frames_override || *end != '\0' ||
+                parsed < 1ul || parsed > 64ul) {
+                fprintf(stderr,
+                        "[RENDER] AB3D2_DXR_SAVED_SMOKE_SHOT_FRAMES must be 1..64\n");
+                app->exit_code = 1;
+                return 0;
+            }
+            shot_frames = (unsigned)parsed;
+        }
+        if (shot_subframe_override && shot_subframe_override[0] != '\0') {
+            char *end = NULL;
+            const unsigned long parsed =
+                strtoul(shot_subframe_override, &end, 10);
+            if (!end || end == shot_subframe_override || *end != '\0' ||
+                parsed < 1ul ||
+                parsed > GAME_APP_SAVED_GPU_SMOKE_PRESENTATIONS_PER_UPDATE) {
+                fprintf(stderr,
+                        "[RENDER] AB3D2_DXR_SAVED_SMOKE_SHOT_SUBFRAME must be 1..4\n");
+                app->exit_code = 1;
+                return 0;
+            }
+            shot_subframe = (unsigned)parsed;
+        }
 
         for (unsigned frame_index = 0u;
              frame_index < GAME_APP_SAVED_GPU_SMOKE_FRAMES; ++frame_index) {
-            scene_frame_begin(&app->frame);
-            app->frame.history_epoch = app->scene_history_epoch;
-            if (!game_bootstrap_submit_scene_frame(&app->game, &app->frame) ||
+            if (!game_app_build_presentation_frame_at_alpha(app, 1.0f) ||
                 !renderer_present(app->renderer, &app->frame, &app->view,
                                   error, sizeof(error))) {
                 fprintf(stderr,
@@ -1531,6 +1595,121 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 (unsigned long long)checksum, delta,
                 (unsigned long long)renderer_last_frame_saturated_pixels(
                     app->renderer),
+                (unsigned long long)renderer_last_frame_temporal_outlier_pixels(
+                    app->renderer));
+
+        app->game.session.player1_inventory
+            .weapons[GAME_APP_SHOTGUN_GUN_INDEX] = UINT8_MAX;
+        for (uint16_t ammunition_index = 0u;
+             ammunition_index < GAME_INVENTORY_AMMUNITION_COUNT;
+             ++ammunition_index) {
+            app->game.session.player1_inventory
+                .ammunition[ammunition_index] = 1000u;
+        }
+        if (!game_input_set_raw_key(
+                &app->game.input, GAME_APP_SHOTGUN_RAW_KEY, 1,
+                error, sizeof(error)) ||
+            !scene_frame_clone(
+                &app->previous_source_frame, &app->source_frame) ||
+            !game_bootstrap_update_single_player(
+                &app->game, error, sizeof(error)) ||
+            !game_input_set_raw_key(
+                &app->game.input, GAME_APP_SHOTGUN_RAW_KEY, 0,
+                error, sizeof(error)) ||
+            !game_app_capture_source_frame(app) ||
+            !scene_frame_clone(
+                &app->previous_source_frame, &app->source_frame)) {
+            fprintf(stderr,
+                    "[GAME] saved-state Shotgun setup failed for Level %c: %s\n",
+                    (char)('A' + app->game.active_level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        for (unsigned settle_frame = 0u;
+             settle_frame < GAME_APP_SAVED_GPU_SMOKE_WEAPON_SETTLE_FRAMES;
+             ++settle_frame) {
+            if (!game_app_build_presentation_frame_at_alpha(app, 1.0f) ||
+                !renderer_present(app->renderer, &app->frame, &app->view,
+                                  error, sizeof(error))) {
+                fprintf(stderr,
+                        "[RENDER] saved-state Shotgun settle frame %u failed for Level %c: %s\n",
+                        settle_frame,
+                        (char)('A' + app->game.active_level_index), error);
+                app->exit_code = 1;
+                return 0;
+            }
+        }
+        if (!game_input_set_raw_key(
+                &app->game.input,
+                app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 1,
+                error, sizeof(error))) {
+            fprintf(stderr,
+                    "[GAME] saved-state Shotgun fire setup failed for Level %c: %s\n",
+                    (char)('A' + app->game.active_level_index), error);
+            app->exit_code = 1;
+            return 0;
+        }
+        for (unsigned shot_frame = 0u;
+             shot_frame < shot_frames;
+             ++shot_frame) {
+            if (!scene_frame_clone(
+                    &app->previous_source_frame, &app->source_frame) ||
+                !game_bootstrap_update_single_player(
+                    &app->game, error, sizeof(error)) ||
+                (shot_frame == 0u &&
+                 !game_input_set_raw_key(
+                     &app->game.input,
+                     app->game.controls.assigned_raw_keys[GAME_CONTROL_FIRE], 0,
+                     error, sizeof(error))) ||
+                !game_app_capture_source_frame(app)) {
+                fprintf(stderr,
+                        "[GAME] saved-state Shotgun update %u failed for Level %c: %s\n",
+                        shot_frame, (char)('A' + app->game.active_level_index),
+                        error);
+                app->exit_code = 1;
+                return 0;
+            }
+            const unsigned presentation_count =
+                shot_frame + 1u == shot_frames ? shot_subframe :
+                GAME_APP_SAVED_GPU_SMOKE_PRESENTATIONS_PER_UPDATE;
+            for (unsigned subframe = 1u; subframe <= presentation_count;
+                 ++subframe) {
+                const float alpha = (float)subframe /
+                    (float)GAME_APP_SAVED_GPU_SMOKE_PRESENTATIONS_PER_UPDATE;
+                render_view_add_mouse_yaw(
+                    &app->view,
+                    GAME_APP_SAVED_GPU_SMOKE_MOUSE_YAW_PER_PRESENTATION);
+                player_runtime_set_camera_yaw(
+                    &app->game.player, render_view_yaw(&app->view));
+                if (!game_app_build_presentation_frame_at_alpha(app, alpha) ||
+                    !renderer_present(app->renderer, &app->frame, &app->view,
+                                      error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] saved-state Shotgun update %u subframe %u failed for Level %c: %s\n",
+                            shot_frame, subframe,
+                            (char)('A' + app->game.active_level_index), error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                ++shot_presentations;
+                checksum = renderer_last_frame_rgb_checksum(app->renderer);
+                delta = renderer_last_frame_delta(app->renderer);
+            }
+        }
+        if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
+            fprintf(stderr,
+                    "[RENDER] saved-state Shotgun produced no primary-hit pixels\n");
+            app->exit_code = 1;
+            return 0;
+        }
+        fprintf(stdout,
+                "[RENDER] saved-state Level %c Shotgun updates=%u subframe=%u/4 "
+                "presentations=%u checksum=%016llx "
+                "delta=%.4f weapon_pixels=%zu outliers16=%llu\n",
+                (char)('A' + app->game.active_level_index),
+                shot_frames, shot_subframe, shot_presentations,
+                (unsigned long long)checksum, delta,
+                renderer_last_view_weapon_coverage(app->renderer),
                 (unsigned long long)renderer_last_frame_temporal_outlier_pixels(
                     app->renderer));
         return 1;

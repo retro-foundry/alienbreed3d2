@@ -105,6 +105,9 @@ int main(void)
     RendererRayTracingOptions requested = {0};
     RendererRayTracingOptions applied = {0};
     requested.samples_per_pixel = 3u;
+    requested.indirect_samples_per_pixel = 7u;
+    requested.diffuse_gi_scale = 0.6f;
+    requested.diffuse_gi_scale_set = UINT8_MAX;
     requested.maximum_bounces = 2u;
     requested.light_candidates = 8u;
     requested.reservoir_sample_limit = 24u;
@@ -137,8 +140,18 @@ int main(void)
         SDL_Quit();
         return 1;
     }
+    if (!renderer_rtx_wait_for_present(renderer, error, sizeof(error))) {
+        fprintf(stderr, "DXR foundation frame-latency wait failed: %s\n", error);
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
     if (!renderer_rtx_active_ray_tracing_options(renderer, &applied) ||
         applied.samples_per_pixel != requested.samples_per_pixel ||
+        applied.indirect_samples_per_pixel !=
+            requested.indirect_samples_per_pixel ||
+        applied.diffuse_gi_scale != requested.diffuse_gi_scale ||
+        applied.diffuse_gi_scale_set == 0u ||
         applied.maximum_bounces != requested.maximum_bounces ||
         applied.light_candidates != requested.light_candidates ||
         applied.reservoir_sample_limit != requested.reservoir_sample_limit ||
@@ -152,8 +165,9 @@ int main(void)
         applied.hdr_saturation_percent_set != 0u) {
         fprintf(stderr,
                 "DXR ray-tracing settings did not reach the renderer "
-                "(spp %u bounces %u candidates %u limit %u)\n",
+                "(direct spp %u indirect spp %u bounces %u candidates %u limit %u)\n",
                 (unsigned)applied.samples_per_pixel,
+                (unsigned)applied.indirect_samples_per_pixel,
                 (unsigned)applied.maximum_bounces,
                 (unsigned)applied.light_candidates,
                 (unsigned)applied.reservoir_sample_limit);

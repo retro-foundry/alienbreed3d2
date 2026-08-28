@@ -42,11 +42,20 @@ world_light_tessellation=4
 # commented-out key keeps the renderer's own default, so uncomment only what you
 # want to change. These do not touch source assets or gameplay.
 
-# Fresh path-traced samples per pixel per frame, 1 through 8. This is the direct
-# quality-for-cost dial: each sample repeats the whole path, so two cost about
-# twice one, and the noise the denoiser has to remove falls as their number.
-# Default 1.
+# Fresh primary direct-light samples per pixel per frame, 1 through 8. Default 1.
 #rtx_samples_per_pixel=1
+
+# Maximum fresh diffuse-indirect paths per pixel per frame, 1 through 32. These
+# do not repeat primary direct-light shadow rays. Production reconstruction uses
+# the maximum for missing, disoccluded, immature, or confirmed-changing history,
+# then rotates one path through each 2x2 block of stable pixels while the other
+# three reproject validated history. Raw and ReSTIR diagnostics keep a fixed count.
+#rtx_indirect_samples=4
+
+# Secondary diffuse-light transfer, 0 through 1. Default 0.75. Zero disables
+# diffuse GI and its ReGIR/temporal/spatial work; direct light and visible
+# emission remain active. Use rtx_indirect_samples separately to change ray cost.
+#rtx_diffuse_gi=0.75
 
 # Path length counting the primary hit, 1 through 8. 1 is direct lighting only.
 # Each further bounce adds its own shadow and continuation rays. Default 3.
@@ -54,9 +63,10 @@ world_light_tessellation=4
 
 # DLSS Ray Reconstruction mode: quality, balanced, performance,
 # ultra-performance, or off. This also sets the resolution the path tracer
-# renders at before reconstruction upscales it, so it is the largest single
-# performance lever. Measured at 2560x1440: quality 12.7 ms, balanced 10.4 ms,
-# performance 8.5 ms. Default quality.
+# renders at before reconstruction. Ultra Performance is explicitly speed-first:
+# at a 1280x720 window it traces 285x160, reconstructs to 854x480, then uses the
+# final linear presentation upscale. The other enabled modes reconstruct
+# directly to the window extent. Default quality.
 #rtx_ray_reconstruction=quality
 
 # Display output: sdr uses exact 8-bit sRGB; hdr requires native FP16 scRGB and
@@ -74,11 +84,11 @@ world_light_tessellation=4
 
 # Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
 # primary vertex uses the complete alias table; the indirect vertex uses a
-# camera-centred local ReGIR proposal. The retained limit caps the validated
+# quantized world-stable local ReGIR proposal. The retained limit caps the validated
 # temporal history of the separate diffuse-indirect reconstruction. Defaults
-# 16 candidates and 256 history samples; zero disables temporal accumulation.
+# 16 candidates and 32 effective history samples; zero disables accumulation.
 #rtx_light_candidates=16
-#rtx_reservoir_limit=256
+#rtx_reservoir_limit=32
 
 # Diagnostic ceiling on one sample's luminance. Q2RTX does not clamp path
 # radiance, so the matching default is 0 (disabled). Accepts 0 through 100000.

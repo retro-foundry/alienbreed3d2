@@ -292,6 +292,7 @@ bool DxrDevice::create_swap_chain(std::string &error)
     description.Scaling = DXGI_SCALING_STRETCH;
     description.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     description.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
+    description.Flags = hidden_window_ ? 0u : swap_chain_flags;
 
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swap_chain;
     HRESULT result =
@@ -315,6 +316,25 @@ bool DxrDevice::create_swap_chain(std::string &error)
         error = hresult_error("Query IDXGISwapChain4", result);
         return false;
     }
+    if (!hidden_window_) {
+        result = swap_chain_->SetMaximumFrameLatency(1u);
+        if (FAILED(result)) {
+            error = hresult_error(
+                "IDXGISwapChain2::SetMaximumFrameLatency", result);
+            return false;
+        }
+        frame_latency_waitable_object_ =
+            swap_chain_->GetFrameLatencyWaitableObject();
+        if (!frame_latency_waitable_object_) {
+            const DWORD last_error = GetLastError();
+            error = hresult_error(
+                "IDXGISwapChain2::GetFrameLatencyWaitableObject",
+                HRESULT_FROM_WIN32(last_error != ERROR_SUCCESS ?
+                    last_error : ERROR_GEN_FAILURE));
+            return false;
+        }
+    }
+    frame_latency_wait_satisfied_ = false;
     frame_index_ = swap_chain_->GetCurrentBackBufferIndex();
     return true;
 }
@@ -491,7 +511,8 @@ bool DxrDevice::reconfigure_swap_chain(DxrOutputConfiguration &output,
     previous_readback_rgb_.clear();
     const auto resize_to = [&](DXGI_FORMAT format) -> bool {
         const HRESULT result = swap_chain_->ResizeBuffers(
-            frame_count, width, height, format, 0);
+            frame_count, width, height, format,
+            hidden_window_ ? 0u : swap_chain_flags);
         if (FAILED(result)) {
             error = hresult_error("IDXGISwapChain::ResizeBuffers(output format)",
                                   result);
@@ -902,6 +923,31 @@ bool DxrDevice::wait_for_frame(FrameContext &frame, std::string &error)
            wait_for_fence(frame.fence_value, "wait for reusable D3D12 frame", error);
 }
 
+bool DxrDevice::wait_for_present(std::string &error)
+{
+    /* Hidden validation reads every frame back through a GPU fence and has no
+     * input-to-photon path. Display pacing there would contaminate its timing
+     * metric with the monitor refresh interval. */
+    if (hidden_window_ || frame_latency_wait_satisfied_ || IsIconic(window_)) {
+        return true;
+    }
+    if (!swap_chain_ || !frame_latency_waitable_object_) {
+        error = "DXR frame-latency wait received incomplete swap-chain state";
+        return false;
+    }
+    const DWORD wait_result = WaitForSingleObject(
+        frame_latency_waitable_object_, INFINITE);
+    if (wait_result != WAIT_OBJECT_0) {
+        const DWORD last_error = wait_result == WAIT_FAILED ?
+            GetLastError() : ERROR_GEN_FAILURE;
+        error = hresult_error("wait for DXGI presentation slot",
+                              HRESULT_FROM_WIN32(last_error));
+        return false;
+    }
+    frame_latency_wait_satisfied_ = true;
+    return true;
+}
+
 bool DxrDevice::flush(std::string &error)
 {
     if (!command_queue_ || !fence_) {
@@ -933,7 +979,8 @@ bool DxrDevice::resize(UINT width, UINT height, std::string &error)
         frame.render_target.Reset();
     }
     const HRESULT result = swap_chain_->ResizeBuffers(
-        frame_count, width, height, output_.format, 0);
+        frame_count, width, height, output_.format,
+        hidden_window_ ? 0u : swap_chain_flags);
     if (FAILED(result)) {
         return fail_device_operation("IDXGISwapChain::ResizeBuffers", result, error);
     }
@@ -966,6 +1013,11 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     const LONG client_height = client.bottom - client.top;
     if (client_width <= 0 || client_height <= 0) {
         return true;
+    }
+    /* Interactive callers wait before sampling input. Direct presentation
+     * clients (including hidden validation) are paced here as a safe fallback. */
+    if (!wait_for_present(error)) {
+        return false;
     }
     if (!refresh_output_configuration(
             pipeline, static_cast<UINT>(client_width),
@@ -1074,6 +1126,7 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     if (FAILED(result)) {
         return fail_device_operation("IDXGISwapChain::Present", result, error);
     }
+    frame_latency_wait_satisfied_ = false;
     pipeline.commit_presented_frame();
     const UINT64 fence_value = next_fence_value_++;
     result = command_queue_->Signal(fence_.Get(), fence_value);
@@ -1217,6 +1270,11 @@ void DxrDevice::shutdown(bool flush_queue)
     scene_readback_.Reset();
     render_target_view_heap_.Reset();
     swap_chain_.Reset();
+    if (frame_latency_waitable_object_) {
+        CloseHandle(frame_latency_waitable_object_);
+        frame_latency_waitable_object_ = nullptr;
+    }
+    frame_latency_wait_satisfied_ = false;
     command_queue_.Reset();
     fence_.Reset();
     if (fence_event_) {

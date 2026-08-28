@@ -136,12 +136,17 @@ int main(void)
     /* Ray-traced numeric settings remain absent by default. Display output is
      * explicitly SDR because Q2RTX makes HDR opt-in. */
     if (RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES != 16 ||
-        RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT != 256) {
+        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL != 4 ||
+        RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT != 32 ||
+        RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE != 0.75f) {
         fprintf(stderr, "fresh-light/LF-history production defaults changed\n");
         return 1;
     }
     desktop_settings_default(&settings);
     if (settings.ray_tracing.samples_per_pixel != 0u ||
+        settings.ray_tracing.indirect_samples_per_pixel != 0u ||
+        settings.ray_tracing.diffuse_gi_scale != 0.0f ||
+        settings.ray_tracing.diffuse_gi_scale_set != 0u ||
         settings.ray_tracing.maximum_bounces != 0u ||
         settings.ray_tracing.light_candidates != 0u ||
         settings.ray_tracing.reservoir_sample_limit != 0u ||
@@ -162,6 +167,8 @@ int main(void)
     {
         static const char text[] =
             "rtx_samples_per_pixel=4\n"
+            "rtx_indirect_samples=12\n"
+            "rtx_diffuse_gi=0.625\n"
             "rtx_max_bounces=2\n"
             "rtx_light_candidates=16\n"
             "rtx_reservoir_limit=32\n"
@@ -177,6 +184,9 @@ int main(void)
         if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u,
                                     error, sizeof(error)) ||
             settings.ray_tracing.samples_per_pixel != 4u ||
+            settings.ray_tracing.indirect_samples_per_pixel != 12u ||
+            settings.ray_tracing.diffuse_gi_scale != 0.625f ||
+            settings.ray_tracing.diffuse_gi_scale_set == 0u ||
             settings.ray_tracing.maximum_bounces != 2u ||
             settings.ray_tracing.light_candidates != 16u ||
             settings.ray_tracing.reservoir_sample_limit != 32u ||
@@ -199,29 +209,37 @@ int main(void)
     }
     {
         static const char text[] =
+            "rtx_diffuse_gi=0\n"
             "rtx_exposure_bias=0\n"
             "rtx_hdr_saturation=0\n";
 
         desktop_settings_default(&settings);
         if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u,
                                     error, sizeof(error)) ||
+            settings.ray_tracing.diffuse_gi_scale != 0.0f ||
+            settings.ray_tracing.diffuse_gi_scale_set == 0u ||
             settings.ray_tracing.exposure_bias_stops != 0.0f ||
             settings.ray_tracing.exposure_bias_set == 0u ||
             settings.ray_tracing.hdr_saturation_percent != 0.0f ||
             settings.ray_tracing.hdr_saturation_percent_set == 0u) {
-            fprintf(stderr, "zero EV/saturation settings were not preserved: %s\n",
+            fprintf(stderr, "zero GI/EV/saturation settings were not preserved: %s\n",
                     error);
             return 1;
         }
     }
     /*
-     * Zero is meaningful for the radiance clamp, exposure bias, reservoir
-     * limit, and HDR saturation. Other zero/default sentinels remain invalid.
+     * Zero is meaningful for diffuse GI, the radiance clamp, exposure bias,
+     * reservoir limit, and HDR saturation. Other zero/default sentinels remain
+     * invalid.
      */
     {
         static const char *const rejected[] = {
             "rtx_samples_per_pixel=0\n",
             "rtx_samples_per_pixel=9\n",
+            "rtx_indirect_samples=0\n",
+            "rtx_indirect_samples=33\n",
+            "rtx_diffuse_gi=-0.01\n",
+            "rtx_diffuse_gi=1.01\n",
             "rtx_max_bounces=0\n",
             "rtx_light_candidates=0\n",
             "rtx_radiance_clamp=-0.1\n",

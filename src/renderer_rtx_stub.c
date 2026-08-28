@@ -58,6 +58,14 @@ int renderer_rtx_get_presentation_size(
     return 0;
 }
 
+int renderer_rtx_wait_for_present(
+    RendererRtx *renderer, char *error, size_t error_size)
+{
+    (void)renderer;
+    renderer_rtx_not_implemented(error, error_size);
+    return 0;
+}
+
 int renderer_rtx_present(
     RendererRtx *renderer, const SceneFrame *frame, const RenderView *view,
     char *error, size_t error_size)

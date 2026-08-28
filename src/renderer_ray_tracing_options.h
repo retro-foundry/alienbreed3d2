@@ -13,8 +13,9 @@
  * desktop application's shipped default is SDR to match Q2RTX's opt-in HDR.
  * The radiance clamp uses zero as its explicit off value. The reservoir history
  * limit likewise accepts zero; reservoir_sample_limit_set distinguishes that
- * value from an absent setting. Exposure bias and HDR saturation also accept
- * zero, so their accompanying set flags distinguish it from an absent setting.
+ * value from an absent setting. Diffuse-GI transfer, exposure bias, and HDR
+ * saturation also accept zero, so their accompanying set flags distinguish it
+ * from an absent setting.
  * The tuned defaults and measurements live with the code that uses them, in
  * renderer_dxr/dxr_pipeline.cpp.
  */
@@ -40,20 +41,30 @@ typedef enum {
 
 /* Fresh RIS and low-frequency reconstruction defaults. Keep explicit zero
  * available only through reservoir_sample_limit_set for the history-off
- * diagnostic. */
+ * diagnostic. Four independent GI paths and 32 effective history samples
+ * converge the ordinary indirect channel in eight stable presented frames. */
 enum {
     RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES = 16,
-    RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT = 256
+    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL = 4,
+    RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT = 32
 };
+
+/* Reduce secondary diffuse transfer modestly. Direct lighting and visible
+ * emission are not affected. */
+#define RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE 0.75f
 
 typedef struct {
     /*
-     * Fresh path-traced samples per pixel per frame. This is the direct
-     * quality-for-cost dial: every sample repeats the whole path, so two cost
-     * about twice one, and the estimator's variance falls as their number.
-     * One through eight.
+     * Fresh primary direct-light samples per pixel per frame. One through
+     * eight. Indirect continuations have a separate budget below so increasing
+     * GI quality does not repeat primary direct-light work.
      */
     uint8_t samples_per_pixel;
+    /* Fresh diffuse-indirect paths per pixel per frame, one through 32. */
+    uint8_t indirect_samples_per_pixel;
+    /* Secondary diffuse transfer multiplier, zero through one. */
+    float diffuse_gi_scale;
+    uint8_t diffuse_gi_scale_set;
     /*
      * Path length, counting the primary hit. One is direct lighting only; each
      * further bounce adds its own next-event and continuation rays. One through

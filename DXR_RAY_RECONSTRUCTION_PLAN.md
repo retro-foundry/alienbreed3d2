@@ -116,19 +116,22 @@ reports the far-plane distance. Each completed 256-sample block applies
 a deterministic tile translation so the reference package does not repeat the
 same aligned screen-space pattern every 256 presented frames.
 The visible Level A capture has also been checked through the hidden readback
-path. Phase 8 now allocates and writes the seven required RR guide resources at
-the primary hit. Diffuse/specular albedo, world shading normal, perceptual
-roughness, linear view depth, dense scene motion, and deterministic specular
-hit distance use the formats in the frame contract below. A renderer-owned
+path. Phase 8 now allocates and writes the required RR guide resources at the
+primary hit. Diffuse/specular albedo use RGBA8, roughness is packed into the
+FP16RGBA world shading normal, linear view depth remains FP32, dense scene
+motion is FP16RG, and deterministic specular hit distance is FP16. A
+renderer-owned
 history retains the previous camera basis, per-frame Halton jitter, dimensions,
 history epoch, and a GPU copy of the previous vertices; motion is
 `previousPixel - currentPixel` in pixel units. `SceneFrame.history_epoch`
 invalidates history across level loads and quickloads, while scene rebuilds and
 resizes also reset it. Phase 9 integrates the pinned Streamline 2.12.0
 production runtime using manual hooks and a stable custom project GUID. On a
-GeForce RTX 3090 it initializes NGX, selects a fixed optimal low-resolution
-input for the chosen quality mode, evaluates DLSS-RR, and presents the
-full-resolution reconstructed HDR output. The raw-noise mode and every Phase 8
+GeForce RTX 3090 it initializes NGX and selects a fixed low-resolution input
+for the chosen quality mode. Quality through Performance reconstruct to the
+presentation extent; the explicit speed-first Ultra path reconstructs to two
+thirds of it before the final linear presentation upscale. The raw-noise mode
+and every Phase 8
 guide view remain available for diagnosis. Non-projectile bitmap billboards,
 items, bitmap enemies, additive/glare effects, vector items, and animated 3D
 enemies are now PBR geometry in the same pre-RR TLAS. Their exact active
@@ -158,8 +161,11 @@ moving-camera visual check on 2026-08-21 and remains historical evidence for
 the now-dormant screen-space direct-light reservoir path. Finer temporal noise
 reported later led to the heterogeneous completion in section 11c, which the
 user accepted in motion on 2026-08-21. The active stripped diffuse renderer
-keeps 16 fresh RIS candidates and instead defaults its independently
-reconstructed low-frequency history to 256 samples.
+keeps 16 fresh RIS candidates, traces four independent GI paths without
+repeating primary direct NEE, and defaults its independently reconstructed
+low-frequency history to 32 effective path samples. The history advances by
+the actual GI path count, reaching its cap in eight stable presentations at the
+default instead of treating a multi-ray frame as one sample.
 `AB3D2_DXR_RESERVOIR_LIMIT=0` remains the history-off diagnostic; read section
 11 before tuning the estimator.
 
@@ -672,7 +678,7 @@ flat primary visibility, diffuse polygon-light transport has been reintroduced
 without the former full PBR estimator. The camera ray remains pixel-centred
 with zero frame-varying subpixel jitter and preserves flat base colour as an
 inspectable material guide rather than adding it to HDR as self-emission.
-Directly visible authored emission is shown. For each SPP sample, the primary
+Directly visible authored emission is shown. For each direct SPP sample, the primary
 diffuse surface streams `CandidateCount` samples from the complete global
 authored-emitter alias distribution through fresh RIS, converts area density to
 solid-angle density, and traces visibility only for the survivor.
@@ -681,17 +687,161 @@ surface only, while each value from two through eight traces one additional
 diffuse continuation. The first continuation uses the broad low-frequency
 geometric-normal distribution established by the Q2RTX audit; every later
 continuation uses ordinary cosine sampling. Before the primary dispatch, the
-existing camera-centred ReGIR grid is rebuilt from the complete alias table.
+existing quantized world-stable ReGIR grid is initialized from the complete
+alias table.
 Every opaque indirect hit evaluates fresh polygon RIS from its own world-space
 cell and multiplies later terms by all preceding diffuse reflectances. This
 supplies Q2RTX's essential local-light-list proposal behavior while retaining
 the stored categorical inverse probability. Environment lighting,
 GGX/specular transport, authored zone ambient, and screen-space direct-light
-ReSTIR reservoirs remain dormant. ReGIR supplies only a current-frame light
-proposal. Fresh RIS uses the unbiased
+ReSTIR reservoirs remain dormant. ReGIR retains proposal entries but never
+stores radiance or visibility. Fresh RIS uses the unbiased
 `weightSum / (candidateCount * selectedTarget)` normalization and is not reused
 across frames or pixels. Source additive layers are visible, non-occluding, and
 accumulated along every segment, but are not area-light candidates.
+
+Primary direct sampling and diffuse-indirect path sampling now have independent
+budgets. `rtx_indirect_samples=1..32` / `AB3D2_DXR_INDIRECT_SPP` defaults to
+four and is a per-pixel burst ceiling that spends only continuation plus
+indirect polygon-NEE rays. Missing, disoccluded, and immature history uses the
+ceiling; after the effective history reaches the default 32-sample cap, stable
+pixels rotate one fresh path through a 2x2 phase while the other three carry
+guide-validated reprojected radiance. Every 3x3 gradient region contains every
+phase, so a persistent signed lighting change can still cross the existing
+anti-lag confirmation threshold and restore the ceiling everywhere until the
+change subsides. Unscheduled pixels also reproject the diffuse hit-distance
+guide through the existing history resource; that resource and its full-frame
+copy were already allocated but its dormant specular value was always zero.
+Exact `raw` and ReSTIR comparison modes retain a fixed configured count. The
+mean indirect signal carries the actual selected count into the temporal stage,
+and its low-discrepancy index retains the configured stride so switching
+budgets cannot repeat prior paths.
+
+Secondary diffuse strength is independently controlled by
+`rtx_diffuse_gi=0..1` / `AB3D2_DXR_DIFFUSE_GI`, with a production default of
+`0.75`. The multiplier is applied only after the reconstructed incident signal
+is projected and remodulated by primary albedo, immediately before it is added
+to the direct/visible-emission channel. It therefore cannot feed back into the
+temporal estimator, reduce effective history, or change convergence. Exact zero
+is an explicit off path: the CPU records direct-only depth, supplies zero
+indirect samples, and skips ReGIR refresh and every temporal, regional,
+deflicker, wavelet, and ReSTIR GI stage. A final cheap resolve remains so the
+indirect diagnostic surface and indirect-only composition are deterministically
+black. Intermediate values do not proportionally change the ray budget;
+`rtx_indirect_samples` remains the estimator-cost control.
+
+The 2026-08-28 adaptive follow-up kept the same saved Level A acceptance
+sequence and default four-ray/32-sample budget. Three complete non-Streamline
+smoke runs took `3124.3`, `3076.6`, and `3080.1` ms (mean `3093.7` ms), down
+from approximately `4210` ms for the immediately preceding fixed-four-ray
+build, a 26.5% wall-time reduction. The isolated indirect frozen delta changed
+from `0.2104` to `0.2032`; the moving Shotgun delta changed from `0.5401` to
+`0.5571`. The production Streamline/DLSS-RR build also passed the same saved
+sequence with its user-selected Balanced, three-ray, 24-sample configuration.
+CPU regression coverage mirrors the shader's disocclusion, maturity,
+confirmation, invalid-data, history-disabled, and fixed-diagnostic decisions.
+
+The same date's performance follow-up made the ReGIR proposal world-stable by
+quantizing its center to the existing 512-world-unit cell size. A full build is
+now required only for a new center or emitter identity/area layout; ordinary
+frames refresh one interleaved sixteenth of every cell, covering all 512 entries
+in sixteen presentations instead of reevaluating 2,097,152 entries every frame.
+Mature guide-valid production pixels additionally rotate primary direct NEE
+through a two-phase checkerboard only while DLSS-RR is active, doubling each
+selected contribution to preserve the expected value. New, disoccluded,
+immature, and confirmed-changing pixels keep full-rate direct sampling.
+
+On the same interactive Level A sequence, the earlier Balanced build averaged
+`11.978 ms` during the second Shotgun burst. The amortized-grid/checkerboard
+build measured `11.491 ms` in Balanced and `10.712 ms` in Performance, a 10.6%
+reduction for the selected Performance mode. Its frozen late delta was `0.5500`
+and its walked delta `9.6873`, versus `0.5478` and `9.6968` before this follow-up.
+Depth two reached `10.377 ms` but was rejected because the established depth
+audit measured about 8% less indirect energy than depth three. Ultra Performance
+reached `9.537 ms` but was rejected because its 16-level change tail rose to
+`110.2` pixels versus `12.5` in Balanced. At that checkpoint the local saved
+configuration therefore kept three bounces, three indirect rays, and 24 history
+samples while selecting DLSS-RR Performance.
+
+The subsequent 2026-08-28 push retained the exact histogram weights but moved
+their atomics into 16-by-16 group-shared bins. Each tile publishes at most 128
+integer totals instead of every output pixel issuing up to two contended global
+updates. Three matched Performance runs then measured `10.069`, `9.963`, and
+`10.201 ms` (mean `10.078 ms`) versus `10.560 ms` immediately beforehand, a
+4.6% code-level reduction with the same `0.5501` frozen late delta and about 31
+16-level outliers.
+
+The lower-input preset was then re-audited with more estimator work. DLSS-RR
+Ultra Performance with two direct samples and four indirect paths measured
+`8.713`, `8.844`, and `8.791 ms` (mean `8.783 ms`), 16.8% below the matched
+Performance baseline. The extra rays improved its frozen late delta from the
+Performance baseline's `0.5501` to `0.5444` and reduced the rejected one-ray
+Ultra result's approximately 110 outliers to `45.8`; its moving delta was
+`9.4563` versus `9.6797`. The full saved Shotgun acceptance passed at `0.5055`
+frozen delta and `4.2079` moving delta with no frozen 16-level outliers. The
+local configuration now selects Ultra Performance, two direct samples, four
+indirect paths, three bounces, and 24 history samples.
+
+The final bandwidth push kept those ray budgets and made Ultra a deliberate
+two-stage speed-first path. At a 1280x720 presentation it now asks DLSS-RR for
+285x160 -> 854x480 rather than the former SDK-optimal
+427x240 -> 1280x720, then uses the final triangle's linear sampler for the
+remaining upscale. This removes 55.5% of trace/guide/history pixels and 55.5%
+of RR-output/post pixels. The direct-reservoir diagnostic export now shares one
+56-byte binding instead of three full-resolution buffers; production GI
+reservoirs similarly collapse to one element and incur no clears, writes, or
+barriers unless `restir` is selected. Diffuse hit-distance/current-history and
+standalone roughness targets are 1x1 outside their debug views. The two indirect
+histories pack six signal coefficients, confidence, and effective length into
+24 bytes per pixel instead of 40 while retaining FP32 depth and the exact packed
+normal. Diffuse/specular albedo are RGBA8, weapon history is R16_UINT,
+specular-hit distance is FP16, normal/roughness share one FP16RGBA tag, and the
+two binary RR masks are R8. Six bloom surfaces use positive-HDR R11G11B10
+instead of FP16RGBA.
+
+The first 3/4-output variant measured `8.383`, `8.460`, and `8.377 ms` (mean
+`8.407 ms`). The final 2/3-output plus packed-guide variant measured
+`8.157`, `8.130`, and `8.137 ms` (mean `8.141 ms`), 7.3% below the matched
+`8.783 ms` Ultra checkpoint above. Its frozen late delta was `0.4516`; the
+saved acceptance measured `0.5079` frozen and `3.3080` during the Shotgun pose,
+with only one frozen 16-level outlier. The lower output is visibly softer, an
+explicitly accepted trade for removing more rays, buffers, and bandwidth.
+
+The next 2026-08-28 latency/performance pass retained that accepted ray and
+resolution budget. Visible presentation now uses two flip-discard buffers, the
+DXGI frame-latency waitable-object flag, and `SetMaximumFrameLatency(1)`; the
+game waits on the object before polling SDL input, while `render` retains a
+fallback wait for direct callers. Hidden readback validation intentionally
+keeps its unpaced swap chain so its GPU timing is not quantized by the monitor.
+Ordinary ReGIR work now refreshes 1/16 rather than 1/8 of the 16 MiB cache per
+frame. Three matched warm bursts averaged `8.481 ms` versus `8.775 ms` for the
+1/8 control, a 3.4% reduction while still covering every proposal slot within
+16 presentations.
+
+Ultra Performance also keeps only the broad eighth-scale separable bloom blur;
+the half- and quarter-scale blur pairs are skipped, saving four dispatches and
+their intermediate traffic. Three warm bursts averaged `8.418 ms` versus
+`8.601 ms` for the matched full-bloom control, a further 2.1%. Its final-frame
+comparison against the full chain measured `0.997190` SSIM and `51.384 dB`
+PSNR. A 5/8 reconstruction output (`267x150 -> 800x450 -> 1280x720`) was
+rejected after averaging `8.696 ms`, slower than 2/3 output despite being
+softer. A 256-entry/8 MiB ReGIR cache and one direct ray were likewise rejected
+because neither improved the matched timing; the accepted path retains 512
+entries and the user's two-direct/four-indirect budget.
+
+The diffuse-transfer follow-up added the independent final-composition control
+above and changed the default from full transfer to `0.75`. A trial that also
+reduced the configured four-path ceiling to three at that scale was rejected:
+alternating warm runs averaged `8.595` seconds versus `8.390` seconds at four
+paths because mature adaptive reconstruction already spends only zero or one
+fresh path per pixel. Keeping the estimator budget stable preserves its accepted
+convergence while the final scale removes excess corner bounce. Exact zero does
+enable the explicit bypass; three alternating Ultra Performance Level A smoke
+runs averaged `8.513` seconds versus `9.317` seconds at `0.75`, an 8.6% complete
+smoke-sequence reduction with direct lighting and visible emission retained. A
+matched final-frame capture at full transfer versus `0.75` measured `0.997077`
+SSIM and `47.712 dB` PSNR, confirming that the new default is a restrained
+secondary-light reduction rather than a broad presentation change.
 
 The sparse diffuse suffix now has a dedicated low-frequency reconstruction
 path. All indirect-light evaluations use geometric normals; only the first
@@ -718,6 +868,9 @@ bright energy back into one full-resolution linear-HDR composite. A dedicated
 compute stage meters that exact composited result through Q2RTX's observable
 128-bin, `[-24, 8]`-stop luminance contract: exact black is excluded, samples
 are tent-filtered with centre weighting, and each bin receives one pseudocount.
+Sixteen-by-sixteen groups combine the exact truncated integer weights in shared
+memory before publishing nonzero bin totals, reducing global atomic contention
+without changing the histogram.
 The 70th--90th percentile log average drives bounded elapsed-time adaptation
 with the observed luminance bounds and asymmetric rates. The adaptive branch
 independently implements the published Eilertsen/Mantiuk/Unger minimum-contrast-
@@ -755,7 +908,7 @@ Ray-Reconstruction presentation fell from `0.1080` to `0.0938` while retaining
 the corridor fill. Those are retained historical measurements of the former
 full-resolution B-spline stage. The current directional reduced-resolution
 stage measured `0.0468` in the indirect debug view, a further 29% reduction.
-Four-tap temporal reprojection with the 256-sample LF default then measured
+Four-tap temporal reprojection with the then-current 256-sample LF default measured
 `0.0347` on the same 32-frame saved Level A view. Applying the unconfirmed
 gradient directly worsened that result to `0.0862`; signed confirmation restores
 static-scene convergence while retaining a response to persistent same-direction
@@ -833,8 +986,9 @@ Level A late delta fell from `0.5122` to `0.4119`; the second Shotgun burst rose
 from `11.555 ms` to `13.416 ms`, about 16%. For comparison, four complete SPP
 reached `0.1081` saved and `0.2949` moving but cost `16.731 ms`, about 45% over
 the one-candidate result because it needlessly repeated direct NEE as well.
-Four GI-only candidates are therefore the ReSTIR floor; configured SPP above
-four remains an explicit quality-for-cost option that raises both channels.
+That experiment established four GI-only candidates as the useful default.
+They are now the independent production default; `rtx_indirect_samples` changes
+their count without raising primary direct SPP.
 
 The subsequent hallway-energy audit removed an unrelated attenuation before
 the estimator: world PBR emission had been multiplied by the source raster
@@ -859,11 +1013,19 @@ luminance rose from `24.8076` at depth two to `26.8999` at depth three and
 energy, but it does not make bounce count a coverage repair. The dark
 right-hand hallway face has valid non-black diffuse albedo and a valid
 geometric normal. Raising complete SPP from one to eight changed its measured
-display-region mean only from approximately `17.10` to `17.14`. Its normal is
-incompatible with the adjacent brighter faces under the current ReSTIR GI
-spatial similarity gate, so those reservoirs cannot cross the corner. A deeper
+display-region mean only from approximately `17.10` to `17.14`. Its normal was
+incompatible with the adjacent brighter faces under the former ReSTIR GI
+spatial similarity gate, so those reservoirs could not cross the corner. A deeper
 suffix only begins after a useful first continuation has been discovered; it
 cannot correct that first-vertex proposal/reuse limitation.
+
+On 2026-08-28 the user directed the practical ray-budget correction. ReSTIR GI
+spatial reuse no longer rejects a nearby reservoir because its original primary
+has a different normal or depth. The reservoir stores a secondary surface, not
+filtered primary irradiance: current triangle/barycentric geometry is rebuilt,
+the sample is retargeted with the center primary's geometric term, and a fresh
+visibility ray must succeed before it contributes. This permits path discovery
+to cross a geometric corner without copying lighting across that corner.
 
 `AB3D2_DXR_RADIANCE_CHANNEL=indirect` is the startup-only isolation test for
 this signal. It clears primary visible emission, additive radiance, and direct
@@ -898,24 +1060,32 @@ DLSS_RR(noisyHDR, depth, motionVectors, normals, roughness,
 
 maps to Streamline resource tags, constants, options, and `slEvaluateFeature`; it is not one direct function with that signature.
 
-Start with separate, inspectable guide textures rather than packing normal/roughness. Pack only after a byte-for-byte/debug-view equivalence test.
+The integration began with separate, inspectable guide textures. After the
+debug views and saved acceptance path were established, production packed
+roughness into the normal alpha and reduced formats whose measured ranges made
+the conversion lossless or visually neutral. Separate roughness and diffuse
+hit-distance textures are now full-sized only for their diagnostic views.
 
-| Semantic | Initial DXGI format | Resolution | Streamline tag | Required content |
+| Semantic | Current DXGI format | Resolution | Streamline tag | Required content |
 | --- | --- | --- | --- | --- |
 | Noisy HDR radiance | `R16G16B16A16_FLOAT` | RR input | `kBufferTypeScalingInputColor` | Fresh, linear HDR path-traced radiance; no UI, tone map, temporal accumulation, or denoising |
-| RR output | `R16G16B16A16_FLOAT` | Display output | `kBufferTypeScalingOutputColor` | Streamline output, consumed by exposure/tone mapping |
-| Diffuse albedo | `R16G16B16A16_FLOAT` | RR input | `kBufferTypeAlbedo` | Linear diffuse reflectance, with metal diffuse removed |
-| Specular albedo | `R16G16B16A16_FLOAT` | RR input | `kBufferTypeSpecularAlbedo` | NVIDIA-guided view/roughness-aware specular reflectance |
-| Shading normal | `R16G16B16A16_FLOAT` | RR input | `kBufferTypeNormals` | Normalized world-space shading normal in RGB |
-| Linear roughness | `R16_FLOAT` | RR input | `kBufferTypeRoughness` | Perceptual/linear material roughness in R, not squared BRDF alpha |
+| RR output | `R16G16B16A16_FLOAT` | Mode output | `kBufferTypeScalingOutputColor` | Streamline output, consumed by exposure/tone mapping; Ultra uses two thirds of the presentation extent |
+| Diffuse albedo | `R8G8B8A8_UNORM` | RR input | `kBufferTypeAlbedo` | Linear diffuse reflectance, with metal diffuse removed |
+| Specular albedo | `R8G8B8A8_UNORM` | RR input | `kBufferTypeSpecularAlbedo` | Exact zero for the current metal-free diffuse model |
+| Shading normal + roughness | `R16G16B16A16_FLOAT` | RR input | `kBufferTypeNormalRoughness` | Normalized world-space shading normal in RGB and current roughness 1 in A |
 | Linear depth | `R32_FLOAT` | RR input | `kBufferTypeLinearDepth` | Positive camera/view-space ray depth using one documented clear sentinel |
-| Scene motion | `R16G16_FLOAT` initially | RR input | `kBufferTypeMotionVectors` | Dense camera and dynamic-object motion in pixel units |
-| Specular hit distance | `R32_FLOAT` | RR input | `kBufferTypeSpecularHitDistance` | World-space distance from the primary surface ray origin to its specular-ray hit; documented miss value |
+| Scene motion | `R16G16_FLOAT` | RR input | `kBufferTypeMotionVectors` | Dense camera and dynamic-object motion in pixel units |
+| Specular hit distance | `R16_FLOAT` | RR input | `kBufferTypeSpecularHitDistance` | Current zero guide retained because removing its tag measurably worsened motion reconstruction |
+| Weapon disocclusion | `R8_UNORM` | RR input | `kBufferTypeDisocclusionMask` | Binary current/prior weapon-pose rejection |
+| Current-colour bias | `R8_UNORM` | RR input | `kBufferTypeBiasCurrentColorHint` | Binary current weapon silhouette |
 | Exposure | none | n/a | not tagged | RR receives un-pre-exposed linear HDR (`preExposure=1`); the Q2RTX exposure bias runs only after reconstruction and histogram metering |
 
 Use specular hit distance for the first complete integration, not specular motion vectors. Trace a deterministic mirror direction from the primary surface and report its world-space distance (or the far plane on a miss), avoiding a separate virtual-reflection motion pipeline. Supply the exact additional world/view camera matrices named by the pinned `sl_dlss_d.h`. Once baseline quality is validated, specular motion vectors may be evaluated as a measured alternative, never as two simultaneously ambiguous inputs.
 
-The initial formats intentionally favor observability and correctness over bandwidth. Optimize formats only after debug captures prove ranges, signs, spaces, and quantization are unchanged.
+The original FP16/FP32 formats favored observability over bandwidth. Each
+conversion above passed the same debug/frozen/moving capture path; the optional
+specular-hit-distance tag was restored after an attempted removal made the
+moving metric worse.
 
 ### Camera and motion history
 
@@ -1088,7 +1258,11 @@ smoke presents 48 real Shotgun updates while asserting that the full scene
 rebuild count does not change after selection. Camera-local weapon vertices
 also carry neutral source light, with a regression proving that a fully dark
 source Gouraud input remains fully dark in the projected/OpenGL mesh but cannot
-modulate the DXR mesh.
+modulate the DXR mesh. The saved-game smoke separately selects, settles, and
+fires the Shotgun at the restored corridor camera, with four presentation
+samples per source update and a host-rate yaw sweep. It stops halfway through
+update nine by default so captures exercise the pose transition rather than an
+idle weapon.
 
 - Add shared tested world-coordinate conversion and triangulation.
 - Add renderer-neutral object-space vector geometry where needed.
@@ -1134,12 +1308,22 @@ classes and transient projectiles remain incomplete.
 - Current status: all seven mandatory guide textures are separate, named, and
   written by the world/entity/companion path tracer. Primary misses write zero albedo,
   normal, roughness, depth, and hit distance; a zero hit distance also denotes
-  a specular-ray miss. History-invalid motion is `(65504, 65504)`, reserving the
-  largest finite FP16 value outside the clamped valid range, while valid sky
-  pixels retain rotational camera motion. Surface albedo/normal alpha is one and
-  miss alpha is zero for inspection. Environment-selected debug views cover
-  every guide; raw asynchronous guide statistics and the ID/history overlay
-  remain to finish the diagnostics bullet.
+  a specular-ray miss. Renderer-private history-invalid motion is
+  `(65504, 65504)`, reserving the largest finite FP16 value outside the clamped
+  valid range, while valid sky pixels retain rotational camera motion. Because
+  camera motion is already included, Streamline receives a separate motion
+  texture in which invalid samples use a finite off-screen reprojection rather
+  than that private sentinel. Camera-local companion positions provide
+  precision-safe weapon depth and motion. A pose hash activates ping-ponged
+  per-pixel coverage for the exact new and prior weapon silhouettes. The
+  resulting binary R8 texture is tagged as Streamline's dedicated disocclusion mask
+  for the transition and next three presentations, while the current silhouette
+  sets `kBufferTypeBiasCurrentColorHint` to one. Weapon history rejection now
+  reaches the NGX inputs directly instead of being encoded as fake motion, with
+  no global reset or change to private indirect history. Surface albedo/normal
+  alpha is one and miss alpha is zero for inspection. Environment-selected
+  debug views cover every guide; raw asynchronous guide statistics and the
+  ID/history overlay remain to finish the diagnostics bullet.
 - Add separate diffuse/specular albedo, normals, roughness, linear depth, dense motion, and specular hit-distance resources.
 - Add previous-frame identity/transform history and explicit reset epochs.
 - Add every debug view/readback statistic and synthetic camera/object motion test.
@@ -1147,8 +1331,11 @@ classes and transient projectiles remain incomplete.
 ### 9. `Integrate Streamline DLSS Ray Reconstruction 2.12`
 
 - Current status: implemented for the world/entity/companion pipeline. Quality,
-  balanced, performance, and ultra-performance modes use Streamline's fixed
-  optimal input dimensions and a full-resolution output. The renderer submits
+  balanced, and performance use Streamline's fixed optimal input dimensions
+  and a presentation-sized output. Ultra Performance is speed-first: it queries
+  the SDK minimum for a two-thirds presentation target and the final triangle
+  linearly upscales that result. At 1280x720 the chain is
+  285x160 -> 854x480 -> 1280x720. The renderer submits
   all required Phase 8 guides, matrices/constants, options, frame token, and
   viewport, restores presentation command-list state after evaluation, and frees
   resources across resize/shutdown. `AB3D2_DXR_RR_MODE=off` is the raw-noise
@@ -1168,7 +1355,7 @@ classes and transient projectiles remain incomplete.
   run passed, and a diffuse-albedo capture confirmed the source-scale lower-view
   surface supplies real world depth and reconstruction guides. The configured
   exposure bias defaults to `-1` EV; a dedicated post-Ray-Reconstruction compute stage now
-  meters the actual full-resolution linear-FP16 reconstructed image with a
+  meters the actual mode-output linear-FP16 reconstructed image with a
   centre-weighted, tent-filtered 128-bin histogram over `[-24, 8]` stops. Its
   70th--90th percentile interval drives log-domain exposure adaptation. The
   seven-stop adaptive curve is the independently expressed published
@@ -1178,7 +1365,7 @@ classes and transient projectiles remain incomplete.
   expose adapted/target luminance and the metered range. CTest no longer supplies
   an exposure override, so its Level A--P smoke exercises the production
   presentation and both companion assertions directly. Three separably blurred
-  FP16 scales now extract and composite bright energy in linear HDR before that
+  `R11G11B10_FLOAT` scales now extract and composite bright energy in linear HDR before that
   histogram and tone curve.
   The explicit SDR path retains manual exact sRGB encoding and uses the pinned
   blue-noise/Owen-scrambled Sobol package for sub-half-code final 8-bit
@@ -1360,13 +1547,16 @@ direct paths.
 On 2026-08-21 a second explicit comparison had also identified another
 architectural mismatch: NVIDIA's Medium and Ultra sample presets feed initial
 ReSTIR DI from a camera-centered ReGIR proposal. The project builds a regular
-16-by-16-by-16 world grid
-before the primary dispatch. Each cell holds 512 independent RIS entries; each
-entry resamples eight candidates from the complete global alias table and stores
-the selected emitter plus its inverse proposal probability. A UAV barrier makes
-the rebuilt grid visible to initial sampling. Jittered cell lookup reduces hard
-cell boundaries, and an out-of-grid receiver deliberately samples the complete
-global distribution.
+16-by-16-by-16 world grid before the primary dispatch. Each cell holds 512
+independent RIS entries; each entry resamples eight candidates from the complete
+global alias table and stores the selected emitter plus its inverse proposal
+probability. The initial implementation rebuilt every entry every frame. The
+2026-08-28 performance follow-up quantizes the center to cell boundaries,
+rebuilds only after a center or emitter identity/area-layout change, and refreshes
+one sixteenth of every cell on ordinary frames. A UAV barrier makes each update
+visible to initial sampling. Jittered cell lookup reduces hard cell boundaries,
+and an out-of-grid receiver deliberately samples the complete global
+distribution.
 
 The project-owned volume target contains the physical quantities a spatial
 light proposal needs without importing NVIDIA code or data: conservative emitted
@@ -1673,9 +1863,15 @@ nothing passes any stability bound trivially.
 
 - ID-independent debug-layer-clean diagnostic create/render/resize/minimize/restore/shutdown loops, including a multi-thousand-frame run.
 - `--gpu-smoke save` restores the executable-local save and adjacent desktop
-  settings, freezes that exact scene/camera, and presents 32 frames. This is the
-  acceptance view for corridor-fill changes; it replaces the former synthetic
-  single-wall inspection without modifying the user's save.
+  settings, mutes the mixer, freezes that exact scene/camera for 32 frames, then
+  selects and settles the real Shotgun. Firing renders four deterministic
+  presentation samples per 50 Hz update while sweeping the saved camera yaw;
+  update nine, subframe two is the default endpoint. This is the acceptance view
+  for corridor-fill and view-weapon transition changes; it replaces the former
+  synthetic single-wall inspection without modifying the user's save.
+  `AB3D2_DXR_SAVED_SMOKE_SHOT_FRAMES=1..64` and
+  `AB3D2_DXR_SAVED_SMOKE_SHOT_SUBFRAME=1..4` select an exact action pose, and
+  nonzero weapon primary-hit coverage is required.
 - The dedicated foundation test does not require game content. The RTX
   all-level smoke separately renders each world/entity frame twice. An isolated
   pass may correctly return black when that view sees no authored source or
@@ -1761,11 +1957,18 @@ The renderer is ready for normal use only when all of these are true:
 
 ## Deliberately deferred decisions
 
-- Exact shipping RR performance/quality mode and supported output resolutions: choose after the foundation can query the selected GPU and `slDLSSDGetOptimalSettings`.
-- FP16 guide optimizations and normal/roughness packing: defer until separate FP32/FP16 debug comparisons show no integration error.
+- The shipped default remains Quality. Ultra Performance now deliberately uses
+  a two-thirds reconstruction output as the opt-in speed-first preset; further
+  output-scale reduction remains deferred pending a sharper reconstruction path.
+- The accepted guide packing is recorded in the frame-contract table. Further
+  compression of signed normals, motion, depth, or noisy HDR remains deferred
+  until a debug/capture comparison proves its coordinate and range semantics.
 - Specular motion vectors: defer while specular hit distance is the validated baseline.
 - Transmission/refraction, nested dielectrics, volumetrics, depth of field, motion blur, and frame generation: out of the initial renderer scope.
-- Responsivity, disocclusion, transparency, or other optional Streamline masks/guides: add only when the baseline required inputs are proven and a reproducible capture demonstrates the need.
+- Transparency/color-before-transparency and other optional Streamline guides
+  remain deferred. View-weapon disocclusion and current-color-bias masks are now
+  present because the saved interpolated camera/weapon sequence reproduces the
+  temporal-history failure they address.
 - Static BLAS compaction, bindless layout, sampler choice, and bounce-count/performance presets: measure after correctness; none may become a visual workaround.
 - Additional spatial passes beyond the one current-frame pass in 11c: measure the
   accepted implementation before paying for more ray-traced neighbor domains.

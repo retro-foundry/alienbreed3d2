@@ -20,10 +20,11 @@ struct DxrStreamlineResources {
     ID3D12Resource *diffuse_albedo = nullptr;
     ID3D12Resource *specular_albedo = nullptr;
     ID3D12Resource *shading_normal = nullptr;
-    ID3D12Resource *linear_roughness = nullptr;
     ID3D12Resource *linear_depth = nullptr;
     ID3D12Resource *scene_motion = nullptr;
     ID3D12Resource *specular_hit_distance = nullptr;
+    ID3D12Resource *disocclusion_mask = nullptr;
+    ID3D12Resource *bias_current_color = nullptr;
 };
 
 class DxrStreamline final {

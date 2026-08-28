@@ -47,6 +47,7 @@ static const uint BloomBlurHorizontal = 2u;
 static const uint BloomBlurVertical = 3u;
 static const uint BloomUpsample = 4u;
 static const uint BloomComposite = 5u;
+groupshared uint GroupHistogram[HistogramBinCount];
 
 float luminance(float3 color)
 {
@@ -176,34 +177,47 @@ float histogramLogLuminance(uint index)
  * luminance between adjacent bins, and give the center of the view the largest
  * metering weight. Curve construction handles the explicit noise floor.
  */
-[numthreads(8, 8, 1)]
-void histogram_main(uint3 dispatchThreadId : SV_DispatchThreadID)
+[numthreads(16, 16, 1)]
+void histogram_main(uint3 dispatchThreadId : SV_DispatchThreadID,
+                    uint groupIndex : SV_GroupIndex)
 {
+    if (groupIndex < HistogramBinCount) {
+        GroupHistogram[groupIndex] = 0u;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
     uint2 pixel = dispatchThreadId.xy;
-    if (pixel.x >= SourceWidth || pixel.y >= SourceHeight) {
-        return;
+    if (pixel.x < SourceWidth && pixel.y < SourceHeight) {
+        float value = luminance(max(
+            InputRadiance.Load(int3(pixel, 0)).rgb, 0.0));
+        if (value > 0.0 && isfinite(value)) {
+            float valueLog = log2(clamp(
+                value, exp2(MinimumLogLuminance),
+                exp2(MaximumLogLuminance)));
+            float position = histogramPosition(valueLog);
+            uint left = uint(position);
+            uint right = left + 1u;
+            float2 uv = (float2(pixel) + 0.5) /
+                float2(SourceWidth, SourceHeight);
+            float spatialWeight = clamp(
+                1.0 - length(uv - 0.5) * 1.5, 0.01, 1.0);
+            float rightWeight = frac(position) * spatialWeight;
+            float leftWeight = spatialWeight - rightWeight;
+            InterlockedAdd(GroupHistogram[left],
+                           uint(leftWeight * HistogramFractionScale));
+            if (right < HistogramBinCount) {
+                InterlockedAdd(GroupHistogram[right],
+                               uint(rightWeight * HistogramFractionScale));
+            }
+        }
     }
-    float value = luminance(max(
-        InputRadiance.Load(int3(pixel, 0)).rgb, 0.0));
-    if (!(value > 0.0) || !isfinite(value)) {
-        return;
-    }
-    float valueLog = log2(clamp(value, exp2(MinimumLogLuminance),
-                                exp2(MaximumLogLuminance)));
-    float position = histogramPosition(valueLog);
-    uint left = uint(position);
-    uint right = left + 1u;
-    float2 uv = (float2(pixel) + 0.5) /
-        float2(SourceWidth, SourceHeight);
-    float spatialWeight = clamp(
-        1.0 - length(uv - 0.5) * 1.5, 0.01, 1.0);
-    float rightWeight = frac(position) * spatialWeight;
-    float leftWeight = spatialWeight - rightWeight;
-    InterlockedAdd(LuminanceHistogram[left],
-                   uint(leftWeight * HistogramFractionScale));
-    if (right < HistogramBinCount) {
-        InterlockedAdd(LuminanceHistogram[right],
-                       uint(rightWeight * HistogramFractionScale));
+
+    GroupMemoryBarrierWithGroupSync();
+    if (groupIndex < HistogramBinCount) {
+        uint groupWeight = GroupHistogram[groupIndex];
+        if (groupWeight != 0u) {
+            InterlockedAdd(LuminanceHistogram[groupIndex], groupWeight);
+        }
     }
 }
 

@@ -23,7 +23,9 @@ class DxrStreamline;
 
 class DxrDevice final {
 public:
-    static constexpr UINT frame_count = 3;
+    static constexpr UINT frame_count = 2;
+    static constexpr UINT swap_chain_flags =
+        DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     DxrDevice() = default;
     ~DxrDevice();
@@ -36,6 +38,7 @@ public:
                     std::string &error);
     bool render(DxrPipeline &pipeline, const SceneFrame &frame,
                 const RenderView &view, std::string &error);
+    bool wait_for_present(std::string &error);
     bool flush(std::string &error);
     /* flush_queue is false only when the owner has already made the queue idle
      * before shutting down Streamline's proxy layer. */
@@ -125,6 +128,8 @@ private:
     UINT64 readback_total_bytes_ = 0;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT readback_footprint_ = {};
     HANDLE fence_event_ = nullptr;
+    HANDLE frame_latency_waitable_object_ = nullptr;
+    bool frame_latency_wait_satisfied_ = false;
     DxrStreamline *streamline_ = nullptr;
     RendererOutputMode requested_output_ = RENDERER_OUTPUT_SDR;
     float requested_hdr_peak_nits_ = 0.0f;

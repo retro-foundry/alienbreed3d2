@@ -22,11 +22,9 @@ namespace ab3d2::dxr {
 
 class DxrStreamline;
 
-/*
- * Layout mirrored by `PackedLightReservoir` in shaders/path_trace.hlsl. One
- * direct-lighting reservoir per render-resolution pixel, double buffered so the
- * ray shader never reads and writes the same allocation.
- */
+/* Layout mirrored by `PackedLightReservoir` in shaders/path_trace.hlsl. The
+ * production renderer no longer publishes screen-space direct reservoirs, but
+ * the dormant diagnostic shader export still needs one valid root-UAV binding. */
 struct DxrLightReservoir {
     uint32_t emitter_index;
     uint32_t position_sample;
@@ -53,7 +51,7 @@ enum class DxrReconstructionBuffer : size_t {
     scene_motion,
     specular_hit_distance,
     diffuse_hit_distance,
-    specular_hit_distance_history,
+    diffuse_hit_distance_history,
     count,
 };
 
@@ -106,6 +104,10 @@ public:
      * override have been applied over the tuned defaults. */
     void active_ray_tracing_options(RendererRayTracingOptions &options) const {
         options.samples_per_pixel = static_cast<uint8_t>(spp_);
+        options.indirect_samples_per_pixel =
+            static_cast<uint8_t>(indirect_spp_);
+        options.diffuse_gi_scale = diffuse_gi_scale_;
+        options.diffuse_gi_scale_set = UINT8_MAX;
         options.maximum_bounces = static_cast<uint8_t>(maximum_depth_);
         options.light_candidates = static_cast<uint16_t>(candidate_count_);
         options.reservoir_sample_limit = reservoir_sample_limit_;
@@ -183,6 +185,19 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> indirect_chroma_filtered_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2>
         indirect_gradients_;
+    /* Streamline cannot use the renderer-private FP16 invalid-motion sentinel
+     * when camera motion is already included. Keep a sanitized copy for RR. */
+    Microsoft::WRL::ComPtr<ID3D12Resource> streamline_scene_motion_;
+    /* Per-pixel weapon coverage and short RR rejection lifetime, ping-ponged
+     * so a pose change can scrub the exact prior silhouette. */
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2>
+        view_weapon_histories_;
+    /* Explicit Streamline/NGX temporal rejection for the current and prior
+     * view-weapon silhouettes during an authored pose transition. */
+    Microsoft::WRL::ComPtr<ID3D12Resource> rr_disocclusion_mask_;
+    /* One explicitly means current color only for the visible weapon, avoiding
+     * temporal retention inside a moving silhouette. */
+    Microsoft::WRL::ComPtr<ID3D12Resource> rr_bias_current_color_mask_;
     Microsoft::WRL::ComPtr<ID3D12Resource> automatic_exposure_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_histogram_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_state_;
@@ -195,8 +210,7 @@ private:
                static_cast<size_t>(DxrReconstructionBuffer::count)>
         reconstruction_targets_;
     Microsoft::WRL::ComPtr<ID3D12Resource> streamline_output_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> temporal_reservoirs_;
-    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> light_reservoirs_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> direct_reservoir_binding_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> gi_reservoirs_;
     Microsoft::WRL::ComPtr<ID3D12Resource> gi_reservoir_scratch_;
     UINT descriptor_size_ = 0;
@@ -212,6 +226,10 @@ private:
     float exposure_bias_stops_ = -1.0f;
     float ndf_trim_ = 0.9f;
     uint32_t spp_ = 1u;
+    uint32_t indirect_spp_ =
+        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL;
+    float diffuse_gi_scale_ =
+        RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
     uint32_t maximum_depth_ = 3u;
     uint32_t debug_view_ = 0;
@@ -232,6 +250,9 @@ private:
     uint32_t last_metered_weight_ = 0u;
     bool diagnostics_have_output_ = false;
     bool light_grid_needs_initial_transition_ = false;
+    light_grid::Position light_grid_center_ = {};
+    uint64_t light_grid_layout_hash_ = 0u;
+    bool light_grid_cache_valid_ = false;
     struct DxrFrameHistory {
         reconstruction::CameraProjection previous_camera = {};
         reconstruction::PixelJitter previous_jitter = {};
@@ -245,6 +266,10 @@ private:
         UINT input_height = 0;
         UINT pending_input_width = 0;
         UINT pending_input_height = 0;
+        uint64_t weapon_pose_hash = 0u;
+        uint64_t pending_weapon_pose_hash = 0u;
+        bool weapon_pose_hash_valid = false;
+        bool pending_weapon_pose_hash_valid = false;
         bool valid = false;
         bool pending = false;
     } history_;

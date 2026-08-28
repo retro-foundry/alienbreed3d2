@@ -89,6 +89,28 @@ extern "C" int renderer_rtx_get_presentation_size(
     return renderer->implementation->presentation_size(*out_width, *out_height) ? 1 : 0;
 }
 
+extern "C" int renderer_rtx_wait_for_present(
+    RendererRtx *renderer, char *error, size_t error_size)
+{
+    if (!renderer || !renderer->implementation) {
+        copy_error(error, error_size,
+                   "D3D12/DXR frame-latency wait received invalid state");
+        return 0;
+    }
+    try {
+        std::string implementation_error;
+        if (!renderer->implementation->wait_for_present(implementation_error)) {
+            copy_error(error, error_size, implementation_error);
+            return 0;
+        }
+        return 1;
+    } catch (const std::exception &exception) {
+        exception_error(error, error_size, "D3D12/DXR frame-latency wait",
+                        exception);
+        return 0;
+    }
+}
+
 extern "C" int renderer_rtx_present(
     RendererRtx *renderer, const SceneFrame *frame, const RenderView *view,
     char *error, size_t error_size)

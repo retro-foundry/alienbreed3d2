@@ -34,6 +34,8 @@ struct SceneVertex
     /* Per-vertex strength for explicitly authored additive effects. World PBR
      * polygon lights use neutral one; source Gouraud lighting is not radiance. */
     float emissiveScale;
+    /* Camera-local source position for the view weapon; zero for the world. */
+    float3 viewWeaponPosition;
 };
 
 struct SceneMaterial
@@ -78,6 +80,16 @@ struct IndirectHistoryPixel
     uint normal;
     float historyLength;
     float gradientConfidence;
+};
+
+struct PackedIndirectHistoryPixel
+{
+    uint luminanceSH01;
+    uint luminanceSH23;
+    uint chroma;
+    float depth;
+    uint normal;
+    uint historyAndConfidence;
 };
 
 struct IndirectSignal
@@ -196,7 +208,7 @@ RWTexture2D<float> LinearDepth : register(u5);
 RWTexture2D<float2> SceneMotion : register(u6);
 RWTexture2D<float> SpecularHitDistance : register(u7);
 RWTexture2D<float> DiffuseHitDistance : register(u8);
-RWTexture2D<float> SpecularHitDistanceHistory : register(u9);
+RWTexture2D<float> DiffuseHitDistanceHistory : register(u9);
 RWStructuredBuffer<PackedLightReservoir> CurrentReservoirs : register(u10);
 /* Read-only this frame, but declared as a UAV so both reservoir buffers can stay
  * in the unordered-access state and the frame needs no state transitions. */
@@ -210,7 +222,8 @@ RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
  * path sample; after temporal accumulation the texture's top-left third-sized
  * area holds the transient one-third-resolution reconstruction. */
 RWTexture2D<float4> IndirectRadiance : register(u14);
-RWStructuredBuffer<IndirectHistoryPixel> IndirectHistories[2] : register(u15);
+RWStructuredBuffer<PackedIndirectHistoryPixel> IndirectHistories[2] :
+    register(u15);
 RWTexture2D<float4> IndirectFiltered : register(u17);
 RWStructuredBuffer<float> AutomaticExposure : register(u18);
 RWTexture2D<float2> IndirectChroma : register(u19);
@@ -218,6 +231,10 @@ RWTexture2D<float2> IndirectChromaFiltered : register(u20);
 RWTexture2D<float2> IndirectGradients[2] : register(u21);
 RWStructuredBuffer<PackedGIReservoir> GIReservoirs[2] : register(u23);
 RWStructuredBuffer<PackedGIReservoir> GITemporalScratch : register(u25);
+RWTexture2D<float2> StreamlineSceneMotion : register(u26);
+RWTexture2D<uint> ViewWeaponHistories[2] : register(u27);
+RWTexture2D<float> RayReconstructionDisocclusion : register(u29);
+RWTexture2D<float> RayReconstructionBiasCurrentColor : register(u30);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -252,6 +269,13 @@ cbuffer FrameConstants : register(b0)
     float ExposureDeltaSeconds;
     uint IndirectReconstructionMode;
     uint RadianceChannel;
+    uint RayReconstructionWeaponPoseTransition;
+    uint IndirectSamplesPerPixel;
+    float3 LightGridCenter;
+    uint LightGridRebuild;
+    uint RayReconstructionActive;
+    uint DiagnosticGuideMask;
+    float DiffuseGiScale;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -267,14 +291,6 @@ static const uint BlueNoiseRankingOffset = 196608u;
 static const uint MaximumDiffusePathDepth = 8u;
 static const uint PathDimensionsPerBounce = 8u;
 static const uint MaximumMaterialFilterTaps = 8u;
-/*
- * The primary lobe choice is stochastic, so only some frames produce a
- * specular continuation ray for a given pixel. Writing zero on the other
- * frames makes Ray Reconstruction resize its specular filter footprint per
- * pixel per frame. The guide therefore carries a reprojected running estimate
- * that only ever moves towards a real measurement. This filters a guide, not
- * radiance: the path-traced estimate in NoisyRadiance is untouched.
- */
 /*
  * How many additive layers one ray segment resolves before it gives up and
  * shades the next one as ordinary geometry.
@@ -325,6 +341,10 @@ static const float IndirectTemporalAntilagHistoryPower = 10.0;
 static const float IndirectTemporalMinimumCurrentWeight = 0.01;
 static const float IndirectGradientConfirmationRate = 0.25;
 static const float IndirectGradientConfirmationThreshold = 0.4;
+static const uint StableIndirectSampleCount = 1u;
+static const uint StableIndirectSamplingPhaseCount = 4u;
+static const uint StableDirectSamplingPhaseCount = 2u;
+static const float AdaptiveHistoryMaturityTolerance = 0.5;
 static const uint IndirectReconstructionFull = 0u;
 static const uint IndirectReconstructionTemporal = 1u;
 static const uint IndirectReconstructionRaw = 2u;
@@ -334,7 +354,6 @@ static const uint IndirectReconstructionWavelet1 = 5u;
 static const uint IndirectReconstructionWavelet2 = 6u;
 static const uint IndirectReconstructionRestir = 7u;
 static const float GIContinuationRadialPower = 0.4;
-static const uint GIInitialCandidateCount = 4u;
 static const uint GISpatialSampleCount = 4u;
 static const float GISpatialRadius = 32.0;
 static const uint GITemporalStream = 0x30000u;
@@ -385,6 +404,7 @@ static const uint LightGridCellCount =
     LightGridCellsPerAxis * LightGridCellsPerAxis * LightGridCellsPerAxis;
 static const uint LightGridLightsPerCell = 512u;
 static const uint LightGridBuildSamples = 8u;
+static const uint LightGridRefreshPhaseCount = 16u;
 static const uint LightGridEntryCount =
     LightGridCellCount * LightGridLightsPerCell;
 static const float LightGridCellSize = 512.0;
@@ -547,6 +567,74 @@ IndirectSignal emptyIndirectSignal()
 {
     IndirectSignal signal = (IndirectSignal)0;
     return signal;
+}
+
+float finiteHistoryHalf(float value)
+{
+    return isnan(value) || isinf(value) ? 0.0 :
+        clamp(value, -65504.0, 65504.0);
+}
+
+uint packHistoryHalf2(float2 value)
+{
+    return f32tof16(finiteHistoryHalf(value.x)) |
+        (f32tof16(finiteHistoryHalf(value.y)) << 16u);
+}
+
+float2 unpackHistoryHalf2(uint packed)
+{
+    return float2(f16tof32(packed & 0xffffu),
+                  f16tof32(packed >> 16u));
+}
+
+float indirectHistoryScale()
+{
+    return ReservoirSampleLimit > 0u ? float(ReservoirSampleLimit) :
+        float(max(IndirectSamplesPerPixel, 1u));
+}
+
+PackedIndirectHistoryPixel packIndirectHistory(IndirectHistoryPixel value)
+{
+    PackedIndirectHistoryPixel packed;
+    packed.luminanceSH01 = packHistoryHalf2(value.luminanceSH.xy);
+    packed.luminanceSH23 = packHistoryHalf2(value.luminanceSH.zw);
+    packed.chroma = packHistoryHalf2(value.chroma);
+    packed.depth = value.depth;
+    packed.normal = value.normal;
+    float historyScale = indirectHistoryScale();
+    uint encodedHistory = uint(round(
+        saturate(value.historyLength / historyScale) * 65535.0));
+    uint encodedConfidence = f32tof16(
+        finiteHistoryHalf(clamp(value.gradientConfidence, -1.0, 1.0)));
+    packed.historyAndConfidence = encodedHistory |
+        (encodedConfidence << 16u);
+    return packed;
+}
+
+IndirectHistoryPixel unpackIndirectHistory(PackedIndirectHistoryPixel packed)
+{
+    IndirectHistoryPixel value;
+    value.luminanceSH.xy = unpackHistoryHalf2(packed.luminanceSH01);
+    value.luminanceSH.zw = unpackHistoryHalf2(packed.luminanceSH23);
+    value.chroma = unpackHistoryHalf2(packed.chroma);
+    value.depth = packed.depth;
+    value.normal = packed.normal;
+    value.historyLength =
+        float(packed.historyAndConfidence & 0xffffu) *
+        (indirectHistoryScale() / 65535.0);
+    value.gradientConfidence =
+        f16tof32(packed.historyAndConfidence >> 16u);
+    return value;
+}
+
+IndirectHistoryPixel loadIndirectHistory(uint slot, uint index)
+{
+    return unpackIndirectHistory(IndirectHistories[slot][index]);
+}
+
+void storeIndirectHistory(uint slot, uint index, IndirectHistoryPixel value)
+{
+    IndirectHistories[slot][index] = packIndirectHistory(value);
 }
 
 /* First-order directional luminance plus unprojected opponent chroma. These
@@ -1089,6 +1177,32 @@ float3 previousSurfacePosition(SurfacePayload payload)
         third.position * payload.barycentrics.y;
 }
 
+float3 currentViewWeaponPosition(SurfacePayload payload)
+{
+    uint firstVertex = payload.primitiveIndex * 3u;
+    SceneVertex first = Vertices[firstVertex + 0u];
+    SceneVertex second = Vertices[firstVertex + 1u];
+    SceneVertex third = Vertices[firstVertex + 2u];
+    float firstWeight =
+        1.0 - payload.barycentrics.x - payload.barycentrics.y;
+    return first.viewWeaponPosition * firstWeight +
+        second.viewWeaponPosition * payload.barycentrics.x +
+        third.viewWeaponPosition * payload.barycentrics.y;
+}
+
+float3 previousViewWeaponPosition(SurfacePayload payload)
+{
+    uint firstVertex = payload.primitiveIndex * 3u;
+    SceneVertex first = PreviousVertices[firstVertex + 0u];
+    SceneVertex second = PreviousVertices[firstVertex + 1u];
+    SceneVertex third = PreviousVertices[firstVertex + 2u];
+    float firstWeight =
+        1.0 - payload.barycentrics.x - payload.barycentrics.y;
+    return first.viewWeaponPosition * firstWeight +
+        second.viewWeaponPosition * payload.barycentrics.x +
+        third.viewWeaponPosition * payload.barycentrics.y;
+}
+
 /*
  * One ray segment resolved through the additive geometry standing in it.
  *
@@ -1227,24 +1341,58 @@ bool projectDirectionToPixel(float3 direction, float3 cameraForward,
 }
 
 float2 surfaceMotion(SurfacePayload payload, SurfaceData surface,
-                     float2 dimensions)
+                     float2 dimensions, bool viewWeapon)
 {
     if (HistoryValid == 0u) {
         return InvalidMotion.xx;
     }
     float2 currentPixel;
     float2 previousPixel;
-    bool currentValid = projectWorldToPixel(
-        surface.position, CameraPosition, CameraForward, CameraRight, CameraUp,
-        TanHalfFovY, Aspect, dimensions, currentPixel);
-    bool previousValid = projectWorldToPixel(
-        previousSurfacePosition(payload), PreviousCameraPosition,
-        PreviousCameraForward, PreviousCameraRight, PreviousCameraUp,
-        PreviousTanHalfFovY, PreviousAspect, dimensions, previousPixel);
+    bool currentValid;
+    bool previousValid;
+    if (viewWeapon) {
+        float3 currentPosition = currentViewWeaponPosition(payload);
+        float3 previousPosition = previousViewWeaponPosition(payload);
+        currentValid = currentPosition.z > 1.0e-6;
+        previousValid = previousPosition.z > 1.0e-6;
+        if (currentValid) {
+            float2 currentNdc = float2(
+                currentPosition.x /
+                    (currentPosition.z * Aspect * TanHalfFovY),
+                currentPosition.y / (currentPosition.z * TanHalfFovY));
+            currentValid = !any(isnan(currentNdc)) &&
+                !any(isinf(currentNdc));
+            currentPixel = float2(currentNdc.x * 0.5 + 0.5,
+                                  0.5 - currentNdc.y * 0.5) * dimensions;
+        }
+        if (previousValid) {
+            float2 previousNdc = float2(
+                previousPosition.x /
+                    (previousPosition.z * PreviousAspect *
+                     PreviousTanHalfFovY),
+                previousPosition.y /
+                    (previousPosition.z * PreviousTanHalfFovY));
+            previousValid = !any(isnan(previousNdc)) &&
+                !any(isinf(previousNdc));
+            previousPixel = float2(previousNdc.x * 0.5 + 0.5,
+                                   0.5 - previousNdc.y * 0.5) * dimensions;
+        }
+    } else {
+        currentValid = projectWorldToPixel(
+            surface.position, CameraPosition, CameraForward, CameraRight,
+            CameraUp, TanHalfFovY, Aspect, dimensions, currentPixel);
+        previousValid = projectWorldToPixel(
+            previousSurfacePosition(payload), PreviousCameraPosition,
+            PreviousCameraForward, PreviousCameraRight, PreviousCameraUp,
+            PreviousTanHalfFovY, PreviousAspect, dimensions, previousPixel);
+    }
     if (!currentValid || !previousValid) {
         return InvalidMotion.xx;
     }
-    return clamp(previousPixel - currentPixel, -65500.0, 65500.0);
+    /* A displacement larger than the input extent cannot reference useful
+     * history. Bound it to a finite off-screen reprojection that survives FP16
+     * storage instead of rounding 65500 back to the 65504 invalid sentinel. */
+    return clamp(previousPixel - currentPixel, -dimensions, dimensions);
 }
 
 float2 environmentMotion(float3 direction, float2 dimensions)
@@ -1264,7 +1412,7 @@ float2 environmentMotion(float3 direction, float2 dimensions)
     if (!currentValid || !previousValid) {
         return InvalidMotion.xx;
     }
-    return clamp(previousPixel - currentPixel, -65500.0, 65500.0);
+    return clamp(previousPixel - currentPixel, -dimensions, dimensions);
 }
 
 /*
@@ -1278,6 +1426,50 @@ float2 reprojectHistoryPixel(uint2 pixel, float2 motion)
 {
     return float2(pixel) + 0.5 + motion +
         float2(JitterX - PreviousJitterX, JitterY - PreviousJitterY);
+}
+
+/* Store current weapon coverage beside a short per-pixel rejection lifetime.
+ * On a pose change, the exact new and prior silhouettes are scrubbed without
+ * discarding RR history from the surrounding scene. */
+bool updateRayReconstructionWeaponHistory(uint2 pixel,
+                                          bool currentViewWeapon)
+{
+    static const uint WeaponCoverageBit = 0x100u;
+    static const uint RejectionLifetimeMask = 0xffu;
+    static const uint RejectionFrameCount = 4u;
+    uint currentSlot = SampleIndex & 1u;
+    uint previousSlot = 1u - currentSlot;
+    uint previousHistory = HistoryValid != 0u ?
+        ViewWeaponHistories[previousSlot][pixel] : 0u;
+    uint rejectionFrames = previousHistory & RejectionLifetimeMask;
+    rejectionFrames = rejectionFrames > 0u ? rejectionFrames - 1u : 0u;
+
+    if (RayReconstructionWeaponPoseTransition != 0u) {
+        bool previousViewWeapon =
+            (previousHistory & WeaponCoverageBit) != 0u;
+        if (currentViewWeapon || previousViewWeapon) {
+            rejectionFrames = RejectionFrameCount;
+        }
+    }
+
+    ViewWeaponHistories[currentSlot][pixel] =
+        (currentViewWeapon ? WeaponCoverageBit : 0u) | rejectionFrames;
+    return rejectionFrames != 0u;
+}
+
+/* `motionVectorsInvalidValue` is only consumed by Streamline when it must add
+ * camera motion itself. This renderer supplies dense camera motion, so passing
+ * the private FP16 sentinel through to RR would instead look like an enormous
+ * valid vector. Preserve that sentinel in SceneMotion for renderer-owned
+ * history/debugging, but give Streamline a finite vector. Temporal rejection
+ * belongs in RayReconstructionDisocclusion rather than being encoded as fake
+ * motion. */
+void writeRayReconstructionMotion(uint2 pixel, float2 motion,
+                                  float2 dimensions)
+{
+    bool invalid = any(abs(motion) >= InvalidMotion);
+    SceneMotion[pixel] = motion;
+    StreamlineSceneMotion[pixel] = invalid ? dimensions : motion;
 }
 
 float3 giPrimaryWorldPosition(uint2 pixel, uint2 dimensions, float depth)
@@ -1939,7 +2131,7 @@ void streamGIReservoir(inout PackedGIReservoir output,
                        inout float selectedTarget)
 {
     uint sourceCount = min(source.sampleCount,
-        max(ReservoirSampleLimit, max(SamplesPerPixel, 1u)));
+        max(ReservoirSampleLimit, max(IndirectSamplesPerPixel, 1u)));
     float candidateWeight = evaluation.valid ?
         evaluation.target * source.weight * float(sourceCount) : 0.0;
     float combinedWeight = weightSum + candidateWeight;
@@ -1957,7 +2149,7 @@ void finalizeGIReservoir(inout PackedGIReservoir reservoir,
                          uint totalCount)
 {
     uint countLimit = ReservoirSampleLimit > 0u ? ReservoirSampleLimit :
-        max(SamplesPerPixel, 1u);
+        max(IndirectSamplesPerPixel, 1u);
     reservoir.sampleCount = min(totalCount, countLimit);
     reservoir.weight = weightSum > 0.0 && selectedTarget > 0.0 &&
             totalCount > 0u ?
@@ -2032,7 +2224,7 @@ float3 lightGridCellCenter(uint cellIndex)
     uint yz = cellIndex / LightGridCellsPerAxis;
     position.y = yz % LightGridCellsPerAxis;
     position.z = yz / LightGridCellsPerAxis;
-    float3 origin = CameraPosition - LightGridExtent * 0.5;
+    float3 origin = LightGridCenter - LightGridExtent * 0.5;
     return origin + (float3(position) + 0.5) * LightGridCellSize;
 }
 
@@ -2068,8 +2260,10 @@ float lightGridVolumeTarget(uint emitterIndex, float3 cellCenter)
 void BuildLightGrid()
 {
     uint2 dispatchIndex = DispatchRaysIndex().xy;
-    uint lightSlot = dispatchIndex.x * LightGridLightsPerCell +
-        dispatchIndex.y;
+    uint entryIndex = LightGridRebuild != 0u ? dispatchIndex.y :
+        dispatchIndex.y * LightGridRefreshPhaseCount +
+            SampleIndex % LightGridRefreshPhaseCount;
+    uint lightSlot = dispatchIndex.x * LightGridLightsPerCell + entryIndex;
     if (lightSlot >= LightGridEntryCount) {
         return;
     }
@@ -2117,7 +2311,7 @@ int lightGridCellForSurface(uint2 pixel, uint sampleIndex,
         pixel, sampleIndex, LightGridLookupStream).xyz - 0.5;
     float3 samplingPosition =
         surfacePosition + jitter * LightGridCellSize;
-    float3 origin = CameraPosition - LightGridExtent * 0.5;
+    float3 origin = LightGridCenter - LightGridExtent * 0.5;
     int3 cell = int3(floor(
         (samplingPosition - origin) / LightGridCellSize));
     if (any(cell < 0) ||
@@ -2810,12 +3004,20 @@ void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
      */
     DiffuseAlbedo[pixel] = 0.0;
     SpecularAlbedo[pixel] = 0.0;
+    /* Roughness is packed in the normal alpha channel for DLSS-RR. The
+     * standalone texture exists only for its explicit debug view. */
     ShadingNormal[pixel] = float4(-unjitteredDirection, 1.0);
-    LinearRoughness[pixel] = 1.0;
+    if ((DiagnosticGuideMask & 1u) != 0u) {
+        LinearRoughness[pixel] = 1.0;
+    }
     LinearDepth[pixel] = SceneFarPlane;
-    SceneMotion[pixel] = environmentMotion(unjitteredDirection, dimensions);
+    writeRayReconstructionMotion(
+        pixel, environmentMotion(unjitteredDirection, dimensions),
+        dimensions);
     SpecularHitDistance[pixel] = 0.0;
-    DiffuseHitDistance[pixel] = 0.0;
+    if ((DiagnosticGuideMask & 2u) != 0u) {
+        DiffuseHitDistance[pixel] = 0.0;
+    }
 }
 
 void writeDiffuseSurfaceGuides(uint2 pixel, SurfacePayload payload,
@@ -2827,13 +3029,26 @@ void writeDiffuseSurfaceGuides(uint2 pixel, SurfacePayload payload,
     DiffuseAlbedo[pixel] = float4(diffuseReflectance(surface), 1.0);
     SpecularAlbedo[pixel] = 0.0;
     ShadingNormal[pixel] = float4(surface.shadingNormal, 1.0);
-    LinearRoughness[pixel] = 1.0;
-    LinearDepth[pixel] = max(0.0, dot(surface.position - CameraPosition,
-                                      CameraForward));
-    SceneMotion[pixel] = surfaceMotion(payload, surface, float2(dimensions));
+    if ((DiagnosticGuideMask & 1u) != 0u) {
+        LinearRoughness[pixel] = 1.0;
+    }
+    LinearDepth[pixel] = surface.primitive == ViewWeaponPrimitive ?
+        currentViewWeaponPosition(payload).z :
+        max(0.0, dot(surface.position - CameraPosition, CameraForward));
+    writeRayReconstructionMotion(
+        pixel, surfaceMotion(payload, surface, float2(dimensions),
+                             surface.primitive == ViewWeaponPrimitive),
+        float2(dimensions));
     SpecularHitDistance[pixel] = 0.0;
-    DiffuseHitDistance[pixel] = 0.0;
+    if ((DiagnosticGuideMask & 2u) != 0u) {
+        DiffuseHitDistance[pixel] = 0.0;
+    }
 }
+
+uint adaptiveIndirectSampleCount(uint2 pixel, uint2 dimensions,
+                                 float currentDepth,
+                                 float3 currentNormal,
+                                 out bool stableHistory);
 
 [shader("raygeneration")]
 void RayGeneration()
@@ -2866,6 +3081,13 @@ void RayGeneration()
     SurfacePayload primaryPayload = primarySegment.payload;
     uint primaryPrimitive = primaryPayload.hit != 0u ?
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
+    bool rejectRayReconstructionHistory =
+        updateRayReconstructionWeaponHistory(
+            pixel, primaryPrimitive == ViewWeaponPrimitive);
+    RayReconstructionDisocclusion[pixel] =
+        rejectRayReconstructionHistory ? 1.0 : 0.0;
+    RayReconstructionBiasCurrentColor[pixel] =
+        primaryPrimitive == ViewWeaponPrimitive ? 1.0 : 0.0;
     float3 resolvedRadiance = primarySegment.additiveRadiance;
     IndirectSignal resolvedIndirectSignal = emptyIndirectSignal();
     PackedGIReservoir currentGI = emptyGIReservoir();
@@ -2874,6 +3096,8 @@ void RayGeneration()
     uint giCandidateCount = 0u;
     float3 primaryGeometricNormal = 0.0;
     float primaryDepth = 0.0;
+    uint indirectSampleCount = 0u;
+    bool indirectHistoryOnly = false;
     if (primaryPayload.hit == 0u) {
         writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
     } else {
@@ -2891,38 +3115,62 @@ void RayGeneration()
         if (EmitterCount > 0u &&
             luminance(primaryThroughput) > 1.0e-6) {
             uint directSampleCount = max(SamplesPerPixel, 1u);
-            /* ReSTIR needs enough newly traced secondary vertices to discover
-             * transport before temporal/spatial reuse can redistribute it.
-             * Keep that supply independent of direct-light SPP: four GI
-             * candidates cost only continuation/secondary-NEE work, while a
-             * larger user SPP still raises both channels coherently. */
-            uint pathSampleCount =
-                IndirectReconstructionMode == IndirectReconstructionRestir ?
-                max(directSampleCount, GIInitialCandidateCount) :
-                directSampleCount;
+            /* Direct polygon NEE and indirect continuation counts are
+             * independent. Extra GI paths therefore spend no primary shadow
+             * ray, and their true count can advance temporal history below. */
+            bool stableHistory = false;
+            indirectSampleCount = MaximumDepth >= 2u ?
+                adaptiveIndirectSampleCount(
+                    pixel, dimensions, primaryDepth,
+                    primaryGeometricNormal,
+                    stableHistory) : 0u;
+            indirectHistoryOnly = MaximumDepth >= 2u &&
+                indirectSampleCount == 0u;
+            bool interleaveDirect = stableHistory &&
+                RayReconstructionActive != 0u &&
+                IndirectReconstructionMode == IndirectReconstructionFull &&
+                RadianceChannel == RadianceChannelCombined;
+            bool directScheduled =
+                ((pixel.x + pixel.y) & 1u) ==
+                SampleIndex % StableDirectSamplingPhaseCount;
+            if (interleaveDirect && !directScheduled) {
+                directSampleCount = 0u;
+            }
+            float directSampleScale = interleaveDirect ?
+                float(StableDirectSamplingPhaseCount) : 1.0;
+            uint pathSampleCount = max(directSampleCount,
+                                       indirectSampleCount);
             float3 directRadiance = 0.0;
             IndirectSignal indirectSignalSum = emptyIndirectSignal();
             for (uint sampleOrdinal = 0u;
                  sampleOrdinal < pathSampleCount;
-                 ++sampleOrdinal) {
-                uint effectiveSampleIndex =
-                    SampleIndex * pathSampleCount + sampleOrdinal;
+                ++sampleOrdinal) {
+                uint directSampleIndex =
+                    SampleIndex * directSampleCount + sampleOrdinal;
+                /* Keep a fixed per-frame stride when adaptive sampling drops
+                 * from its burst ceiling to one path. Changing the stride with
+                 * the selected count would revisit old low-discrepancy indices
+                 * at the transition. */
+                uint indirectSampleIndex = indirectSampleCount > 0u ?
+                    SampleIndex * max(IndirectSamplesPerPixel, 1u) +
+                        sampleOrdinal : 0u;
                 float3 sampleDirect = sampleOrdinal < directSampleCount ?
                     sampleDiffusePolygonLight(
-                        pixel, effectiveSampleIndex,
+                        pixel, directSampleIndex,
                         DiffusePrimaryPolygonStream, false, surface) : 0.0;
                 float3 sampleIndirectIncident = 0.0;
                 float3 sampleIndirectDirection = surface.geometricNormal;
-                if (MaximumDepth >= 2u) {
+                if (sampleOrdinal < indirectSampleCount) {
                     if (IndirectReconstructionMode ==
                             IndirectReconstructionRestir) {
                         giCandidateCount += 1u;
                     }
                     DiffusePathSample pathSample = sampleDiffusePath(
-                        pixel, effectiveSampleIndex, surface);
+                        pixel, indirectSampleIndex, surface);
                     sampleIndirectDirection = pathSample.firstDirection;
                     sampleIndirectIncident = pathSample.radiance;
-                    if (sampleOrdinal == 0u) {
+                    if (sampleOrdinal == 0u &&
+                        (DiagnosticGuideMask & 2u) != 0u) {
                         DiffuseHitDistance[pixel] = pathSample.firstDistance;
                     }
                     bool finiteIndirect =
@@ -2954,7 +3202,7 @@ void RayGeneration()
                         float combinedWeight =
                             giWeightSum + candidateWeight;
                         float acceptance = sampleStream(
-                            pixel, effectiveSampleIndex,
+                            pixel, indirectSampleIndex,
                             GIInitialAcceptanceStream).x;
                         if (candidateWeight > 0.0 &&
                             acceptance * combinedWeight < candidateWeight) {
@@ -2980,16 +3228,23 @@ void RayGeneration()
                 if (sampleOrdinal < directSampleCount) {
                     directRadiance += sampleDirect;
                 }
-                IndirectSignal sampleIndirectSignal =
-                    indirectSignalFromRadiance(
-                        sampleIndirectIncident, sampleIndirectDirection);
-                indirectSignalSum.luminanceSH +=
-                    sampleIndirectSignal.luminanceSH;
-                indirectSignalSum.chroma += sampleIndirectSignal.chroma;
+                if (sampleOrdinal < indirectSampleCount) {
+                    IndirectSignal sampleIndirectSignal =
+                        indirectSignalFromRadiance(
+                            sampleIndirectIncident, sampleIndirectDirection);
+                    indirectSignalSum.luminanceSH +=
+                        sampleIndirectSignal.luminanceSH;
+                    indirectSignalSum.chroma += sampleIndirectSignal.chroma;
+                }
             }
-            resolvedRadiance += directRadiance / float(directSampleCount);
-            resolvedIndirectSignal = scaleIndirectSignal(
-                indirectSignalSum, 1.0 / float(pathSampleCount));
+            if (directSampleCount > 0u) {
+                resolvedRadiance += directRadiance *
+                    (directSampleScale / float(directSampleCount));
+            }
+            if (indirectSampleCount > 0u) {
+                resolvedIndirectSignal = scaleIndirectSignal(
+                    indirectSignalSum, 1.0 / float(indirectSampleCount));
+            }
         }
     }
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
@@ -3002,7 +3257,9 @@ void RayGeneration()
         finalizeGIReservoir(currentGI, giWeightSum, giSelectedTarget,
                             giCandidateCount);
     }
-    GIReservoirs[currentHistorySlot][historyIndex] = currentGI;
+    if (IndirectReconstructionMode == IndirectReconstructionRestir) {
+        GIReservoirs[currentHistorySlot][historyIndex] = currentGI;
+    }
     IndirectHistoryPixel currentIndirect = (IndirectHistoryPixel)0;
     if (primaryPayload.hit != 0u) {
         currentIndirect.luminanceSH = resolvedIndirectSignal.luminanceSH;
@@ -3010,9 +3267,19 @@ void RayGeneration()
         currentIndirect.depth = primaryDepth;
         currentIndirect.normal = packOctahedralNormal(
             primaryGeometricNormal);
-        currentIndirect.historyLength = 1.0;
+        /* The signal above is the mean of this many independent GI paths.
+         * Preserve that effective sample count instead of advancing history by
+         * one regardless of the work completed this frame. */
+        if (!indirectHistoryOnly && indirectSampleCount > 0u) {
+            float currentSampleCount = indirectSampleCount > 0u ?
+                float(indirectSampleCount) : 1.0;
+            currentIndirect.historyLength = ReservoirSampleLimit > 0u ?
+                min(currentSampleCount, float(ReservoirSampleLimit)) :
+                currentSampleCount;
+        }
     }
-    IndirectHistories[currentHistorySlot][historyIndex] = currentIndirect;
+    storeIndirectHistory(
+        currentHistorySlot, historyIndex, currentIndirect);
     if (primaryPrimitive == ViewWeaponPrimitive) {
         uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
         InterlockedAdd(Diagnostics[0], 1u);
@@ -3031,9 +3298,6 @@ void RayGeneration()
     if (primarySegment.additiveLayers != 0u) {
         InterlockedAdd(Diagnostics[4], 1u);
     }
-    PackedLightReservoir emptyReservoir = (PackedLightReservoir)0;
-    emptyReservoir.emitterIndex = InvalidIndex;
-    CurrentReservoirs[pixel.y * dimensions.x + pixel.x] = emptyReservoir;
 }
 
 float indirectDepthWeight(float centerDepth, float sampleDepth)
@@ -3088,11 +3352,13 @@ bool giTemporalGuideMatches(IndirectHistoryPixel previousGuide,
 bool giSpatialGuideMatches(IndirectHistoryPixel centerGuide,
                            IndirectHistoryPixel neighborGuide)
 {
-    return neighborGuide.historyLength > 0.0 &&
-        indirectDepthWeight(centerGuide.depth, neighborGuide.depth) > 0.0 &&
-        dot(unpackOctahedralNormal(centerGuide.normal),
-            unpackOctahedralNormal(neighborGuide.normal)) >=
-            ReservoirNormalTolerance;
+    /* A ReSTIR GI reservoir stores a secondary surface, not filtered
+     * irradiance at its original primary. Do not reject a nearby proposal
+     * merely because the two visible primaries meet at a corner. SpatialGI
+     * reconstructs current secondary geometry, retargets the sample at the
+     * center primary, and traces fresh visibility before it can contribute. */
+    return centerGuide.historyLength > 0.0 &&
+        neighborGuide.historyLength > 0.0;
 }
 
 /* The first ReSTIR GI reuse pass combines the current secondary-surface
@@ -3109,7 +3375,7 @@ void TemporalGI()
     uint currentSlot = SampleIndex & 1u;
     uint previousSlot = 1u - currentSlot;
     IndirectHistoryPixel centerGuide =
-        IndirectHistories[currentSlot][index];
+        loadIndirectHistory(currentSlot, index);
     if (!(centerGuide.historyLength > 0.0)) {
         GITemporalScratch[index] = emptyGIReservoir();
         return;
@@ -3154,7 +3420,7 @@ void TemporalGI()
             uint previousIndex = uint(previousPixel.y) * dimensions.x +
                 uint(previousPixel.x);
             IndirectHistoryPixel previousGuide =
-                IndirectHistories[previousSlot][previousIndex];
+                loadIndirectHistory(previousSlot, previousIndex);
             if (!giTemporalGuideMatches(previousGuide, primaryPosition,
                                         primaryNormal)) {
                 continue;
@@ -3188,7 +3454,7 @@ void SpatialGI()
     uint index = pixel.y * dimensions.x + pixel.x;
     uint currentSlot = SampleIndex & 1u;
     IndirectHistoryPixel centerGuide =
-        IndirectHistories[currentSlot][index];
+        loadIndirectHistory(currentSlot, index);
     if (!(centerGuide.historyLength > 0.0)) {
         GIReservoirs[currentSlot][index] = emptyGIReservoir();
         return;
@@ -3228,12 +3494,15 @@ void SpatialGI()
             uint neighborIndex = uint(neighborPixel.y) * dimensions.x +
                 uint(neighborPixel.x);
             IndirectHistoryPixel neighborGuide =
-                IndirectHistories[currentSlot][neighborIndex];
+                loadIndirectHistory(currentSlot, neighborIndex);
             if (!giSpatialGuideMatches(centerGuide, neighborGuide)) {
                 continue;
             }
             PackedGIReservoir neighbor =
                 GITemporalScratch[neighborIndex];
+            /* This is the cross-corner safety boundary: reconnection applies
+             * the center normal and geometry term, while `true` requires a
+             * fresh segment visibility query in current scene geometry. */
             GISampleEvaluation neighborEvaluation = evaluateGISample(
                 neighbor, primaryPosition, primaryNormal, primaryAlbedo,
                 true);
@@ -3299,7 +3568,7 @@ IndirectTemporalSample reprojectIndirectHistory(
         uint previousIndex = uint(previousPixel.y) * dimensions.x +
             uint(previousPixel.x);
         IndirectHistoryPixel previous =
-            IndirectHistories[previousSlot][previousIndex];
+            loadIndirectHistory(previousSlot, previousIndex);
         if (!(previous.historyLength > 0.0)) {
             continue;
         }
@@ -3325,6 +3594,54 @@ IndirectTemporalSample reprojectIndirectHistory(
         result.gradientConfidence *= inverseWeight;
     }
     return result;
+}
+
+/* The configured GI count is a per-pixel burst ceiling in reconstructed
+ * modes. New/disoccluded pixels and histories that have not filled the
+ * temporal reservoir use the ceiling. Mature pixels rotate one fresh path
+ * across a 2x2 phase; the other three carry validated radiance. Every 3x3
+ * gradient region contains every phase, so a persistent
+ * lighting change is still observed each frame and restores the ceiling.
+ * Exact raw and ReSTIR diagnostics retain fixed SPP. */
+uint adaptiveIndirectSampleCount(uint2 pixel, uint2 dimensions,
+                                 float currentDepth, float3 currentNormal,
+                                 out bool stableHistory)
+{
+    stableHistory = false;
+    uint configuredMaximum = max(IndirectSamplesPerPixel,
+                                 StableIndirectSampleCount);
+    if ((DiagnosticGuideMask & 2u) != 0u) {
+        return configuredMaximum;
+    }
+    if (IndirectReconstructionMode == IndirectReconstructionRaw ||
+        IndirectReconstructionMode == IndirectReconstructionRestir ||
+        ReservoirSampleLimit == 0u) {
+        return configuredMaximum;
+    }
+    IndirectTemporalSample previous = reprojectIndirectHistory(
+        pixel, dimensions, currentDepth, currentNormal);
+    if (!(previous.weightSum > 0.0) ||
+        isnan(previous.historyLength) || isinf(previous.historyLength) ||
+        isnan(previous.gradientConfidence) ||
+        isinf(previous.gradientConfidence)) {
+        return configuredMaximum;
+    }
+    float matureHistory = max(
+        1.0, float(ReservoirSampleLimit) -
+            AdaptiveHistoryMaturityTolerance);
+    if (previous.historyLength < matureHistory ||
+        abs(previous.gradientConfidence) >=
+            IndirectGradientConfirmationThreshold) {
+        return configuredMaximum;
+    }
+    stableHistory = true;
+    uint stablePhase = (pixel.x & 1u) | ((pixel.y & 1u) << 1u);
+    bool scheduled = stablePhase ==
+        SampleIndex % StableIndirectSamplingPhaseCount;
+    if (scheduled) {
+        return StableIndirectSampleCount;
+    }
+    return 0u;
 }
 
 /* Q2RTX's low-frequency anti-lag signal compares the sparse current frame to
@@ -3358,7 +3675,7 @@ void BuildIndirectGradient()
             }
             uint historyIndex = pixel.y * dimensions.x + pixel.x;
             IndirectHistoryPixel current =
-                IndirectHistories[currentSlot][historyIndex];
+                loadIndirectHistory(currentSlot, historyIndex);
             if (!(current.historyLength > 0.0)) {
                 continue;
             }
@@ -3446,10 +3763,8 @@ void TemporalIndirect()
     uint historyIndex = pixel.y * dimensions.x + pixel.x;
     uint currentSlot = SampleIndex & 1u;
     IndirectHistoryPixel current =
-        IndirectHistories[currentSlot][historyIndex];
-    if (!(current.historyLength > 0.0)) {
-        return;
-    }
+        loadIndirectHistory(currentSlot, historyIndex);
+    bool hasCurrentSample = current.historyLength > 0.0;
     float3 currentNormal = unpackOctahedralNormal(current.normal);
     IndirectTemporalSample previous = reprojectIndirectHistory(
         pixel, dimensions, current.depth, currentNormal);
@@ -3471,24 +3786,35 @@ void TemporalIndirect()
         float gradient = saturate(rawGradient.x) * confirmation;
         float antilag = saturate(
             IndirectTemporalAntilagScale * gradient);
-        float historyLength = min(
-            previous.historyLength * pow(
-                1.0 - antilag,
-                IndirectTemporalAntilagHistoryPower) + 1.0,
-            float(ReservoirSampleLimit));
-        float currentWeight = max(
-            IndirectTemporalMinimumCurrentWeight,
-            1.0 / max(historyLength, 1.0));
-        currentWeight = lerp(currentWeight, 1.0, antilag);
-        current.luminanceSH = lerp(
-            previous.signal.luminanceSH,
-            current.luminanceSH, currentWeight);
-        current.chroma = lerp(
-            previous.signal.chroma, current.chroma, currentWeight);
-        current.historyLength = historyLength;
         current.gradientConfidence = gradientConfidence;
+        if (hasCurrentSample) {
+            float currentSampleCount = max(current.historyLength, 1.0);
+            float retainedHistory = previous.historyLength * pow(
+                1.0 - antilag,
+                IndirectTemporalAntilagHistoryPower);
+            float historyLength = min(
+                retainedHistory + currentSampleCount,
+                float(ReservoirSampleLimit));
+            float currentWeight = max(
+                IndirectTemporalMinimumCurrentWeight,
+                saturate(currentSampleCount /
+                         max(historyLength, currentSampleCount)));
+            currentWeight = lerp(currentWeight, 1.0, antilag);
+            current.luminanceSH = lerp(
+                previous.signal.luminanceSH,
+                current.luminanceSH, currentWeight);
+            current.chroma = lerp(
+                previous.signal.chroma, current.chroma, currentWeight);
+            current.historyLength = historyLength;
+        } else {
+            /* No estimator ran for this stable phase. Preserve validated
+             * history exactly while still advancing broad change confidence. */
+            current.luminanceSH = previous.signal.luminanceSH;
+            current.chroma = previous.signal.chroma;
+            current.historyLength = previous.historyLength;
+        }
     }
-    IndirectHistories[currentSlot][historyIndex] = current;
+    storeIndirectHistory(currentSlot, historyIndex, current);
 }
 
 uint2 indirectLowDimensions(uint2 dimensions)
@@ -3521,7 +3847,7 @@ float indirectLowSpatialWeight(int2 samplePixel, uint2 dimensions,
     uint sampleIndex = uint(samplePixel.y) * dimensions.x +
         uint(samplePixel.x);
     IndirectHistoryPixel sampleHistory =
-        IndirectHistories[currentSlot][sampleIndex];
+        loadIndirectHistory(currentSlot, sampleIndex);
     if (!(sampleHistory.historyLength > 0.0)) {
         return 0.0;
     }
@@ -3563,7 +3889,8 @@ void DeflickerIndirect()
     uint currentSlot = SampleIndex & 1u;
     uint2 centerAnchor = indirectLowAnchor(lowPixel, dimensions);
     uint centerIndex = centerAnchor.y * dimensions.x + centerAnchor.x;
-    if (!(IndirectHistories[currentSlot][centerIndex].historyLength > 0.0)) {
+    if (!(loadIndirectHistory(
+            currentSlot, centerIndex).historyLength > 0.0)) {
         storeIndirectLow(lowPixel, true, emptyIndirectSignal());
         return;
     }
@@ -3619,7 +3946,7 @@ void filterIndirect(uint passIndex, int step)
     uint2 centerAnchor = indirectLowAnchor(lowPixel, dimensions);
     uint centerIndex = centerAnchor.y * dimensions.x + centerAnchor.x;
     IndirectHistoryPixel centerHistory =
-        IndirectHistories[currentSlot][centerIndex];
+        loadIndirectHistory(currentSlot, centerIndex);
     if (!(centerHistory.historyLength > 0.0)) {
         storeIndirectLow(lowPixel, outputFiltered, emptyIndirectSignal());
         return;
@@ -3677,7 +4004,7 @@ void FilterIndirect0()
     uint2 anchor = indirectLowAnchor(lowPixel, dimensions);
     uint anchorIndex = anchor.y * dimensions.x + anchor.x;
     IndirectHistoryPixel anchorHistory =
-        IndirectHistories[currentSlot][anchorIndex];
+        loadIndirectHistory(currentSlot, anchorIndex);
     if (!(anchorHistory.historyLength > 0.0)) {
         storeIndirectLow(lowPixel, false, emptyIndirectSignal());
         return;
@@ -3699,7 +4026,7 @@ void FilterIndirect0()
             uint sampleIndex = uint(samplePixel.y) * dimensions.x +
                 uint(samplePixel.x);
             IndirectHistoryPixel sampleHistory =
-                IndirectHistories[currentSlot][sampleIndex];
+                loadIndirectHistory(currentSlot, sampleIndex);
             incidentSum.luminanceSH += sampleHistory.luminanceSH * weight;
             incidentSum.chroma += sampleHistory.chroma * weight;
             weightSum += weight;
@@ -3768,7 +4095,7 @@ void ReconstructIndirect()
     uint currentSlot = SampleIndex & 1u;
     uint centerIndex = pixel.y * dimensions.x + pixel.x;
     IndirectHistoryPixel centerHistory =
-        IndirectHistories[currentSlot][centerIndex];
+        loadIndirectHistory(currentSlot, centerIndex);
     if (!(centerHistory.historyLength > 0.0)) {
         IndirectFiltered[pixel] = 0.0;
         return;
@@ -3853,7 +4180,8 @@ void ReconstructIndirect()
     }
     filteredIncident = max(filteredIncident, 0.0);
     IndirectFiltered[pixel] = float4(filteredIncident, 1.0);
-    float3 reconstructed = filteredIncident * centerAlbedo.rgb;
+    float3 reconstructed = filteredIncident * centerAlbedo.rgb *
+        DiffuseGiScale;
     float reconstructedLuminance = luminance(reconstructed);
     if (RadianceClamp > 0.0 &&
         reconstructedLuminance > RadianceClamp) {
