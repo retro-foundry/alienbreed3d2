@@ -74,6 +74,10 @@ uint64_t renderer_last_frame_rgb_checksum(const Renderer *renderer);
  * or a negative value when the backend has not read back two frames. */
 double renderer_last_frame_delta(const Renderer *renderer);
 
+/* As above, after warping the previous display frame with the current frame's
+ * current-to-previous scene motion. Moving validation should use this value. */
+double renderer_last_frame_reprojected_delta(const Renderer *renderer);
+
 /* Hidden GPU-smoke count of presented pixels with any component at or above
  * 250, a proxy for radiance outliers that survive tone mapping. */
 uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer);
@@ -82,6 +86,9 @@ uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer);
  * 16 display-code values since the prior frame. This exposes the sparse tail
  * that moving ReSTIR samples occupy instead of hiding it in a mean delta. */
 uint64_t renderer_last_frame_temporal_outlier_pixels(const Renderer *renderer);
+uint64_t renderer_last_frame_reprojected_temporal_outlier_pixels(
+    const Renderer *renderer);
+uint64_t renderer_last_frame_reprojected_pixel_count(const Renderer *renderer);
 
 /* Hidden GPU-smoke count of complete RTX scene-layout rebuilds. */
 uint64_t renderer_scene_rebuild_count(const Renderer *renderer);

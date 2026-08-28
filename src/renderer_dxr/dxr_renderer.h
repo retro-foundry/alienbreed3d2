@@ -35,8 +35,11 @@ public:
     bool presentation_size(int &width, int &height) const;
     uint64_t last_scene_rgb_checksum() const;
     double last_scene_frame_delta() const;
+    double last_scene_reprojected_frame_delta() const;
     uint64_t last_scene_saturated_pixels() const;
     uint64_t last_scene_temporal_outlier_pixels() const;
+    uint64_t last_scene_reprojected_temporal_outlier_pixels() const;
+    uint64_t last_scene_reprojected_pixel_count() const;
     uint64_t scene_rebuild_count() const;
     size_t last_view_weapon_coverage() const;
     uint64_t last_view_weapon_rgb_checksum() const;

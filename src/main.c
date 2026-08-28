@@ -1536,6 +1536,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
         };
         uint64_t checksum = UINT64_C(0);
         double delta = -1.0;
+        double reprojected_delta = -1.0;
         unsigned shot_frames = GAME_APP_SAVED_GPU_SMOKE_SHOT_FRAMES;
         unsigned shot_subframe = GAME_APP_SAVED_GPU_SMOKE_SHOT_SUBFRAME;
         unsigned shot_presentations = 0u;
@@ -1586,17 +1587,25 @@ static int game_app_run_gpu_smoke(GameApp *app)
             }
             checksum = renderer_last_frame_rgb_checksum(app->renderer);
             delta = renderer_last_frame_delta(app->renderer);
+            reprojected_delta =
+                renderer_last_frame_reprojected_delta(app->renderer);
         }
         fprintf(stdout,
                 "[RENDER] saved-state Level %c frozen frames=%u checksum=%016llx "
-                "delta=%.4f saturated=%llu outliers16=%llu\n",
+                "delta=%.4f reprojected=%.4f saturated=%llu outliers16=%llu "
+                "reprojected_outliers16=%llu reprojected_pixels=%llu\n",
                 (char)('A' + app->game.active_level_index),
                 (unsigned)GAME_APP_SAVED_GPU_SMOKE_FRAMES,
-                (unsigned long long)checksum, delta,
+                (unsigned long long)checksum, delta, reprojected_delta,
                 (unsigned long long)renderer_last_frame_saturated_pixels(
                     app->renderer),
                 (unsigned long long)renderer_last_frame_temporal_outlier_pixels(
-                    app->renderer));
+                    app->renderer),
+                (unsigned long long)
+                    renderer_last_frame_reprojected_temporal_outlier_pixels(
+                        app->renderer),
+                (unsigned long long)
+                    renderer_last_frame_reprojected_pixel_count(app->renderer));
 
         app->game.session.player1_inventory
             .weapons[GAME_APP_SHOTGUN_GUN_INDEX] = UINT8_MAX;
@@ -1694,6 +1703,8 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 ++shot_presentations;
                 checksum = renderer_last_frame_rgb_checksum(app->renderer);
                 delta = renderer_last_frame_delta(app->renderer);
+                reprojected_delta =
+                    renderer_last_frame_reprojected_delta(app->renderer);
             }
         }
         if (renderer_last_view_weapon_coverage(app->renderer) == 0u) {
@@ -1705,13 +1716,19 @@ static int game_app_run_gpu_smoke(GameApp *app)
         fprintf(stdout,
                 "[RENDER] saved-state Level %c Shotgun updates=%u subframe=%u/4 "
                 "presentations=%u checksum=%016llx "
-                "delta=%.4f weapon_pixels=%zu outliers16=%llu\n",
+                "delta=%.4f reprojected=%.4f weapon_pixels=%zu outliers16=%llu "
+                "reprojected_outliers16=%llu reprojected_pixels=%llu\n",
                 (char)('A' + app->game.active_level_index),
                 shot_frames, shot_subframe, shot_presentations,
-                (unsigned long long)checksum, delta,
+                (unsigned long long)checksum, delta, reprojected_delta,
                 renderer_last_view_weapon_coverage(app->renderer),
                 (unsigned long long)renderer_last_frame_temporal_outlier_pixels(
-                    app->renderer));
+                    app->renderer),
+                (unsigned long long)
+                    renderer_last_frame_reprojected_temporal_outlier_pixels(
+                        app->renderer),
+                (unsigned long long)
+                    renderer_last_frame_reprojected_pixel_count(app->renderer));
         return 1;
     }
 

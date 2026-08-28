@@ -52,6 +52,13 @@ public:
      * with a frozen camera and scene it must fall as the reconstruction settles.
      */
     double last_scene_frame_delta() const { return last_scene_frame_delta_; }
+    /* The same display-space difference after following the current frame's
+     * current-to-previous motion vectors. Unlike the screen-space delta above,
+     * this does not count ordinary camera motion as lighting instability. */
+    double last_scene_reprojected_frame_delta() const
+    {
+        return last_scene_reprojected_frame_delta_;
+    }
     /* Presented pixels with any component at or above 250, a proxy for radiance
      * outliers that survive tone mapping. */
     uint64_t last_scene_saturated_pixels() const
@@ -61,6 +68,14 @@ public:
     uint64_t last_scene_temporal_outlier_pixels() const
     {
         return last_scene_temporal_outlier_pixels_;
+    }
+    uint64_t last_scene_reprojected_temporal_outlier_pixels() const
+    {
+        return last_scene_reprojected_temporal_outlier_pixels_;
+    }
+    uint64_t last_scene_reprojected_pixel_count() const
+    {
+        return last_scene_reprojected_pixel_count_;
     }
     bool enable_noisy_radiance_readback();
     size_t last_noisy_radiance_value_count() const
@@ -104,6 +119,8 @@ private:
                                       UINT width, UINT height,
                                       std::string &error);
     bool ensure_scene_readback(std::string &error);
+    bool ensure_scene_motion_readback(ID3D12Resource *source,
+                                      std::string &error);
     bool collect_scene_readback(UINT64 fence_value, std::string &error);
     bool ensure_noisy_radiance_readback(ID3D12Resource *source,
                                         std::string &error);
@@ -127,8 +144,11 @@ private:
     uint32_t rendered_frame_count_ = 0;
     uint64_t last_scene_rgb_checksum_ = 0;
     double last_scene_frame_delta_ = -1.0;
+    double last_scene_reprojected_frame_delta_ = -1.0;
     uint64_t last_scene_saturated_pixels_ = 0;
     uint64_t last_scene_temporal_outlier_pixels_ = 0;
+    uint64_t last_scene_reprojected_temporal_outlier_pixels_ = 0;
+    uint64_t last_scene_reprojected_pixel_count_ = 0;
     std::chrono::steady_clock::time_point previous_render_time_ = {};
     bool previous_render_time_valid_ = false;
     std::vector<uint8_t> previous_readback_rgb_;
@@ -144,6 +164,11 @@ private:
     UINT readback_row_count_ = 0;
     UINT64 readback_total_bytes_ = 0;
     D3D12_PLACED_SUBRESOURCE_FOOTPRINT readback_footprint_ = {};
+    UINT motion_readback_width_ = 0;
+    UINT motion_readback_height_ = 0;
+    UINT motion_readback_row_count_ = 0;
+    UINT64 motion_readback_total_bytes_ = 0;
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT motion_readback_footprint_ = {};
     HANDLE fence_event_ = nullptr;
     HANDLE frame_latency_waitable_object_ = nullptr;
     bool frame_latency_wait_satisfied_ = false;
@@ -169,6 +194,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList4> command_list_;
     Microsoft::WRL::ComPtr<ID3D12Fence> fence_;
     Microsoft::WRL::ComPtr<ID3D12Resource> scene_readback_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> scene_motion_readback_;
     Microsoft::WRL::ComPtr<ID3D12Resource> noisy_radiance_readback_;
     std::array<FrameContext, frame_count> frames_ = {};
 };

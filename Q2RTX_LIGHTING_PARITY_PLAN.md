@@ -160,6 +160,28 @@ Date: 2026-08-27
   conservative emitter distribution without a new oracle that beats both the
   moving metrics and the captured left-wall/panel behavior.
 
+### Motion-compensated stability oracle (2026-08-28)
+
+- The saved moving `delta` above compares identical display pixels while the
+  validation camera deliberately yaws one mouse count per presentation. It
+  therefore includes ordinary image translation and rewards blur. Negating the
+  otherwise-correct motion vectors lowered that score to `4.65` while visibly
+  smearing the left wall, so screen-space delta is retained only as a legacy
+  diagnostic and is no longer the moving-lighting acceptance oracle.
+- Hidden DXR validation now also reads the exact `R16G16_FLOAT` motion field
+  supplied to Ray Reconstruction. It bilinearly maps output pixels to the
+  render-resolution guide, follows its current-to-previous vector into the
+  prior presented frame, rejects invalid or off-screen correspondences, and
+  reports `reprojected`, `reprojected_outliers16`, and the compared-pixel count.
+  Ordinary visible rendering still incurs no readback or synchronization.
+- The locked production path measures `delta=0.5046` and
+  `reprojected=0.5046` for the frozen endpoint. During the yawing Shotgun
+  endpoint it measures screen-space `delta=4.8584 / outliers16=77288`, but
+  motion-compensated `reprojected=0.6871 /
+  reprojected_outliers16=2582` over `917293` valid pixels. Future direct-light
+  changes must improve the reprojected result without increasing screen-space
+  trails or degrading the captured left-wall/panel detail.
+
 ## Goal
 
 Match the useful indoor lighting structure of Q2RTX while preserving the

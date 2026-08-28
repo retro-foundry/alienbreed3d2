@@ -81,8 +81,13 @@ int renderer_rtx_active_ray_tracing_options(
 size_t renderer_rtx_last_projectile_coverage(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_rgb_checksum(const RendererRtx *renderer);
 double renderer_rtx_last_frame_delta(const RendererRtx *renderer);
+double renderer_rtx_last_frame_reprojected_delta(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_saturated_pixels(const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_temporal_outlier_pixels(
+    const RendererRtx *renderer);
+uint64_t renderer_rtx_last_frame_reprojected_temporal_outlier_pixels(
+    const RendererRtx *renderer);
+uint64_t renderer_rtx_last_frame_reprojected_pixel_count(
     const RendererRtx *renderer);
 /* Monotonic diagnostic count of complete CPU/GPU scene-layout rebuilds. */
 uint64_t renderer_rtx_scene_rebuild_count(const RendererRtx *renderer);

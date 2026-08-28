@@ -247,6 +247,11 @@ double DxrRenderer::last_scene_frame_delta() const
     return device_ ? device_->last_scene_frame_delta() : -1.0;
 }
 
+double DxrRenderer::last_scene_reprojected_frame_delta() const
+{
+    return device_ ? device_->last_scene_reprojected_frame_delta() : -1.0;
+}
+
 uint64_t DxrRenderer::last_scene_saturated_pixels() const
 {
     return device_ ? device_->last_scene_saturated_pixels() : UINT64_C(0);
@@ -255,6 +260,19 @@ uint64_t DxrRenderer::last_scene_saturated_pixels() const
 uint64_t DxrRenderer::last_scene_temporal_outlier_pixels() const
 {
     return device_ ? device_->last_scene_temporal_outlier_pixels() : UINT64_C(0);
+}
+
+uint64_t DxrRenderer::last_scene_reprojected_temporal_outlier_pixels() const
+{
+    return device_ ?
+        device_->last_scene_reprojected_temporal_outlier_pixels() :
+        UINT64_C(0);
+}
+
+uint64_t DxrRenderer::last_scene_reprojected_pixel_count() const
+{
+    return device_ ? device_->last_scene_reprojected_pixel_count() :
+        UINT64_C(0);
 }
 
 uint64_t DxrRenderer::scene_rebuild_count() const

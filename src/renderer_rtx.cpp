@@ -261,6 +261,13 @@ extern "C" double renderer_rtx_last_frame_delta(const RendererRtx *renderer)
         renderer->implementation->last_scene_frame_delta() : -1.0;
 }
 
+extern "C" double renderer_rtx_last_frame_reprojected_delta(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_reprojected_frame_delta() : -1.0;
+}
+
 extern "C" uint64_t renderer_rtx_last_frame_saturated_pixels(
     const RendererRtx *renderer)
 {
@@ -273,6 +280,24 @@ extern "C" uint64_t renderer_rtx_last_frame_temporal_outlier_pixels(
 {
     return renderer && renderer->implementation ?
         renderer->implementation->last_scene_temporal_outlier_pixels() :
+        UINT64_C(0);
+}
+
+extern "C" uint64_t
+renderer_rtx_last_frame_reprojected_temporal_outlier_pixels(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation
+            ->last_scene_reprojected_temporal_outlier_pixels() :
+        UINT64_C(0);
+}
+
+extern "C" uint64_t renderer_rtx_last_frame_reprojected_pixel_count(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_reprojected_pixel_count() :
         UINT64_C(0);
 }
 

@@ -2,6 +2,7 @@
 
 #include "dxr_debug.h"
 #include "dxr_pipeline.h"
+#include "dxr_temporal_metrics.h"
 #if defined(AB3D2_ENABLE_STREAMLINE)
 #include "dxr_streamline.h"
 #endif
@@ -508,6 +509,7 @@ bool DxrDevice::reconfigure_swap_chain(DxrOutputConfiguration &output,
         frame.render_target.Reset();
     }
     scene_readback_.Reset();
+    scene_motion_readback_.Reset();
     previous_readback_rgb_.clear();
     const auto resize_to = [&](DXGI_FORMAT format) -> bool {
         const HRESULT result = swap_chain_->ResizeBuffers(
@@ -730,6 +732,67 @@ bool DxrDevice::ensure_scene_readback(std::string &error)
     return true;
 }
 
+bool DxrDevice::ensure_scene_motion_readback(
+    ID3D12Resource *source, std::string &error)
+{
+    if (!source) {
+        error = "DXR temporal validation readback has no motion texture";
+        return false;
+    }
+    const D3D12_RESOURCE_DESC source_description = source->GetDesc();
+    if (source_description.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+        source_description.Format != DXGI_FORMAT_R16G16_FLOAT ||
+        source_description.Width == 0u ||
+        source_description.Width > std::numeric_limits<UINT>::max() ||
+        source_description.Height == 0u) {
+        error = "DXR temporal validation motion texture has an invalid format";
+        return false;
+    }
+    const UINT source_width = static_cast<UINT>(source_description.Width);
+    if (scene_motion_readback_ && motion_readback_width_ == source_width &&
+        motion_readback_height_ == source_description.Height) {
+        return true;
+    }
+    scene_motion_readback_.Reset();
+    UINT64 row_bytes = 0u;
+    device_->GetCopyableFootprints(
+        &source_description, 0u, 1u, 0u, &motion_readback_footprint_,
+        &motion_readback_row_count_, &row_bytes,
+        &motion_readback_total_bytes_);
+    if (motion_readback_total_bytes_ == 0u ||
+        motion_readback_row_count_ != source_description.Height ||
+        row_bytes != static_cast<UINT64>(source_width) * 4u) {
+        error = "D3D12 returned invalid temporal-motion readback footprints";
+        return false;
+    }
+    D3D12_HEAP_PROPERTIES heap = {};
+    heap.Type = D3D12_HEAP_TYPE_READBACK;
+    heap.CreationNodeMask = 1u;
+    heap.VisibleNodeMask = 1u;
+    D3D12_RESOURCE_DESC buffer = {};
+    buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    buffer.Width = motion_readback_total_bytes_;
+    buffer.Height = 1u;
+    buffer.DepthOrArraySize = 1u;
+    buffer.MipLevels = 1u;
+    buffer.SampleDesc.Count = 1u;
+    buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    const HRESULT result = device_->CreateCommittedResource(
+        &heap, D3D12_HEAP_FLAG_NONE, &buffer,
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+        IID_PPV_ARGS(&scene_motion_readback_));
+    if (FAILED(result)) {
+        return fail_device_operation(
+            "ID3D12Device::CreateCommittedResource(scene motion readback)",
+            result, error);
+    }
+    scene_motion_readback_->SetName(
+        L"AB3D2 DXR Hidden Smoke Motion Readback");
+    motion_readback_width_ = source_width;
+    motion_readback_height_ = source_description.Height;
+    return true;
+}
+
 bool DxrDevice::ensure_noisy_radiance_readback(
     ID3D12Resource *source, std::string &error)
 {
@@ -854,13 +917,39 @@ bool DxrDevice::copy_last_noisy_radiance(
 
 bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
 {
-    if (!scene_readback_ || !wait_for_fence(
+    if (!scene_readback_ || !scene_motion_readback_ || !wait_for_fence(
             fence_value, "wait for DXR hidden smoke readback", error)) {
         return false;
     }
+    const D3D12_RANGE motion_read_range = {
+        0u, static_cast<SIZE_T>(motion_readback_total_bytes_)};
+    void *mapped_motion = nullptr;
+    HRESULT result = scene_motion_readback_->Map(
+        0u, &motion_read_range, &mapped_motion);
+    if (FAILED(result)) {
+        return fail_device_operation(
+            "ID3D12Resource::Map(scene motion readback)", result, error);
+    }
+    const size_t motion_pixel_count =
+        static_cast<size_t>(motion_readback_width_) * motion_readback_height_;
+    std::vector<uint16_t> current_motion(motion_pixel_count * 2u);
+    const auto *motion_pixels = static_cast<const uint8_t *>(mapped_motion) +
+        motion_readback_footprint_.Offset;
+    for (UINT y = 0u; y < motion_readback_height_; ++y) {
+        const auto *row = reinterpret_cast<const uint16_t *>(
+            motion_pixels + static_cast<size_t>(y) *
+                motion_readback_footprint_.Footprint.RowPitch);
+        std::copy_n(
+            row, static_cast<size_t>(motion_readback_width_) * 2u,
+            current_motion.begin() +
+                static_cast<size_t>(y) * motion_readback_width_ * 2u);
+    }
+    const D3D12_RANGE no_motion_write = {0u, 0u};
+    scene_motion_readback_->Unmap(0u, &no_motion_write);
+
     D3D12_RANGE read_range = {0, static_cast<SIZE_T>(readback_total_bytes_)};
     void *mapped = nullptr;
-    const HRESULT result = scene_readback_->Map(0, &read_range, &mapped);
+    result = scene_readback_->Map(0, &read_range, &mapped);
     if (FAILED(result)) {
         return fail_device_operation("ID3D12Resource::Map(scene readback)",
                                      result, error);
@@ -947,6 +1036,16 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
     last_scene_frame_delta_ = comparable && pixel_count != 0u ?
         static_cast<double>(delta_sum) /
             static_cast<double>(pixel_count * 3u) : -1.0;
+    const temporal_metrics::Difference reprojected = comparable ?
+        temporal_metrics::measure_reprojected_rgb(
+            current_rgb, previous_readback_rgb_, readback_width_,
+            readback_height_, current_motion, motion_readback_width_,
+            motion_readback_height_) : temporal_metrics::Difference{};
+    last_scene_reprojected_frame_delta_ =
+        reprojected.mean_absolute_component;
+    last_scene_reprojected_temporal_outlier_pixels_ =
+        reprojected.outlier_pixels;
+    last_scene_reprojected_pixel_count_ = reprojected.compared_pixels;
     previous_readback_rgb_ = std::move(current_rgb);
     std::ostringstream statistics;
     statistics << "readback: nonzero=" << nonzero_pixels << '/'
@@ -958,7 +1057,13 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
                << " saturated=" << saturated_pixels
                << " delta=" << last_scene_frame_delta_
                << " delta16=" << temporal_outlier_pixels
-               << " deltaMax=" << static_cast<unsigned>(maximum_temporal_delta);
+               << " deltaMax=" << static_cast<unsigned>(maximum_temporal_delta)
+               << " reprojected=" << last_scene_reprojected_frame_delta_
+               << " reprojected16="
+               << last_scene_reprojected_temporal_outlier_pixels_
+               << " reprojectedPixels="
+               << last_scene_reprojected_pixel_count_
+               << " reprojectedMax=" << reprojected.maximum_component;
     debug_output(statistics.str());
     return true;
 }
@@ -1200,6 +1305,30 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         return false;
     }
     const bool capture_scene = hidden_window_ && pipeline.has_scene();
+    ID3D12Resource *const scene_motion =
+        pipeline.streamline_scene_motion_resource();
+    if (capture_scene) {
+        if (!ensure_scene_motion_readback(scene_motion, error)) {
+            return false;
+        }
+        const D3D12_RESOURCE_BARRIER to_motion_copy = transition_barrier(
+            scene_motion, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_COPY_SOURCE);
+        command_list_->ResourceBarrier(1u, &to_motion_copy);
+        D3D12_TEXTURE_COPY_LOCATION motion_destination = {};
+        motion_destination.pResource = scene_motion_readback_.Get();
+        motion_destination.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+        motion_destination.PlacedFootprint = motion_readback_footprint_;
+        D3D12_TEXTURE_COPY_LOCATION motion_source = {};
+        motion_source.pResource = scene_motion;
+        motion_source.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+        command_list_->CopyTextureRegion(
+            &motion_destination, 0u, 0u, 0u, &motion_source, nullptr);
+        const D3D12_RESOURCE_BARRIER from_motion_copy = transition_barrier(
+            scene_motion, D3D12_RESOURCE_STATE_COPY_SOURCE,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        command_list_->ResourceBarrier(1u, &from_motion_copy);
+    }
     ID3D12Resource *const noisy_radiance = pipeline.reconstruction_resource(
         DxrReconstructionBuffer::noisy_radiance);
     const bool capture_noisy_radiance = capture_scene &&
@@ -1251,8 +1380,11 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     } else {
         last_scene_rgb_checksum_ = 0;
         last_scene_frame_delta_ = -1.0;
+        last_scene_reprojected_frame_delta_ = -1.0;
         last_scene_saturated_pixels_ = 0;
         last_scene_temporal_outlier_pixels_ = 0;
+        last_scene_reprojected_temporal_outlier_pixels_ = 0;
+        last_scene_reprojected_pixel_count_ = 0;
         previous_readback_rgb_.clear();
         const D3D12_RESOURCE_BARRIER to_present = transition_barrier(
             frame.render_target.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -1421,6 +1553,7 @@ void DxrDevice::shutdown(bool flush_queue)
     }
     command_list_.Reset();
     scene_readback_.Reset();
+    scene_motion_readback_.Reset();
     noisy_radiance_readback_.Reset();
     render_target_view_heap_.Reset();
     swap_chain_.Reset();
@@ -1454,8 +1587,11 @@ void DxrDevice::shutdown(bool flush_queue)
     previous_render_time_valid_ = false;
     last_scene_rgb_checksum_ = 0;
     last_scene_frame_delta_ = -1.0;
+    last_scene_reprojected_frame_delta_ = -1.0;
     last_scene_saturated_pixels_ = 0;
     last_scene_temporal_outlier_pixels_ = 0;
+    last_scene_reprojected_temporal_outlier_pixels_ = 0;
+    last_scene_reprojected_pixel_count_ = 0;
     previous_readback_rgb_.clear();
     previous_readback_rgb_.shrink_to_fit();
     noisy_radiance_readback_enabled_ = false;
@@ -1466,6 +1602,11 @@ void DxrDevice::shutdown(bool flush_queue)
     readback_row_count_ = 0;
     readback_total_bytes_ = 0;
     readback_footprint_ = {};
+    motion_readback_width_ = 0;
+    motion_readback_height_ = 0;
+    motion_readback_row_count_ = 0;
+    motion_readback_total_bytes_ = 0;
+    motion_readback_footprint_ = {};
     noisy_readback_width_ = 0;
     noisy_readback_height_ = 0;
     noisy_readback_row_count_ = 0;

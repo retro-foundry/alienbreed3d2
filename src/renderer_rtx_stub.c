@@ -113,6 +113,12 @@ double renderer_rtx_last_frame_delta(const RendererRtx *renderer)
     return -1.0;
 }
 
+double renderer_rtx_last_frame_reprojected_delta(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return -1.0;
+}
+
 uint64_t renderer_rtx_last_frame_saturated_pixels(const RendererRtx *renderer)
 {
     (void)renderer;
@@ -120,6 +126,20 @@ uint64_t renderer_rtx_last_frame_saturated_pixels(const RendererRtx *renderer)
 }
 
 uint64_t renderer_rtx_last_frame_temporal_outlier_pixels(
+    const RendererRtx *renderer)
+{
+    (void)renderer;
+    return UINT64_C(0);
+}
+
+uint64_t renderer_rtx_last_frame_reprojected_temporal_outlier_pixels(
+    const RendererRtx *renderer)
+{
+    (void)renderer;
+    return UINT64_C(0);
+}
+
+uint64_t renderer_rtx_last_frame_reprojected_pixel_count(
     const RendererRtx *renderer)
 {
     (void)renderer;

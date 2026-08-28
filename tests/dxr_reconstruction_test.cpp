@@ -5,6 +5,7 @@
 #include "renderer_dxr/dxr_indirect_reconstruction.h"
 #include "renderer_dxr/dxr_light_grid.h"
 #include "renderer_dxr/dxr_restir_gi.h"
+#include "renderer_dxr/dxr_temporal_metrics.h"
 
 #include <cmath>
 #include <cstdio>
@@ -42,6 +43,7 @@ int main()
     namespace indirect = ab3d2::dxr::indirect_reconstruction;
     namespace grid = ab3d2::dxr::light_grid;
     namespace gi = ab3d2::dxr::restir_gi;
+    namespace temporal = ab3d2::dxr::temporal_metrics;
     static_assert(indirect::downsample_factor == 3 &&
                   static_cast<uint32_t>(indirect::Mode::full) == 0u &&
                   static_cast<uint32_t>(indirect::Mode::temporal) == 1u &&
@@ -109,6 +111,27 @@ int main()
                   gi::spatial_sample_count == 4u &&
                   gi::spatial_radius == 32 &&
                   !gi::spatial_reuse_requires_primary_guide_match);
+    if (!near(temporal::decode_half(0x3c00u), 1.0f) ||
+        !near(temporal::decode_half(0xbc00u), -1.0f) ||
+        !near(temporal::decode_half(0x0001u),
+              std::ldexp(1.0f, -24), 1.0e-10f)) {
+        return fail("binary16 motion decoding changed");
+    }
+    const std::vector<uint8_t> previous_motion_rgb = {
+        10u, 10u, 10u, 20u, 20u, 20u,
+        30u, 30u, 30u, 40u, 40u, 40u};
+    const std::vector<uint8_t> current_motion_rgb = {
+        99u, 99u, 99u, 10u, 10u, 10u,
+        20u, 20u, 20u, 30u, 30u, 30u};
+    const std::vector<uint16_t> current_to_previous_motion = {
+        0xb800u, 0u, 0xb800u, 0u};
+    const temporal::Difference translated = temporal::measure_reprojected_rgb(
+        current_motion_rgb, previous_motion_rgb, 4u, 1u,
+        current_to_previous_motion, 2u, 1u);
+    if (!near(static_cast<float>(translated.mean_absolute_component), 0.0f) ||
+        translated.compared_pixels != 3u || translated.outlier_pixels != 0u) {
+        return fail("current-to-previous motion did not cancel image translation");
+    }
     const grid::Position quantized_grid_center = grid::quantized_center(
         {511.0f, -1.0f, 1024.0f});
     const uint16_t encoded_full_history =

@@ -137,6 +137,10 @@ public:
     }
     ID3D12Resource *reconstruction_resource(
         DxrReconstructionBuffer buffer) const;
+    ID3D12Resource *streamline_scene_motion_resource() const
+    {
+        return streamline_scene_motion_.Get();
+    }
 
 private:
     static bool load_shader(const wchar_t *filename, std::vector<unsigned char> &bytes,
