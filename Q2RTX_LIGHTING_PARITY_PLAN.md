@@ -77,13 +77,22 @@ Date: 2026-08-27
   consecutive frames and zero non-finite combined radiance or mandatory RR
   guides. The native Debug and Streamline Release foundation runs pass. The
   earlier empty-scene phase still requires an exact-zero RGB checksum.
-- The complete native Debug CTest suite passes `27/27`, including the updated
-  foundation and the all-level RTX game smoke. The Streamline Release
+- The complete native Debug CTest suite passes `28/28`, including both GPU
+  reference targets, the updated foundation, and the all-level RTX game smoke.
+  The Streamline Release
   foundation also passes with the same direct-light and finite-guide contract.
+- A separate `ab3d2_renderer_rtx_lighting_reference_test` uses an isolated,
+  build-generated constant-PBR package; none of its synthetic bindings enter
+  the production material catalog. It proves that visible non-emissive
+  geometry with no emitter stays exact black, a material at `40/255`
+  roughness has no direct GGX lobe, the lobe is active at `51/255` (`0.20`),
+  and a `metalness=1` receiver has zero direct diffuse coverage but nonzero
+  tinted specular coverage. `77/255` (approximately `0.30`) and fully rough
+  dielectric cases also remain lit and finite. Native Debug and Streamline
+  Release runs pass all cases over four consecutive frames each.
 - This is partial GPU-reference coverage, not completion of the list below.
-  Pure-metal, threshold-roughness, reflected/occluded/additive cases and
-  isolated-channel sum equality still require deterministic reference assets
-  and assertions.
+  Reflected/occluded/additive cases and isolated-channel sum equality still
+  require deterministic reference scenes and assertions.
 
 ## Goal
 

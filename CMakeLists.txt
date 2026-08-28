@@ -713,6 +713,110 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_include_directories(ab3d2_dxr_scene_update_test PRIVATE src)
     add_test(NAME ab3d2_dxr_scene_update_test
              COMMAND $<TARGET_FILE:ab3d2_dxr_scene_update_test>)
+    set(AB3D2_DXR_LIGHTING_REFERENCE_ROOT
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/renderer_dxr/lighting_reference")
+    set(AB3D2_DXR_LIGHTING_REFERENCE_SOURCE_DIR
+        "${AB3D2_DXR_LIGHTING_REFERENCE_ROOT}/source")
+    set(AB3D2_DXR_LIGHTING_REFERENCE_MATERIAL_DIR
+        "${AB3D2_DXR_LIGHTING_REFERENCE_ROOT}/materials")
+    set(AB3D2_DXR_LIGHTING_REFERENCE_MATERIAL_OUTPUTS
+        "${AB3D2_DXR_LIGHTING_REFERENCE_MATERIAL_DIR}/material_manifest.json"
+        "${AB3D2_DXR_LIGHTING_REFERENCE_MATERIAL_DIR}/material_runtime.bin")
+    add_custom_command(
+      OUTPUT ${AB3D2_DXR_LIGHTING_REFERENCE_MATERIAL_OUTPUTS}
+      COMMAND ${CMAKE_COMMAND} -E remove_directory
+              "${AB3D2_DXR_LIGHTING_REFERENCE_ROOT}"
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              "${AB3D2_DXR_LIGHTING_REFERENCE_SOURCE_DIR}"
+      COMMAND "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dxr_lighting_reference_materials.py"
+              --source-dir "${AB3D2_DXR_LIGHTING_REFERENCE_SOURCE_DIR}"
+              --output-dir "${AB3D2_DXR_LIGHTING_REFERENCE_MATERIAL_DIR}"
+      DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/build_dxr_lighting_reference_materials.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_pbr_asset_pack.py"
+      COMMENT "Build isolated constant-PBR DXR lighting reference materials"
+      VERBATIM
+    )
+    add_custom_target(ab3d2_dxr_lighting_reference_materials
+      DEPENDS ${AB3D2_DXR_LIGHTING_REFERENCE_MATERIAL_OUTPUTS})
+    add_executable(ab3d2_renderer_rtx_lighting_reference_test
+      tests/renderer_rtx_lighting_reference_test.c
+      ${AB3D2_RENDERER_RTX_SOURCES}
+    )
+    set_target_properties(
+      ab3d2_renderer_rtx_lighting_reference_test
+      PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF
+                 RUNTIME_OUTPUT_DIRECTORY
+                   "${CMAKE_CURRENT_BINARY_DIR}/lighting_reference/$<CONFIG>")
+    target_include_directories(
+      ab3d2_renderer_rtx_lighting_reference_test PRIVATE src)
+    target_compile_definitions(
+      ab3d2_renderer_rtx_lighting_reference_test
+      PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX
+      $<$<CONFIG:Debug>:AB3D2_DXR_ENABLE_DEBUG_LAYER=1>
+      $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_ENABLE_DEBUG_LAYER=1>
+      $<$<BOOL:${AB3D2_DXR_GPU_VALIDATION}>:AB3D2_DXR_GPU_VALIDATION=1>
+    )
+    target_link_libraries(
+      ab3d2_renderer_rtx_lighting_reference_test
+      PRIVATE ab3d2_core SDL2-static user32)
+    if(AB3D2_ENABLE_STREAMLINE)
+      ab3d2_enable_streamline_for_target(
+        ab3d2_renderer_rtx_lighting_reference_test)
+    else()
+      target_link_libraries(
+        ab3d2_renderer_rtx_lighting_reference_test
+        PRIVATE d3d12 dxgi dxguid)
+    endif()
+    add_dependencies(
+      ab3d2_renderer_rtx_lighting_reference_test
+      ab3d2_dxr_shaders ab3d2_dxr_lighting_reference_materials)
+    add_custom_command(
+      TARGET ab3d2_renderer_rtx_lighting_reference_test POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E make_directory
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_VERTEX_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/diagnostic_vs.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_PIXEL_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/diagnostic_ps.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_PRESENT_VERTEX_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/present_vs.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_PRESENT_PIXEL_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/present_ps.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_PATH_TRACE_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/path_trace.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_POST_HISTOGRAM_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/post_histogram_cs.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_POST_CURVE_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/post_curve_cs.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_POST_BLOOM_SHADER}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/post_bloom_cs.dxil"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_BLUE_NOISE_PACKAGE}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/blue_noise_spp256.bin"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              "${AB3D2_DXR_BLUE_NOISE_LICENSE}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/blue-noise-sampler-license.txt"
+      COMMAND ${CMAKE_COMMAND} -E remove_directory
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/materials"
+      COMMAND ${CMAKE_COMMAND} -E copy_directory
+              "${AB3D2_DXR_LIGHTING_REFERENCE_MATERIAL_DIR}"
+              "$<TARGET_FILE_DIR:ab3d2_renderer_rtx_lighting_reference_test>/renderer_dxr/materials"
+      COMMENT "Stage isolated DXR lighting reference runtime"
+    )
+    add_test(NAME ab3d2_renderer_rtx_lighting_reference_test
+             COMMAND $<TARGET_FILE:ab3d2_renderer_rtx_lighting_reference_test>)
+    set_tests_properties(
+      ab3d2_renderer_rtx_lighting_reference_test PROPERTIES TIMEOUT 60)
     add_executable(ab3d2_renderer_rtx_foundation_test
       tests/renderer_rtx_foundation_test.c
       ${AB3D2_RENDERER_RTX_SOURCES}

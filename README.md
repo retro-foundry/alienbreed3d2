@@ -700,6 +700,13 @@ nonzero direct diffuse and dielectric GGX coverage on every reference frame,
 while the combined noisy radiance and mandatory Ray Reconstruction guides must
 remain finite. Its preceding empty-scene phase continues to require exact
 black, so this validation does not introduce an ambient or missed-ray colour.
+`ab3d2_renderer_rtx_lighting_reference_test` runs beside its own build-generated
+constant-PBR package rather than adding synthetic bindings to the game material
+catalog. It requires an unlit non-emissive surface to remain exact black,
+direct GGX coverage to be absent below roughness `0.16` and present at `0.20`,
+and a fully metallic receiver to have zero direct diffuse coverage with nonzero
+specular coverage. Additional `0.30` and fully rough cases keep those material
+guides and lobes finite through repeated frames.
 
 The RTX smoke renders each Level A--P frame twice. A starting view with no
 visible source and no sampled emitter connection may correctly be black;
