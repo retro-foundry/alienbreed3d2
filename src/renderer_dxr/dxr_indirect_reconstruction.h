@@ -19,12 +19,17 @@ enum class Mode : uint32_t {
     restir = 7u,
 };
 
-/* Startup-only diagnostic composition. The indirect option preserves the
- * ordinary path trace and every reconstruction guide, but publishes only the
- * reconstructed secondary diffuse channel to the single DLSS-RR evaluation. */
+/* Startup-only diagnostic composition. Every option preserves the ordinary
+ * path trace and reconstruction guides while isolating one contribution at
+ * the final noisy-HDR boundary before the single DLSS-RR evaluation. */
 enum class RadianceChannel : uint32_t {
     combined = 0u,
-    indirect = 1u,
+    emission = 1u,
+    direct_diffuse = 2u,
+    direct_specular = 3u,
+    indirect = 4u,
+    smooth_specular = 5u,
+    rough_specular = 6u,
 };
 
 /*
@@ -65,7 +70,6 @@ inline constexpr float temporal_gradient_confirmation_threshold = 0.4f;
  * full history in burst mode forever. */
 inline constexpr uint32_t stable_indirect_sample_count = 1u;
 inline constexpr uint32_t stable_indirect_sampling_phase_count = 4u;
-inline constexpr uint32_t stable_direct_sampling_phase_count = 2u;
 inline constexpr float adaptive_history_maturity_tolerance = 0.5f;
 
 inline constexpr uint32_t stable_indirect_sampling_phase(
@@ -79,13 +83,6 @@ inline constexpr bool stable_indirect_sample_scheduled(
 {
     return stable_indirect_sampling_phase(pixel_x, pixel_y) ==
         sample_index % stable_indirect_sampling_phase_count;
-}
-
-inline constexpr bool stable_direct_sample_scheduled(
-    uint32_t pixel_x, uint32_t pixel_y, uint32_t sample_index)
-{
-    return ((pixel_x + pixel_y) & 1u) ==
-        sample_index % stable_direct_sampling_phase_count;
 }
 
 inline constexpr bool stable_schedule_covers_gradient_region()

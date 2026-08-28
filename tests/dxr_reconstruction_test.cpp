@@ -54,7 +54,17 @@ int main()
                   static_cast<uint32_t>(
                       indirect::RadianceChannel::combined) == 0u &&
                   static_cast<uint32_t>(
-                      indirect::RadianceChannel::indirect) == 1u &&
+                      indirect::RadianceChannel::emission) == 1u &&
+                  static_cast<uint32_t>(
+                      indirect::RadianceChannel::direct_diffuse) == 2u &&
+                  static_cast<uint32_t>(
+                      indirect::RadianceChannel::direct_specular) == 3u &&
+                  static_cast<uint32_t>(
+                      indirect::RadianceChannel::indirect) == 4u &&
+                  static_cast<uint32_t>(
+                      indirect::RadianceChannel::smooth_specular) == 5u &&
+                  static_cast<uint32_t>(
+                      indirect::RadianceChannel::rough_specular) == 6u &&
                   indirect::filter_steps[0] == 1 &&
                   indirect::filter_steps[1] == 2 &&
                   indirect::filter_steps[2] == 4 &&
@@ -72,7 +82,6 @@ int main()
                   indirect::temporal_gradient_confirmation_threshold == 0.4f &&
                   indirect::stable_indirect_sample_count == 1u &&
                   indirect::stable_indirect_sampling_phase_count == 4u &&
-                  indirect::stable_direct_sampling_phase_count == 2u &&
                   indirect::adaptive_history_maturity_tolerance == 0.5f &&
                   indirect::stable_schedule_covers_gradient_region() &&
                   indirect::maximum_path_depth == 8u &&
@@ -403,9 +412,6 @@ int main()
         !indirect::stable_indirect_sample_scheduled(0u, 1u, 2u) ||
         !indirect::stable_indirect_sample_scheduled(1u, 1u, 3u) ||
         indirect::stable_indirect_sample_scheduled(0u, 0u, 1u) ||
-        !indirect::stable_direct_sample_scheduled(0u, 0u, 0u) ||
-        !indirect::stable_direct_sample_scheduled(1u, 0u, 1u) ||
-        indirect::stable_direct_sample_scheduled(0u, 0u, 1u) ||
         adaptive_samples(std::numeric_limits<float>::quiet_NaN(),
                          0.0f, 32u, true) != 4u) {
         return fail(
@@ -633,6 +639,12 @@ int main()
         !near(specular_albedo({0.0f, 0.0f, 0.0f}, 0.5f, 0.5f),
               {0.0f, 0.0f, 0.0f})) {
         return fail("NVIDIA specular-albedo approximation changed");
+    }
+    const Vec3 packed_f0 = {0.04f, 0.5f, 1.0f};
+    const Vec3 unpacked_f0 = unpack_surface_f0(pack_surface_f0(packed_f0));
+    if (!near(unpacked_f0, packed_f0, 0.5f / 1023.0f + 1.0e-6f) ||
+        (pack_surface_f0({1.0f, 1.0f, 1.0f}) & 0xc0000000u) != 0u) {
+        return fail("packed primary F0 contract changed");
     }
 
     const CameraProjection current = {

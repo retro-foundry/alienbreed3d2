@@ -61,6 +61,19 @@ int main()
           specular_probability(metal) > specular_probability(dielectric))) {
         return fail("lobe selection probability is invalid");
     }
+    if (!near(direct_specular_weight(0.0f), 0.0f) ||
+        !near(direct_specular_weight(0.16f), 0.0f) ||
+        !near(direct_specular_weight(0.18f), 0.5f) ||
+        !near(direct_specular_weight(0.20f), 1.0f) ||
+        !near(direct_specular_weight(1.0f), 1.0f) ||
+        !near(direct_specular_weight(0.18f) +
+                  direct_emitter_hit_complement(0.18f),
+              1.0f) ||
+        !near(fake_specular_weight(0.20f), 0.0f) ||
+        !near(fake_specular_weight(0.25f), 0.5f) ||
+        !near(fake_specular_weight(0.30f), 1.0f)) {
+        return fail("direct/specular-hit transition weights changed");
+    }
 
     const Vec3 normal = {0.0f, 0.0f, 1.0f};
     const Vec3 tangent = {1.0f, 0.0f, 0.0f};
@@ -100,6 +113,8 @@ int main()
         const Evaluation checked = evaluate(dielectric, normal, view, light);
         if (!near(sampled.pdf, checked.pdf, 1.0e-6f) ||
             !near(sampled.value, checked.value, 1.0e-5f) ||
+            !near(sampled.value, sampled.diffuse + sampled.specular,
+                  1.0e-5f) ||
             !finite(sampled.value) || !std::isfinite(sampled.pdf)) {
             return fail("sampled BRDF and evaluated PDF disagree");
         }

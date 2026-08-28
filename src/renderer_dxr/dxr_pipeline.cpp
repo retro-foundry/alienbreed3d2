@@ -59,14 +59,15 @@ enum DescriptorIndex : UINT {
     view_weapon_history_uav_start = 43,
     rr_disocclusion_mask_uav = 45,
     rr_bias_current_color_mask_uav = 46,
-    post_input_srv = 47,
-    post_histogram_uav = 48,
-    post_tone_map_state_uav = 49,
-    bloom_srv_start = 50,
-    post_hdr_srv = 56,
-    bloom_uav_start = 57,
-    post_hdr_uav = 63,
-    descriptor_count = 64,
+    surface_parameters_uav = 47,
+    post_input_srv = 48,
+    post_histogram_uav = 49,
+    post_tone_map_state_uav = 50,
+    bloom_srv_start = 51,
+    post_hdr_srv = 57,
+    bloom_uav_start = 58,
+    post_hdr_uav = 64,
+    descriptor_count = 65,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -559,8 +560,9 @@ bool DxrPipeline::configure_debug_view(std::string &error)
                      indirect_mode_names[indirect_reconstruction_mode_]);
     }
 
-    constexpr std::array<const char *, 2> radiance_channel_names = {
-        "combined", "indirect"};
+    constexpr std::array<const char *, 7> radiance_channel_names = {
+        "combined", "emission", "direct-diffuse", "direct-specular",
+        "indirect", "smooth-specular", "rough-specular"};
     char radiance_channel_value[64] = {};
     const DWORD radiance_channel_length = GetEnvironmentVariableA(
         "AB3D2_DXR_RADIANCE_CHANNEL", radiance_channel_value,
@@ -578,7 +580,9 @@ bool DxrPipeline::configure_debug_view(std::string &error)
                 return std::strcmp(radiance_channel_value, name) == 0;
             });
         if (found == radiance_channel_names.end()) {
-            error = "AB3D2_DXR_RADIANCE_CHANNEL must be combined or indirect";
+            error = "AB3D2_DXR_RADIANCE_CHANNEL must be combined, emission, "
+                    "direct-diffuse, direct-specular, indirect, "
+                    "smooth-specular, or rough-specular";
             return false;
         }
         radiance_channel_ = static_cast<uint32_t>(
@@ -1045,7 +1049,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
     ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[3].NumDescriptors = 18;
+    ranges[3].NumDescriptors = 19;
     ranges[3].BaseShaderRegister = 13;
     std::array<D3D12_ROOT_PARAMETER, 13> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
@@ -1615,6 +1619,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         streamline_scene_motion_ &&
         view_weapon_histories_[0] && view_weapon_histories_[1] &&
         rr_disocclusion_mask_ && rr_bias_current_color_mask_ &&
+        surface_parameters_ &&
         render_width_ == width &&
         render_height_ == height && present_width_ == present_width &&
         present_height_ == present_height &&
@@ -1635,6 +1640,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     }
     rr_disocclusion_mask_.Reset();
     rr_bias_current_color_mask_.Reset();
+    surface_parameters_.Reset();
     indirect_radiance_.Reset();
     indirect_filtered_.Reset();
     indirect_chroma_.Reset();
@@ -1806,6 +1812,27 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         device->CreateUnorderedAccessView(
             rr_bias_current_color_mask_.Get(), nullptr, &uav,
             cpu_descriptor(rr_bias_current_color_mask_uav));
+    }
+    description.Format = DXGI_FORMAT_R32_UINT;
+    {
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&surface_parameters_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(surface parameters)",
+                result);
+            return false;
+        }
+        surface_parameters_->SetName(
+            L"AB3D2 Packed Primary Surface F0");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = description.Format;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(
+            surface_parameters_.Get(), nullptr, &uav,
+            cpu_descriptor(surface_parameters_uav));
     }
     description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     {
@@ -2434,8 +2461,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         indirect_spp_ : 0u;
     const bool diffuse_gi_active = maximum_depth_ >= 2u &&
         effective_indirect_spp > 0u;
-    const bool rebuild_light_grid = diffuse_gi_active &&
-        scene_.emitter_count() > 0u &&
+    const bool light_grid_active = maximum_depth_ >= 2u &&
+        scene_.emitter_count() > 0u;
+    const bool rebuild_light_grid = light_grid_active &&
         light_grid::cache_needs_rebuild(
             light_grid_center_, light_grid_layout_hash_,
             current_light_grid_center, current_light_grid_layout_hash,
@@ -2464,7 +2492,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     copy_vector(constants.camera_right, current_camera.right);
     constants.sample_index = sample_index;
     copy_vector(constants.camera_up, current_camera.up);
-    constants.maximum_depth = diffuse_gi_active ? maximum_depth_ : 1u;
+    constants.maximum_depth = maximum_depth_;
     constants.output_width = width;
     constants.output_height = height;
     constants.triangle_count = scene_.triangle_count();
@@ -2609,7 +2637,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     dispatch.HitGroupTable = {
         table + shader_record_size * shader_record_hit_group,
         shader_record_size, shader_record_size};
-    if (diffuse_gi_active && scene_.emitter_count() > 0u) {
+    if (light_grid_active) {
         /* A new center/layout fills all 512 entries per cell. Ordinary frames
          * replace one interleaved sixteenth, keeping proposal coverage fresh
          * while halving the recurring cache bandwidth and candidate work. */
@@ -2622,9 +2650,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             uav_barrier(light_grid_.Get());
         command_list->ResourceBarrier(1, &light_grid_ready);
     }
-    /* Primary polygon NEE keeps the complete global proposal; indirect
-     * vertices draw from the grid built above. SpatialShade remains dormant:
-     * no temporal or neighboring screen-space reservoir is shaded. */
+    /* Primary polygon NEE keeps the complete global proposal. Diffuse and
+     * smooth-specular reached surfaces draw from the grid built above.
+     * SpatialShade remains dormant: no temporal or neighboring screen-space
+     * direct reservoir is shaded. */
     dispatch.RayGenerationShaderRecord = {
         table + shader_record_size * shader_record_ray_generation,
         shader_record_size};
@@ -2648,6 +2677,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             DxrReconstructionBuffer::linear_depth)),
         uav_barrier(reconstruction_resource(
             DxrReconstructionBuffer::scene_motion)),
+        uav_barrier(surface_parameters_.Get()),
     };
     command_list->ResourceBarrier(
         static_cast<UINT>(std::size(indirect_input_ready)),
@@ -3170,7 +3200,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     history_.pending_weapon_pose_hash_valid =
         current_weapon_pose_hash_valid;
     history_.pending = true;
-    if (scene_.emitter_count() == 0u || !diffuse_gi_active) {
+    if (!light_grid_active) {
         light_grid_cache_valid_ = false;
     } else if (rebuild_light_grid) {
         light_grid_center_ = current_light_grid_center;

@@ -23,6 +23,8 @@ struct Material {
 };
 
 struct Evaluation {
+    Vec3 diffuse;
+    Vec3 specular;
     Vec3 value;
     float pdf;
 };
@@ -184,6 +186,30 @@ inline float smith_g1(float normal_direction, float alpha)
                  1.0e-8f);
 }
 
+inline float smoothstep(float minimum, float maximum, float value)
+{
+    const float normalized = std::clamp(
+        (value - minimum) / (maximum - minimum), 0.0f, 1.0f);
+    return normalized * normalized * (3.0f - 2.0f * normalized);
+}
+
+/* Q2RTX splits ordinary direct highlights from explicit smooth reflection
+ * transport over this narrow material-roughness interval. */
+inline float direct_specular_weight(float linear_roughness)
+{
+    return smoothstep(0.16f, 0.20f, linear_roughness);
+}
+
+inline float direct_emitter_hit_complement(float linear_roughness)
+{
+    return 1.0f - direct_specular_weight(linear_roughness);
+}
+
+inline float fake_specular_weight(float linear_roughness)
+{
+    return smoothstep(0.20f, 0.30f, linear_roughness);
+}
+
 inline Evaluation evaluate(const Material &material, Vec3 normal,
                            Vec3 view_direction, Vec3 light_direction)
 {
@@ -210,7 +236,9 @@ inline Evaluation evaluate(const Material &material, Vec3 normal,
     const float specular_pdf = distribution * view_masking /
         std::max(4.0f * normal_view, 1.0e-7f);
     const float choose_specular = specular_probability(material);
-    result.value = diffuse + specular;
+    result.diffuse = diffuse;
+    result.specular = specular;
+    result.value = result.diffuse + result.specular;
     result.pdf = diffuse_pdf * (1.0f - choose_specular) +
         specular_pdf * choose_specular;
     return result;

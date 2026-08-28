@@ -57,6 +57,29 @@ inline Vec3 specular_albedo(Vec3 specular_color, float linear_roughness,
 constexpr float scene_near_plane = 0.05f;
 constexpr float scene_far_plane = 8192.0f;
 
+/* Three ten-bit UNORM channels leave two high bits reserved in one R32_UINT
+ * primary-surface parameter. */
+inline uint32_t pack_surface_f0(Vec3 value)
+{
+    const auto quantize = [](float channel) {
+        return static_cast<uint32_t>(std::lround(
+            std::clamp(channel, 0.0f, 1.0f) * 1023.0f));
+    };
+    return quantize(value.x) |
+        (quantize(value.y) << 10u) |
+        (quantize(value.z) << 20u);
+}
+
+inline Vec3 unpack_surface_f0(uint32_t packed)
+{
+    constexpr float inverse = 1.0f / 1023.0f;
+    return {
+        static_cast<float>(packed & 0x3ffu) * inverse,
+        static_cast<float>((packed >> 10u) & 0x3ffu) * inverse,
+        static_cast<float>((packed >> 20u) & 0x3ffu) * inverse,
+    };
+}
+
 struct InitialReservoirDomain {
     float weight_sum;
     uint32_t sample_count;

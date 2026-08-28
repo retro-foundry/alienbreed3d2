@@ -198,6 +198,8 @@ private:
     /* One explicitly means current color only for the visible weapon, avoiding
      * temporal retention inside a moving silhouette. */
     Microsoft::WRL::ComPtr<ID3D12Resource> rr_bias_current_color_mask_;
+    /* Packed primary material F0 for rough-specular reconstruction. */
+    Microsoft::WRL::ComPtr<ID3D12Resource> surface_parameters_;
     Microsoft::WRL::ComPtr<ID3D12Resource> automatic_exposure_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_histogram_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_state_;

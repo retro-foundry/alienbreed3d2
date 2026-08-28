@@ -1,9 +1,53 @@
 # Q2RTX Indoor Lighting Parity Handoff
 
-Status: approved implementation plan; renderer changes described here have not
-been implemented yet.
+Status: indoor-core implementation present; validation in progress. Primary
+direct diffuse/GGX, full-rate direct sampling, active RR guides, real smooth
+specular, packed-F0 rough reconstruction, and radiance isolations were
+implemented on 2026-08-28. Reference-scene and all-level parity acceptance
+remain open.
 
 Date: 2026-08-27
+
+## Implementation progress (2026-08-28)
+
+- Primary authored-emitter RIS now targets Fresnel-reduced diffuse plus the
+  Q2RTX-weighted direct GGX contribution as one sample. The same survivor,
+  shadow result, and normalization feed both lobes. Metallic primary surfaces
+  are no longer skipped merely because their diffuse reflectance is zero.
+- The half-rate two-phase direct checkerboard was removed. Every primary pixel
+  now evaluates its configured direct samples, eliminating a deterministic
+  source of alternating direct-light noise before RR.
+- RR now receives reconstructed specular albedo, material roughness in normal
+  alpha, and a deterministic current-geometry mirror hit distance. Background
+  remains zero; a surface mirror miss writes `SceneFarPlane`.
+- `AB3D2_DXR_RADIANCE_CHANNEL` now isolates `emission`, `direct-diffuse`,
+  `direct-specular`, `indirect`, `smooth-specular`, `rough-specular`, or the
+  production `combined` sum.
+- Every configured primary SPP now carries an independent GGX VNDF
+  continuation when `rtx_max_bounces >= 2`. It accumulates crossed additive
+  layers, reached-surface authored emission and diffuse local-light shading,
+  applies the Q2RTX smooth/rough split and distance anti-flicker factor, and
+  leaves misses black.
+- Primary F0 is stored in a packed `R32_UINT` surface target. The fully filtered
+  directional GI now supplies Q2RTX-style dominant-direction rough specular,
+  with directionality roughening and compensation, directly into the specular
+  lighting sum without diffuse-albedo remodulation.
+- The accepted diffuse continuation and indirect reconstruction were not
+  changed. Direct temporal/spatial reservoir reuse remains dormant as required
+  by this plan; it has not been presented as completed ReSTIR work.
+
+### Validation evidence (2026-08-28)
+
+- Shader Model 6.6 compilation with warnings-as-errors and the Release renderer
+  build passed.
+- The complete Debug CTest suite passed: 29/29, including the DXR foundation,
+  Streamline package checks, and the all-level RTX game smoke.
+- The locked saved Level A `combined` capture measured frozen late delta
+  `0.5050`, `813` saturated pixels, and zero >=16-code temporal outliers.
+  Isolated `smooth-specular` measured `0.5129 / 0 / 0`; isolated
+  `rough-specular` measured `0.5025 / 0 / 0` in the same tuple order.
+- The moving Shotgun endpoint measured `4.8305`, so moving-specular visual
+  acceptance and the deterministic GPU reference scenes below remain open.
 
 ## Goal
 

@@ -41,9 +41,12 @@ session. Supported keys are:
   `SceneFrame` world, bitmap billboards/effects, animated world
   vector models, and companion weapon into a fresh, visibly noisy HDR image.
   The current staged pass samples renderer-native base color, normal,
-  metalness, and explicit emissive channels with Lambert polygon-light NEE at
-  the primary surface and every configured diffuse continuation, shadow rays,
-  and a pinned dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player
+  metalness, roughness, specular factor, and explicit emissive channels with
+  Fresnel-partitioned Lambert/GGX polygon-light NEE at the primary surface,
+  diffuse polygon-light NEE at every configured diffuse continuation, and one
+  companion smooth GGX continuation. Rough specular is reconstructed from the
+  filtered directional GI. Sampling uses traced shadow rays and a pinned
+  dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player
   1's
   companion weapon is source-scale camera-relative PBR geometry in the same
   depth-ordered TLAS. It is occluded by the world, participates in diffuse and
@@ -86,9 +89,11 @@ default, so the shipped template lists them commented out with their defaults:
   secondary diffuse transfer and defaults to `0.75`; exact zero bypasses its
   continuation rays and reconstruction stages without changing direct light or
   visible emission. `rtx_max_bounces=1` evaluates directly
-  visible emission and primary-hit Lambert polygon NEE. Each value from `2`
+  visible emission and primary-hit Fresnel-partitioned Lambert plus GGX
+  polygon NEE. Each value from `2`
   through `8` adds one real diffuse continuation and polygon-light evaluation;
-  the default `3` therefore shades two successive indirect surfaces;
+  the default `3` therefore shades two successive indirect surfaces. A value
+  of at least `2` also enables the independent first-bounce GGX continuation;
 - `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
   path tracer renders at before reconstruction upscales it. Quality, Balanced,
@@ -106,21 +111,23 @@ default, so the shipped template lists them commented out with their defaults:
   to Q2RTX's fixed 800-nit scene target, while `rtx_hdr_saturation=0..200`
   defaults to its identity 100%; the comparator's separate 300-nit UI output
   remains with the pending DXR HUD/text implementation;
-- `rtx_light_candidates=1` through `1024` controls fresh RIS at every diffuse
-  vertex. Candidates are evaluated without shadow rays, one survivor traces
-  visibility, and the unbiased reservoir normalization preserves brightness.
-  The primary vertex uses the complete emitter alias table. Indirect vertices
-  use a quantized world-stable ReGIR cell proposal, matching Q2RTX's essential
-  local-light-list behavior. `rtx_reservoir_limit=0` through `65536`
+- `rtx_light_candidates=1` through `1024` controls fresh RIS at every surface
+  vertex. Primary candidates stream material-dependent direct diffuse plus
+  weighted GGX specular through one target; one survivor traces visibility and
+  one unbiased normalization is applied to both lobes. Indirect diffuse
+  vertices retain their accepted diffuse-only estimator. The primary vertex
+  uses the complete emitter alias table. Indirect vertices use a quantized
+  world-stable ReGIR cell proposal, matching Q2RTX's essential local-light-list
+  behavior. `rtx_reservoir_limit=0` through `65536`
   caps the effective path-sample history of the separate low-frequency indirect
   channel and defaults to `32`. Four default indirect paths therefore fill it
   in eight stable presented frames. Zero keeps only the current frame while its
   depth/normal-guided spatial filter remains active; and
 - `rtx_radiance_clamp=0..100000` is a diagnostic per-sample firefly ceiling.
   Its Q2RTX-matching default is `0`, disabled, because the comparator has no
-  path-radiance clamp control. `rtx_ndf_trim=0.9` remains inactive because no
-  GGX lobe executes, while `rtx_exposure_bias=-5..0` is applied after the tone
-  curve in log2 stops and defaults to Q2RTX's `-1` EV.
+  path-radiance clamp control. `rtx_ndf_trim=0.9` trims the active sampled GGX
+  visible-normal distribution, while `rtx_exposure_bias=-5..0` is applied
+  after the tone curve in log2 stops and defaults to Q2RTX's `-1` EV.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_INDIRECT_SPP`, `AB3D2_DXR_DIFFUSE_GI`,
 `AB3D2_DXR_MAX_BOUNCES`,
@@ -540,7 +547,8 @@ Weapon and world instances use the same TLAS mask and nearest-hit query, so all
 primary, secondary, and visibility rays see both. The PBR weapon can therefore
 be occluded by the world, receive this indirect diffuse term, and occlude its
 continuation/visibility rays while contributing depth, normals, motion, and the
-active reconstruction guides. Specular/reflection transport remains dormant.
+active reconstruction guides. Direct GGX, one independent smooth GGX
+continuation, and filtered-GI rough-specular reconstruction are active.
 `technolights` and the source
 `floor_0101` panel use colored emissive masks at factor 200; other materials
 remain non-emissive. Companion weapon vertices do not consume the source
@@ -604,21 +612,25 @@ the runtime does not regenerate fallback textures.
 The current staged renderer keeps one pixel-centred camera ray with zero
 frame-varying subpixel jitter. Base colour is written as a reconstruction guide,
 not added to HDR as fake self-emission. The image shows directly visible
-authored emission and diffuse polygon-light transport. At the primary hit the
-shader draws `rtx_light_candidates` samples from the complete authored-emitter
-alias distribution, streams them through fresh RIS, and traces visibility only for
-the survivor, providing the directly lit diffuse baseline. The first indirect
+authored emission and material-dependent polygon-light transport. At the
+primary hit the shader draws `rtx_light_candidates` samples from the complete
+authored-emitter alias distribution, evaluates Fresnel-reduced Lambert diffuse
+and GGX specular, streams their luminance together through fresh RIS, and
+traces visibility only for the survivor. Both lobes receive the same unbiased
+normalization. This runs at every primary pixel rather than alternating a
+half-rate checkerboard. The first indirect
 continuation uses the broad low-frequency geometric-normal distribution; each
 later continuation uses an ordinary cosine distribution. Every reached surface
 evaluates fresh polygon RIS from its quantized world-stable light-grid cell,
 so Level A's starting-room emitters remain in local proposals instead of being
-diluted among every emissive triangle in the level. All vertices use metal-free
-diffuse reflectance, the emitter's exact area-to-solid-angle PDF, and unbiased
-fresh-RIS normalization. Primary direct SPP and indirect path count are
+diluted among every emissive triangle in the level. Indirect vertices retain
+metal-free diffuse reflectance, the emitter's exact area-to-solid-angle PDF,
+and unbiased fresh-RIS normalization. Primary direct SPP and indirect path count are
 independent. The indirect average carries its actual path count into temporal
 reconstruction rather than advancing history once per presented frame.
-There is no environment lighting, GGX/specular transport, or authored zone
-ambient. The indirect incident
+There is no environment lighting or authored zone ambient. Smooth materials
+receive a real first-bounce GGX continuation; rough materials blend to a
+Q2RTX-style reconstruction from the filtered directional GI. The indirect incident
 radiance is demodulated from primary albedo, represented directionally,
 reprojected and accumulated up to `rtx_reservoir_limit`, then reconstructed by
 the one-third-resolution regional pipeline before primary albedo is restored.
@@ -632,9 +644,13 @@ tile-local bins before their exact integer totals reach the global 128-bin
 buffer, avoiding two globally contended atomics per output pixel. The same
 primary dispatch writes RGBA8 diffuse/specular albedo, packed FP16 world
 shading normal/roughness, FP32 linear depth, FP16 dense scene motion, and FP16
-specular hit distance. The separate roughness and diffuse-hit-distance textures
-are full-sized only for an explicitly selected debug view. Specular guides
-remain zero. The view weapon carries
+specular hit distance. The specular albedo uses the active material F0,
+roughness, and view angle; normal alpha carries material roughness; and the
+specular hit distance comes from a deterministic current-frame mirror trace.
+An internal packed `R32_UINT` target retains raw primary F0 for rough-specular
+reconstruction; it is not tagged to Streamline.
+The separate roughness and diffuse-hit-distance textures are full-sized only
+for an explicitly selected debug view. The view weapon carries
 camera-local positions through the vertex buffer so its linear depth and motion
 do not lose precision when attached to a large world-space camera coordinate.
 Renderer-owned histories keep their existing invalid-motion sentinel, while RR
@@ -764,13 +780,10 @@ table; surfaces outside the grid retain the global proposal. The full grid is
 built when its quantized center or emitter identity/area layout changes. On
 ordinary frames one interleaved sixteenth of every cell is refreshed, so every
 proposal slot evolves within sixteen presentations without rebuilding all
-2,097,152 entries each frame. Direct polygon-light NEE is current-frame only.
-With DLSS-RR active, mature guide-valid production pixels rotate that direct
-estimate through a two-phase checkerboard and double its selected contribution,
-preserving the estimator's expectation. New, disoccluded, immature, and
-confirmed-changing pixels trace direct lighting everywhere. At a diffuse
-continuation hit, the renderer performs the same local polygon-light proposal
-and stores demodulated incident radiance in a separate low-frequency channel.
+2,097,152 entries each frame. Direct polygon-light NEE is current-frame only
+and runs at every primary pixel. At a diffuse continuation hit, the renderer
+performs the same local polygon-light proposal and stores demodulated incident
+radiance in a separate low-frequency channel.
 
 `rtx_diffuse_gi=0..1` controls how much of that reconstructed secondary diffuse
 channel is remodulated into the final image and defaults to `0.75`. The scale is
@@ -841,13 +854,14 @@ one final DLSS-RR evaluation. This is an A/B facility, not a second Ray
 Reconstruction invocation; `full` remains the default because the recorded
 saved-corridor ReSTIR result is currently noisier.
 
-Set `AB3D2_DXR_RADIANCE_CHANNEL=indirect` to remove primary visible emission,
-additive radiance, and direct-light NEE at the final composition boundary while
-retaining only remodulated secondary diffuse GI in the ordinary noisy HDR input
-sent through the single DLSS-RR evaluation. The tracer still evaluates the
-primary channel so the comparison does not perturb the GI samples or RR guides.
-Unset it, or select `combined`, for the production composition. Do not combine
-this with `AB3D2_DXR_DEBUG_VIEW`: explicit debug views bypass DLSS-RR.
+`AB3D2_DXR_RADIANCE_CHANNEL` accepts `emission`, `direct-diffuse`,
+`direct-specular`, `indirect`, `smooth-specular`, or `rough-specular` to
+isolate that contribution in the ordinary noisy HDR input sent through the
+single DLSS-RR evaluation. Visible emission also includes non-occluding
+additive radiance. The tracer still evaluates the other channels so a
+comparison does not perturb GI samples or RR guides. Unset it, or select
+`combined`, for production composition. Do not combine this with
+`AB3D2_DXR_DEBUG_VIEW`: explicit debug views bypass DLSS-RR.
 
 Set `AB3D2_DXR_DEBUG_VIEW` to `noisy`, `diffuse-albedo`, `specular-albedo`,
 `normal`, `roughness`, `depth`, `motion`, `specular-hit-distance`,

@@ -183,8 +183,16 @@ struct SurfaceData
 
 struct BsdfEvaluation
 {
+    float3 diffuse;
+    float3 specular;
     float3 value;
     float pdf;
+};
+
+struct DirectLightingSample
+{
+    float3 diffuse;
+    float3 specular;
 };
 
 RaytracingAccelerationStructure Scene : register(t0);
@@ -235,6 +243,7 @@ RWTexture2D<float2> StreamlineSceneMotion : register(u26);
 RWTexture2D<uint> ViewWeaponHistories[2] : register(u27);
 RWTexture2D<float> RayReconstructionDisocclusion : register(u29);
 RWTexture2D<float> RayReconstructionBiasCurrentColor : register(u30);
+RWTexture2D<uint> SurfaceParameters : register(u31);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -279,7 +288,12 @@ cbuffer FrameConstants : register(b0)
 };
 
 static const uint RadianceChannelCombined = 0u;
-static const uint RadianceChannelIndirect = 1u;
+static const uint RadianceChannelEmission = 1u;
+static const uint RadianceChannelDirectDiffuse = 2u;
+static const uint RadianceChannelDirectSpecular = 3u;
+static const uint RadianceChannelIndirect = 4u;
+static const uint RadianceChannelSmoothSpecular = 5u;
+static const uint RadianceChannelRoughSpecular = 6u;
 
 static const uint BlueNoiseSampleCount = 256u;
 static const uint BlueNoiseDimensionCount = 256u;
@@ -343,7 +357,6 @@ static const float IndirectGradientConfirmationRate = 0.25;
 static const float IndirectGradientConfirmationThreshold = 0.4;
 static const uint StableIndirectSampleCount = 1u;
 static const uint StableIndirectSamplingPhaseCount = 4u;
-static const uint StableDirectSamplingPhaseCount = 2u;
 static const float AdaptiveHistoryMaturityTolerance = 0.5;
 static const uint IndirectReconstructionFull = 0u;
 static const uint IndirectReconstructionTemporal = 1u;
@@ -388,6 +401,8 @@ static const uint ReservoirBrdfStream = 0x10500u;
 static const uint SecondaryDirectStream = 0x10600u;
 static const uint DiffusePrimaryPolygonStream = 0x10700u;
 static const uint DiffuseIndirectPolygonStream = 0x10800u;
+static const uint SmoothSpecularDirectionStream = 0x10900u;
+static const uint SmoothSpecularPolygonStream = 0x10a00u;
 /* `rtx_light_candidates` is capped at 1024. Give every indirect surface a
  * disjoint candidate stream so changing path depth adds samples instead of
  * replaying the first secondary vertex's light choices. */
@@ -519,6 +534,19 @@ float2 unpackPositionSample(uint packed)
 float2 quantizePositionSample(float2 positionSample)
 {
     return unpackPositionSample(packPositionSample(positionSample));
+}
+
+uint packSurfaceF0(float3 f0)
+{
+    uint3 quantized = uint3(round(saturate(f0) * 1023.0));
+    return quantized.r | (quantized.g << 10u) | (quantized.b << 20u);
+}
+
+float3 unpackSurfaceF0(uint packed)
+{
+    return float3(packed & 0x3ffu,
+                  (packed >> 10u) & 0x3ffu,
+                  (packed >> 20u) & 0x3ffu) * (1.0 / 1023.0);
 }
 
 uint blueNoiseByte(uint byteOffset)
@@ -1531,6 +1559,8 @@ BsdfEvaluation evaluateBsdf(SurfaceData surface, float3 viewDirection,
                             float3 lightDirection)
 {
     BsdfEvaluation result;
+    result.diffuse = 0.0;
+    result.specular = 0.0;
     result.value = 0.0;
     result.pdf = 0.0;
     float normalView = saturate(dot(surface.shadingNormal, viewDirection));
@@ -1555,9 +1585,16 @@ BsdfEvaluation evaluateBsdf(SurfaceData surface, float3 viewDirection,
     float diffusePdf = normalLight / Pi;
     float specularPdf = distribution * viewMasking /
         max(4.0 * normalView * NdfTrim, 1.0e-7);
-    result.value = diffuse + specular;
+    result.diffuse = diffuse;
+    result.specular = specular;
+    result.value = result.diffuse + result.specular;
     result.pdf = lerp(diffusePdf, specularPdf, chooseSpecular);
     return result;
+}
+
+float directSpecularWeight(float linearRoughness)
+{
+    return smoothstep(0.16, 0.20, linearRoughness);
 }
 
 float3 sampleGgxVisibleNormal(float3 viewDirection, float alpha,
@@ -1668,6 +1705,8 @@ struct EmitterEvaluation
      * environment, and BRDF strategies are combined in their balance-heuristic
      * source density before this luminance target enters reservoir streaming. */
     float3 contribution;
+    float3 diffuseContribution;
+    float3 specularContribution;
     float targetPdf;
     float sourcePdf;
     float brdfPdf;
@@ -1683,6 +1722,8 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
 {
     EmitterEvaluation evaluation;
     evaluation.contribution = 0.0;
+    evaluation.diffuseContribution = 0.0;
+    evaluation.specularContribution = 0.0;
     evaluation.targetPdf = 0.0;
     evaluation.sourcePdf = 0.0;
     evaluation.brdfPdf = 0.0;
@@ -1751,8 +1792,13 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
         sampleMaterialAtlas(EmissiveAtlas, lightFootprint).rgb *
         lightMaterial.emissiveFactor * lightEmissiveScale;
     BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
-    evaluation.contribution =
-        bsdf.value * emittedRadiance * normalLight;
+    evaluation.diffuseContribution =
+        bsdf.diffuse * emittedRadiance * normalLight;
+    evaluation.specularContribution =
+        bsdf.specular * emittedRadiance * normalLight *
+        directSpecularWeight(surface.roughness);
+    evaluation.contribution = evaluation.diffuseContribution +
+        evaluation.specularContribution;
     evaluation.targetPdf = luminance(evaluation.contribution);
     evaluation.sourcePdf = lightPdf;
     evaluation.brdfPdf = bsdf.pdf;
@@ -1772,6 +1818,8 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
 {
     EmitterEvaluation evaluation;
     evaluation.contribution = 0.0;
+    evaluation.diffuseContribution = 0.0;
+    evaluation.specularContribution = 0.0;
     evaluation.targetPdf = 0.0;
     evaluation.sourcePdf = 0.0;
     evaluation.brdfPdf = 0.0;
@@ -1835,6 +1883,7 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
     }
     evaluation.contribution = (diffuseReflectance(surface) / Pi) *
         emittedRadiance * receiverCosine;
+    evaluation.diffuseContribution = evaluation.contribution;
     evaluation.targetPdf = luminance(evaluation.contribution);
     evaluation.sourcePdf = sourcePdf;
     evaluation.lightDirection = lightDirection;
@@ -1902,6 +1951,60 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
     float inversePdf = weightSum /
         (float(candidateCount) * selectedEvaluation.targetPdf);
     return selectedEvaluation.contribution * inversePdf;
+}
+
+/* Full material-dependent local-light NEE for the primary receiver. Diffuse
+ * and GGX specular stream through RIS as one target and share the selected
+ * sample, visibility result, and unbiased normalization. The diffuse-only
+ * continuation estimator above remains deliberately unchanged. */
+DirectLightingSample samplePrimaryPolygonLight(
+    uint2 pixel, uint sampleIndex, SurfaceData surface,
+    float3 viewDirection)
+{
+    DirectLightingSample result = (DirectLightingSample)0;
+    if (EmitterCount == 0u) {
+        return result;
+    }
+    uint candidateCount = max(CandidateCount, 1u);
+    EmitterSample selected = (EmitterSample)0;
+    selected.emitterIndex = InvalidIndex;
+    selected.valid = false;
+    float weightSum = 0.0;
+    for (uint candidate = 0u; candidate < candidateCount; ++candidate) {
+        float4 random = sampleStream(
+            pixel, sampleIndex,
+            DiffusePrimaryPolygonStream + candidate);
+        EmitterSample lightSample;
+        lightSample.emitterIndex = selectEmitter(random.x);
+        lightSample.positionSample = packPositionSample(random.yz);
+        lightSample.valid = true;
+        EmitterEvaluation evaluation = evaluateEmitterSampleForFrame(
+            surface, viewDirection, lightSample, false);
+        float weight = evaluation.sourcePdf > 0.0 ?
+            evaluation.targetPdf / evaluation.sourcePdf : 0.0;
+        weightSum += weight;
+        if (weight > 0.0 && random.w * weightSum < weight) {
+            selected = lightSample;
+        }
+    }
+    if (!selected.valid || !(weightSum > 0.0)) {
+        return result;
+    }
+    EmitterEvaluation selectedEvaluation = evaluateEmitterSampleForFrame(
+        surface, viewDirection, selected, false);
+    if (!selectedEvaluation.valid ||
+        !traceVisibility(
+            surface.position + surface.geometricNormal * RayEpsilon,
+            selectedEvaluation.lightDirection,
+            selectedEvaluation.lightDistance - RayEpsilon,
+            SceneInstanceMask)) {
+        return result;
+    }
+    float inversePdf = weightSum /
+        (float(candidateCount) * selectedEvaluation.targetPdf);
+    result.diffuse = selectedEvaluation.diffuseContribution * inversePdf;
+    result.specular = selectedEvaluation.specularContribution * inversePdf;
+    return result;
 }
 
 struct DiffusePathSample
@@ -2001,6 +2104,104 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
         }
         departureSurface = reachedSurface;
     }
+    return result;
+}
+
+float fakeSpecularWeight(float linearRoughness)
+{
+    return smoothstep(0.20, 0.30, linearRoughness);
+}
+
+bool sampleIndependentGgxSpecular(
+    SurfaceData surface, float3 viewDirection, float2 directionSample,
+    out float3 lightDirection, out float3 throughput)
+{
+    lightDirection = 0.0;
+    throughput = 0.0;
+    float normalView = saturate(dot(surface.shadingNormal, viewDirection));
+    if (!(normalView > 0.0)) {
+        return false;
+    }
+    float3 tangent;
+    float3 bitangent;
+    coordinateSystem(surface.shadingNormal, tangent, bitangent);
+    float3 localView = float3(dot(viewDirection, tangent),
+                              dot(viewDirection, bitangent),
+                              normalView);
+    float alpha = surface.roughness * surface.roughness;
+    float3 localHalf = sampleGgxVisibleNormal(
+        localView, alpha, directionSample);
+    float3 halfVector = normalize(tangent * localHalf.x +
+        bitangent * localHalf.y + surface.shadingNormal * localHalf.z);
+    lightDirection = normalize(reflect(-viewDirection, halfVector));
+    float normalLight = saturate(dot(surface.shadingNormal, lightDirection));
+    if (!(normalLight > 0.0) ||
+        dot(surface.geometricNormal, lightDirection) <= 0.0) {
+        return false;
+    }
+    BsdfEvaluation evaluation = evaluateBsdf(
+        surface, viewDirection, lightDirection);
+    float normalHalf = saturate(dot(surface.shadingNormal, halfVector));
+    float distribution = ggxDistribution(normalHalf, alpha);
+    float specularPdf = distribution * smithG1(normalView, alpha) /
+        max(4.0 * normalView * NdfTrim, 1.0e-7);
+    if (!(specularPdf > 0.0)) {
+        return false;
+    }
+    throughput = evaluation.specular * (normalLight / specularPdf);
+    return !any(isnan(throughput)) && !any(isinf(throughput));
+}
+
+/* One independent first-bounce GGX estimator accompanies every primary
+ * direct sample. It does not probabilistically discard or alter the accepted
+ * diffuse-GI continuation. */
+float3 sampleSmoothSpecularPath(uint2 pixel, uint sampleIndex,
+                                SurfaceData primarySurface,
+                                float3 viewDirection)
+{
+    if (MaximumDepth < 2u) {
+        return 0.0;
+    }
+    float realWeight = 1.0 - fakeSpecularWeight(
+        primarySurface.roughness);
+    if (!(realWeight > 0.0)) {
+        return 0.0;
+    }
+    float2 directionSample = sampleStream(
+        pixel, sampleIndex, SmoothSpecularDirectionStream).xy;
+    float3 rayDirection;
+    float3 throughput;
+    if (!sampleIndependentGgxSpecular(
+            primarySurface, viewDirection, directionSample,
+            rayDirection, throughput)) {
+        return 0.0;
+    }
+    throughput *= realWeight;
+    RayDesc ray;
+    ray.Origin = primarySurface.position +
+        primarySurface.geometricNormal * RayEpsilon;
+    ray.Direction = rayDirection;
+    ray.TMin = RayEpsilon;
+    ray.TMax = SceneFarPlane;
+    SegmentTraversal segment = traceSegment(ray);
+    float3 result = throughput * segment.additiveRadiance;
+    if (segment.payload.hit == 0u) {
+        return result;
+    }
+    SurfaceData reachedSurface = loadSurface(
+        segment.payload, rayDirection);
+    float hitAttenuation = 1.0 / max(
+        1.0, segment.distance * primarySurface.roughness * 0.02);
+    float emissionComplement =
+        reachedSurface.emitterIndex < EmitterCount ?
+            1.0 - directSpecularWeight(primarySurface.roughness) : 1.0;
+    float3 reachedRadiance = reachedSurface.emission * emissionComplement;
+    if (EmitterCount > 0u) {
+        reachedRadiance += sampleDiffusePolygonLight(
+            pixel, sampleIndex, SmoothSpecularPolygonStream, true,
+            reachedSurface);
+    }
+    result += throughput * reachedRadiance * hitAttenuation;
     return result;
 }
 
@@ -2167,6 +2368,8 @@ EmitterEvaluation evaluateEnvironmentSample(SurfaceData surface,
 {
     EmitterEvaluation evaluation;
     evaluation.contribution = 0.0;
+    evaluation.diffuseContribution = 0.0;
+    evaluation.specularContribution = 0.0;
     evaluation.targetPdf = 0.0;
     evaluation.sourcePdf = 0.0;
     evaluation.brdfPdf = 0.0;
@@ -2187,8 +2390,12 @@ EmitterEvaluation evaluateEnvironmentSample(SurfaceData surface,
     if (!(bsdf.pdf > 0.0)) {
         return evaluation;
     }
-    evaluation.contribution = bsdf.value * environmentRadiance(lightDirection) *
-        normalLight;
+    float3 environment = environmentRadiance(lightDirection);
+    evaluation.diffuseContribution = bsdf.diffuse * environment * normalLight;
+    evaluation.specularContribution = bsdf.specular * environment *
+        normalLight * directSpecularWeight(surface.roughness);
+    evaluation.contribution = evaluation.diffuseContribution +
+        evaluation.specularContribution;
     evaluation.targetPdf = luminance(evaluation.contribution);
     /* The project analytic sky is sampled by a cosine-hemisphere environment
      * strategy. Unlike a lat-long map it has no texel distribution to
@@ -3015,22 +3222,46 @@ void writeMissGuides(uint2 pixel, float3 unjitteredDirection,
         pixel, environmentMotion(unjitteredDirection, dimensions),
         dimensions);
     SpecularHitDistance[pixel] = 0.0;
+    SurfaceParameters[pixel] = 0u;
     if ((DiagnosticGuideMask & 2u) != 0u) {
         DiffuseHitDistance[pixel] = 0.0;
     }
 }
 
-void writeDiffuseSurfaceGuides(uint2 pixel, SurfacePayload payload,
-                               SurfaceData surface, uint2 dimensions)
+float deterministicSpecularHitDistance(SurfaceData surface,
+                                       float3 viewDirection)
 {
-    /* This pass has one diffuse signal and no specular signal. Keep the primary
-     * ray pixel-centred, publish metal-free diffuse reflectance, and leave the
-     * specular resources explicitly inactive. */
+    float3 mirrorDirection = normalize(reflect(
+        -viewDirection, surface.shadingNormal));
+    if (dot(surface.geometricNormal, mirrorDirection) <= 0.0) {
+        return SceneFarPlane;
+    }
+    RayDesc mirrorRay;
+    mirrorRay.Origin = surface.position +
+        surface.geometricNormal * RayEpsilon;
+    mirrorRay.Direction = mirrorDirection;
+    mirrorRay.TMin = RayEpsilon;
+    mirrorRay.TMax = SceneFarPlane;
+    SegmentTraversal segment = traceSegment(mirrorRay);
+    return segment.payload.hit != 0u ?
+        segment.distance : SceneFarPlane;
+}
+
+void writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
+                        SurfaceData surface, uint2 dimensions,
+                        float3 viewDirection)
+{
+    /* Publish the material channels that describe the combined noisy signal.
+     * The deterministic mirror trace is a current-geometry guide and is
+     * independent of the stochastic radiance sample. */
     DiffuseAlbedo[pixel] = float4(diffuseReflectance(surface), 1.0);
-    SpecularAlbedo[pixel] = 0.0;
-    ShadingNormal[pixel] = float4(surface.shadingNormal, 1.0);
+    float normalView = saturate(dot(surface.shadingNormal, viewDirection));
+    SpecularAlbedo[pixel] = float4(reconstructionSpecularAlbedo(
+        surfaceF0(surface), surface.roughness, normalView), 1.0);
+    ShadingNormal[pixel] = float4(
+        surface.shadingNormal, surface.roughness);
     if ((DiagnosticGuideMask & 1u) != 0u) {
-        LinearRoughness[pixel] = 1.0;
+        LinearRoughness[pixel] = surface.roughness;
     }
     LinearDepth[pixel] = surface.primitive == ViewWeaponPrimitive ?
         currentViewWeaponPosition(payload).z :
@@ -3039,7 +3270,9 @@ void writeDiffuseSurfaceGuides(uint2 pixel, SurfacePayload payload,
         pixel, surfaceMotion(payload, surface, float2(dimensions),
                              surface.primitive == ViewWeaponPrimitive),
         float2(dimensions));
-    SpecularHitDistance[pixel] = 0.0;
+    SpecularHitDistance[pixel] = deterministicSpecularHitDistance(
+        surface, viewDirection);
+    SurfaceParameters[pixel] = packSurfaceF0(surfaceF0(surface));
     if ((DiagnosticGuideMask & 2u) != 0u) {
         DiffuseHitDistance[pixel] = 0.0;
     }
@@ -3088,7 +3321,11 @@ void RayGeneration()
         rejectRayReconstructionHistory ? 1.0 : 0.0;
     RayReconstructionBiasCurrentColor[pixel] =
         primaryPrimitive == ViewWeaponPrimitive ? 1.0 : 0.0;
-    float3 resolvedRadiance = primarySegment.additiveRadiance;
+    bool includeVisibleEmission =
+        RadianceChannel == RadianceChannelCombined ||
+        RadianceChannel == RadianceChannelEmission;
+    float3 resolvedRadiance = includeVisibleEmission ?
+        primarySegment.additiveRadiance : 0.0;
     IndirectSignal resolvedIndirectSignal = emptyIndirectSignal();
     PackedGIReservoir currentGI = emptyGIReservoir();
     float giWeightSum = 0.0;
@@ -3102,51 +3339,44 @@ void RayGeneration()
         writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
     } else {
         SurfaceData surface = loadSurface(primaryPayload, primaryRay.Direction);
-        writeDiffuseSurfaceGuides(pixel, primaryPayload, surface, dimensions);
+        writeSurfaceGuides(pixel, primaryPayload, surface, dimensions,
+                           -primaryRay.Direction);
         primaryGeometricNormal = surface.geometricNormal;
         primaryDepth = LinearDepth[pixel];
 
         /* Base colour is a reconstruction/material guide, not self-emission.
-         * Visible source radiance is deterministic; the loop evaluates plain
-         * diffuse polygon NEE at the primary hit and traces every configured
-         * diffuse continuation through sampleDiffusePath. */
-        resolvedRadiance += surface.emission;
+         * Visible source radiance is deterministic. Primary local-light NEE
+         * evaluates material-dependent diffuse and GGX together; the accepted
+         * diffuse-only continuation remains in sampleDiffusePath. */
+        if (includeVisibleEmission) {
+            resolvedRadiance += surface.emission;
+        }
         float3 primaryThroughput = diffuseReflectance(surface);
-        if (EmitterCount > 0u &&
-            luminance(primaryThroughput) > 1.0e-6) {
+        if (EmitterCount > 0u) {
             uint directSampleCount = max(SamplesPerPixel, 1u);
             /* Direct polygon NEE and indirect continuation counts are
              * independent. Extra GI paths therefore spend no primary shadow
              * ray, and their true count can advance temporal history below. */
             bool stableHistory = false;
-            indirectSampleCount = MaximumDepth >= 2u ?
+            indirectSampleCount = MaximumDepth >= 2u && DiffuseGiScale > 0.0 &&
+                    luminance(primaryThroughput) > 1.0e-6 ?
                 adaptiveIndirectSampleCount(
                     pixel, dimensions, primaryDepth,
                     primaryGeometricNormal,
                     stableHistory) : 0u;
             indirectHistoryOnly = MaximumDepth >= 2u &&
                 indirectSampleCount == 0u;
-            bool interleaveDirect = stableHistory &&
-                RayReconstructionActive != 0u &&
-                IndirectReconstructionMode == IndirectReconstructionFull &&
-                RadianceChannel == RadianceChannelCombined;
-            bool directScheduled =
-                ((pixel.x + pixel.y) & 1u) ==
-                SampleIndex % StableDirectSamplingPhaseCount;
-            if (interleaveDirect && !directScheduled) {
-                directSampleCount = 0u;
-            }
-            float directSampleScale = interleaveDirect ?
-                float(StableDirectSamplingPhaseCount) : 1.0;
             uint pathSampleCount = max(directSampleCount,
                                        indirectSampleCount);
-            float3 directRadiance = 0.0;
+            DirectLightingSample directRadiance =
+                (DirectLightingSample)0;
+            float3 smoothSpecularRadiance = 0.0;
             IndirectSignal indirectSignalSum = emptyIndirectSignal();
             for (uint sampleOrdinal = 0u;
                  sampleOrdinal < pathSampleCount;
                 ++sampleOrdinal) {
-                uint directSampleIndex =
-                    SampleIndex * directSampleCount + sampleOrdinal;
+                uint directSampleIndex = SampleIndex *
+                    max(SamplesPerPixel, 1u) + sampleOrdinal;
                 /* Keep a fixed per-frame stride when adaptive sampling drops
                  * from its burst ceiling to one path. Changing the stride with
                  * the selected count would revisit old low-discrepancy indices
@@ -3154,10 +3384,18 @@ void RayGeneration()
                 uint indirectSampleIndex = indirectSampleCount > 0u ?
                     SampleIndex * max(IndirectSamplesPerPixel, 1u) +
                         sampleOrdinal : 0u;
-                float3 sampleDirect = sampleOrdinal < directSampleCount ?
-                    sampleDiffusePolygonLight(
-                        pixel, directSampleIndex,
-                        DiffusePrimaryPolygonStream, false, surface) : 0.0;
+                DirectLightingSample sampleDirect =
+                    (DirectLightingSample)0;
+                if (sampleOrdinal < directSampleCount) {
+                    sampleDirect = samplePrimaryPolygonLight(
+                        pixel, directSampleIndex, surface,
+                        -primaryRay.Direction);
+                }
+                float3 sampleSmoothSpecular =
+                    sampleOrdinal < directSampleCount ?
+                        sampleSmoothSpecularPath(
+                            pixel, directSampleIndex, surface,
+                            -primaryRay.Direction) : 0.0;
                 float3 sampleIndirectIncident = 0.0;
                 float3 sampleIndirectDirection = surface.geometricNormal;
                 if (sampleOrdinal < indirectSampleCount) {
@@ -3212,7 +3450,9 @@ void RayGeneration()
                         giWeightSum = combinedWeight;
                     }
                 }
-                float3 sampleRadiance = sampleDirect +
+                float3 sampleRadiance = sampleDirect.diffuse +
+                    sampleDirect.specular +
+                    sampleSmoothSpecular +
                     primaryThroughput * sampleIndirectIncident;
                 if (any(isnan(sampleRadiance)) || any(isinf(sampleRadiance)) ||
                     any(isnan(sampleIndirectIncident)) ||
@@ -3222,11 +3462,15 @@ void RayGeneration()
                 float sampleLuminance = luminance(sampleRadiance);
                 if (RadianceClamp > 0.0 && sampleLuminance > RadianceClamp) {
                     float scale = RadianceClamp / sampleLuminance;
-                    sampleDirect *= scale;
+                    sampleDirect.diffuse *= scale;
+                    sampleDirect.specular *= scale;
+                    sampleSmoothSpecular *= scale;
                     sampleIndirectIncident *= scale;
                 }
                 if (sampleOrdinal < directSampleCount) {
-                    directRadiance += sampleDirect;
+                    directRadiance.diffuse += sampleDirect.diffuse;
+                    directRadiance.specular += sampleDirect.specular;
+                    smoothSpecularRadiance += sampleSmoothSpecular;
                 }
                 if (sampleOrdinal < indirectSampleCount) {
                     IndirectSignal sampleIndirectSignal =
@@ -3238,8 +3482,23 @@ void RayGeneration()
                 }
             }
             if (directSampleCount > 0u) {
-                resolvedRadiance += directRadiance *
-                    (directSampleScale / float(directSampleCount));
+                float inverseDirectCount = 1.0 /
+                    float(directSampleCount);
+                if (RadianceChannel == RadianceChannelCombined ||
+                    RadianceChannel == RadianceChannelDirectDiffuse) {
+                    resolvedRadiance += directRadiance.diffuse *
+                        inverseDirectCount;
+                }
+                if (RadianceChannel == RadianceChannelCombined ||
+                    RadianceChannel == RadianceChannelDirectSpecular) {
+                    resolvedRadiance += directRadiance.specular *
+                        inverseDirectCount;
+                }
+                if (RadianceChannel == RadianceChannelCombined ||
+                    RadianceChannel == RadianceChannelSmoothSpecular) {
+                    resolvedRadiance += smoothSpecularRadiance *
+                        inverseDirectCount;
+                }
             }
             if (indirectSampleCount > 0u) {
                 resolvedIndirectSignal = scaleIndirectSignal(
@@ -4071,6 +4330,65 @@ void ResolveIndirectFiltered()
         lowPixel, false, loadIndirectLow(int2(lowPixel), true));
 }
 
+float3 evaluateGgxSpecularTimesCos(
+    float3 viewDirection, float3 lightDirection, float3 normal,
+    float linearRoughness, float3 f0)
+{
+    float normalView = saturate(dot(normal, viewDirection));
+    float normalLight = saturate(dot(normal, lightDirection));
+    if (!(normalView > 0.0) || !(normalLight > 0.0)) {
+        return 0.0;
+    }
+    float3 halfVector = normalize(viewDirection + lightDirection);
+    float normalHalf = saturate(dot(normal, halfVector));
+    float viewHalf = saturate(dot(viewDirection, halfVector));
+    float alpha = linearRoughness * linearRoughness;
+    float distribution = ggxDistribution(normalHalf, alpha);
+    float geometry = smithG1(normalView, alpha) *
+        smithG1(normalLight, alpha);
+    float3 fresnel = fresnelSchlick(viewHalf, f0);
+    return fresnel * distribution * geometry /
+        max(4.0 * normalView, 1.0e-7);
+}
+
+float3 reconstructRoughSpecular(
+    IndirectSignal filteredSignal, float3 position,
+    float3 shadingNormal, float materialRoughness, float3 f0)
+{
+    float blendWeight = fakeSpecularWeight(materialRoughness);
+    if (!(filteredSignal.luminanceSH.w > 0.0) ||
+        !(blendWeight > 0.0)) {
+        return 0.0;
+    }
+    float3 viewDirection = normalize(CameraPosition - position);
+    float3 incomingDirection = filteredSignal.luminanceSH.xyz /
+        filteredSignal.luminanceSH.w *
+        (IndirectShBasisL0 / IndirectShBasisL1);
+    float incomingLength = length(incomingDirection);
+    float effectiveRoughness = materialRoughness;
+    float compensation = 1.0;
+    if (incomingLength >= 1.0) {
+        incomingDirection /= incomingLength;
+    } else {
+        float3 dominantDirection = incomingDirection /
+            (incomingLength + 1.0e-6);
+        float3 mirrorDirection = reflect(
+            -viewDirection, shadingNormal);
+        incomingDirection = lerp(
+            mirrorDirection, dominantDirection, incomingLength);
+        effectiveRoughness = lerp(
+            1.0, materialRoughness,
+            pow(incomingLength, 3.0));
+        compensation = pow(effectiveRoughness + 1.0, 3.0);
+    }
+    float3 incidentColor = max(
+        decodeIndirectSignalColor(filteredSignal), 0.0);
+    float3 brdf = evaluateGgxSpecularTimesCos(
+        viewDirection, incomingDirection, shadingNormal,
+        effectiveRoughness, f0);
+    return incidentColor * brdf * blendWeight * compensation;
+}
+
 /* Sparse indirect diffuse lighting remains in a dedicated low-frequency
  * channel before final composition. This project-owned pass remodulates the
  * filtered incident signal at the primary receiver and leaves direct lighting
@@ -4081,10 +4399,15 @@ void ReconstructIndirect()
     uint2 pixel = DispatchRaysIndex().xy;
     uint2 dimensions = DispatchRaysDimensions().xy;
     bool indirectOnly = RadianceChannel == RadianceChannelIndirect;
+    bool roughOnly = RadianceChannel == RadianceChannelRoughSpecular;
+    bool includeIndirect =
+        RadianceChannel == RadianceChannelCombined || indirectOnly;
+    bool includeRoughSpecular =
+        RadianceChannel == RadianceChannelCombined || roughOnly;
     /* Isolate the final secondary-diffuse contribution at composition time.
      * Direct lighting is still evaluated so this diagnostic changes neither
      * the GI proposal stream nor any RR guide. Early returns remain black. */
-    if (indirectOnly) {
+    if (indirectOnly || roughOnly) {
         NoisyRadiance[pixel] = float4(0.0, 0.0, 0.0, 1.0);
     }
     float4 centerAlbedo = DiffuseAlbedo[pixel];
@@ -4101,8 +4424,10 @@ void ReconstructIndirect()
         return;
     }
     float3 filteredIncident;
+    float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
+    IndirectSignal specularSignal = emptyIndirectSignal();
+    bool hasSpecularSignal = false;
     if (IndirectReconstructionMode == IndirectReconstructionRestir) {
-        float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
         float3 centerPosition = giPrimaryWorldPosition(
             pixel, dimensions, centerHistory.depth);
         PackedGIReservoir reservoir =
@@ -4118,9 +4443,10 @@ void ReconstructIndirect()
         IndirectSignal rawSignal;
         rawSignal.luminanceSH = centerHistory.luminanceSH;
         rawSignal.chroma = centerHistory.chroma;
+        specularSignal = rawSignal;
+        hasSpecularSignal = true;
         filteredIncident = decodeIndirectSignalColor(rawSignal);
     } else {
-        float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
         IndirectSignal filteredSignal;
         if (IndirectReconstructionMode == IndirectReconstructionTemporal) {
             filteredSignal.luminanceSH = centerHistory.luminanceSH;
@@ -4174,6 +4500,8 @@ void ReconstructIndirect()
         }
         filteredIncident = projectIndirectSignal(
             filteredSignal, centerNormal);
+        specularSignal = filteredSignal;
+        hasSpecularSignal = true;
     }
     if (any(isnan(filteredIncident)) || any(isinf(filteredIncident))) {
         filteredIncident = 0.0;
@@ -4187,8 +4515,33 @@ void ReconstructIndirect()
         reconstructedLuminance > RadianceClamp) {
         reconstructed *= RadianceClamp / reconstructedLuminance;
     }
+    float3 roughSpecular = 0.0;
+    if (hasSpecularSignal && includeRoughSpecular) {
+        float4 packedShadingNormal = ShadingNormal[pixel];
+        float3 primaryPosition = giPrimaryWorldPosition(
+            pixel, dimensions, centerHistory.depth);
+        roughSpecular = reconstructRoughSpecular(
+            specularSignal, primaryPosition,
+            normalize(packedShadingNormal.xyz),
+            saturate(packedShadingNormal.w),
+            unpackSurfaceF0(SurfaceParameters[pixel]));
+        if (any(isnan(roughSpecular)) || any(isinf(roughSpecular))) {
+            roughSpecular = 0.0;
+        }
+        roughSpecular = max(roughSpecular, 0.0);
+        float roughLuminance = luminance(roughSpecular);
+        if (RadianceClamp > 0.0 && roughLuminance > RadianceClamp) {
+            roughSpecular *= RadianceClamp / roughLuminance;
+        }
+    }
     float4 noisy = NoisyRadiance[pixel];
-    noisy.rgb = indirectOnly ? reconstructed : noisy.rgb + reconstructed;
+    if (includeIndirect) {
+        noisy.rgb = indirectOnly ? reconstructed :
+            noisy.rgb + reconstructed;
+    }
+    if (includeRoughSpecular) {
+        noisy.rgb += roughSpecular;
+    }
     NoisyRadiance[pixel] = noisy;
 }
 
