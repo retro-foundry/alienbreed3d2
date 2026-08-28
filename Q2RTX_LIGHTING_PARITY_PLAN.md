@@ -3,8 +3,8 @@
 Status: indoor-core implementation present; validation in progress. Primary
 direct diffuse/GGX, full-rate direct sampling, active RR guides, real smooth
 specular, packed-F0 rough reconstruction, and radiance isolations were
-implemented on 2026-08-28. Reference-scene and all-level parity acceptance
-now pass; moving-specular visual acceptance remains open.
+implemented on 2026-08-28. Reference-scene, all-level, and moving direct-light
+acceptance now pass; moving indirect/rough-specular acceptance remains open.
 
 Date: 2026-08-27
 
@@ -48,9 +48,9 @@ Date: 2026-08-27
   `0.5049`, `793` saturated pixels, and zero >=16-code temporal outliers.
   Isolated `smooth-specular` measured `0.5129 / 0 / 0`; isolated
   `rough-specular` measured `0.5025 / 0 / 0` in the same tuple order.
-- The moving Shotgun endpoint measured `4.8294`, so moving-specular visual
-  acceptance remains open. The deterministic GPU reference scenes below are
-  now complete.
+- The moving Shotgun endpoint measured `4.8294`. The deterministic GPU
+  reference scenes below are complete; the channel attribution below separates
+  accepted direct lighting from the remaining indirect/rough-specular work.
 
 ### Direct stability follow-up (2026-08-28)
 
@@ -217,6 +217,24 @@ Date: 2026-08-27
   measured `0.7019`, all worse than the fresh estimator's `0.6871`. The spatial
   variants additionally used substantially more visibility rays and shifted
   the saturated-pixel population. No tested ReSTIR DI mode is accepted.
+
+### Moving-channel attribution (2026-08-28)
+
+- A complete saved-state isolation sweep shows that primary direct light is no
+  longer the source of the moving instability. Direct specular measures
+  `2.4987/0.4711` and direct diffuse measures `2.1634/0.4958` for
+  screen/reprojected delta; both reprojected results are at or below their
+  frozen-channel noise floors.
+- The untouched emission and smooth-specular channels likewise reproject to
+  `0.3929` and `0.4000`. Indirect diffuse instead measures `3.1604/0.5890`,
+  and reconstructed rough specular measures `3.9162/0.6047`. Those two
+  correlated channels account for the remaining combined `4.8309/0.7022`
+  endpoint; an immediately repeated combined run stayed within `0.0015/0.0001`
+  of the locked capture.
+- Moving direct-light acceptance is therefore closed. Further quality work
+  belongs at the shared filtered directional-GI input used by indirect diffuse
+  and reconstructed rough specular, not in direct reservoirs or additional
+  primary shadow rays.
 
 ## Goal
 
