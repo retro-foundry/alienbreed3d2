@@ -175,6 +175,27 @@ extern "C" size_t renderer_rtx_last_world_additive_coverage(
         renderer->implementation->last_world_additive_coverage() : 0u;
 }
 
+extern "C" size_t renderer_rtx_last_direct_diffuse_coverage(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_direct_diffuse_coverage() : 0u;
+}
+
+extern "C" size_t renderer_rtx_last_direct_specular_coverage(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_direct_specular_coverage() : 0u;
+}
+
+extern "C" size_t renderer_rtx_last_invalid_lighting_or_guide_pixels(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_invalid_lighting_or_guide_pixels() : 0u;
+}
+
 extern "C" int renderer_rtx_active_ray_tracing_options(
     const RendererRtx *renderer, RendererRayTracingOptions *out_options)
 {

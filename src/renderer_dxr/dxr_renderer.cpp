@@ -288,6 +288,21 @@ size_t DxrRenderer::last_world_additive_coverage() const
     return pipeline_ ? pipeline_->last_world_additive_coverage() : 0u;
 }
 
+size_t DxrRenderer::last_direct_diffuse_coverage() const
+{
+    return pipeline_ ? pipeline_->last_direct_diffuse_coverage() : 0u;
+}
+
+size_t DxrRenderer::last_direct_specular_coverage() const
+{
+    return pipeline_ ? pipeline_->last_direct_specular_coverage() : 0u;
+}
+
+size_t DxrRenderer::last_invalid_lighting_or_guide_pixels() const
+{
+    return pipeline_ ? pipeline_->last_invalid_lighting_or_guide_pixels() : 0u;
+}
+
 bool DxrRenderer::active_ray_tracing_options(
     RendererRayTracingOptions &options) const
 {

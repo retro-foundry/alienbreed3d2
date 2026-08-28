@@ -10,7 +10,8 @@
 
 enum {
     FOUNDATION_FRAME_COUNT = 2048,
-    STATIONARY_SCENE_FRAME_COUNT = 32
+    STATIONARY_SCENE_FRAME_COUNT = 32,
+    DIRECT_REFERENCE_FRAME_COUNT = 8
 };
 
 static int present_frame(RendererRtx *renderer, SceneFrame *frame,
@@ -25,7 +26,8 @@ static int present_frame(RendererRtx *renderer, SceneFrame *frame,
         renderer_rtx_last_view_weapon_coverage(renderer) != 0u ||
         renderer_rtx_last_view_weapon_rgb_checksum(renderer) != UINT64_C(0) ||
         renderer_rtx_last_projectile_coverage(renderer) != 0u ||
-        renderer_rtx_last_frame_rgb_checksum(renderer) != UINT64_C(0)) {
+        renderer_rtx_last_frame_rgb_checksum(renderer) != UINT64_C(0) ||
+        renderer_rtx_last_invalid_lighting_or_guide_pixels(renderer) != 0u) {
         fprintf(stderr, "DXR diagnostic foundation reported scene/UI coverage\n");
         return 0;
     }
@@ -43,6 +45,11 @@ static int present_scene_frame(RendererRtx *renderer, SceneFrame *frame,
     }
     if (renderer_rtx_last_frame_rgb_checksum(renderer) == UINT64_C(0)) {
         fprintf(stderr, "DXR dynamic scene produced no RGB coverage\n");
+        return 0;
+    }
+    if (renderer_rtx_last_invalid_lighting_or_guide_pixels(renderer) != 0u) {
+        fprintf(stderr,
+                "DXR dynamic scene produced non-finite lighting or RR guides\n");
         return 0;
     }
     return 1;
@@ -322,6 +329,88 @@ int main(void)
         renderer_rtx_destroy(renderer);
         SDL_Quit();
         return 1;
+    }
+
+    /* A visible non-emissive dielectric receiver and a deliberately off-screen
+     * authored technolights triangle exercise actual polygon-light NEE. The
+     * former visible-emitter check could pass even if direct lighting returned
+     * zero for every receiver. */
+    SceneVertex receiver_vertices[6] = {0};
+    receiver_vertices[0].position = (SceneWorldPoint){-160, 7680, 320};
+    receiver_vertices[1].position = (SceneWorldPoint){160, 7680, 320};
+    receiver_vertices[2].position = (SceneWorldPoint){160, -7680, 320};
+    receiver_vertices[3] = receiver_vertices[0];
+    receiver_vertices[4] = receiver_vertices[2];
+    receiver_vertices[5].position = (SceneWorldPoint){-160, -7680, 320};
+
+    SceneVertex emitter_vertices[3] = {0};
+    emitter_vertices[0].position = (SceneWorldPoint){-80, -12800, 160};
+    emitter_vertices[1].position = (SceneWorldPoint){80, -12800, 160};
+    emitter_vertices[2].position = (SceneWorldPoint){0, -15360, 160};
+    for (size_t vertex = 0u; vertex < 3u; ++vertex) {
+        /* The cropped authored column contains a fully bright texel at V=13,
+         * keeping every point on this reference emitter radiometric. */
+        emitter_vertices[vertex].texture_v = 13;
+    }
+
+    SceneMeshSurface direct_surfaces[2] = {0};
+    direct_surfaces[0].material.source =
+        SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE;
+    direct_surfaces[0].material.source_asset_id = 0u;
+    direct_surfaces[0].geometry.vertices = receiver_vertices;
+    direct_surfaces[0].geometry.vertex_count = 6u;
+    direct_surfaces[0].geometry.topology =
+        SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
+    direct_surfaces[0].geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_WALL;
+    direct_surfaces[0].geometry.texture_window.u_period = 64u;
+    direct_surfaces[0].geometry.texture_window.v_period = 128u;
+
+    direct_surfaces[1].material.source =
+        SCENE_MATERIAL_SOURCE_SHARED_WALL_TEXTURE;
+    direct_surfaces[1].material.source_asset_id = 6u;
+    direct_surfaces[1].geometry.vertices = emitter_vertices;
+    direct_surfaces[1].geometry.vertex_count = 3u;
+    direct_surfaces[1].geometry.topology =
+        SCENE_GEOMETRY_TOPOLOGY_TRIANGLE_LIST;
+    direct_surfaces[1].geometry.primitive = SCENE_GEOMETRY_PRIMITIVE_WALL;
+    direct_surfaces[1].geometry.texture_window.u_offset = 156u;
+    direct_surfaces[1].geometry.texture_window.u_period = 1u;
+    direct_surfaces[1].geometry.texture_window.v_period = 128u;
+
+    SceneCommand direct_commands[2] = {0};
+    direct_commands[0].type = SCENE_COMMAND_CAMERA;
+    direct_commands[1].type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+    direct_commands[1].data.geometry_instance.source_instance_id = 2u;
+    direct_commands[1].data.geometry_instance.mesh.source_mesh_id = 2u;
+    direct_commands[1].data.geometry_instance.mesh.acceleration_class =
+        SCENE_ACCELERATION_CLASS_STATIC;
+    direct_commands[1].data.geometry_instance.mesh.surfaces = direct_surfaces;
+    direct_commands[1].data.geometry_instance.mesh.surface_count = 2u;
+    SceneFrame direct_frame = {0};
+    direct_frame.commands = direct_commands;
+    direct_frame.count = 2u;
+    for (int direct_frame_index = 0;
+         direct_frame_index < DIRECT_REFERENCE_FRAME_COUNT;
+         ++direct_frame_index) {
+        if (!present_scene_frame(renderer, &direct_frame, &view, error,
+                                 sizeof(error))) {
+            renderer_rtx_destroy(renderer);
+            SDL_Quit();
+            return 1;
+        }
+        const size_t diffuse_coverage =
+            renderer_rtx_last_direct_diffuse_coverage(renderer);
+        const size_t specular_coverage =
+            renderer_rtx_last_direct_specular_coverage(renderer);
+        if (diffuse_coverage == 0u || specular_coverage == 0u) {
+            fprintf(stderr,
+                    "DXR direct-light reference missed a material lobe at "
+                    "frame %d (diffuse=%zu specular=%zu)\n",
+                    direct_frame_index, diffuse_coverage, specular_coverage);
+            renderer_rtx_destroy(renderer);
+            SDL_Quit();
+            return 1;
+        }
     }
     renderer_rtx_destroy(renderer);
     SDL_Quit();

@@ -693,6 +693,14 @@ lifecycle check and run the game-content check with:
 .\build\streamline\Release\ab3d2.exe --gpu-smoke save --renderer rtx
 ```
 
+The foundation test finishes with a deterministic lighting reference: an
+off-screen triangle cropped from the authored `technolights` emission mask
+illuminates a visible non-emissive stone receiver. GPU readback must report
+nonzero direct diffuse and dielectric GGX coverage on every reference frame,
+while the combined noisy radiance and mandatory Ray Reconstruction guides must
+remain finite. Its preceding empty-scene phase continues to require exact
+black, so this validation does not introduce an ambient or missed-ray colour.
+
 The RTX smoke renders each Level A--P frame twice. A starting view with no
 visible source and no sampled emitter connection may correctly be black;
 across a full campaign run, at least one level must produce authored radiance

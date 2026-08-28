@@ -70,6 +70,20 @@ Date: 2026-08-27
   is not claimed as a scalar motion-delta win. Direct-specular captures show
   visibly reduced speckled breakup and RR trails at the central panel and right
   light while exact black remains black.
+- The DXR foundation now includes a deterministic direct-light GPU reference.
+  A visible non-emissive stone receiver is lit by an off-screen triangle
+  cropped to a fully bright texel of the authored `technolights` emission mask.
+  Readback asserts nonzero direct diffuse and dielectric GGX coverage for eight
+  consecutive frames and zero non-finite combined radiance or mandatory RR
+  guides. The native Debug and Streamline Release foundation runs pass. The
+  earlier empty-scene phase still requires an exact-zero RGB checksum.
+- The complete native Debug CTest suite passes `27/27`, including the updated
+  foundation and the all-level RTX game smoke. The Streamline Release
+  foundation also passes with the same direct-light and finite-guide contract.
+- This is partial GPU-reference coverage, not completion of the list below.
+  Pure-metal, threshold-roughness, reflected/occluded/additive cases and
+  isolated-channel sum equality still require deterministic reference assets
+  and assertions.
 
 ## Goal
 

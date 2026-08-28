@@ -222,8 +222,9 @@ RWStructuredBuffer<PackedLightReservoir> CurrentReservoirs : register(u10);
  * in the unordered-access state and the frame needs no state transitions. */
 RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
 /* Primary-ray coverage occupies words 0--4. Automatic-exposure diagnostics
- * occupy words 5--10. Hidden GPU smoke reads them after the dispatch; none is
- * used to shade the image. */
+ * occupy words 5--10. Direct-light lobe coverage occupies words 11--12, and
+ * word 13 counts non-finite radiance or mandatory RR guides. Hidden GPU smoke
+ * reads them after the dispatch; none is used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
 /* Demodulated diffuse-suffix lighting. RayGeneration writes the raw bounded
@@ -3500,15 +3501,23 @@ void RayGeneration()
             if (directSampleCount > 0u) {
                 float inverseDirectCount = 1.0 /
                     float(directSampleCount);
+                float3 averageDirectDiffuse = directRadiance.diffuse *
+                    inverseDirectCount;
+                float3 averageDirectSpecular = directRadiance.specular *
+                    inverseDirectCount;
+                if (luminance(averageDirectDiffuse) > 1.0e-6) {
+                    InterlockedAdd(Diagnostics[11], 1u);
+                }
+                if (luminance(averageDirectSpecular) > 1.0e-6) {
+                    InterlockedAdd(Diagnostics[12], 1u);
+                }
                 if (RadianceChannel == RadianceChannelCombined ||
                     RadianceChannel == RadianceChannelDirectDiffuse) {
-                    resolvedRadiance += directRadiance.diffuse *
-                        inverseDirectCount;
+                    resolvedRadiance += averageDirectDiffuse;
                 }
                 if (RadianceChannel == RadianceChannelCombined ||
                     RadianceChannel == RadianceChannelDirectSpecular) {
-                    resolvedRadiance += directRadiance.specular *
-                        inverseDirectCount;
+                    resolvedRadiance += averageDirectSpecular;
                 }
                 if (RadianceChannel == RadianceChannelCombined ||
                     RadianceChannel == RadianceChannelSmoothSpecular) {
@@ -3572,6 +3581,24 @@ void RayGeneration()
      * but they are excluded from the polygon-light distribution. */
     if (primarySegment.additiveLayers != 0u) {
         InterlockedAdd(Diagnostics[4], 1u);
+    }
+    float4 diffuseGuide = DiffuseAlbedo[pixel];
+    float4 specularGuide = SpecularAlbedo[pixel];
+    float4 normalRoughnessGuide = ShadingNormal[pixel];
+    float depthGuide = LinearDepth[pixel];
+    float2 motionGuide = SceneMotion[pixel];
+    float specularDistanceGuide = SpecularHitDistance[pixel];
+    bool invalidLightingOrGuide =
+        any(isnan(resolvedRadiance)) || any(isinf(resolvedRadiance)) ||
+        any(isnan(diffuseGuide)) || any(isinf(diffuseGuide)) ||
+        any(isnan(specularGuide)) || any(isinf(specularGuide)) ||
+        any(isnan(normalRoughnessGuide)) ||
+        any(isinf(normalRoughnessGuide)) ||
+        isnan(depthGuide) || isinf(depthGuide) ||
+        any(isnan(motionGuide)) || any(isinf(motionGuide)) ||
+        isnan(specularDistanceGuide) || isinf(specularDistanceGuide);
+    if (invalidLightingOrGuide) {
+        InterlockedAdd(Diagnostics[13], 1u);
     }
 }
 

@@ -47,6 +47,11 @@ uint64_t renderer_rtx_last_view_weapon_rgb_checksum(const RendererRtx *renderer)
 size_t renderer_rtx_last_world_bitmap_coverage(const RendererRtx *renderer);
 size_t renderer_rtx_last_world_vector_coverage(const RendererRtx *renderer);
 size_t renderer_rtx_last_world_additive_coverage(const RendererRtx *renderer);
+/* Readback-only path-tracer validation; these values never affect shading. */
+size_t renderer_rtx_last_direct_diffuse_coverage(const RendererRtx *renderer);
+size_t renderer_rtx_last_direct_specular_coverage(const RendererRtx *renderer);
+size_t renderer_rtx_last_invalid_lighting_or_guide_pixels(
+    const RendererRtx *renderer);
 /* Reports the ray-tracing settings in force. Zero on failure. */
 int renderer_rtx_active_ray_tracing_options(
     const RendererRtx *renderer, RendererRayTracingOptions *out_options);

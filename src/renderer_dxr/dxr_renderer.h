@@ -43,6 +43,9 @@ public:
     size_t last_world_bitmap_coverage() const;
     size_t last_world_vector_coverage() const;
     size_t last_world_additive_coverage() const;
+    size_t last_direct_diffuse_coverage() const;
+    size_t last_direct_specular_coverage() const;
+    size_t last_invalid_lighting_or_guide_pixels() const;
     bool active_ray_tracing_options(RendererRayTracingOptions &options) const;
 
 private:

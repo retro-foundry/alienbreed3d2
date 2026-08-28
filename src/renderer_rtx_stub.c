@@ -144,6 +144,25 @@ size_t renderer_rtx_last_world_additive_coverage(const RendererRtx *renderer)
     return 0u;
 }
 
+size_t renderer_rtx_last_direct_diffuse_coverage(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return 0u;
+}
+
+size_t renderer_rtx_last_direct_specular_coverage(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return 0u;
+}
+
+size_t renderer_rtx_last_invalid_lighting_or_guide_pixels(
+    const RendererRtx *renderer)
+{
+    (void)renderer;
+    return 0u;
+}
+
 int renderer_rtx_active_ray_tracing_options(
     const RendererRtx *renderer, RendererRayTracingOptions *out_options)
 {
