@@ -41,11 +41,12 @@ typedef enum {
 
 /* Fresh RIS and low-frequency reconstruction defaults. Keep explicit zero
  * available only through reservoir_sample_limit_set for the history-off
- * diagnostic. Four independent GI paths and 32 effective history samples
- * converge the ordinary indirect channel in eight stable presented frames. */
+ * diagnostic. Sixteen independent GI paths fill the 32-sample history in two
+ * presented frames after a disocclusion or confirmed lighting change. Mature
+ * pixels retain the sparse one-path-per-2x2-block schedule. */
 enum {
     RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES = 16,
-    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL = 4,
+    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL = 16,
     RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT = 32
 };
 

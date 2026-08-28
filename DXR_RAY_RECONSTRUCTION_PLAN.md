@@ -161,11 +161,12 @@ moving-camera visual check on 2026-08-21 and remains historical evidence for
 the now-dormant screen-space direct-light reservoir path. Finer temporal noise
 reported later led to the heterogeneous completion in section 11c, which the
 user accepted in motion on 2026-08-21. The active stripped diffuse renderer
-keeps 16 fresh RIS candidates, traces four independent GI paths without
-repeating primary direct NEE, and defaults its independently reconstructed
-low-frequency history to 32 effective path samples. The history advances by
-the actual GI path count, reaching its cap in eight stable presentations at the
-default instead of treating a multi-ray frame as one sample.
+keeps 16 fresh RIS candidates, traces a 16-path GI burst without repeating
+primary direct NEE, and defaults its independently reconstructed low-frequency
+history to 32 effective path samples. The history advances by the actual GI
+path count, reaching its cap in two presentations after disocclusion instead
+of treating a multi-ray frame as one sample. Mature pixels retain the sparse
+one-path-per-2x2-block schedule.
 `AB3D2_DXR_RESERVOIR_LIMIT=0` remains the history-off diagnostic; read section
 11 before tuning the estimator.
 
@@ -702,7 +703,7 @@ accumulated along every segment, but are not area-light candidates.
 
 Primary direct sampling and diffuse-indirect path sampling now have independent
 budgets. `rtx_indirect_samples=1..32` / `AB3D2_DXR_INDIRECT_SPP` defaults to
-four and is a per-pixel burst ceiling that spends only continuation plus
+16 and is a per-pixel burst ceiling that spends only continuation plus
 indirect polygon-NEE rays. Missing, disoccluded, and immature history uses the
 ceiling; after the effective history reaches the default 32-sample cap, stable
 pixels rotate one fresh path through a 2x2 phase while the other three carry
@@ -986,9 +987,11 @@ Level A late delta fell from `0.5122` to `0.4119`; the second Shotgun burst rose
 from `11.555 ms` to `13.416 ms`, about 16%. For comparison, four complete SPP
 reached `0.1081` saved and `0.2949` moving but cost `16.731 ms`, about 45% over
 the one-candidate result because it needlessly repeated direct NEE as well.
-That experiment established four GI-only candidates as the useful default.
-They are now the independent production default; `rtx_indirect_samples` changes
-their count without raising primary direct SPP.
+That experiment established four GI-only candidates as the first useful
+default. The later motion-compensated stability audit raised only the
+disocclusion/confirmed-change burst ceiling to 16; `rtx_indirect_samples`
+changes that count without raising primary direct SPP, while mature pixels
+still use the sparse one-path-per-2x2-block schedule.
 
 The subsequent hallway-energy audit removed an unrelated attenuation before
 the estimator: world PBR emission had been multiplied by the source raster

@@ -50,7 +50,7 @@ world_light_tessellation=4
 # the maximum for missing, disoccluded, immature, or confirmed-changing history,
 # then rotates one path through each 2x2 block of stable pixels while the other
 # three reproject validated history. Raw and ReSTIR diagnostics keep a fixed count.
-#rtx_indirect_samples=4
+#rtx_indirect_samples=16
 
 # Secondary diffuse-light transfer, 0 through 1. Default 0.75. Zero disables
 # diffuse GI and its ReGIR/temporal/spatial work; direct light and visible

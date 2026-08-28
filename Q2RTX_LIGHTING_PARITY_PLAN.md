@@ -236,6 +236,29 @@ Date: 2026-08-27
   and reconstructed rough specular, not in direct reservoirs or additional
   primary shadow rays.
 
+### Adaptive indirect burst follow-up (2026-08-28)
+
+- A stage-boundary sweep measured the indirect channel at `0.6676` raw,
+  `0.7128` temporal-only, `0.6888` regional, `0.6533` deflickered, `0.6206`
+  after wavelet one, `0.5999` after wavelet two, and `0.5890` after the full
+  spatial reconstruction. Every accepted spatial stage reduces the
+  motion-compensated error, so the diffuse filter and its converged result stay
+  unchanged.
+- The fresh-path ceiling used only for missing, disoccluded, immature, or
+  confirmed-changing history now defaults to 16 instead of four. It fills the
+  existing 32-sample history in two presentations; mature pixels still rotate
+  one path through each 2-by-2 block, and primary direct NEE is not repeated.
+- Sixteen paths improve the yawing indirect channel from `0.5890` to `0.5784`,
+  rough specular from `0.6047` to `0.5888`, and combined from `0.7022` to
+  `0.6798`; combined sampled reprojected outliers fall from `194` to `169`.
+  A 32-path burst regresses combined to `0.6853`, so it is rejected. The
+  all-level native smoke passes in `96.77s` versus `92.80s` at four paths,
+  remaining inside the existing 120-second gate.
+- A rebuilt production-default capture repeats at `0.6800` with `169` sampled
+  reprojected outliers. It retains the left-wall engraving, floor pattern,
+  panel edges, and rough-highlight shape without new blur or structured
+  breakup.
+
 ## Goal
 
 Match the useful indoor lighting structure of Q2RTX while preserving the

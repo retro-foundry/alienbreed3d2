@@ -80,7 +80,7 @@ default, so the shipped template lists them commented out with their defaults:
 - `rtx_samples_per_pixel=1` through `8` sets the independent primary
   direct-light samples per pixel. `rtx_indirect_samples=1` through `32`
   sets the maximum fresh diffuse-indirect paths without repeating primary
-  shadow rays and defaults to `4`. Production reconstruction spends that
+  shadow rays and defaults to `16`. Production reconstruction spends that
   maximum on missing, disoccluded, immature, or confirmed-changing history,
   then rotates one fresh path through each 2-by-2 block of stable pixels while
   the other three reproject validated history. The `raw` and `restir`
@@ -114,7 +114,7 @@ default, so the shipped template lists them commented out with their defaults:
 - `rtx_light_candidates=1` through `1024` controls fresh RIS at every surface
   vertex. Primary candidates stream material-dependent direct diffuse plus
   weighted GGX specular through one target. At the primary vertex they are
-  interleaved across up to four independent groups; one survivor per group
+  interleaved across up to two independent groups; one survivor per group
   traces visibility, each group is normalized independently, and their mean is
   applied to both lobes. One candidate reduces exactly to the single-survivor
   estimator. Indirect diffuse
@@ -123,8 +123,9 @@ default, so the shipped template lists them commented out with their defaults:
   world-stable ReGIR cell proposal, matching Q2RTX's essential local-light-list
   behavior. `rtx_reservoir_limit=0` through `65536`
   caps the effective path-sample history of the separate low-frequency indirect
-  channel and defaults to `32`. Four default indirect paths therefore fill it
-  in eight stable presented frames. Zero keeps only the current frame while its
+  channel and defaults to `32`. Sixteen default indirect paths therefore fill
+  it in two presented frames after disocclusion. Zero keeps only the current
+  frame while its
   depth/normal-guided spatial filter remains active; and
 - `rtx_radiance_clamp=0..100000` is a diagnostic per-sample firefly ceiling.
   Its Q2RTX-matching default is `0`, disabled, because the comparator has no
@@ -619,7 +620,7 @@ authored emission and material-dependent polygon-light transport. At the
 primary hit the shader draws `rtx_light_candidates` samples from the complete
 authored-emitter alias distribution, evaluates Fresnel-reduced Lambert diffuse
 and GGX specular, and streams their luminance together through fresh RIS. The
-candidate budget is interleaved across up to four independent groups; each
+candidate budget is interleaved across up to two independent groups; each
 group traces its survivor, applies its own unbiased normalization to both
 lobes, and the shader averages those estimates. This replaces one high-variance
 binary shadow decision without introducing screen-space reservoir history. It
@@ -836,8 +837,9 @@ indirect surface for diagnostics and indirect-only output.
 compatibility and caps the number of validated temporal samples in the
 production indirect channel. In the diagnostic ReSTIR GI path described below,
 it instead caps the published reservoir's effective candidate count. It
-defaults to `32` effective path samples. The default four fresh indirect paths
-reach that cap in eight stable presented frames. Zero disables temporal
+defaults to `32` effective path samples. The default sixteen-path burst reaches
+that cap in two presented frames; mature pixels still rotate one fresh path
+through each 2-by-2 block. Zero disables temporal
 accumulation while retaining the
 production spatial reconstruction; in `restir` it disables both cross-frame
 and neighboring-pixel reservoir reuse. Incident luminance in the production
