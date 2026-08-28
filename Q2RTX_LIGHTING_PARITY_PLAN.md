@@ -119,6 +119,47 @@ Date: 2026-08-27
   ordinary frames incur no copy or CPU synchronization. The dedicated native
   Debug and Streamline Release channel-sum invocations pass.
 
+### Direct stability rejection matrix (2026-08-28)
+
+- The locked saved-state baseline was re-confirmed after every experiment at
+  approximately `0.5046 / 820 / 0` for frozen combined delta, saturated pixels,
+  and >=16-code outliers, with a moving combined endpoint of `4.86`. Isolated
+  moving direct diffuse remains `2.2286`; direct specular remains approximately
+  `2.585`.
+- More work alone did not improve reconstruction. Eight primary visibility rays,
+  64 independent light candidates, two direct samples per pixel, and four fixed
+  area samples for each emitter choice all increased the moving endpoint. A
+  lobe-matched diffuse/GGX pair of RIS survivors likewise doubled visibility
+  cost without reducing combined motion.
+- Candidate stratification is not an accepted shortcut. Stratifying the emitter
+  CDF or Latin-hypercube stratifying the two triangle coordinates increased raw
+  and reconstructed motion. A 64-frame low-discrepancy lattice was effectively
+  neutral and did not lower raw variance.
+- Freezing primary direct samples proved that changing samples dominate the raw
+  signal: frozen direct-specular delta fell from about `9.57` to `0.03`, and the
+  reconstructed moving combined endpoint fell to `4.77`. It was rejected because
+  screen-fixed samples produced visible camera-motion trails. Anchoring the same
+  idea to primitive/material texels instead exposed structured grain and raised
+  moving combined delta above `6`; a stable but under-sampled pattern is not a
+  denoiser.
+- The authored `wall_06_technolights` emission mask is sparse (about seven percent
+  of level-zero texels are nonzero), but sparse-mask workarounds were not wins.
+  Weighting emitter triangles by area times average texture power lowered frozen
+  raw variance while raising moving combined delta to `5.07`; retaining the
+  conservative maximum-radiance proposal is measurably safer. Extra per-emitter
+  area candidates and coarse CDF changes were also rejected.
+- RR guide and scene-policy probes were neutral: zeroing specular hit distance,
+  allowing weapon pixels to retain history, and excluding the camera-attached
+  weapon from world-light visibility all left the locked endpoint effectively
+  unchanged. The active primary jitter is already exact zero and the saved run
+  already uses Streamline's Quality preset. A radiance clamp of `10` was also
+  neutral, showing that broad estimator variance rather than a few fireflies is
+  the remaining problem.
+- These results leave the production path unchanged. Do not revive the dormant
+  screen-space reservoir, freeze its samples, increase ray count, or alter the
+  conservative emitter distribution without a new oracle that beats both the
+  moving metrics and the captured left-wall/panel behavior.
+
 ## Goal
 
 Match the useful indoor lighting structure of Q2RTX while preserving the
