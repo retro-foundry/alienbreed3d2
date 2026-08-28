@@ -210,6 +210,24 @@ inline float fake_specular_weight(float linear_roughness)
     return smoothstep(0.20f, 0.30f, linear_roughness);
 }
 
+inline uint32_t primary_direct_visibility_sample_count(
+    uint32_t candidate_count)
+{
+    return std::min(candidate_count, 4u);
+}
+
+inline uint32_t primary_direct_candidate_group_size(
+    uint32_t candidate_count, uint32_t visibility_sample)
+{
+    const uint32_t sample_count =
+        primary_direct_visibility_sample_count(candidate_count);
+    if (sample_count == 0u || visibility_sample >= sample_count) {
+        return 0u;
+    }
+    return (candidate_count + sample_count - 1u - visibility_sample) /
+        sample_count;
+}
+
 inline Evaluation evaluate(const Material &material, Vec3 normal,
                            Vec3 view_direction, Vec3 light_direction)
 {

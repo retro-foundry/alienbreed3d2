@@ -403,6 +403,11 @@ static const uint DiffusePrimaryPolygonStream = 0x10700u;
 static const uint DiffuseIndirectPolygonStream = 0x10800u;
 static const uint SmoothSpecularDirectionStream = 0x10900u;
 static const uint SmoothSpecularPolygonStream = 0x10a00u;
+/* Primary direct lighting shades several independent RIS survivors rather
+ * than asking one binary visibility result to represent every candidate.
+ * CandidateCount is divided across these groups; one candidate still reduces
+ * exactly to the previous single-survivor estimator. */
+static const uint PrimaryDirectVisibilitySampleLimit = 4u;
 /* `rtx_light_candidates` is capped at 1024. Give every indirect surface a
  * disjoint candidate stream so changing path depth adds samples instead of
  * replaying the first secondary vertex's light choices. */
@@ -1966,44 +1971,55 @@ DirectLightingSample samplePrimaryPolygonLight(
         return result;
     }
     uint candidateCount = max(CandidateCount, 1u);
-    EmitterSample selected = (EmitterSample)0;
-    selected.emitterIndex = InvalidIndex;
-    selected.valid = false;
-    float weightSum = 0.0;
-    for (uint candidate = 0u; candidate < candidateCount; ++candidate) {
-        float4 random = sampleStream(
-            pixel, sampleIndex,
-            DiffusePrimaryPolygonStream + candidate);
-        EmitterSample lightSample;
-        lightSample.emitterIndex = selectEmitter(random.x);
-        lightSample.positionSample = packPositionSample(random.yz);
-        lightSample.valid = true;
-        EmitterEvaluation evaluation = evaluateEmitterSampleForFrame(
-            surface, viewDirection, lightSample, false);
-        float weight = evaluation.sourcePdf > 0.0 ?
-            evaluation.targetPdf / evaluation.sourcePdf : 0.0;
-        weightSum += weight;
-        if (weight > 0.0 && random.w * weightSum < weight) {
-            selected = lightSample;
+    uint visibilitySampleCount = min(
+        candidateCount, PrimaryDirectVisibilitySampleLimit);
+    for (uint visibilitySample = 0u;
+         visibilitySample < visibilitySampleCount; ++visibilitySample) {
+        EmitterSample selected = (EmitterSample)0;
+        selected.emitterIndex = InvalidIndex;
+        selected.valid = false;
+        float weightSum = 0.0;
+        uint groupCandidateCount = 0u;
+        for (uint candidate = visibilitySample; candidate < candidateCount;
+             candidate += visibilitySampleCount) {
+            float4 random = sampleStream(
+                pixel, sampleIndex,
+                DiffusePrimaryPolygonStream + candidate);
+            EmitterSample lightSample;
+            lightSample.emitterIndex = selectEmitter(random.x);
+            lightSample.positionSample = packPositionSample(random.yz);
+            lightSample.valid = true;
+            EmitterEvaluation evaluation = evaluateEmitterSampleForFrame(
+                surface, viewDirection, lightSample, false);
+            float weight = evaluation.sourcePdf > 0.0 ?
+                evaluation.targetPdf / evaluation.sourcePdf : 0.0;
+            weightSum += weight;
+            groupCandidateCount += 1u;
+            if (weight > 0.0 && random.w * weightSum < weight) {
+                selected = lightSample;
+            }
         }
+        if (!selected.valid || !(weightSum > 0.0)) {
+            continue;
+        }
+        EmitterEvaluation selectedEvaluation = evaluateEmitterSampleForFrame(
+            surface, viewDirection, selected, false);
+        if (!selectedEvaluation.valid ||
+            !traceVisibility(
+                surface.position + surface.geometricNormal * RayEpsilon,
+                selectedEvaluation.lightDirection,
+                selectedEvaluation.lightDistance - RayEpsilon,
+                SceneInstanceMask)) {
+            continue;
+        }
+        float inversePdf = weightSum /
+            (float(groupCandidateCount) * selectedEvaluation.targetPdf);
+        result.diffuse += selectedEvaluation.diffuseContribution * inversePdf;
+        result.specular += selectedEvaluation.specularContribution * inversePdf;
     }
-    if (!selected.valid || !(weightSum > 0.0)) {
-        return result;
-    }
-    EmitterEvaluation selectedEvaluation = evaluateEmitterSampleForFrame(
-        surface, viewDirection, selected, false);
-    if (!selectedEvaluation.valid ||
-        !traceVisibility(
-            surface.position + surface.geometricNormal * RayEpsilon,
-            selectedEvaluation.lightDirection,
-            selectedEvaluation.lightDistance - RayEpsilon,
-            SceneInstanceMask)) {
-        return result;
-    }
-    float inversePdf = weightSum /
-        (float(candidateCount) * selectedEvaluation.targetPdf);
-    result.diffuse = selectedEvaluation.diffuseContribution * inversePdf;
-    result.specular = selectedEvaluation.specularContribution * inversePdf;
+    float inverseVisibilitySampleCount = 1.0 / float(visibilitySampleCount);
+    result.diffuse *= inverseVisibilitySampleCount;
+    result.specular *= inverseVisibilitySampleCount;
     return result;
 }
 

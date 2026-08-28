@@ -113,8 +113,11 @@ default, so the shipped template lists them commented out with their defaults:
   remains with the pending DXR HUD/text implementation;
 - `rtx_light_candidates=1` through `1024` controls fresh RIS at every surface
   vertex. Primary candidates stream material-dependent direct diffuse plus
-  weighted GGX specular through one target; one survivor traces visibility and
-  one unbiased normalization is applied to both lobes. Indirect diffuse
+  weighted GGX specular through one target. At the primary vertex they are
+  interleaved across up to four independent groups; one survivor per group
+  traces visibility, each group is normalized independently, and their mean is
+  applied to both lobes. One candidate reduces exactly to the single-survivor
+  estimator. Indirect diffuse
   vertices retain their accepted diffuse-only estimator. The primary vertex
   uses the complete emitter alias table. Indirect vertices use a quantized
   world-stable ReGIR cell proposal, matching Q2RTX's essential local-light-list
@@ -615,10 +618,13 @@ not added to HDR as fake self-emission. The image shows directly visible
 authored emission and material-dependent polygon-light transport. At the
 primary hit the shader draws `rtx_light_candidates` samples from the complete
 authored-emitter alias distribution, evaluates Fresnel-reduced Lambert diffuse
-and GGX specular, streams their luminance together through fresh RIS, and
-traces visibility only for the survivor. Both lobes receive the same unbiased
-normalization. This runs at every primary pixel rather than alternating a
-half-rate checkerboard. The first indirect
+and GGX specular, and streams their luminance together through fresh RIS. The
+candidate budget is interleaved across up to four independent groups; each
+group traces its survivor, applies its own unbiased normalization to both
+lobes, and the shader averages those estimates. This replaces one high-variance
+binary shadow decision without introducing screen-space reservoir history. It
+runs at every primary pixel rather than alternating a half-rate checkerboard.
+The first indirect
 continuation uses the broad low-frequency geometric-normal distribution; each
 later continuation uses an ordinary cosine distribution. Every reached surface
 evaluates fresh polygon RIS from its quantized world-stable light-grid cell,

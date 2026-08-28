@@ -11,9 +11,11 @@ Date: 2026-08-27
 ## Implementation progress (2026-08-28)
 
 - Primary authored-emitter RIS now targets Fresnel-reduced diffuse plus the
-  Q2RTX-weighted direct GGX contribution as one sample. The same survivor,
-  shadow result, and normalization feed both lobes. Metallic primary surfaces
-  are no longer skipped merely because their diffuse reflectance is zero.
+  Q2RTX-weighted direct GGX contribution as one sample. Candidates are
+  interleaved across up to four independent groups; each survivor, shadow
+  result, and unbiased normalization feeds both lobes before the group mean.
+  Metallic primary surfaces are no longer skipped merely because their diffuse
+  reflectance is zero.
 - The half-rate two-phase direct checkerboard was removed. Every primary pixel
   now evaluates its configured direct samples, eliminating a deterministic
   source of alternating direct-light noise before RR.
@@ -48,6 +50,26 @@ Date: 2026-08-27
   `rough-specular` measured `0.5025 / 0 / 0` in the same tuple order.
 - The moving Shotgun endpoint measured `4.8305`, so moving-specular visual
   acceptance and the deterministic GPU reference scenes below remain open.
+
+### Direct stability follow-up (2026-08-28)
+
+- A new activation of the dormant temporal/spatial direct reservoir path was
+  measured and rejected rather than committed. Against the fresh estimator's
+  moving combined delta `4.8305`, temporal plus spatial reuse measured
+  `5.2146`, temporal-only `6.1642`, spatial-only `4.9955`, and a bounded
+  one-frame temporal reservoir `5.2544`. Reuse also created tens of thousands
+  of >=16-code moving differences. `SpatialShade` therefore remains dormant.
+- Primary candidates are now interleaved across up to four independent fresh
+  RIS groups, with one visibility ray and unbiased normalization per group.
+  This retains the configured candidate-evaluation budget while replacing the
+  single binary shadow outcome with a four-estimate mean at the default 16
+  candidates.
+- The locked combined result measures `0.5046 / 821 / 0` for frozen late
+  delta, saturated pixels, and >=16-code frozen outliers, versus
+  `0.5050 / 813 / 0` before the change. The moving endpoint is `4.8586`; this
+  is not claimed as a scalar motion-delta win. Direct-specular captures show
+  visibly reduced speckled breakup and RR trails at the central panel and right
+  light while exact black remains black.
 
 ## Goal
 
@@ -185,8 +207,9 @@ quality or brightness controls.
 ### 2. Add full direct local-light BRDF shading
 
 Keep the current complete authored-emitter distribution, per-cell ReGIR
-proposal for continuation vertices, fresh RIS normalization, and one final
-visibility ray. Change only the primary receiver evaluation:
+proposal for continuation vertices, and fresh RIS normalization. The primary
+candidate budget is interleaved across up to four independent groups, each with
+one final visibility ray. Change only the primary receiver evaluation:
 
 - Split the existing `BsdfEvaluation` logically into diffuse and specular
   contributions while retaining their matching mixture PDF.
@@ -202,9 +225,10 @@ visibility ray. Change only the primary receiver evaluation:
 - Match Q2RTX's direct-specular transition:
   `directSpecularWeight = smoothstep(0.16, 0.20, roughness)`.
 - Stream RIS candidates using the luminance of diffuse plus weighted specular,
-  then return both contributions from the same selected sample and the same
-  unbiased normalization. Do not select a diffuse-only survivor and attach an
-  unrelated specular value afterwards.
+  then return both contributions from each group's selected sample and the same
+  group-local unbiased normalization. Average the group estimates. Do not
+  select a diffuse-only survivor and attach an unrelated specular value
+  afterwards.
 - Continue using the diffuse-only local-light evaluator at existing diffuse GI
   continuation vertices. The user has accepted that signal and it must remain
   unchanged.

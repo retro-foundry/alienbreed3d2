@@ -74,6 +74,17 @@ int main()
         !near(fake_specular_weight(0.30f), 1.0f)) {
         return fail("direct/specular-hit transition weights changed");
     }
+    if (primary_direct_visibility_sample_count(0u) != 0u ||
+        primary_direct_visibility_sample_count(1u) != 1u ||
+        primary_direct_visibility_sample_count(4u) != 4u ||
+        primary_direct_visibility_sample_count(16u) != 4u ||
+        primary_direct_candidate_group_size(1u, 0u) != 1u ||
+        primary_direct_candidate_group_size(5u, 0u) != 2u ||
+        primary_direct_candidate_group_size(5u, 1u) != 1u ||
+        primary_direct_candidate_group_size(16u, 3u) != 4u ||
+        primary_direct_candidate_group_size(16u, 4u) != 0u) {
+        return fail("primary direct visibility partition changed");
+    }
 
     const Vec3 normal = {0.0f, 0.0f, 1.0f};
     const Vec3 tangent = {1.0f, 0.0f, 0.0f};
