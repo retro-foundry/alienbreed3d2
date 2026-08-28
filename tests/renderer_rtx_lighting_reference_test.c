@@ -15,6 +15,7 @@ enum { REFERENCE_FRAME_COUNT = 4 };
 #define REFERENCE_METAL_ROUGHNESS_020 UINT32_C(0xF0000005)
 #define REFERENCE_EMITTER UINT32_C(0xF0000006)
 #define REFERENCE_METAL_BELOW_016 UINT32_C(0xF0000007)
+#define REFERENCE_ADDITIVE UINT32_C(0xF0000100)
 
 typedef struct {
     uint32_t material_id;
@@ -184,7 +185,7 @@ int main(void)
                             REFERENCE_ROUGHNESS_020);
     initialize_wall_surface(&surfaces[1], emitter_vertices, 3u,
                             REFERENCE_EMITTER);
-    SceneCommand commands[2] = {0};
+    SceneCommand commands[3] = {0};
     commands[0].type = SCENE_COMMAND_CAMERA;
     commands[1].type = SCENE_COMMAND_GEOMETRY_INSTANCE;
     commands[1].data.geometry_instance.source_instance_id = 1u;
@@ -233,6 +234,40 @@ int main(void)
         SDL_Quit();
         return 1;
     }
+
+    /* This source additive bitmap is behind the camera, so primary visibility
+     * never crosses it. The reflected segment accumulates its authored
+     * radiance, continues through the non-occluding quad, and then misses. */
+    commands[2].type = SCENE_COMMAND_SPRITE_INSTANCE;
+    commands[2].data.sprite_instance.source_mesh_id = 2u;
+    commands[2].data.sprite_instance.acceleration_class =
+        SCENE_ACCELERATION_CLASS_DYNAMIC;
+    commands[2].data.sprite_instance.sprite.position =
+        (SceneWorldPoint){0, 0, -80};
+    commands[2].data.sprite_instance.sprite.source =
+        SCENE_SPRITE_SOURCE_OBJECT_BITMAP;
+    commands[2].data.sprite_instance.sprite.presentation =
+        SCENE_SPRITE_PRESENTATION_WORLD_OBJECT;
+    commands[2].data.sprite_instance.sprite.surface_attachment =
+        SCENE_SPRITE_SURFACE_FREE;
+    commands[2].data.sprite_instance.sprite.source_asset_id =
+        REFERENCE_ADDITIVE;
+    commands[2].data.sprite_instance.sprite.source_record_id = 2u;
+    commands[2].data.sprite_instance.sprite.source_width = 200u;
+    commands[2].data.sprite_instance.sprite.source_height = 100u;
+    commands[2].data.sprite_instance.sprite.flags =
+        SCENE_SPRITE_FLAG_ADDITIVE;
+    commands[2].data.sprite_instance.sprite.source_clip_top_y = -32768;
+    commands[2].data.sprite_instance.sprite.source_clip_bottom_y = 32767;
+    frame.count = 3u;
+    if (!validate_transport_case(renderer, &frame, &view,
+                                 "additive-on-reflected-miss", 0, 0, 1, 1,
+                                 error, sizeof(error))) {
+        renderer_rtx_destroy(renderer);
+        SDL_Quit();
+        return 1;
+    }
+    frame.count = 2u;
 
     /* A large emitter behind and offset from the camera is invisible to the
      * primary ray. The smooth-GGX companion is the only path that can reach

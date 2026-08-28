@@ -99,9 +99,17 @@ Date: 2026-08-27
   an off-screen blocker over its complete receiver cone then requires zero
   direct and smooth coverage plus an exact-black checksum. Native Debug and
   Streamline Release runs pass these cases.
+- The same isolated package now includes a constant emissive additive-bitmap
+  binding. A billboard behind the camera is invisible to primary and direct
+  paths but must add radiance to the smooth reflected segment without
+  occluding it. This exposed and fixed an emitter-count gate that previously
+  suppressed every continuation ray in additive-only scenes even though
+  additive geometry is correctly excluded from the polygon-emitter list. The
+  native Debug and Streamline Release reference runs pass all four frames, and
+  the complete native Debug suite passes `28/28`.
 - This is partial GPU-reference coverage, not completion of the list below.
-  Additive geometry on a reflected segment and isolated-channel sum equality
-  still require deterministic reference scenes and assertions.
+  Isolated-channel sum equality still requires deterministic reference scenes
+  and assertions.
 
 ## Goal
 

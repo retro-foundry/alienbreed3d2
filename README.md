@@ -711,7 +711,11 @@ requires a smooth-GGX miss to stay black, an offset source behind the camera to
 appear only through the smooth reflection, and a reflected non-emissive wall
 to receive its own local-light NEE. A side emitter is measured once visible to
 the receiver and again behind an off-screen blocker; the latter must have zero
-direct-lobe coverage and exact-black output.
+direct-lobe coverage and exact-black output. An isolated authored additive
+billboard behind the camera must likewise appear only on a smooth reflected
+segment, remain absent from both direct lobes, and leave the segment
+non-occluding. This also guards continuation transport in scenes where the
+additive effect is intentionally absent from the polygon-emitter distribution.
 
 The RTX smoke renders each Level A--P frame twice. A starting view with no
 visible source and no sampled emitter connection may correctly be black;

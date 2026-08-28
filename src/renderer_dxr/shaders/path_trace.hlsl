@@ -3370,7 +3370,11 @@ void RayGeneration()
             resolvedRadiance += surface.emission;
         }
         float3 primaryThroughput = diffuseReflectance(surface);
-        if (EmitterCount > 0u) {
+        /* Continuation rays can collect crossed additive layers or reached
+         * authored emission even when the scene has no polygon emitter.
+         * Keep only the polygon-light samplers themselves conditional on
+         * EmitterCount; do not suppress smooth or diffuse transport here. */
+        if (EmitterCount > 0u || MaximumDepth >= 2u) {
             uint directSampleCount = max(SamplesPerPixel, 1u);
             /* Direct polygon NEE and indirect continuation counts are
              * independent. Extra GI paths therefore spend no primary shadow

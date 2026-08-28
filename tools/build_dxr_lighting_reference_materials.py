@@ -28,6 +28,10 @@ def build_material(
     metalness: int,
     roughness: int,
     emissive_factor: float = 0.0,
+    *,
+    material_class: str = "wall",
+    binding: dict[str, object] | None = None,
+    alpha_mode: str = "opaque",
 ) -> dict[str, object]:
     colors = {
         "base_color": base_color,
@@ -40,22 +44,25 @@ def build_material(
             else (0, 0, 0, 255)
         ),
     }
+    directory = "walls" if material_class == "wall" else "effects"
     channels = {
-        channel: f"walls/{name}_{channel}.png" for channel in CHANNELS
+        channel: f"{directory}/{name}_{channel}.png" for channel in CHANNELS
     }
     for channel, color in colors.items():
         write_constant_png(source_dir / channels[channel], color)
     return {
         "name": name,
-        "class": "wall",
+        "class": material_class,
         "width": MATERIAL_SIZE[0],
         "height": MATERIAL_SIZE[1],
         "normal_strength": 1.0,
         "specular_factor": 1.0,
-        "alpha_mode": "opaque",
+        "alpha_mode": alpha_mode,
         "emissive_factor": [emissive_factor] * 3,
         "two_sided": False,
-        "binding": {
+        "binding": binding
+        if binding is not None
+        else {
             "kind": "shared_wall",
             "source_asset_id": source_asset_id,
             "v_period": 1,
@@ -123,6 +130,23 @@ def build_reference_package(source_dir: Path, output_dir: Path) -> Path:
             0,
             255,
             200.0,
+        ),
+        build_material(
+            source_dir,
+            "reference_additive",
+            0xF0000100,
+            (255, 255, 255, 255),
+            0,
+            255,
+            20.0,
+            material_class="effect_billboard",
+            binding={
+                "kind": "bitmap",
+                "source_asset_id": 0xF0000100,
+                "frame_index": 0,
+                "mode": "additive",
+            },
+            alpha_mode="additive",
         ),
     ]
     manifest = {
