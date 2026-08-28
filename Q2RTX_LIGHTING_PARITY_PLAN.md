@@ -185,6 +185,32 @@ Date: 2026-08-27
   changes must improve the reprojected result without increasing screen-space
   trails or degrading the captured left-wall/panel detail.
 
+### Blue-noise primary direct sampling (2026-08-28)
+
+- The accepted fresh estimator now draws its primary emitter, triangle point,
+  and reservoir-acceptance dimensions from the pinned spatiotemporal blue-noise
+  sampler instead of an independent per-pixel hash. Dimensions 64--255 are
+  reserved for the first 48 configurable candidates; a larger diagnostic
+  candidate tail falls back to the unbounded hash stream before Sobol dimensions
+  can wrap. Candidate count, four independent visibility groups, visibility-ray
+  cost, and unbiased RIS normalization are unchanged.
+- Against the stride-sampled motion oracle, frozen combined remains effectively
+  unchanged (`delta/reprojected 0.5046/0.5074` before and `0.5050/0.5072`
+  after). The yawing combined endpoint improves from
+  `4.8599/0.7057` to `4.8364/0.7023`; full-frame screen outliers fall from
+  `77327` to `77097`. The isolated direct-specular endpoint improves from
+  `2.5863/0.4782` to `2.5128/0.4731`, and direct diffuse improves from
+  `2.2285/0.4975` to `2.1846/0.4965` (screen/reprojected respectively).
+- The captured Shotgun endpoint preserves sharp left-wall and panel detail with
+  no structured grain or history trail. This is a sampling-distribution win,
+  not temporal accumulation: direct screen-space reservoirs remain dormant.
+- The corrected authored-emitter-only direct reservoir was also rechecked with
+  the earlier full-resolution motion oracle. Temporal-only measured `1.0790`,
+  temporal plus spatial reuse bottomed out at `0.7167`, and spatial-only reuse
+  measured `0.7019`, all worse than the fresh estimator's `0.6871`. The spatial
+  variants additionally used substantially more visibility rays and shifted
+  the saturated-pixel population. No tested ReSTIR DI mode is accepted.
+
 ## Goal
 
 Match the useful indoor lighting structure of Q2RTX while preserving the

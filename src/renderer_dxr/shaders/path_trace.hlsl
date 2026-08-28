@@ -405,6 +405,12 @@ static const uint DiffusePrimaryPolygonStream = 0x10700u;
 static const uint DiffuseIndirectPolygonStream = 0x10800u;
 static const uint SmoothSpecularDirectionStream = 0x10900u;
 static const uint SmoothSpecularPolygonStream = 0x10a00u;
+/* Keep primary light selection in the sampler's unused dimension range. The
+ * configurable tail falls back to the unbounded hash stream before the 256
+ * Sobol dimensions wrap and begin repeating candidates. */
+static const uint PrimaryDirectBlueNoiseDimension = 64u;
+static const uint PrimaryDirectBlueNoiseCandidateLimit =
+    (BlueNoiseDimensionCount - PrimaryDirectBlueNoiseDimension) / 4u;
 /* Primary direct lighting shades several independent RIS survivors rather
  * than asking one binary visibility result to represent every candidate.
  * CandidateCount is divided across these groups; one candidate still reduces
@@ -1984,9 +1990,17 @@ DirectLightingSample samplePrimaryPolygonLight(
         uint groupCandidateCount = 0u;
         for (uint candidate = visibilitySample; candidate < candidateCount;
              candidate += visibilitySampleCount) {
-            float4 random = sampleStream(
-                pixel, sampleIndex,
-                DiffusePrimaryPolygonStream + candidate);
+            uint dimension = PrimaryDirectBlueNoiseDimension + candidate * 4u;
+            float4 random = candidate <
+                    PrimaryDirectBlueNoiseCandidateLimit ?
+                float4(
+                    sampleBlueNoise(pixel, sampleIndex, dimension + 0u),
+                    sampleBlueNoise(pixel, sampleIndex, dimension + 1u),
+                    sampleBlueNoise(pixel, sampleIndex, dimension + 2u),
+                    sampleBlueNoise(pixel, sampleIndex, dimension + 3u)) :
+                sampleStream(
+                    pixel, sampleIndex,
+                    DiffusePrimaryPolygonStream + candidate);
             EmitterSample lightSample;
             lightSample.emitterIndex = selectEmitter(random.x);
             lightSample.positionSample = packPositionSample(random.yz);
