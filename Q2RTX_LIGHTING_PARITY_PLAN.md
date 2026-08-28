@@ -1,10 +1,11 @@
 # Q2RTX Indoor Lighting Parity Handoff
 
-Status: indoor-core implementation present; validation in progress. Primary
+Status: indoor-core implementation and validation complete. Primary
 direct diffuse/GGX, full-rate direct sampling, active RR guides, real smooth
 specular, packed-F0 rough reconstruction, and radiance isolations were
-implemented on 2026-08-28. Reference-scene, all-level, and moving direct-light
-acceptance now pass; moving indirect/rough-specular acceptance remains open.
+implemented on 2026-08-28. Reference-scene, all-level, and moving-lighting
+acceptance pass. Direct reservoirs remain dormant because every measured
+temporal/spatial ReSTIR DI variant was less stable than fresh RIS.
 
 Date: 2026-08-27
 
@@ -258,6 +259,13 @@ Date: 2026-08-27
   reprojected outliers. It retains the left-wall engraving, floor pattern,
   panel edges, and rough-highlight shape without new blur or structured
   breakup.
+- Four exact saved-motion poses at Shotgun update/subframe `1/1`, `3/4`, `6/4`,
+  and `9/2` were inspected together. Panel edges and floor relief track the yaw,
+  the left-wall highlight remains attached to geometry, and the evolving flash
+  leaves no history trail. The valid motion-compensated endpoints are `0.6444`,
+  `0.6278`, and `0.6800`; the first presentation correctly has no valid prior
+  correspondence because weapon history is intentionally rejected. This closes
+  moving indirect/rough-specular visual acceptance for the indoor core.
 
 ## Goal
 
