@@ -12,7 +12,7 @@ Date: 2026-08-27
 
 - Primary authored-emitter RIS now targets Fresnel-reduced diffuse plus the
   Q2RTX-weighted direct GGX contribution as one sample. Candidates are
-  interleaved across up to four independent groups; each survivor, shadow
+  interleaved across up to two independent groups; each survivor, shadow
   result, and unbiased normalization feeds both lobes before the group mean.
   Metallic primary surfaces are no longer skipped merely because their diffuse
   reflectance is zero.
@@ -45,10 +45,10 @@ Date: 2026-08-27
 - The complete Debug CTest suite passed: 29/29, including the DXR foundation,
   Streamline package checks, and the all-level RTX game smoke.
 - The locked saved Level A `combined` capture measured frozen late delta
-  `0.5050`, `813` saturated pixels, and zero >=16-code temporal outliers.
+  `0.5049`, `793` saturated pixels, and zero >=16-code temporal outliers.
   Isolated `smooth-specular` measured `0.5129 / 0 / 0`; isolated
   `rough-specular` measured `0.5025 / 0 / 0` in the same tuple order.
-- The moving Shotgun endpoint measured `4.8305`, so moving-specular visual
+- The moving Shotgun endpoint measured `4.8294`, so moving-specular visual
   acceptance remains open. The deterministic GPU reference scenes below are
   now complete.
 
@@ -60,11 +60,12 @@ Date: 2026-08-27
   `5.2146`, temporal-only `6.1642`, spatial-only `4.9955`, and a bounded
   one-frame temporal reservoir `5.2544`. Reuse also created tens of thousands
   of >=16-code moving differences. `SpatialShade` therefore remains dormant.
-- Primary candidates are now interleaved across up to four independent fresh
+- Primary candidates were first interleaved across up to four independent fresh
   RIS groups, with one visibility ray and unbiased normalization per group.
   This retains the configured candidate-evaluation budget while replacing the
   single binary shadow outcome with a four-estimate mean at the default 16
-  candidates.
+  candidates. The later blue-noise sweep below consolidates production to two
+  groups after measuring both variants.
 - The locked combined result measures `0.5046 / 821 / 0` for frozen late
   delta, saturated pixels, and >=16-code frozen outliers, versus
   `0.5050 / 813 / 0` before the change. The moving endpoint is `4.8586`; this
@@ -192,15 +193,21 @@ Date: 2026-08-27
   sampler instead of an independent per-pixel hash. Dimensions 64--255 are
   reserved for the first 48 configurable candidates; a larger diagnostic
   candidate tail falls back to the unbounded hash stream before Sobol dimensions
-  can wrap. Candidate count, four independent visibility groups, visibility-ray
-  cost, and unbiased RIS normalization are unchanged.
+  can wrap. Candidate count and unbiased RIS normalization are unchanged.
+- Production uses two eight-candidate RIS groups at the default candidate
+  budget. Compared with four four-candidate groups, this gives each survivor
+  enough proposals to find sparse bright texels and reduces primary visibility
+  from four rays to two. Frozen combined remains effectively unchanged
+  (`0.5050/0.5072` at four groups and `0.5049/0.5071` at two, for
+  screen/reprojected delta).
 - Against the stride-sampled motion oracle, frozen combined remains effectively
-  unchanged (`delta/reprojected 0.5046/0.5074` before and `0.5050/0.5072`
+  unchanged (`delta/reprojected 0.5046/0.5074` before and `0.5049/0.5071`
   after). The yawing combined endpoint improves from
-  `4.8599/0.7057` to `4.8364/0.7023`; full-frame screen outliers fall from
-  `77327` to `77097`. The isolated direct-specular endpoint improves from
-  `2.5863/0.4782` to `2.5128/0.4731`, and direct diffuse improves from
-  `2.2285/0.4975` to `2.1846/0.4965` (screen/reprojected respectively).
+  `4.8599/0.7057` to `4.8294/0.7021`; full-frame screen outliers fall from
+  `77327` to `77056`, with `196` sampled reprojected outliers. The isolated
+  direct-specular endpoint improves from
+  `2.5863/0.4782` to `2.4987/0.4711`, and direct diffuse improves from
+  `2.2285/0.4975` to `2.1634/0.4958` (screen/reprojected respectively).
 - The captured Shotgun endpoint preserves sharp left-wall and panel detail with
   no structured grain or history trail. This is a sampling-distribution win,
   not temporal accumulation: direct screen-space reservoirs remain dormant.
@@ -348,7 +355,7 @@ quality or brightness controls.
 
 Keep the current complete authored-emitter distribution, per-cell ReGIR
 proposal for continuation vertices, and fresh RIS normalization. The primary
-candidate budget is interleaved across up to four independent groups, each with
+candidate budget is interleaved across up to two independent groups, each with
 one final visibility ray. Change only the primary receiver evaluation:
 
 - Split the existing `BsdfEvaluation` logically into diffuse and specular

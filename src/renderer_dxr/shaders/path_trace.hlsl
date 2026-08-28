@@ -411,11 +411,12 @@ static const uint SmoothSpecularPolygonStream = 0x10a00u;
 static const uint PrimaryDirectBlueNoiseDimension = 64u;
 static const uint PrimaryDirectBlueNoiseCandidateLimit =
     (BlueNoiseDimensionCount - PrimaryDirectBlueNoiseDimension) / 4u;
-/* Primary direct lighting shades several independent RIS survivors rather
- * than asking one binary visibility result to represent every candidate.
- * CandidateCount is divided across these groups; one candidate still reduces
- * exactly to the previous single-survivor estimator. */
-static const uint PrimaryDirectVisibilitySampleLimit = 4u;
+/* Primary direct lighting shades two independent RIS survivors rather than
+ * asking one binary visibility result to represent every candidate. Splitting
+ * the default 16 candidates into two groups leaves enough proposals in each
+ * group to find sparse emissive texels while averaging two visibility results.
+ * One candidate still reduces exactly to the single-survivor estimator. */
+static const uint PrimaryDirectVisibilitySampleLimit = 2u;
 /* `rtx_light_candidates` is capped at 1024. Give every indirect surface a
  * disjoint candidate stream so changing path depth adds samples instead of
  * replaying the first secondary vertex's light choices. */
