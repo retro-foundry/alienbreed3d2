@@ -127,6 +127,40 @@ inline float triangle_solid_angle_pdf(float selection_probability,
             light_cosine : 0.0f;
 }
 
+/* Eriksson's solid-angle formula used by Q2RTX
+ * `light_lists.h::spherical_tri_area`. Uniform scaling about the receiver does
+ * not change the result. */
+inline float triangle_solid_angle(Vec3 receiver, Vec3 first, Vec3 second,
+                                  Vec3 third)
+{
+    const Vec3 a = normalize(first - receiver);
+    const Vec3 b = normalize(second - receiver);
+    const Vec3 c = normalize(third - receiver);
+    const float numerator = std::fabs(dot(a, cross(b, c)));
+    const float denominator =
+        1.0f + dot(a, b) + dot(b, c) + dot(a, c);
+    const float angle = 2.0f * std::atan2(numerator, denominator);
+    return std::isfinite(angle) && angle > 0.0f ? angle : 0.0f;
+}
+
+inline float projected_triangle_pdf(Vec3 receiver, Vec3 first, Vec3 second,
+                                    Vec3 third)
+{
+    const float solid_angle = triangle_solid_angle(
+        receiver, first, second, third);
+    return solid_angle > 0.0f ? 1.0f / solid_angle : 0.0f;
+}
+
+inline float ris_inverse_selection_probability(float weight_sum,
+                                               uint32_t candidate_count,
+                                               float selected_target)
+{
+    return weight_sum > 0.0f && candidate_count > 0u &&
+            selected_target > 0.0f ?
+        weight_sum /
+            (static_cast<float>(candidate_count) * selected_target) : 0.0f;
+}
+
 /* One emissive-triangle NEE sample evaluated at a diffuse receiver. The
  * source PDF is already expressed in solid-angle measure at that receiver. */
 inline Vec3 diffuse_polygon_nee(const Material &receiver,

@@ -47,6 +47,22 @@ int main()
         !near(cosine_sample_throughput(metal, 0.75f), Vec3{}) ||
         !near(triangle_solid_angle_pdf(0.25f, 0.5f, 16.0f, 0.5f),
               4.0f) ||
+        !near(triangle_solid_angle(
+                  {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f},
+                  {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}),
+              pi * 0.5f) ||
+        !near(triangle_solid_angle(
+                  {0.0f, 0.0f, 0.0f}, {10.0f, 0.0f, 0.0f},
+                  {0.0f, 10.0f, 0.0f}, {0.0f, 0.0f, 10.0f}),
+              pi * 0.5f) ||
+        !near(projected_triangle_pdf(
+                  {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f},
+                  {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}),
+              2.0f / pi) ||
+        !near(ris_inverse_selection_probability(12.0f, 4u, 2.0f),
+              1.5f) ||
+        !near(ris_inverse_selection_probability(12.0f, 0u, 2.0f),
+              0.0f) ||
         !near(diffuse_polygon_nee(dielectric, {10.0f, 20.0f, 30.0f},
                                   0.5f, 4.0f),
               {1.0f / pi, 0.5f / pi, 0.375f / pi}) ||
