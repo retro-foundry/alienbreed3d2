@@ -53,6 +53,25 @@ Last updated: 2026-08-29
   transport energy, hiding work behind extra queued frames, or weakening the
   locked visual and temporal acceptance oracles.
 
+### Combined scheduler progress (2026-08-29)
+
+- The opt-in S0/S1/S2 sequence now splits primary visibility, shares one direct
+  RIS survivor between diffuse and GGX, and selects one mutually exclusive
+  first smooth/diffuse continuation with inverse-probability weighting. S3a
+  adds a dense quarter-pixel launch for the already accepted mature rotating
+  GI phase; burst/disoccluded pixels remain on the exact full primary path.
+- In the current paired Release Level A hidden-validation profile, S3a reduced
+  frame median from `14.6520` to `10.1687 ms`. Primary shading fell from
+  `12.2726` to `6.1220 ms`; the extracted dense pass cost `1.2385 ms`. Paired
+  final SDR captures stayed within one 8-bit code with mean absolute component
+  difference `0.02447`, and the full moving/firing route retained zero
+  unexpected scene rebuilds.
+- This is an implementation checkpoint, not a new production default or a
+  performance-parity claim. S0-S3a remain off by default. The bounded burst
+  schedule, locked repeated profiles, p99 investigation, work counters, and
+  direct Q2RTX run remain open in `Q2RTX_PERFORMANCE_PARITY_PLAN.md`; the
+  lighting and temporal acceptance contract in this document is unchanged.
+
 ## Implementation progress (2026-08-28)
 
 - Primary authored-emitter RIS now targets Fresnel-reduced diffuse plus the

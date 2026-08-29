@@ -818,9 +818,15 @@ diffuse and smooth-GGX continuations coincide, one is selected from a bounded
 material/Fresnel probability and divided by that probability. S2 is rejected
 with the diagnostic ReSTIR-GI reconstruction, whose reservoir weights do not
 yet encode this selection measure. The summary records all feature bits;
-invalid environment combinations fail renderer initialization. These controls
-are off by default until the combined scheduling slice clears the performance
-and image gates in
+invalid environment combinations fail renderer initialization.
+`AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1` adds the S3a checkpoint and requires
+S2, adaptive temporal indirect reconstruction, nonzero history, and the
+production zero radiance clamp. It extracts the rotating mature 2-by-2 phase
+into one quarter-pixel `DenseMatureContinuation` dispatch while new,
+disoccluded, or changing burst pixels remain on the full primary path. The
+profiler reports that pass separately. S3a has no bounded burst work list yet
+and is not the complete S3 candidate. These controls are off by default until
+the combined scheduling slice clears the performance and image gates in
 `Q2RTX_PERFORMANCE_PARITY_PLAN.md`.
 
 Ordinary visible frames no longer clear, update, or copy the hidden-smoke

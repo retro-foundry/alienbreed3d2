@@ -341,6 +341,44 @@ S2 is required work for S3 but does not independently clear the `15%` slice
 gate. It remains diagnostic and off by default; no energy compensation,
 fallback lobe, or temporal visibility reuse was added.
 
+S3a checkpoint, 2026-08-29:
+
+- `AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1` requires S2, an adaptive temporal
+  reconstruction mode, a nonzero reservoir limit, and the production zero
+  radiance clamp. Unsupported combinations fail initialization; the mode is
+  off by default.
+- A mature scheduled pixel marks the spare high bit of the exact split-primary
+  payload and defers only its diffuse continuation. A quarter-pixel raygen
+  launch maps `(x,y)` to `2*(x,y) + phase`, with the four `SampleIndex` phases
+  covering the full image. Missing, disoccluded, immature, and changing pixels
+  retain the configured burst ceiling in `ShadePrimary`, so this checkpoint
+  has no work-list capacity, overflow, dropped path, or silent fallback.
+- `DenseMatureContinuation` repeats S2's exact random lobe decision, diffuse
+  sample index, inverse selection probability, material footprint, directional
+  signal, and one-sample history contract. A smooth selection publishes a
+  valid zero diffuse estimator with history length one. The full tracing extent
+  now comes from the guide texture rather than the raygen launch dimensions,
+  preventing dense dispatch size from changing authored material mips.
+- On a paired Release Level A hidden-validation run at `1280x720`, 60 warm-up
+  and 120 measured frames, S2 measured `14.6520 ms` frame median and
+  `12.2726 ms` primary shading. S3a measured `10.1687 ms` frame median,
+  `6.1220 ms` primary shading, and `1.2385 ms` dense continuation. This is a
+  `30.6%` frame-median reduction and a `50.1%` primary-shading reduction;
+  frame p95 improved from `30.7867` to `25.0592 ms`. The changing validation
+  route is still not a locked shipping profile, and its S3a frame p99
+  (`113.3134 ms`) did not improve over S2 (`103.8220 ms`).
+- Paired final SDR captures had mean absolute component difference `0.02447`
+  and maximum difference one 8-bit code. Release shader/native compilation,
+  the BRDF/reconstruction/lighting-reference/channel-sum/foundation tests, and
+  the complete Level A route passed. The route retained both Shotgun bursts,
+  bitmap/additive coverage, 400-frame walking/firing, and zero unexpected scene
+  rebuilds.
+
+S3a clears the per-slice median direction gate and brings this preliminary
+profile below 16.67 ms, but it is not S3 or performance parity. The bounded
+burst schedule, validation-only work counters, locked static/motion trials,
+five-run dispersion, and direct Q2RTX comparison remain required.
+
 ### 1C. Stop evaluating expensive light data for every candidate
 
 Ray-count changes alone may not close the gap because native direct RIS shades

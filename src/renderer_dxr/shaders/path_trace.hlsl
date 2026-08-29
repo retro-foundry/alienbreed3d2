@@ -293,6 +293,7 @@ cbuffer FrameConstants : register(b0)
     uint ValidationEnabled;
     uint SinglePrimaryDirectSurvivor;
     uint SingleContinuationLobe;
+    uint DenseMatureContinuations;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -326,6 +327,11 @@ static const uint MaximumMaterialFilterTaps = 8u;
  * exhausting it leaves an opaque emissive quad rather than a hole in the world.
  */
 static const uint AdditiveLayerLimit = 16u;
+/* The split visibility payload has 28 spare bits above the bounded additive
+ * layer count. The top bit hands one mature, scheduled diffuse continuation
+ * to the dense quarter-pixel dispatch without allocating another full-frame
+ * work mask. PrimaryVisibility overwrites it every frame. */
+static const uint PrimaryVisibilityDenseMatureFlag = 0x80000000u;
 /*
  * The default RTXDI pass shape is staged: temporal reuse searches around the
  * motion-reprojected pixel, then a second dispatch samples current-frame
@@ -1092,8 +1098,11 @@ MaterialFilterFootprint worldMaterialFilterFootprint(
     if (viewDepth <= RayEpsilon) {
         return filter;
     }
+    uint tracingWidth = 0u;
+    uint tracingHeight = 0u;
+    LinearDepth.GetDimensions(tracingWidth, tracingHeight);
     float2 renderSize = float2(max(
-        DispatchRaysDimensions().xy, uint2(1u, 1u)));
+        uint2(tracingWidth, tracingHeight), uint2(1u, 1u)));
     float3 cameraRay = cameraOffset / viewDepth;
     float planeDenominator = dot(geometricNormal, cameraRay);
     if (abs(planeDenominator) <= 1.0e-6) {
@@ -3403,6 +3412,16 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                     pixel, dimensions, primaryDepth,
                     primaryGeometricNormal,
                     stableHistory) : 0u;
+            bool deferMatureContinuation =
+                DenseMatureContinuations != 0u && stableHistory &&
+                indirectSampleCount == StableIndirectSampleCount;
+            if (deferMatureContinuation) {
+                uint4 densePacked = PrimaryVisibilityBuffer[pixel];
+                densePacked.w =
+                    primarySegment.additiveLayers |
+                    PrimaryVisibilityDenseMatureFlag;
+                PrimaryVisibilityBuffer[pixel] = densePacked;
+            }
             indirectHistoryOnly = MaximumDepth >= 2u &&
                 indirectSampleCount == 0u;
             uint pathSampleCount = max(directSampleCount,
@@ -3450,6 +3469,12 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                         rcp(max(smoothProbability, 1.0e-6)) : 0.0;
                     diffuseContinuationScale = !chooseSmooth ?
                         rcp(max(1.0 - smoothProbability, 1.0e-6)) : 0.0;
+                }
+                /* The dense pass repeats the exact lobe choice and diffuse
+                 * sample stream. Smooth continuation and all direct work stay
+                 * here, while burst/disoccluded GI never sets this flag. */
+                if (deferMatureContinuation && sampleOrdinal == 0u) {
+                    traceDiffuseContinuation = false;
                 }
                 float3 sampleSmoothSpecular = traceSmoothSpecular ?
                     sampleSmoothSpecularPath(
@@ -3730,7 +3755,8 @@ void ShadePrimary()
     segment.payload.hit = packed.x != InvalidIndex ? 1u : 0u;
     segment.additiveRadiance = NoisyRadiance[pixel].rgb;
     segment.distance = 0.0;
-    segment.additiveLayers = packed.w;
+    segment.additiveLayers =
+        packed.w & ~PrimaryVisibilityDenseMatureFlag;
     shadePrimary(pixel, dimensions, direction, unjitteredDirection, segment);
 }
 
@@ -4076,6 +4102,79 @@ uint adaptiveIndirectSampleCount(uint2 pixel, uint2 dimensions,
         return StableIndirectSampleCount;
     }
     return 0u;
+}
+
+/* Q2RTX's `indirect_lighting.rgen::main` turns a sparse phase into a compact
+ * launch by remapping dispatch coordinates. Mature AB3D2 histories already
+ * schedule exactly one pixel in each 2x2 quad, so this independent DXR pass
+ * applies the same structural idea in both axes. Pixels that still need the
+ * configured burst ceiling remain in ShadePrimary; the flag distinguishes
+ * the mature subset without a lossy or capacity-limited work list. */
+[shader("raygeneration")]
+void DenseMatureContinuation()
+{
+    uint2 dispatchPixel = DispatchRaysIndex().xy;
+    uint fullWidth = 0u;
+    uint fullHeight = 0u;
+    PrimaryVisibilityBuffer.GetDimensions(fullWidth, fullHeight);
+    uint phase = SampleIndex % StableIndirectSamplingPhaseCount;
+    uint2 pixel = dispatchPixel * 2u +
+        uint2(phase & 1u, (phase >> 1u) & 1u);
+    uint2 dimensions = uint2(fullWidth, fullHeight);
+    if (any(pixel >= dimensions)) {
+        return;
+    }
+
+    uint4 packed = PrimaryVisibilityBuffer[pixel];
+    if ((packed.w & PrimaryVisibilityDenseMatureFlag) == 0u ||
+        packed.x == InvalidIndex) {
+        return;
+    }
+
+    SurfacePayload payload;
+    payload.rayDistance = 0.0;
+    payload.barycentrics = float2(asfloat(packed.y), asfloat(packed.z));
+    payload.primitiveIndex = packed.x;
+    payload.hit = 1u;
+    float3 direction;
+    float3 unjitteredDirection;
+    primaryDirections(pixel, dimensions, direction, unjitteredDirection);
+    SurfaceData surface = loadSurface(payload, direction);
+
+    uint directSampleIndex = SampleIndex * max(SamplesPerPixel, 1u);
+    float smoothProbability =
+        continuationSpecularProbability(surface, -direction);
+    bool chooseSmooth = sampleStream(
+        pixel, directSampleIndex,
+        ContinuationLobeSelectionStream).x < smoothProbability;
+    IndirectSignal signal = emptyIndirectSignal();
+    if (!chooseSmooth) {
+        uint indirectSampleIndex =
+            SampleIndex * max(IndirectSamplesPerPixel, 1u);
+        DiffusePathSample pathSample = sampleDiffusePath(
+            pixel, indirectSampleIndex, surface);
+        float3 incident = pathSample.radiance *
+            rcp(max(1.0 - smoothProbability, 1.0e-6));
+        if (!any(isnan(incident)) && !any(isinf(incident))) {
+            signal = indirectSignalFromRadiance(
+                incident, pathSample.firstDirection);
+        }
+    }
+
+    IndirectRadiance[pixel] = signal.luminanceSH;
+    IndirectChroma[pixel] = signal.chroma;
+    uint historyIndex = pixel.y * dimensions.x + pixel.x;
+    uint currentHistorySlot = SampleIndex & 1u;
+    IndirectHistoryPixel current = (IndirectHistoryPixel)0;
+    current.luminanceSH = signal.luminanceSH;
+    current.chroma = signal.chroma;
+    current.depth = LinearDepth[pixel];
+    current.normal = packOctahedralNormal(surface.geometricNormal);
+    /* A smooth selection is a valid zero-valued diffuse estimator, not a
+     * missing sample. Publishing length one preserves S2's unbiased temporal
+     * average for both outcomes of the mutually exclusive lobe choice. */
+    current.historyLength = min(1.0, float(ReservoirSampleLimit));
+    storeIndirectHistory(currentHistorySlot, historyIndex, current);
 }
 
 /* Q2RTX's low-frequency anti-lag signal compares the sparse current frame to

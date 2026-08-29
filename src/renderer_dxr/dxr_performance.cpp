@@ -22,6 +22,7 @@ constexpr std::array<const char *, static_cast<size_t>(DxrGpuStage::count)>
         "light_grid",
         "primary_visibility",
         "primary_shading",
+        "dense_mature_continuation",
         "indirect_resampling",
         "indirect_gradient",
         "indirect_temporal",
@@ -157,7 +158,9 @@ bool same_configuration(const DxrPerformanceMetadata &left,
         left.split_primary == right.split_primary &&
         left.single_primary_direct_survivor ==
             right.single_primary_direct_survivor &&
-        left.single_continuation_lobe == right.single_continuation_lobe;
+        left.single_continuation_lobe == right.single_continuation_lobe &&
+        left.dense_mature_continuations ==
+            right.dense_mature_continuations;
 }
 
 const char *reconstruction_name(RendererRayReconstructionMode mode)
@@ -527,6 +530,8 @@ void DxrGpuProfiler::report()
            << (metadata.single_primary_direct_survivor ? "true" : "false")
            << ",\"single_continuation_lobe\":"
            << (metadata.single_continuation_lobe ? "true" : "false")
+           << ",\"dense_mature_continuations\":"
+           << (metadata.dense_mature_continuations ? "true" : "false")
            << ",\"history_valid_frames\":" << history_valid_frames
            << ",\"scene_rebuilds_start\":"
            << samples_.front().metadata.scene_rebuild_count
