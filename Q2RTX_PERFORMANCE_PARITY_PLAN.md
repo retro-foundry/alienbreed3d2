@@ -423,6 +423,47 @@ must now sweep ceilings `1, 2, 4, 8, 16`, retain the lowest ceiling that passes
 disocclusion/change recovery and every lighting gate, and then run the locked
 repeated native/Q2RTX profiles.
 
+S4 exploratory sweep, 2026-08-29:
+
+| burst ceiling | frame median / p95 / p99 (ms) | burst p95 (ms) | static early / late delta | moving delta |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | `10.7145 / 16.6009 / 20.3788` | `7.5793` | `14.3031 / 14.3234` | `27.3305` |
+| 2 | `9.7579 / 16.9265 / 26.9555` | `10.6154` | `14.3214 / 14.3374` | `27.2704` |
+| 4 | `9.7159 / 26.2744 / 47.3452` | `19.8207` | `14.3352 / 14.3541` | `27.2316` |
+| 8 | `10.3014 / 21.3121 / 70.8437` | `14.8525` | `14.3384 / 14.3611` | `27.2454` |
+| 16 | `10.3410 / 19.3372 / 79.2778` | `12.6249` | `14.3406 / 14.3680` | `27.2603` |
+
+- These are single sequential Release hidden-validation trials, not acceptance
+  statistics. All used S3 at `1280x720`, 16 light candidates, 60 warm-up and
+  120 measured frames, and all passed the full Level A route with zero overflow
+  and rebuilds. The non-monotonic p95 ordering demonstrates why the five-run
+  locked protocol remains mandatory. Ceiling one is the only trial below
+  `16.67 ms` at p95.
+- Settled corridor captures at ceilings 1/2/4/8 versus 16 had mean absolute
+  8-bit component differences `0.6926/1.0179/0.6092/0.3365`; no normal-scale
+  structural difference was visible. The locked saved yaw/Shotgun sequence at
+  ceilings 1 and 16 was also close: shot reprojected delta
+  `7.1722/7.1724`, reprojected outliers `15238/15251`, and identical sample
+  counts. This does not measure a sudden indirect-light change in isolation.
+- A fully confirmed gradient retains `3.436` old effective samples before the
+  current burst. The exact temporal current weights for ceilings 1/2/4/8/16
+  are therefore `0.380/0.494/0.630/0.760/0.859`. Ceiling one's apparently
+  calmer settled delta buys materially slower first-frame lighting recovery.
+  It is not accepted until a locked indirect-only light-toggle/disocclusion
+  oracle demonstrates that this lag is visually harmless; no default changed.
+- Combining S3, ceiling 16, and eight global RIS candidates measured
+  `9.0502/15.8996/62.0167 ms` frame median/p95/p99 and `9.4701 ms` burst p95.
+  It clears the preliminary median/p95 budget without weakening burst recovery,
+  but is rejected as a production setting: the deterministic corridor was
+  visibly darker/less warm, and saved Shotgun delta rose from `7.4076` to
+  `8.7470` with temporal outliers rising from `251244` to `284415`. A compact
+  local proposal with the complete emitter mixture is still required; merely
+  halving global proposals is not that algorithm.
+
+No S4 ceiling is accepted by this sweep. Preserve 16 as the quality control,
+add the isolated change-recovery oracle, and implement the 1C local proposal
+before repeating ceilings and candidate counts.
+
 ### 1C. Stop evaluating expensive light data for every candidate
 
 Ray-count changes alone may not close the gap because native direct RIS shades

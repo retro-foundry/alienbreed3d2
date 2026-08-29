@@ -75,6 +75,14 @@ Last updated: 2026-08-29
   burst-ceiling sweep, locked repeated profiles, validation work counters, and
   direct Q2RTX run remain open in `Q2RTX_PERFORMANCE_PARITY_PLAN.md`; the
   lighting and temporal acceptance contract in this document is unchanged.
+- The first S4 ceiling sweep did not change that decision. Ceiling one reached
+  `16.6009 ms` p95 in its single preliminary trial, but its confirmed-change
+  temporal current weight is only `0.380` versus ceiling 16's `0.859`; settled
+  and saved-motion captures do not isolate that recovery loss. Eight global
+  light candidates with ceiling 16 reached `15.8996 ms` p95 but made the locked
+  corridor visibly darker/less warm and raised saved-motion temporal outliers.
+  Both shortcuts remain rejected pending the isolated indirect change oracle
+  and complete-emitter local proposal required by the performance plan.
 
 ## Implementation progress (2026-08-28)
 
