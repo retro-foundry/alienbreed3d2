@@ -805,7 +805,15 @@ p99/maximum GPU-stage times, and the corresponding CPU phase distributions.
 The profiler is off by default and never adds a same-frame wait. Profiles state
 `validation_enabled`: hidden smoke reports `true` because its acceptance
 counters and image readback are active, while ordinary visible performance
-reports `false`. Invalid environment values fail renderer initialization.
+reports `false`. The primary work is reported as separate `primary_visibility`
+and `primary_shading` stages. The former is exactly zero on the shipping
+monolithic path. `AB3D2_DXR_SPLIT_PRIMARY=1` enables the development S0 control:
+one pass stores the full-precision primary triangle/barycentrics plus crossed
+additive layers, and the shading pass consumes that hit without retracing it.
+The summary records `split_primary`; invalid environment values fail renderer
+initialization. This control is off by default until the combined scheduling
+slice clears the performance and image gates in
+`Q2RTX_PERFORMANCE_PARITY_PLAN.md`.
 
 Ordinary visible frames no longer clear, update, or copy the hidden-smoke
 diagnostic buffer. Its shader atomics and finite-guide scan remain enabled for

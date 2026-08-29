@@ -216,6 +216,39 @@ The native implementation should follow project conventions in
 `src/renderer_dxr/shaders/path_trace.hlsl`; Q2RTX's Vulkan resource layout is
 not to be copied.
 
+Implementation checkpoint, 2026-08-29:
+
+- S0 now exists behind the startup-only diagnostic switch
+  `AB3D2_DXR_SPLIT_PRIMARY=1`; the default remains the monolithic control.
+- `PrimaryVisibility` traces the camera segment once and publishes its triangle
+  index, full-precision barycentrics, crossed-additive-layer count, and additive
+  radiance. `ShadePrimary` consumes that handoff and runs the unchanged guide,
+  direct, smooth-GGX, diffuse, channel, and history work without a second camera
+  trace.
+- The profiler reports `primary_visibility` and `primary_shading` separately and
+  writes `split_primary` into the JSON settings, preventing control/candidate
+  samples from being mixed silently.
+- Debug build, focused reconstruction/foundation/lighting-reference tests, and
+  the complete Level A hidden smoke passed. The split route retained bitmap and
+  additive coverage, both Shotgun bursts, 400-frame walking/firing stability,
+  and zero unexpected scene rebuilds.
+- A paired Release Level A hidden-validation profile at `1280x720`, 60 warm-up
+  and 120 measured frames, measured the monolith at `17.9343 ms` frame median
+  and `16.1034 ms` primary-shading median. S0 measured `17.6099 ms` frame median,
+  `0.1219 ms` primary-visibility median, and `15.7409 ms` primary-shading median.
+  This is only a control measurement: it is validation-contaminated, follows a
+  changing smoke route, and its frame p95 regressed from `33.0120` to
+  `35.4383 ms`, so it is not a Milestone 1 performance acceptance result.
+- Final moving-frame SDR captures differed by a mean `0.02057` of an 8-bit code
+  per component, with a maximum difference of one code. This clears the S0
+  storage/rounding tolerance but does not replace the locked radiance/channel
+  acceptance suite required for S3/S4.
+
+S0 remains a development foundation because it enables the following direct,
+continuation, and dense scheduling passes to reuse one primary hit. Do not make
+it the shipping path or claim a speedup until those pieces are combined and the
+fixed Release profile clears the gates below.
+
 ### 1B. Combine the ray-count reductions
 
 On top of the exact-work control, test one integrated workload candidate:

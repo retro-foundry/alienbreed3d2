@@ -246,6 +246,9 @@ RWTexture2D<uint> ViewWeaponHistories[2] : register(u27);
 RWTexture2D<float> RayReconstructionDisocclusion : register(u29);
 RWTexture2D<float> RayReconstructionBiasCurrentColor : register(u30);
 RWTexture2D<uint> SurfaceParameters : register(u31);
+/* Exact full-precision primary payload for the split-scheduling control.
+ * Additive radiance uses NoisyRadiance as the adjacent handoff. */
+RWTexture2D<uint4> PrimaryVisibilityBuffer : register(u32);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -3317,34 +3320,10 @@ uint adaptiveIndirectSampleCount(uint2 pixel, uint2 dimensions,
                                  float3 currentNormal,
                                  out bool stableHistory);
 
-[shader("raygeneration")]
-void RayGeneration()
+void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
+                  float3 unjitteredDirection,
+                  SegmentTraversal primarySegment)
 {
-    uint2 pixel = DispatchRaysIndex().xy;
-    uint2 dimensions = DispatchRaysDimensions().xy;
-    float2 jitter = float2(JitterX, JitterY);
-    float2 screen = (float2(pixel) + 0.5 + jitter) / float2(dimensions);
-    float2 ndc = float2(screen.x * 2.0 - 1.0, 1.0 - screen.y * 2.0);
-    float3 direction = normalize(CameraForward +
-        CameraRight * (ndc.x * Aspect * TanHalfFovY) +
-        CameraUp * (ndc.y * TanHalfFovY));
-    float2 unjitteredScreen =
-        (float2(pixel) + 0.5) / float2(dimensions);
-    float2 unjitteredNdc = float2(unjitteredScreen.x * 2.0 - 1.0,
-                                  1.0 - unjitteredScreen.y * 2.0);
-    float3 unjitteredDirection = normalize(CameraForward +
-        CameraRight * (unjitteredNdc.x * Aspect * TanHalfFovY) +
-        CameraUp * (unjitteredNdc.y * TanHalfFovY));
-
-    /* Keep primary visibility pixel-centred. Stochastic variation belongs only
-     * to the diffuse continuation and polygon sample below, so geometry edges
-     * do not regain the camera jitter that made the flat reset shake. */
-    RayDesc primaryRay;
-    primaryRay.Origin = CameraPosition;
-    primaryRay.Direction = direction;
-    primaryRay.TMin = RayEpsilon;
-    primaryRay.TMax = SceneFarPlane;
-    SegmentTraversal primarySegment = traceSegment(primaryRay);
     SurfacePayload primaryPayload = primarySegment.payload;
     uint primaryPrimitive = primaryPayload.hit != 0u ?
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
@@ -3372,9 +3351,9 @@ void RayGeneration()
     if (primaryPayload.hit == 0u) {
         writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
     } else {
-        SurfaceData surface = loadSurface(primaryPayload, primaryRay.Direction);
+        SurfaceData surface = loadSurface(primaryPayload, direction);
         writeSurfaceGuides(pixel, primaryPayload, surface, dimensions,
-                           -primaryRay.Direction);
+                           -direction);
         primaryGeometricNormal = surface.geometricNormal;
         primaryDepth = LinearDepth[pixel];
 
@@ -3427,13 +3406,13 @@ void RayGeneration()
                 if (sampleOrdinal < directSampleCount) {
                     sampleDirect = samplePrimaryPolygonLight(
                         pixel, directSampleIndex, surface,
-                        -primaryRay.Direction);
+                        -direction);
                 }
                 float3 sampleSmoothSpecular =
                     sampleOrdinal < directSampleCount ?
                         sampleSmoothSpecularPath(
                             pixel, directSampleIndex, surface,
-                            -primaryRay.Direction) : 0.0;
+                            -direction) : 0.0;
                 float3 sampleIndirectIncident = 0.0;
                 float3 sampleIndirectDirection = surface.geometricNormal;
                 if (sampleOrdinal < indirectSampleCount) {
@@ -3629,6 +3608,87 @@ void RayGeneration()
             InterlockedAdd(Diagnostics[13], 1u);
         }
     }
+}
+
+void primaryDirections(uint2 pixel, uint2 dimensions,
+                       out float3 direction,
+                       out float3 unjitteredDirection)
+{
+    float2 jitter = float2(JitterX, JitterY);
+    float2 screen = (float2(pixel) + 0.5 + jitter) / float2(dimensions);
+    float2 ndc = float2(screen.x * 2.0 - 1.0, 1.0 - screen.y * 2.0);
+    direction = normalize(CameraForward +
+        CameraRight * (ndc.x * Aspect * TanHalfFovY) +
+        CameraUp * (ndc.y * TanHalfFovY));
+    float2 unjitteredScreen =
+        (float2(pixel) + 0.5) / float2(dimensions);
+    float2 unjitteredNdc = float2(unjitteredScreen.x * 2.0 - 1.0,
+                                  1.0 - unjitteredScreen.y * 2.0);
+    unjitteredDirection = normalize(CameraForward +
+        CameraRight * (unjitteredNdc.x * Aspect * TanHalfFovY) +
+        CameraUp * (unjitteredNdc.y * TanHalfFovY));
+}
+
+SegmentTraversal tracePrimary(float3 direction)
+{
+    /* Keep primary visibility pixel-centred. Stochastic variation belongs only
+     * to continuation and polygon samples, so stable edges do not shake. */
+    RayDesc ray;
+    ray.Origin = CameraPosition;
+    ray.Direction = direction;
+    ray.TMin = RayEpsilon;
+    ray.TMax = SceneFarPlane;
+    return traceSegment(ray);
+}
+
+[shader("raygeneration")]
+void RayGeneration()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    float3 direction;
+    float3 unjitteredDirection;
+    primaryDirections(pixel, dimensions, direction, unjitteredDirection);
+    shadePrimary(pixel, dimensions, direction, unjitteredDirection,
+                 tracePrimary(direction));
+}
+
+[shader("raygeneration")]
+void PrimaryVisibility()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    float3 direction;
+    float3 unjitteredDirection;
+    primaryDirections(pixel, dimensions, direction, unjitteredDirection);
+    SegmentTraversal segment = tracePrimary(direction);
+    PrimaryVisibilityBuffer[pixel] = uint4(
+        segment.payload.primitiveIndex,
+        asuint(segment.payload.barycentrics.x),
+        asuint(segment.payload.barycentrics.y),
+        segment.additiveLayers);
+    NoisyRadiance[pixel] = float4(segment.additiveRadiance, 1.0);
+}
+
+[shader("raygeneration")]
+void ShadePrimary()
+{
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint2 dimensions = DispatchRaysDimensions().xy;
+    float3 direction;
+    float3 unjitteredDirection;
+    primaryDirections(pixel, dimensions, direction, unjitteredDirection);
+    uint4 packed = PrimaryVisibilityBuffer[pixel];
+    SegmentTraversal segment;
+    segment.payload.rayDistance = 0.0;
+    segment.payload.barycentrics = float2(
+        asfloat(packed.y), asfloat(packed.z));
+    segment.payload.primitiveIndex = packed.x;
+    segment.payload.hit = packed.x != InvalidIndex ? 1u : 0u;
+    segment.additiveRadiance = NoisyRadiance[pixel].rgb;
+    segment.distance = 0.0;
+    segment.additiveLayers = packed.w;
+    shadePrimary(pixel, dimensions, direction, unjitteredDirection, segment);
 }
 
 float indirectDepthWeight(float centerDepth, float sampleDepth)

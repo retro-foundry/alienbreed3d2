@@ -20,7 +20,8 @@ constexpr std::array<const char *, static_cast<size_t>(DxrGpuStage::count)>
         "frame",
         "scene_build",
         "light_grid",
-        "primary_radiance",
+        "primary_visibility",
+        "primary_shading",
         "indirect_resampling",
         "indirect_gradient",
         "indirect_temporal",
@@ -152,7 +153,8 @@ bool same_configuration(const DxrPerformanceMetadata &left,
         left.light_candidates == right.light_candidates &&
         left.reservoir_sample_limit == right.reservoir_sample_limit &&
         left.reconstruction_mode == right.reconstruction_mode &&
-        left.validation_enabled == right.validation_enabled;
+        left.validation_enabled == right.validation_enabled &&
+        left.split_primary == right.split_primary;
 }
 
 const char *reconstruction_name(RendererRayReconstructionMode mode)
@@ -516,6 +518,8 @@ void DxrGpuProfiler::report()
            << json_string(reconstruction_name(metadata.reconstruction_mode))
            << ",\"validation_enabled\":"
            << (metadata.validation_enabled ? "true" : "false")
+           << ",\"split_primary\":"
+           << (metadata.split_primary ? "true" : "false")
            << ",\"history_valid_frames\":" << history_valid_frames
            << ",\"scene_rebuilds_start\":"
            << samples_.front().metadata.scene_rebuild_count

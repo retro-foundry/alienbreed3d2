@@ -19,7 +19,8 @@ enum class DxrGpuStage : size_t {
     frame,
     scene_build,
     light_grid,
-    primary_radiance,
+    primary_visibility,
+    primary_shading,
     indirect_resampling,
     indirect_gradient,
     indirect_temporal,
@@ -63,6 +64,7 @@ struct DxrPerformanceMetadata {
     uint64_t scene_rebuild_count = 0u;
     bool history_valid = false;
     bool validation_enabled = false;
+    bool split_primary = false;
 };
 
 class DxrGpuProfiler final {

@@ -61,14 +61,15 @@ enum DescriptorIndex : UINT {
     rr_disocclusion_mask_uav = 45,
     rr_bias_current_color_mask_uav = 46,
     surface_parameters_uav = 47,
-    post_input_srv = 48,
-    post_histogram_uav = 49,
-    post_tone_map_state_uav = 50,
-    bloom_srv_start = 51,
-    post_hdr_srv = 57,
-    bloom_uav_start = 58,
-    post_hdr_uav = 64,
-    descriptor_count = 65,
+    primary_visibility_uav = 48,
+    post_input_srv = 49,
+    post_histogram_uav = 50,
+    post_tone_map_state_uav = 51,
+    bloom_srv_start = 52,
+    post_hdr_srv = 58,
+    bloom_uav_start = 59,
+    post_hdr_uav = 65,
+    descriptor_count = 66,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -129,6 +130,8 @@ constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT
 enum ShaderRecordIndex : UINT {
     shader_record_build_light_grid = 0u,
     shader_record_ray_generation,
+    shader_record_primary_visibility,
+    shader_record_shade_primary,
     shader_record_temporal_gi,
     shader_record_spatial_gi,
     shader_record_spatial_shade,
@@ -800,6 +803,22 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         }
         *entry.target = static_cast<uint32_t>(parsed);
     }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_SPLIT_PRIMARY", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = "AB3D2_DXR_SPLIT_PRIMARY exceeds 63 bytes";
+            return false;
+        }
+        if (length != 0u && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "1") != 0) {
+            error = "AB3D2_DXR_SPLIT_PRIMARY must be 0 or 1";
+            return false;
+        }
+        split_primary_ = length != 0u && std::strcmp(value, "1") == 0;
+    }
     debug_output("DXR ray tracing: direct samples per pixel=" +
                  std::to_string(spp_) + " indirect sample ceiling=" +
                  std::to_string(indirect_spp_) + " diffuse GI=" +
@@ -809,7 +828,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  std::to_string(reservoir_sample_limit_) + " radiance clamp=" +
                  std::to_string(radiance_clamp_) + " exposure bias=" +
                  std::to_string(exposure_bias_stops_) + " EV NDF trim=" +
-                 std::to_string(ndf_trim_));
+                 std::to_string(ndf_trim_) + " split primary=" +
+                 (split_primary_ ? "on" : "off"));
     return true;
 }
 
@@ -1051,7 +1071,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
     ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[3].NumDescriptors = 19;
+    ranges[3].NumDescriptors = 20;
     ranges[3].BaseShaderRegister = 13;
     std::array<D3D12_ROOT_PARAMETER, 13> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
@@ -1097,6 +1117,8 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
 
     static constexpr wchar_t build_light_grid[] = L"BuildLightGrid";
     static constexpr wchar_t ray_generation[] = L"RayGeneration";
+    static constexpr wchar_t primary_visibility[] = L"PrimaryVisibility";
+    static constexpr wchar_t shade_primary[] = L"ShadePrimary";
     static constexpr wchar_t temporal_gi[] = L"TemporalGI";
     static constexpr wchar_t spatial_gi[] = L"SpatialGI";
     static constexpr wchar_t spatial_shade[] = L"SpatialShade";
@@ -1132,33 +1154,35 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t closest_hit[] = L"ClosestHit";
     static constexpr wchar_t any_hit[] = L"AnyHit";
     static constexpr wchar_t hit_group_name[] = L"HitGroup";
-    std::array<D3D12_EXPORT_DESC, 26> exports = {};
+    std::array<D3D12_EXPORT_DESC, 28> exports = {};
     exports[0].Name = build_light_grid;
     exports[1].Name = ray_generation;
-    exports[2].Name = temporal_gi;
-    exports[3].Name = spatial_gi;
-    exports[4].Name = spatial_shade;
-    exports[5].Name = build_indirect_gradient;
-    exports[6].Name = filter_indirect_gradient_0;
-    exports[7].Name = filter_indirect_gradient_1;
-    exports[8].Name = filter_indirect_gradient_2;
-    exports[9].Name = filter_indirect_gradient_3;
-    exports[10].Name = filter_indirect_gradient_4;
-    exports[11].Name = filter_indirect_gradient_5;
-    exports[12].Name = filter_indirect_gradient_6;
-    exports[13].Name = temporal_indirect;
-    exports[14].Name = filter_indirect_0;
-    exports[15].Name = deflicker_indirect;
-    exports[16].Name = filter_indirect_1;
-    exports[17].Name = filter_indirect_2;
-    exports[18].Name = filter_indirect_3;
-    exports[19].Name = resolve_indirect_filtered;
-    exports[20].Name = reconstruct_indirect;
-    exports[21].Name = calculate_automatic_exposure;
-    exports[22].Name = surface_miss;
-    exports[23].Name = shadow_miss;
-    exports[24].Name = closest_hit;
-    exports[25].Name = any_hit;
+    exports[2].Name = primary_visibility;
+    exports[3].Name = shade_primary;
+    exports[4].Name = temporal_gi;
+    exports[5].Name = spatial_gi;
+    exports[6].Name = spatial_shade;
+    exports[7].Name = build_indirect_gradient;
+    exports[8].Name = filter_indirect_gradient_0;
+    exports[9].Name = filter_indirect_gradient_1;
+    exports[10].Name = filter_indirect_gradient_2;
+    exports[11].Name = filter_indirect_gradient_3;
+    exports[12].Name = filter_indirect_gradient_4;
+    exports[13].Name = filter_indirect_gradient_5;
+    exports[14].Name = filter_indirect_gradient_6;
+    exports[15].Name = temporal_indirect;
+    exports[16].Name = filter_indirect_0;
+    exports[17].Name = deflicker_indirect;
+    exports[18].Name = filter_indirect_1;
+    exports[19].Name = filter_indirect_2;
+    exports[20].Name = filter_indirect_3;
+    exports[21].Name = resolve_indirect_filtered;
+    exports[22].Name = reconstruct_indirect;
+    exports[23].Name = calculate_automatic_exposure;
+    exports[24].Name = surface_miss;
+    exports[25].Name = shadow_miss;
+    exports[26].Name = closest_hit;
+    exports[27].Name = any_hit;
     D3D12_DXIL_LIBRARY_DESC library_description = {};
     library_description.DXILLibrary = {library.data(), library.size()};
     library_description.NumExports = static_cast<UINT>(exports.size());
@@ -1171,8 +1195,9 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     D3D12_RAYTRACING_SHADER_CONFIG shader_configuration = {};
     shader_configuration.MaxPayloadSizeInBytes = 20u;
     shader_configuration.MaxAttributeSizeInBytes = 8u;
-    std::array<const wchar_t *, 25> configured_exports = {
-        build_light_grid, ray_generation, temporal_gi, spatial_gi,
+    std::array<const wchar_t *, 27> configured_exports = {
+        build_light_grid, ray_generation, primary_visibility, shade_primary,
+        temporal_gi, spatial_gi,
         spatial_shade,
         build_indirect_gradient,
         filter_indirect_gradient_0, filter_indirect_gradient_1,
@@ -1240,6 +1265,8 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     const void *identifiers[] = {
         properties->GetShaderIdentifier(build_light_grid),
         properties->GetShaderIdentifier(ray_generation),
+        properties->GetShaderIdentifier(primary_visibility),
+        properties->GetShaderIdentifier(shade_primary),
         properties->GetShaderIdentifier(temporal_gi),
         properties->GetShaderIdentifier(spatial_gi),
         properties->GetShaderIdentifier(spatial_shade),
@@ -1632,7 +1659,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         streamline_scene_motion_ &&
         view_weapon_histories_[0] && view_weapon_histories_[1] &&
         rr_disocclusion_mask_ && rr_bias_current_color_mask_ &&
-        surface_parameters_ &&
+        surface_parameters_ && primary_visibility_ &&
         render_width_ == width &&
         render_height_ == height && present_width_ == present_width &&
         present_height_ == present_height &&
@@ -1654,6 +1681,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     rr_disocclusion_mask_.Reset();
     rr_bias_current_color_mask_.Reset();
     surface_parameters_.Reset();
+    primary_visibility_.Reset();
     indirect_radiance_.Reset();
     indirect_filtered_.Reset();
     indirect_chroma_.Reset();
@@ -1846,6 +1874,33 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         device->CreateUnorderedAccessView(
             surface_parameters_.Get(), nullptr, &uav,
             cpu_descriptor(surface_parameters_uav));
+    }
+    description.Format = DXGI_FORMAT_R32G32B32A32_UINT;
+    {
+        D3D12_RESOURCE_DESC visibility_description = description;
+        if (!split_primary_) {
+            /* Keep u32 valid for the shared root table without charging the
+             * shipping monolithic path for a dormant full-frame texture. */
+            visibility_description.Width = 1u;
+            visibility_description.Height = 1u;
+        }
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &visibility_description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&primary_visibility_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(primary visibility)",
+                result);
+            return false;
+        }
+        primary_visibility_->SetName(L"AB3D2 Split Primary Visibility");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = visibility_description.Format;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(
+            primary_visibility_.Get(), nullptr, &uav,
+            cpu_descriptor(primary_visibility_uav));
     }
     description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     {
@@ -2518,6 +2573,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.scene_rebuild_count = scene_.rebuild_count();
     performance_metadata.history_valid = history_valid;
     performance_metadata.validation_enabled = validation_enabled;
+    performance_metadata.split_primary = split_primary_;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     performance_metadata.reconstruction_mode = streamline_active && streamline ?
         streamline->active_mode() : RENDERER_RAY_RECONSTRUCTION_OFF;
@@ -2710,15 +2766,35 @@ bool DxrPipeline::record(ID3D12Device5 *device,
      * smooth-specular reached surfaces draw from the grid built above.
      * SpatialShade remains dormant: no temporal or neighboring screen-space
      * direct reservoir is shaded. */
-    dispatch.RayGenerationShaderRecord = {
-        table + shader_record_size * shader_record_ray_generation,
-        shader_record_size};
     dispatch.Width = render_width;
     dispatch.Height = render_height;
     dispatch.Depth = 1;
+    if (split_primary_) {
+        dispatch.RayGenerationShaderRecord = {
+            table + shader_record_size * shader_record_primary_visibility,
+            shader_record_size};
+        DxrGpuProfileScope profile(
+            profiler, command_list, DxrGpuStage::primary_visibility);
+        command_list->DispatchRays(&dispatch);
+        const D3D12_RESOURCE_BARRIER visibility_ready[] = {
+            uav_barrier(primary_visibility_.Get()),
+            uav_barrier(reconstruction_resource(
+                DxrReconstructionBuffer::noisy_radiance)),
+        };
+        command_list->ResourceBarrier(
+            static_cast<UINT>(std::size(visibility_ready)),
+            visibility_ready);
+        dispatch.RayGenerationShaderRecord = {
+            table + shader_record_size * shader_record_shade_primary,
+            shader_record_size};
+    } else {
+        dispatch.RayGenerationShaderRecord = {
+            table + shader_record_size * shader_record_ray_generation,
+            shader_record_size};
+    }
     {
         DxrGpuProfileScope profile(
-            profiler, command_list, DxrGpuStage::primary_radiance);
+            profiler, command_list, DxrGpuStage::primary_shading);
         command_list->DispatchRays(&dispatch);
     }
     const auto indirect_mode = static_cast<indirect_reconstruction::Mode>(

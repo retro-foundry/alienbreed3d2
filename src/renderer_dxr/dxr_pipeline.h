@@ -219,6 +219,8 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> rr_bias_current_color_mask_;
     /* Packed primary material F0 for rough-specular reconstruction. */
     Microsoft::WRL::ComPtr<ID3D12Resource> surface_parameters_;
+    /* Exact primary-hit handoff used by the split-scheduling control. */
+    Microsoft::WRL::ComPtr<ID3D12Resource> primary_visibility_;
     Microsoft::WRL::ComPtr<ID3D12Resource> automatic_exposure_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_histogram_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_state_;
@@ -258,6 +260,7 @@ private:
     float debug_scalar_range_ = 8192.0f;
     uint32_t indirect_reconstruction_mode_ = 0u;
     uint32_t radiance_channel_ = 0u;
+    bool split_primary_ = false;
     size_t last_view_weapon_coverage_ = 0u;
     uint64_t last_view_weapon_rgb_checksum_ = 0u;
     size_t last_world_bitmap_coverage_ = 0u;
