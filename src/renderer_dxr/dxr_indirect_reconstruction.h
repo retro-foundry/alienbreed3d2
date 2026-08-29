@@ -129,12 +129,6 @@ inline constexpr uint32_t continuation_count(uint32_t path_depth)
     return bounded > 0u ? bounded - 1u : 0u;
 }
 
-/* Q2RTX's low-frequency path deliberately samples slightly more grazing
- * directions than an ordinary cosine hemisphere so a sparse screen block
- * covers broad transport directions. This project-owned sampler mirrors that
- * distributional property, not its implementation. */
-inline constexpr float continuation_radial_power = 0.4f;
-
 /* GPU history layout mirrored by PackedIndirectHistoryPixel in
  * path_trace.hlsl. Six signed signal coefficients use binary16, history uses a
  * limit-relative UNORM16, and confidence uses binary16. Depth remains FP32 and

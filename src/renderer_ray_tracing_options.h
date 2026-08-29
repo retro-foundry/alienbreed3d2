@@ -39,16 +39,12 @@ typedef enum {
     RENDERER_OUTPUT_HDR
 } RendererOutputMode;
 
-/* Fresh RIS and low-frequency reconstruction defaults. Keep explicit zero
- * available only through reservoir_sample_limit_set for the history-off
- * diagnostic. Sixteen independent GI paths fill the 32-sample history in two
- * presented frames after a disocclusion or confirmed lighting change. Mature
- * pixels retain the sparse one-path-per-2x2-block schedule. The fixed-receiver
- * indirect-light recovery oracle rejects every lower tested ceiling because
- * none retains 90% of the early ceiling-16 response. */
+/* Fresh current-frame path-sampling defaults. Four stratified diffuse paths
+ * give DLSS Ray Reconstruction useful low-frequency coverage without feeding
+ * it renderer-owned temporal or spatial radiance reconstruction. */
 enum {
     RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES = 16,
-    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL = 16,
+    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL = 4,
     RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT = 32
 };
 

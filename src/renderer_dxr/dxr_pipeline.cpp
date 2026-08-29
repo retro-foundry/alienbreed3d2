@@ -2245,7 +2245,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     }
     {
         const UINT64 pixel_count = static_cast<UINT64>(width) * height;
-        /* Active Ray Reconstruction consumes one raw indirect path at every
+        /* Active Ray Reconstruction consumes fresh raw indirect paths at every
          * internal pixel. Keep the compact continuation launch available even
          * when an explicit scheduler A/B override disabled the history-driven
          * burst path at initialization. */
@@ -2902,7 +2902,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
      * full mode through the project ASVGF-style temporal/regional/wavelet
      * chain double-denoises sparse GI and turns high-energy samples into broad
      * blotches. The accepted S0/S1 split and bounded work list instead publish
-     * one fresh, unbiased indirect path per internal pixel. Named diagnostic
+     * fresh, unbiased indirect paths at every internal pixel. Named diagnostic
      * reconstruction modes retain their exact stage boundaries. */
     const bool ray_reconstruction_raw_indirect =
         streamline_active && !debug_view_requested_ &&
@@ -2949,7 +2949,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     const uint64_t current_light_grid_layout_hash =
         scene_.light_grid_layout_hash();
     const uint32_t effective_indirect_spp = diffuse_gi_scale_ > 0.0f ?
-        (ray_reconstruction_raw_indirect ? 1u : indirect_spp_) : 0u;
+        indirect_spp_ : 0u;
     const bool diffuse_gi_active = maximum_depth_ >= 2u &&
         effective_indirect_spp > 0u;
     const bool light_grid_active =

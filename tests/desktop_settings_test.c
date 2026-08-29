@@ -136,7 +136,7 @@ int main(void)
     /* Ray-traced numeric settings remain absent by default. Display output is
      * explicitly SDR because Q2RTX makes HDR opt-in. */
     if (RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES != 16 ||
-        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL != 16 ||
+        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL != 4 ||
         RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT != 32 ||
         RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE != 0.75f) {
         fprintf(stderr, "fresh-light/LF-history production defaults changed\n");

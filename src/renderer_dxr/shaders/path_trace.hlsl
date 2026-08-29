@@ -379,7 +379,6 @@ static const uint ReservoirNeighborOffsetMask =
 static const float ReservoirSpatialRadius = 32.0;
 static const float ReservoirDepthTolerance = 0.1;
 static const float ReservoirNormalTolerance = 0.5;
-static const float IndirectContinuationRadialPower = 0.4;
 static const uint IndirectDownsampleFactor = 3u;
 static const int IndirectFilterStep1 = 1;
 static const int IndirectFilterStep2 = 2;
@@ -440,6 +439,7 @@ static const uint DiffuseIndirectPolygonStream = 0x10800u;
 static const uint SmoothSpecularDirectionStream = 0x10900u;
 static const uint SmoothSpecularPolygonStream = 0x10a00u;
 static const uint ContinuationLobeSelectionStream = 0x10b00u;
+static const uint DiffuseStratificationStream = 0x10c00u;
 /* Keep primary light selection in the sampler's unused dimension range. The
  * configurable tail falls back to the unbounded hash stream before the 256
  * Sobol dimensions wrap and begin repeating candidates. */
@@ -832,6 +832,30 @@ float3 cosineHemisphere(float3 normal, float2 sampleValue)
                      normal * sqrt(max(0.0, 1.0 - first)));
 }
 
+/* Stratify each pixel's genuine diffuse paths instead of synthesizing
+ * radiance between pixels. The radial ordinal covers every equal-area disk
+ * band once. A frame/pixel-dependent circular permutation decorrelates the
+ * azimuthal strata, followed by a common rotation that prevents fixed seams.
+ * A complete per-pixel set remains a standard cosine-hemisphere estimator;
+ * DLSS Ray Reconstruction stays the only spatial/temporal reconstructor. */
+float2 stratifiedDiffuseDirectionSample(uint2 pixel, uint sampleIndex,
+                                        uint continuationIndex,
+                                        float2 jitter)
+{
+    uint count = max(IndirectSamplesPerPixel, 1u);
+    uint ordinal = sampleIndex % count;
+    uint frameIndex = sampleIndex / count;
+    float4 random = sampleStream(
+        pixel, frameIndex,
+        DiffuseStratificationStream + continuationIndex);
+    uint angularOrdinal =
+        (ordinal + uint(random.x * float(count))) % count;
+    float2 stratified = (float2(ordinal, angularOrdinal) + jitter) /
+        float(count);
+    stratified.y = frac(stratified.y + random.y);
+    return stratified;
+}
+
 struct MaterialTextureWindow
 {
     uint2 origin;
@@ -850,23 +874,6 @@ MaterialTextureWindow materialTextureWindow(SceneMaterial material,
         window.extent = uint2(material.width, material.height);
     }
     return window;
-}
-
-/* Dedicated low-frequency diffuse continuation. A geometric-normal basis
- * prevents texture normals from steering room-scale GI into local bumps. The
- * slightly broader radial distribution improves directional coverage of a
- * one-ray signal, matching the sampling property used by Q2RTX's LF path. */
-float3 lowFrequencyDiffuseHemisphere(float3 geometricNormal,
-                                     float2 sampleValue)
-{
-    float radius = pow(sampleValue.x, IndirectContinuationRadialPower);
-    float angle = 2.0 * Pi * sampleValue.y;
-    float3 tangent;
-    float3 bitangent;
-    coordinateSystem(geometricNormal, tangent, bitangent);
-    return normalize(tangent * (radius * cos(angle)) +
-                     bitangent * (radius * sin(angle)) +
-                     geometricNormal * sqrt(max(0.0, 1.0 - radius * radius)));
 }
 
 /* Solid-angle density of lowFrequencyDiffuseHemisphere. With radial sample
@@ -1903,185 +1910,6 @@ EmitterEvaluation evaluateEmitterProxy(SurfaceData surface,
     return evaluation;
 }
 
-/* Q2RTX `light_lists.h::spherical_tri_area` ranks polygon lights by their
- * receiver-space solid angle, then `sample_projected_triangle` samples the
- * selected triangle uniformly in that measure. Unlike uniform-area sampling,
- * the resulting estimator has no distance-squared/light-cosine ratio that can
- * explode near a large or grazing emitter. */
-float diffuseEmitterSolidAngle(SurfaceData surface, SceneVertex first,
-                               SceneVertex second, SceneVertex third)
-{
-    float3 firstDirection = first.position - surface.position;
-    float3 secondDirection = second.position - surface.position;
-    float3 thirdDirection = third.position - surface.position;
-    float firstDistanceSquared = dot(firstDirection, firstDirection);
-    float secondDistanceSquared = dot(secondDirection, secondDirection);
-    float thirdDistanceSquared = dot(thirdDirection, thirdDirection);
-    if (min(firstDistanceSquared,
-            min(secondDistanceSquared, thirdDistanceSquared)) <=
-            RayEpsilon * RayEpsilon) {
-        return 0.0;
-    }
-    if (dot(surface.geometricNormal, firstDirection) <= 0.0 &&
-        dot(surface.geometricNormal, secondDirection) <= 0.0 &&
-        dot(surface.geometricNormal, thirdDirection) <= 0.0) {
-        return 0.0;
-    }
-    float3 a = firstDirection * rsqrt(firstDistanceSquared);
-    float3 b = secondDirection * rsqrt(secondDistanceSquared);
-    float3 c = thirdDirection * rsqrt(thirdDistanceSquared);
-    float numerator = abs(dot(a, cross(b, c)));
-    float denominator = 1.0 + dot(a, b) + dot(b, c) + dot(a, c);
-    float solidAngle = 2.0 * atan2(numerator, denominator);
-    return solidAngle > 0.0 && !isnan(solidAngle) && !isinf(solidAngle) ?
-        solidAngle : 0.0;
-}
-
-float diffuseEmitterProxyTarget(SurfaceData surface, uint emitterIndex)
-{
-    EmissiveTriangle emitter = Emitters[emitterIndex];
-    SceneVertex first = Vertices[emitter.firstVertex + 0u];
-    SceneVertex second = Vertices[emitter.firstVertex + 1u];
-    SceneVertex third = Vertices[emitter.firstVertex + 2u];
-    float solidAngle = diffuseEmitterSolidAngle(
-        surface, first, second, third);
-    float emissiveScale = max(
-        (first.emissiveScale + second.emissiveScale + third.emissiveScale) /
-            3.0,
-        0.0);
-    /* selectionProbability * inverseArea is the material's conservative
-     * emissive-luminance bound up to one common normalization. It is strictly
-     * a RIS proposal target; the survivor still samples exact authored
-     * emission and supplies the unbiased normalization below. */
-    return solidAngle * emitter.selectionProbability * emitter.inverseArea *
-        emissiveScale;
-}
-
-bool sampleProjectedDiffuseEmitter(SurfaceData surface,
-                                   SceneVertex first,
-                                   SceneVertex second,
-                                   SceneVertex third,
-                                   float2 random,
-                                   out float3 lightPosition,
-                                   out float3 barycentrics,
-                                   out float solidAnglePdf)
-{
-    lightPosition = 0.0;
-    barycentrics = 0.0;
-    solidAnglePdf = 0.0;
-    float solidAngle = diffuseEmitterSolidAngle(
-        surface, first, second, third);
-    if (!(solidAngle > 0.0)) {
-        return false;
-    }
-
-    float3 firstDirection = first.position - surface.position;
-    float3 secondDirection = second.position - surface.position;
-    float3 thirdDirection = third.position - surface.position;
-    float3 lightNormal = cross(
-        second.position - first.position,
-        third.position - first.position);
-    float normalLengthSquared = dot(lightNormal, lightNormal);
-    if (!(normalLengthSquared > 1.0e-12)) {
-        return false;
-    }
-    lightNormal *= rsqrt(normalLengthSquared);
-    float planeOffset = dot(lightNormal, firstDirection);
-    float3 a = normalize(firstDirection);
-    float3 b = normalize(secondDirection);
-    float3 c = normalize(thirdDirection);
-    float3 ab = cross(a, b);
-    float3 ca = cross(c, a);
-    float abLengthSquared = dot(ab, ab);
-    float caLengthSquared = dot(ca, ca);
-    if (!(abLengthSquared > 1.0e-12) ||
-        !(caLengthSquared > 1.0e-12)) {
-        return false;
-    }
-    float cosineC = clamp(dot(a, b), -1.0, 1.0);
-    float cosineAlpha = clamp(dot(
-        ab * rsqrt(abLengthSquared),
-        -ca * rsqrt(caLengthSquared)), -1.0, 1.0);
-    float sineAlpha = sqrt(saturate(1.0 - cosineAlpha * cosineAlpha));
-    if (!(sineAlpha > 1.0e-6)) {
-        return false;
-    }
-
-    float newArea = random.x * solidAngle;
-    float sineArea = sin(newArea);
-    float cosineArea = cos(newArea);
-    float p = sineArea * cosineAlpha - cosineArea * sineAlpha;
-    float q = cosineArea * cosineAlpha + sineArea * sineAlpha;
-    float u = q - cosineAlpha;
-    float v = p + sineAlpha * cosineC;
-    float cosineBDenominator = (v * p + u * q) * sineAlpha;
-    if (abs(cosineBDenominator) <= 1.0e-8) {
-        return false;
-    }
-    float cosineB = clamp(
-        ((v * q - u * p) * cosineAlpha - v) /
-            cosineBDenominator,
-        -1.0, 1.0);
-    float3 cTangent = c - dot(c, a) * a;
-    float cTangentLengthSquared = dot(cTangent, cTangent);
-    if (!(cTangentLengthSquared > 1.0e-12)) {
-        return false;
-    }
-    float3 newC = cosineB * a +
-        sqrt(saturate(1.0 - cosineB * cosineB)) *
-            cTangent * rsqrt(cTangentLengthSquared);
-    float z = 1.0 - random.y * (1.0 - dot(newC, b));
-    float3 directionTangent = newC - dot(newC, b) * b;
-    float directionTangentLengthSquared = dot(
-        directionTangent, directionTangent);
-    /* The first quantized sample can put newC exactly on B. That is a valid
-     * endpoint of Arvo's construction, not a failed light sample. Avoid a
-     * normalize(0) without deleting that discrete sample from the estimator. */
-    float3 direction = b;
-    if (directionTangentLengthSquared > 1.0e-12) {
-        direction = normalize(
-            z * b + sqrt(saturate(1.0 - z * z)) *
-                directionTangent * rsqrt(directionTangentLengthSquared));
-    }
-    float planeDirection = dot(lightNormal, direction);
-    if (abs(planeDirection) <= 1.0e-8) {
-        return false;
-    }
-    float distance = planeOffset / planeDirection;
-    if (!(distance > RayEpsilon) || isnan(distance) || isinf(distance)) {
-        return false;
-    }
-    lightPosition = surface.position + direction * distance;
-
-    float3 edgeFirst = second.position - first.position;
-    float3 edgeSecond = third.position - first.position;
-    float3 pointOffset = lightPosition - first.position;
-    float d00 = dot(edgeFirst, edgeFirst);
-    float d01 = dot(edgeFirst, edgeSecond);
-    float d11 = dot(edgeSecond, edgeSecond);
-    float d20 = dot(pointOffset, edgeFirst);
-    float d21 = dot(pointOffset, edgeSecond);
-    float barycentricDenominator = d00 * d11 - d01 * d01;
-    if (abs(barycentricDenominator) <= 1.0e-12) {
-        return false;
-    }
-    barycentrics.y =
-        (d11 * d20 - d01 * d21) / barycentricDenominator;
-    barycentrics.z =
-        (d00 * d21 - d01 * d20) / barycentricDenominator;
-    barycentrics.x = 1.0 - barycentrics.y - barycentrics.z;
-    barycentrics = max(barycentrics, 0.0);
-    float barycentricSum = barycentrics.x + barycentrics.y +
-        barycentrics.z;
-    if (!(barycentricSum > 0.0)) {
-        return false;
-    }
-    barycentrics /= barycentricSum;
-    solidAnglePdf = rcp(solidAngle);
-    return !any(isnan(lightPosition)) && !any(isinf(lightPosition)) &&
-        !isnan(solidAnglePdf) && !isinf(solidAnglePdf);
-}
-
 /* Plain authored-polygon NEE for one diffuse receiver. The primary receiver
  * supplies the directly lit baseline; evaluating the same estimator at every
  * reached continuation supplies the indirect-polygon-light path suffix.
@@ -2107,15 +1935,14 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
     SceneVertex first = Vertices[emitter.firstVertex + 0u];
     SceneVertex second = Vertices[emitter.firstVertex + 1u];
     SceneVertex third = Vertices[emitter.firstVertex + 2u];
-    float3 lightPosition;
-    float3 barycentrics;
-    float solidAnglePdf;
-    if (!sampleProjectedDiffuseEmitter(
-            surface, first, second, third,
-            unpackPositionSample(lightSample.positionSample),
-            lightPosition, barycentrics, solidAnglePdf)) {
-        return evaluation;
-    }
+    float2 positionSample = unpackPositionSample(lightSample.positionSample);
+    float root = sqrt(positionSample.x);
+    float3 barycentrics = float3(
+        1.0 - root,
+        root * (1.0 - positionSample.y),
+        root * positionSample.y);
+    float3 lightPosition = first.position * barycentrics.x +
+        second.position * barycentrics.y + third.position * barycentrics.z;
     float2 lightUv = first.textureCoordinate * barycentrics.x +
         second.textureCoordinate * barycentrics.y +
         third.textureCoordinate * barycentrics.z;
@@ -2132,7 +1959,14 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
         dot(surface.geometricNormal, lightDirection) <= 0.0) {
         return evaluation;
     }
-    float sourcePdf = emitter.selectionProbability * solidAnglePdf;
+    float3 lightNormal = normalize(cross(second.position - first.position,
+                                         third.position - first.position));
+    float lightCosine = abs(dot(lightNormal, -lightDirection));
+    if (lightCosine <= 1.0e-6) {
+        return evaluation;
+    }
+    float sourcePdf = emitter.selectionProbability * emitter.inverseArea *
+        distanceSquared / lightCosine;
     if (!(sourcePdf > 0.0) || isnan(sourcePdf) || isinf(sourcePdf)) {
         return evaluation;
     }
@@ -2166,16 +2000,14 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
     if (EmitterCount == 0u) {
         return 0.0;
     }
-    /* Q2RTX ranks nearby polygon lights from their projected spherical area,
-     * then samples only the selected polygon. Streaming the same receiver-space
-     * proxy here removes all but one exact emissive-texture read while keeping
-     * the complete local proposal and an unbiased RIS normalization. */
+    /* Fresh RIS rejects black texels and poor geometric connections before the
+     * one survivor spends a visibility ray. There is no temporal/spatial reuse
+     * here: CandidateCount changes current-frame proposal quality only. */
     uint candidateCount = max(CandidateCount, 1u);
     EmitterSample selected = (EmitterSample)0;
     selected.emitterIndex = InvalidIndex;
     selected.valid = false;
     float weightSum = 0.0;
-    float selectedTarget = 0.0;
     int lightGridCell = localProposal ? lightGridCellForSurface(
         pixel, sampleIndex, surface.position) : -1;
     for (uint candidate = 0u; candidate < candidateCount; ++candidate) {
@@ -2187,19 +2019,24 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
         lightSample.emitterIndex = lightSelection.emitterIndex;
         lightSample.positionSample = packPositionSample(random.yz);
         lightSample.valid = true;
-        float target = diffuseEmitterProxyTarget(
-            surface, lightSample.emitterIndex);
-        float weight = target > 0.0 &&
+        EmitterEvaluation evaluation = evaluateDiffusePolygonSample(
+            surface, lightSample);
+        float globalProbability = Emitters[
+            lightSample.emitterIndex].selectionProbability;
+        float conditionalAreaPdf = evaluation.valid &&
+                globalProbability > 0.0 ?
+            evaluation.sourcePdf / globalProbability : 0.0;
+        float proposalPdf = conditionalAreaPdf > 0.0 &&
                 lightSelection.inverseProbability > 0.0 ?
-            target * lightSelection.inverseProbability : 0.0;
+            conditionalAreaPdf / lightSelection.inverseProbability : 0.0;
+        float weight = proposalPdf > 0.0 ?
+            evaluation.targetPdf / proposalPdf : 0.0;
         weightSum += weight;
         if (weight > 0.0 && random.w * weightSum < weight) {
             selected = lightSample;
-            selectedTarget = target;
         }
     }
-    if (!selected.valid || !(weightSum > 0.0) ||
-        !(selectedTarget > 0.0)) {
+    if (!selected.valid || !(weightSum > 0.0)) {
         return 0.0;
     }
     EmitterEvaluation selectedEvaluation = evaluateDiffusePolygonSample(
@@ -2212,20 +2049,9 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
                          SceneInstanceMask)) {
         return 0.0;
     }
-    float globalProbability = Emitters[
-        selected.emitterIndex].selectionProbability;
-    float conditionalSolidAnglePdf = globalProbability > 0.0 ?
-        selectedEvaluation.sourcePdf / globalProbability : 0.0;
-    float inverseEmitterProbability = weightSum /
-        (float(candidateCount) * selectedTarget);
-    if (!(conditionalSolidAnglePdf > 0.0) ||
-        !(inverseEmitterProbability > 0.0) ||
-        isnan(inverseEmitterProbability) ||
-        isinf(inverseEmitterProbability)) {
-        return 0.0;
-    }
-    return selectedEvaluation.contribution *
-        (inverseEmitterProbability / conditionalSolidAnglePdf);
+    float inversePdf = weightSum /
+        (float(candidateCount) * selectedEvaluation.targetPdf);
+    return selectedEvaluation.contribution * inversePdf;
 }
 
 /* Full material-dependent local-light NEE for the primary receiver. Diffuse
@@ -2358,10 +2184,9 @@ struct DiffusePathSample
 
 /* Trace the diffuse suffix behind the primary receiver.
  *
- * Q2RTX's reconstructed low-frequency signal broadens only the first
- * continuation. Later diffuse continuations use ordinary cosine sampling.
- * With cosine-estimator throughput, each additional surface contributes its
- * polygon-light NEE after every preceding diffuse albedo has been applied.
+ * Every continuation uses the standard cosine-weighted Lambertian estimator.
+ * Each additional surface contributes its polygon-light NEE after every
+ * preceding diffuse albedo has been applied.
  * MaximumDepth counts the primary surface, so depth three executes two real
  * continuation rays and shades both reached surfaces. */
 DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
@@ -2383,11 +2208,10 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
         float2 directionSample = float2(
             sampleBlueNoise(pixel, sampleIndex, dimension + 6u),
             sampleBlueNoise(pixel, sampleIndex, dimension + 7u));
-        float3 bounceDirection = continuationIndex == 0u ?
-            lowFrequencyDiffuseHemisphere(
-                departureSurface.geometricNormal, directionSample) :
-            cosineHemisphere(
-                departureSurface.geometricNormal, directionSample);
+        directionSample = stratifiedDiffuseDirectionSample(
+            pixel, sampleIndex, continuationIndex, directionSample);
+        float3 bounceDirection = cosineHemisphere(
+            departureSurface.geometricNormal, directionSample);
         if (dot(departureSurface.geometricNormal, bounceDirection) <= 0.0) {
             break;
         }

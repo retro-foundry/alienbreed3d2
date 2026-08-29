@@ -47,22 +47,6 @@ int main()
         !near(cosine_sample_throughput(metal, 0.75f), Vec3{}) ||
         !near(triangle_solid_angle_pdf(0.25f, 0.5f, 16.0f, 0.5f),
               4.0f) ||
-        !near(triangle_solid_angle(
-                  {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f},
-                  {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}),
-              pi * 0.5f) ||
-        !near(triangle_solid_angle(
-                  {0.0f, 0.0f, 0.0f}, {10.0f, 0.0f, 0.0f},
-                  {0.0f, 10.0f, 0.0f}, {0.0f, 0.0f, 10.0f}),
-              pi * 0.5f) ||
-        !near(projected_triangle_pdf(
-                  {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f},
-                  {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f, 1.0f}),
-              2.0f / pi) ||
-        !near(ris_inverse_selection_probability(12.0f, 4u, 2.0f),
-              1.5f) ||
-        !near(ris_inverse_selection_probability(12.0f, 0u, 2.0f),
-              0.0f) ||
         !near(diffuse_polygon_nee(dielectric, {10.0f, 20.0f, 30.0f},
                                   0.5f, 4.0f),
               {1.0f / pi, 0.5f / pi, 0.375f / pi}) ||
@@ -71,6 +55,20 @@ int main()
         !near(diffuse_polygon_nee(dielectric, {10.0f, 20.0f, 30.0f},
                                   0.5f, 0.0f), Vec3{})) {
         return fail("isolated diffuse polygon-light estimator changed");
+    }
+    for (uint32_t ordinal = 0u; ordinal < 4u; ++ordinal) {
+        const float sample = stratified_unit_sample(
+            ordinal, 4u, 0.5f);
+        if (!(sample > static_cast<float>(ordinal) / 4.0f &&
+              sample < static_cast<float>(ordinal + 1u) / 4.0f) ||
+            rotate_stratum(ordinal, 4u, 3u) !=
+                (ordinal + 3u) % 4u) {
+            return fail("diffuse continuation strata do not partition the domain");
+        }
+    }
+    if (!near(stratified_unit_sample(0u, 0u, 0.5f), 0.5f) ||
+        !near(stratified_unit_sample(5u, 4u, 0.5f), 0.375f)) {
+        return fail("diffuse continuation stratum bounds changed");
     }
     if (!(specular_probability(dielectric) >= 0.05f &&
           specular_probability(dielectric) <= 0.95f &&

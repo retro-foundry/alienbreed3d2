@@ -105,6 +105,28 @@ inline float cosine_hemisphere_pdf(float normal_direction)
     return std::max(normal_direction, 0.0f) / pi;
 }
 
+/* Partition one unit interval into `count` equal strata. A complete set of
+ * ordinals remains uniform, but covers the domain more evenly than the same
+ * number of unrelated random values. The GPU applies this independently to
+ * the radial and azimuthal diffuse-continuation dimensions. */
+inline float stratified_unit_sample(uint32_t ordinal, uint32_t count,
+                                    float jitter)
+{
+    count = std::max(count, 1u);
+    ordinal %= count;
+    jitter = std::clamp(jitter, 0.0f,
+                        std::nextafter(1.0f, 0.0f));
+    return (static_cast<float>(ordinal) + jitter) /
+        static_cast<float>(count);
+}
+
+inline uint32_t rotate_stratum(uint32_t ordinal, uint32_t count,
+                               uint32_t rotation)
+{
+    count = std::max(count, 1u);
+    return (ordinal % count + rotation % count) % count;
+}
+
 /* With cosine-weighted sampling, f * cos(theta) / pdf collapses exactly to
  * the diffuse reflectance. This is the throughput carried from the primary
  * surface to the one indirect vertex in the diffuse polygon-light pass. */
@@ -125,40 +147,6 @@ inline float triangle_solid_angle_pdf(float selection_probability,
             distance_squared > 0.0f && light_cosine > 0.0f ?
         selection_probability * inverse_area * distance_squared /
             light_cosine : 0.0f;
-}
-
-/* Eriksson's solid-angle formula used by Q2RTX
- * `light_lists.h::spherical_tri_area`. Uniform scaling about the receiver does
- * not change the result. */
-inline float triangle_solid_angle(Vec3 receiver, Vec3 first, Vec3 second,
-                                  Vec3 third)
-{
-    const Vec3 a = normalize(first - receiver);
-    const Vec3 b = normalize(second - receiver);
-    const Vec3 c = normalize(third - receiver);
-    const float numerator = std::fabs(dot(a, cross(b, c)));
-    const float denominator =
-        1.0f + dot(a, b) + dot(b, c) + dot(a, c);
-    const float angle = 2.0f * std::atan2(numerator, denominator);
-    return std::isfinite(angle) && angle > 0.0f ? angle : 0.0f;
-}
-
-inline float projected_triangle_pdf(Vec3 receiver, Vec3 first, Vec3 second,
-                                    Vec3 third)
-{
-    const float solid_angle = triangle_solid_angle(
-        receiver, first, second, third);
-    return solid_angle > 0.0f ? 1.0f / solid_angle : 0.0f;
-}
-
-inline float ris_inverse_selection_probability(float weight_sum,
-                                               uint32_t candidate_count,
-                                               float selected_target)
-{
-    return weight_sum > 0.0f && candidate_count > 0u &&
-            selected_target > 0.0f ?
-        weight_sum /
-            (static_cast<float>(candidate_count) * selected_target) : 0.0f;
 }
 
 /* One emissive-triangle NEE sample evaluated at a diffuse receiver. The

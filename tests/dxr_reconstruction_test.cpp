@@ -99,8 +99,7 @@ int main()
                   indirect::continuation_count(9u) == 7u &&
                   indirect::sh_basis_l0 == 0.282095f &&
                   indirect::sh_basis_l1 == 0.488603f &&
-                  indirect::filter_support_is_continuous() &&
-                  indirect::continuation_radial_power == 0.4f);
+                  indirect::filter_support_is_continuous());
     static_assert(sizeof(gi::PackedReservoir) == 32u);
     static_assert(sizeof(indirect::PackedHistoryPixel) == 24u);
     static_assert(grid::refresh_phase_count == 16u &&
