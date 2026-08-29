@@ -74,6 +74,30 @@ int main()
         !near(fake_specular_weight(0.30f), 1.0f)) {
         return fail("direct/specular-hit transition weights changed");
     }
+    Material rough_dielectric = dielectric;
+    rough_dielectric.roughness = 0.30f;
+    Material smooth_dielectric = dielectric;
+    smooth_dielectric.roughness = 0.10f;
+    Material smooth_metal = metal;
+    smooth_metal.roughness = 0.10f;
+    const float normal_continuation_probability =
+        continuation_specular_probability(smooth_dielectric, 1.0f);
+    const float grazing_continuation_probability =
+        continuation_specular_probability(smooth_dielectric, 0.1f);
+    if (!(normal_continuation_probability >= 0.05f &&
+          normal_continuation_probability <= 0.95f &&
+          grazing_continuation_probability >
+              normal_continuation_probability) ||
+        !near(continuation_specular_probability(rough_dielectric, 0.5f),
+              0.0f) ||
+        !near(continuation_specular_probability(smooth_metal, 0.5f), 1.0f) ||
+        !near(normal_continuation_probability *
+                  (3.0f / normal_continuation_probability) +
+                  (1.0f - normal_continuation_probability) *
+                  (2.0f / (1.0f - normal_continuation_probability)),
+              5.0f)) {
+        return fail("continuation-lobe selection or inverse weight changed");
+    }
     if (primary_direct_visibility_sample_count(0u) != 0u ||
         primary_direct_visibility_sample_count(1u) != 1u ||
         primary_direct_visibility_sample_count(4u) != 4u ||

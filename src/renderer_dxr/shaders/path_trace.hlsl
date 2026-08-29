@@ -292,6 +292,7 @@ cbuffer FrameConstants : register(b0)
     float DiffuseGiScale;
     uint ValidationEnabled;
     uint SinglePrimaryDirectSurvivor;
+    uint SingleContinuationLobe;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -410,6 +411,7 @@ static const uint DiffusePrimaryPolygonStream = 0x10700u;
 static const uint DiffuseIndirectPolygonStream = 0x10800u;
 static const uint SmoothSpecularDirectionStream = 0x10900u;
 static const uint SmoothSpecularPolygonStream = 0x10a00u;
+static const uint ContinuationLobeSelectionStream = 0x10b00u;
 /* Keep primary light selection in the sampler's unused dimension range. The
  * configurable tail falls back to the unbounded hash stream before the 256
  * Sobol dimensions wrap and begin repeating candidates. */
@@ -2151,6 +2153,24 @@ float fakeSpecularWeight(float linearRoughness)
     return smoothstep(0.20, 0.30, linearRoughness);
 }
 
+float continuationSpecularProbability(SurfaceData surface,
+                                      float3 viewDirection)
+{
+    float realSpecularWeight = 1.0 - fakeSpecularWeight(surface.roughness);
+    if (!(realSpecularWeight > 0.0)) {
+        return 0.0;
+    }
+    float diffuseWeight = luminance(diffuseReflectance(surface));
+    if (!(diffuseWeight > 1.0e-6)) {
+        return 1.0;
+    }
+    float normalView = saturate(dot(surface.shadingNormal, viewDirection));
+    float specularWeight = luminance(
+        fresnelSchlick(normalView, surfaceF0(surface))) * realSpecularWeight;
+    return clamp(specularWeight /
+                 max(diffuseWeight + specularWeight, 1.0e-6), 0.05, 0.95);
+}
+
 bool sampleIndependentGgxSpecular(
     SurfaceData surface, float3 viewDirection, float2 directionSample,
     out float3 lightDirection, out float3 throughput)
@@ -3410,14 +3430,34 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                         pixel, directSampleIndex, surface,
                         -direction);
                 }
-                float3 sampleSmoothSpecular =
-                    sampleOrdinal < directSampleCount ?
-                        sampleSmoothSpecularPath(
-                            pixel, directSampleIndex, surface,
-                            -direction) : 0.0;
+                bool traceSmoothSpecular =
+                    sampleOrdinal < directSampleCount;
+                bool traceDiffuseContinuation =
+                    sampleOrdinal < indirectSampleCount;
+                float smoothSpecularScale = 1.0;
+                float diffuseContinuationScale = 1.0;
+                if (SingleContinuationLobe != 0u &&
+                    traceSmoothSpecular && traceDiffuseContinuation) {
+                    float smoothProbability =
+                        continuationSpecularProbability(surface, -direction);
+                    bool chooseSmooth = sampleStream(
+                        pixel, directSampleIndex,
+                        ContinuationLobeSelectionStream).x <
+                            smoothProbability;
+                    traceSmoothSpecular = chooseSmooth;
+                    traceDiffuseContinuation = !chooseSmooth;
+                    smoothSpecularScale = chooseSmooth ?
+                        rcp(max(smoothProbability, 1.0e-6)) : 0.0;
+                    diffuseContinuationScale = !chooseSmooth ?
+                        rcp(max(1.0 - smoothProbability, 1.0e-6)) : 0.0;
+                }
+                float3 sampleSmoothSpecular = traceSmoothSpecular ?
+                    sampleSmoothSpecularPath(
+                        pixel, directSampleIndex, surface,
+                        -direction) * smoothSpecularScale : 0.0;
                 float3 sampleIndirectIncident = 0.0;
                 float3 sampleIndirectDirection = surface.geometricNormal;
-                if (sampleOrdinal < indirectSampleCount) {
+                if (traceDiffuseContinuation) {
                     if (IndirectReconstructionMode ==
                             IndirectReconstructionRestir) {
                         giCandidateCount += 1u;
@@ -3425,7 +3465,8 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                     DiffusePathSample pathSample = sampleDiffusePath(
                         pixel, indirectSampleIndex, surface);
                     sampleIndirectDirection = pathSample.firstDirection;
-                    sampleIndirectIncident = pathSample.radiance;
+                    sampleIndirectIncident = pathSample.radiance *
+                        diffuseContinuationScale;
                     if (sampleOrdinal == 0u &&
                         (DiagnosticGuideMask & 2u) != 0u) {
                         DiffuseHitDistance[pixel] = pathSample.firstDistance;

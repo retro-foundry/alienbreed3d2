@@ -262,6 +262,7 @@ private:
     uint32_t radiance_channel_ = 0u;
     bool split_primary_ = false;
     bool single_primary_direct_survivor_ = false;
+    bool single_continuation_lobe_ = false;
     size_t last_view_weapon_coverage_ = 0u;
     uint64_t last_view_weapon_rgb_checksum_ = 0u;
     size_t last_world_bitmap_coverage_ = 0u;

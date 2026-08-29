@@ -156,7 +156,8 @@ bool same_configuration(const DxrPerformanceMetadata &left,
         left.validation_enabled == right.validation_enabled &&
         left.split_primary == right.split_primary &&
         left.single_primary_direct_survivor ==
-            right.single_primary_direct_survivor;
+            right.single_primary_direct_survivor &&
+        left.single_continuation_lobe == right.single_continuation_lobe;
 }
 
 const char *reconstruction_name(RendererRayReconstructionMode mode)
@@ -524,6 +525,8 @@ void DxrGpuProfiler::report()
            << (metadata.split_primary ? "true" : "false")
            << ",\"single_primary_direct_survivor\":"
            << (metadata.single_primary_direct_survivor ? "true" : "false")
+           << ",\"single_continuation_lobe\":"
+           << (metadata.single_continuation_lobe ? "true" : "false")
            << ",\"history_valid_frames\":" << history_valid_frames
            << ",\"scene_rebuilds_start\":"
            << samples_.front().metadata.scene_rebuild_count

@@ -812,10 +812,15 @@ one pass stores the full-precision primary triangle/barycentrics plus crossed
 additive layers, and the shading pass consumes that hit without retracing it.
 `AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1` adds S1 and requires S0: all configured
 primary proposals feed one RIS survivor, so diffuse and direct GGX share one
-selected sample and one visibility ray. The summary records both feature bits;
-invalid environment values fail renderer initialization. These controls are
-off by default until the combined scheduling slice clears the performance and
-image gates in
+selected sample and one visibility ray.
+`AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1` adds S2 and requires S1: when the first
+diffuse and smooth-GGX continuations coincide, one is selected from a bounded
+material/Fresnel probability and divided by that probability. S2 is rejected
+with the diagnostic ReSTIR-GI reconstruction, whose reservoir weights do not
+yet encode this selection measure. The summary records all feature bits;
+invalid environment combinations fail renderer initialization. These controls
+are off by default until the combined scheduling slice clears the performance
+and image gates in
 `Q2RTX_PERFORMANCE_PARITY_PLAN.md`.
 
 Ordinary visible frames no longer clear, update, or copy the hidden-smoke

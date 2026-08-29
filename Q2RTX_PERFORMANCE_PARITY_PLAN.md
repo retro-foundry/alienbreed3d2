@@ -314,6 +314,33 @@ S1 checkpoint, 2026-08-29:
 S1 remains diagnostic and off by default. Its reduction clears the per-slice
 `15%` direction gate, but only the combined S3/S4 route can become production.
 
+S2 checkpoint, 2026-08-29:
+
+- `AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1` now enables S2, requires S1, and is
+  rejected with the diagnostic ReSTIR-GI path until that reservoir can carry
+  the added selection measure.
+- When a smooth-GGX and diffuse first continuation coincide, a separate random
+  dimension selects exactly one. Its probability uses current-view Schlick
+  Fresnel, material diffuse reflectance, F0, and the accepted real-versus-fake
+  specular roughness weight, clamped to `[0.05, 0.95]` when both lobes exist.
+  The chosen contribution is divided by `p` or `1-p`; later diffuse burst paths
+  remain unchanged. A CPU mirror pins the endpoint and inverse-probability
+  contract.
+- On the same Release hidden-validation route, S2 measured `12.1260 ms` frame
+  median and `10.2252 ms` primary shading, reductions of `5.7%` and `6.8%`
+  from S1. Relative to S0, the combined S1+S2 reductions are `31.1%` frame and
+  `35.0%` primary shading. Frame p95 was `28.4066 ms` versus S1's
+  `28.7643 ms`.
+- The BRDF mirror, isolated lighting reference, six-channel sum, foundation
+  test, complete Level A moving/firing route, both Shotgun bursts, coverage,
+  stability, and zero-rebuild checks passed. Moving display delta was
+  `26.8014`, effectively unchanged from S1's `26.7965`; static early/late
+  stability was `14.3405/14.3644`.
+
+S2 is required work for S3 but does not independently clear the `15%` slice
+gate. It remains diagnostic and off by default; no energy compensation,
+fallback lobe, or temporal visibility reuse was added.
+
 ### 1C. Stop evaluating expensive light data for every candidate
 
 Ray-count changes alone may not close the gap because native direct RIS shades

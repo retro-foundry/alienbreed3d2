@@ -210,6 +210,28 @@ inline float fake_specular_weight(float linear_roughness)
     return smoothstep(0.20f, 0.30f, linear_roughness);
 }
 
+/* Selection density for the S2 mutually-exclusive first continuation. The
+ * estimator divides the selected lobe by this probability (or its diffuse
+ * complement), so the probability changes variance rather than energy. */
+inline float continuation_specular_probability(const Material &material,
+                                                float normal_view)
+{
+    const float real_specular_weight =
+        1.0f - fake_specular_weight(material.roughness);
+    if (!(real_specular_weight > 0.0f)) {
+        return 0.0f;
+    }
+    const float diffuse_weight = luminance(diffuse_reflectance(material));
+    if (!(diffuse_weight > 1.0e-6f)) {
+        return 1.0f;
+    }
+    const float specular_weight = luminance(fresnel_schlick(
+        normal_view, f0(material))) * real_specular_weight;
+    return std::clamp(specular_weight /
+                          std::max(diffuse_weight + specular_weight, 1.0e-6f),
+                      0.05f, 0.95f);
+}
+
 inline uint32_t primary_direct_visibility_sample_count(
     uint32_t candidate_count)
 {
