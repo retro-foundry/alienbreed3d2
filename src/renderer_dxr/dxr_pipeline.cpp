@@ -2245,7 +2245,12 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     }
     {
         const UINT64 pixel_count = static_cast<UINT64>(width) * height;
-        const UINT64 work_item_capacity = bounded_burst_continuations_ ?
+        /* Active Ray Reconstruction consumes one raw indirect path at every
+         * internal pixel. Keep the compact continuation launch available even
+         * when an explicit scheduler A/B override disabled the history-driven
+         * burst path at initialization. */
+        const UINT64 work_item_capacity =
+            (bounded_burst_continuations_ || create_streamline_output) ?
             pixel_count : 1u;
         D3D12_RESOURCE_DESC work_description = buffer_description(
             work_item_capacity * sizeof(uint32_t) * 2u);
@@ -2893,6 +2898,28 @@ bool DxrPipeline::record(ID3D12Device5 *device,
 #else
     (void)streamline;
 #endif
+    /* DLSS Ray Reconstruction is itself the production denoiser. Feeding its
+     * full mode through the project ASVGF-style temporal/regional/wavelet
+     * chain double-denoises sparse GI and turns high-energy samples into broad
+     * blotches. The accepted S0/S1 split and bounded work list instead publish
+     * one fresh, unbiased indirect path per internal pixel. Named diagnostic
+     * reconstruction modes retain their exact stage boundaries. */
+    const bool ray_reconstruction_raw_indirect =
+        streamline_active && !debug_view_requested_ &&
+        indirect_reconstruction_mode_ == static_cast<uint32_t>(
+            indirect_reconstruction::Mode::full) &&
+        split_primary_ && single_primary_direct_survivor_ &&
+        bounded_burst_continuations_;
+    const bool effective_single_continuation_lobe =
+        single_continuation_lobe_ && !ray_reconstruction_raw_indirect;
+    const bool effective_dense_mature_continuations =
+        dense_mature_continuations_ && !ray_reconstruction_raw_indirect;
+    const bool effective_bounded_burst_continuations =
+        bounded_burst_continuations_ || ray_reconstruction_raw_indirect;
+    const uint32_t effective_indirect_reconstruction_mode =
+        ray_reconstruction_raw_indirect ?
+            static_cast<uint32_t>(indirect_reconstruction::Mode::raw) :
+            indirect_reconstruction_mode_;
     bool speed_first_post = false;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     speed_first_post = streamline_active && streamline &&
@@ -2922,7 +2949,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     const uint64_t current_light_grid_layout_hash =
         scene_.light_grid_layout_hash();
     const uint32_t effective_indirect_spp = diffuse_gi_scale_ > 0.0f ?
-        indirect_spp_ : 0u;
+        (ray_reconstruction_raw_indirect ? 1u : indirect_spp_) : 0u;
     const bool diffuse_gi_active = maximum_depth_ >= 2u &&
         effective_indirect_spp > 0u;
     const bool light_grid_active =
@@ -2966,13 +2993,15 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.single_primary_direct_survivor =
         single_primary_direct_survivor_;
     performance_metadata.single_continuation_lobe =
-        single_continuation_lobe_;
+        effective_single_continuation_lobe;
     performance_metadata.dense_mature_continuations =
-        dense_mature_continuations_;
+        effective_dense_mature_continuations;
     performance_metadata.bounded_burst_continuations =
-        bounded_burst_continuations_;
+        effective_bounded_burst_continuations;
     performance_metadata.interleaved_deep_diffuse =
         interleaved_deep_diffuse_;
+    performance_metadata.ray_reconstruction_raw_indirect =
+        ray_reconstruction_raw_indirect;
     performance_metadata.compact_local_primary = compact_local_primary_;
     performance_metadata.proxy_primary_candidates =
         proxy_primary_candidates_;
@@ -3028,7 +3057,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.exposure_delta_seconds =
         std::isfinite(exposure_delta_seconds) && exposure_delta_seconds > 0.0f ?
         exposure_delta_seconds : 0.0f;
-    constants.indirect_reconstruction_mode = indirect_reconstruction_mode_;
+    constants.indirect_reconstruction_mode =
+        effective_indirect_reconstruction_mode;
     constants.radiance_channel = radiance_channel_;
     uint64_t current_weapon_pose_hash = 0u;
     const bool current_weapon_pose_hash_valid =
@@ -3060,11 +3090,11 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.single_primary_direct_survivor =
         single_primary_direct_survivor_ ? 1u : 0u;
     constants.single_continuation_lobe =
-        single_continuation_lobe_ ? 1u : 0u;
+        effective_single_continuation_lobe ? 1u : 0u;
     constants.dense_mature_continuations =
-        dense_mature_continuations_ ? 1u : 0u;
+        effective_dense_mature_continuations ? 1u : 0u;
     constants.bounded_burst_continuations =
-        bounded_burst_continuations_ ? 1u : 0u;
+        effective_bounded_burst_continuations ? 1u : 0u;
     constants.compact_local_primary = compact_local_primary_ ? 1u : 0u;
     constants.proxy_primary_candidates =
         proxy_primary_candidates_ ? 1u : 0u;
@@ -3130,7 +3160,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         burst_work_items_[frame_slot].Get();
     ID3D12Resource *burst_dispatch_arguments =
         burst_dispatch_arguments_[frame_slot].Get();
-    if (bounded_burst_continuations_) {
+    if (effective_bounded_burst_continuations) {
         const D3D12_RESOURCE_BARRIER to_copy = transition(
             burst_dispatch_arguments,
             D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
@@ -3247,7 +3277,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             profiler, command_list, DxrGpuStage::primary_shading);
         command_list->DispatchRays(&dispatch);
     }
-    if (dense_mature_continuations_) {
+    if (effective_dense_mature_continuations) {
         const D3D12_RESOURCE_BARRIER primary_outputs_ready[] = {
             uav_barrier(primary_visibility_.Get()),
             uav_barrier(indirect_radiance_.Get()),
@@ -3268,7 +3298,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             DxrGpuStage::dense_mature_continuation);
         command_list->DispatchRays(&dispatch);
     }
-    if (bounded_burst_continuations_) {
+    if (effective_bounded_burst_continuations) {
         const D3D12_RESOURCE_BARRIER burst_inputs_ready[] = {
             uav_barrier(burst_work_items),
             uav_barrier(burst_dispatch_arguments),
@@ -3292,7 +3322,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             burst_dispatch_arguments, 0u, nullptr, 0u);
     }
     const auto indirect_mode = static_cast<indirect_reconstruction::Mode>(
-        indirect_reconstruction_mode_);
+        effective_indirect_reconstruction_mode);
     const bool use_restir_gi = diffuse_gi_active &&
         indirect_mode == indirect_reconstruction::Mode::restir;
     const D3D12_RESOURCE_BARRIER indirect_input_ready[] = {

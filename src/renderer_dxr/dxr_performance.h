@@ -73,6 +73,7 @@ struct DxrPerformanceMetadata {
     bool dense_mature_continuations = false;
     bool bounded_burst_continuations = false;
     bool interleaved_deep_diffuse = false;
+    bool ray_reconstruction_raw_indirect = false;
     bool compact_local_primary = false;
     bool proxy_primary_candidates = false;
     bool specular_guide_active = false;
