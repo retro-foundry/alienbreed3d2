@@ -287,6 +287,7 @@ cbuffer FrameConstants : register(b0)
     uint RayReconstructionActive;
     uint DiagnosticGuideMask;
     float DiffuseGiScale;
+    uint ValidationEnabled;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -3527,14 +3528,16 @@ void RayGeneration()
                     inverseDirectCount;
                 float3 averageSmoothSpecular = smoothSpecularRadiance *
                     inverseDirectCount;
-                if (luminance(averageDirectDiffuse) > 1.0e-6) {
-                    InterlockedAdd(Diagnostics[11], 1u);
-                }
-                if (luminance(averageDirectSpecular) > 1.0e-6) {
-                    InterlockedAdd(Diagnostics[12], 1u);
-                }
-                if (luminance(averageSmoothSpecular) > 1.0e-6) {
-                    InterlockedAdd(Diagnostics[14], 1u);
+                if (ValidationEnabled != 0u) {
+                    if (luminance(averageDirectDiffuse) > 1.0e-6) {
+                        InterlockedAdd(Diagnostics[11], 1u);
+                    }
+                    if (luminance(averageDirectSpecular) > 1.0e-6) {
+                        InterlockedAdd(Diagnostics[12], 1u);
+                    }
+                    if (luminance(averageSmoothSpecular) > 1.0e-6) {
+                        InterlockedAdd(Diagnostics[14], 1u);
+                    }
                 }
                 if (RadianceChannel == RadianceChannelCombined ||
                     RadianceChannel == RadianceChannelDirectDiffuse) {
@@ -3588,41 +3591,43 @@ void RayGeneration()
     }
     storeIndirectHistory(
         currentHistorySlot, historyIndex, currentIndirect);
-    if (primaryPrimitive == ViewWeaponPrimitive) {
-        uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
-        InterlockedAdd(Diagnostics[0], 1u);
-        InterlockedAdd(Diagnostics[1],
-            encoded.r * 3u + encoded.g * 5u + encoded.b * 7u);
-    }
-    if (primaryPrimitive == WorldBillboardPrimitive ||
-        primaryPrimitive == WorldEffectPrimitive) {
-        InterlockedAdd(Diagnostics[2], 1u);
-    }
-    if (primaryPrimitive == WorldVectorPrimitive) {
-        InterlockedAdd(Diagnostics[3], 1u);
-    }
-    /* Additive layers remain non-occluding and their source emission is visible,
-     * but they are excluded from the polygon-light distribution. */
-    if (primarySegment.additiveLayers != 0u) {
-        InterlockedAdd(Diagnostics[4], 1u);
-    }
-    float4 diffuseGuide = DiffuseAlbedo[pixel];
-    float4 specularGuide = SpecularAlbedo[pixel];
-    float4 normalRoughnessGuide = ShadingNormal[pixel];
-    float depthGuide = LinearDepth[pixel];
-    float2 motionGuide = SceneMotion[pixel];
-    float specularDistanceGuide = SpecularHitDistance[pixel];
-    bool invalidLightingOrGuide =
-        any(isnan(resolvedRadiance)) || any(isinf(resolvedRadiance)) ||
-        any(isnan(diffuseGuide)) || any(isinf(diffuseGuide)) ||
-        any(isnan(specularGuide)) || any(isinf(specularGuide)) ||
-        any(isnan(normalRoughnessGuide)) ||
-        any(isinf(normalRoughnessGuide)) ||
-        isnan(depthGuide) || isinf(depthGuide) ||
-        any(isnan(motionGuide)) || any(isinf(motionGuide)) ||
-        isnan(specularDistanceGuide) || isinf(specularDistanceGuide);
-    if (invalidLightingOrGuide) {
-        InterlockedAdd(Diagnostics[13], 1u);
+    if (ValidationEnabled != 0u) {
+        if (primaryPrimitive == ViewWeaponPrimitive) {
+            uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
+            InterlockedAdd(Diagnostics[0], 1u);
+            InterlockedAdd(Diagnostics[1],
+                encoded.r * 3u + encoded.g * 5u + encoded.b * 7u);
+        }
+        if (primaryPrimitive == WorldBillboardPrimitive ||
+            primaryPrimitive == WorldEffectPrimitive) {
+            InterlockedAdd(Diagnostics[2], 1u);
+        }
+        if (primaryPrimitive == WorldVectorPrimitive) {
+            InterlockedAdd(Diagnostics[3], 1u);
+        }
+        /* Additive layers remain non-occluding and their source emission is
+         * visible, but they are excluded from the polygon-light distribution. */
+        if (primarySegment.additiveLayers != 0u) {
+            InterlockedAdd(Diagnostics[4], 1u);
+        }
+        float4 diffuseGuide = DiffuseAlbedo[pixel];
+        float4 specularGuide = SpecularAlbedo[pixel];
+        float4 normalRoughnessGuide = ShadingNormal[pixel];
+        float depthGuide = LinearDepth[pixel];
+        float2 motionGuide = SceneMotion[pixel];
+        float specularDistanceGuide = SpecularHitDistance[pixel];
+        bool invalidLightingOrGuide =
+            any(isnan(resolvedRadiance)) || any(isinf(resolvedRadiance)) ||
+            any(isnan(diffuseGuide)) || any(isinf(diffuseGuide)) ||
+            any(isnan(specularGuide)) || any(isinf(specularGuide)) ||
+            any(isnan(normalRoughnessGuide)) ||
+            any(isinf(normalRoughnessGuide)) ||
+            isnan(depthGuide) || isinf(depthGuide) ||
+            any(isnan(motionGuide)) || any(isinf(motionGuide)) ||
+            isnan(specularDistanceGuide) || isinf(specularDistanceGuide);
+        if (invalidLightingOrGuide) {
+            InterlockedAdd(Diagnostics[13], 1u);
+        }
     }
 }
 

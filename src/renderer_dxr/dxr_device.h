@@ -15,6 +15,7 @@
 #include "renderer_ray_tracing_options.h"
 #include "scene_frame.h"
 #include "dxr_output.h"
+#include "dxr_performance.h"
 
 namespace ab3d2::dxr {
 
@@ -198,6 +199,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> scene_motion_readback_;
     Microsoft::WRL::ComPtr<ID3D12Resource> noisy_radiance_readback_;
     std::array<FrameContext, frame_count> frames_ = {};
+    DxrGpuProfiler performance_profiler_;
 };
 
 }  // namespace ab3d2::dxr

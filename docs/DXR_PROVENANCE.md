@@ -14,6 +14,10 @@ On 2026-08-26 the user requested a detailed breakdown of Q2RTX's renderer and
 then directed continued investigation of its lower temporal noise. The exact
 read-only Q2RTX audit is recorded below. No Q2RTX source text, shader, binary,
 asset, generated map, or material package was imported.
+On 2026-08-29 the user extended that request to Q2RTX performance parity. The
+same clean checkout was read only to establish observable profiling categories,
+default bounce-ray workload, dispatch scheduling, and optional dynamic-
+resolution behavior. No implementation text or data was imported.
 
 ## Project-authored implementation
 
@@ -382,11 +386,13 @@ reservoir implementation, layout, or shader text was copied or adapted.
 - Checkout state during inspection: clean
 - Licence of inspected source/shaders: GPL-2.0-or-later
 - Files: `doc/client.md`, `src/refresh/vkpt/asvgf.c`,
+  `src/refresh/vkpt/profiler.c`,
   `src/refresh/vkpt/path_tracer.c`,
   `src/refresh/vkpt/shader/global_ubo.h`, `src/refresh/vkpt/bsp_mesh.c`,
   `src/refresh/vkpt/material.c`, `src/refresh/vkpt/textures.c`,
   `src/refresh/vkpt/vertex_buffer.c`, `src/refresh/vkpt/main.c`, and
-  `src/refresh/vkpt/shader/{asvgf.glsl,indirect_lighting.rgen,utils.glsl,
+  `src/refresh/vkpt/shader/{asvgf.glsl,direct_lighting.rgen,
+  indirect_lighting.rgen,utils.glsl,
   path_tracer_rgen.h,light_lists.h,
   asvgf_gradient_reproject.comp,asvgf_gradient_img.comp,
   asvgf_gradient_atrous.comp,asvgf_temporal.comp,asvgf_lf.comp,
@@ -408,6 +414,18 @@ Q2RTX's dispatch or shader structure. The inspection also showed that this is
 not a ReSTIR-GI pipeline. No GPL implementation text or expression was copied or
 adapted. No Q2RTX dependency, source, shader, table, data, binary, or asset is
 present in the build or repository as a result.
+
+The 2026-08-29 performance extension recorded only observable boundaries:
+`profiler.c` uses frame-latent timestamp pairs for the complete frame and named
+renderer stages; `path_tracer.c` schedules primary, direct, and at most two
+indirect dispatches separately; `shader/global_ubo.h` defaults to one bounce
+ray and exposes an optional half-resolution diffuse mode; the first
+`shader/indirect_lighting.rgen` pass selects one diffuse or GGX continuation;
+and `main.c` has an optional GPU-time-driven dynamic-resolution controller that
+is disabled by default. The project performance plan is independently written
+for its existing D3D12 frame contexts, `SceneFrame` resources, HLSL, and DLSS
+Ray Reconstruction integration. It does not copy Q2RTX's Vulkan query code,
+GLSL control flow, constants, data layout, or dynamic-resolution implementation.
 
 ## Approved conceptual references inspected
 

@@ -1,13 +1,57 @@
-# Q2RTX Indoor Lighting Parity Handoff
+# Q2RTX Indoor Lighting and Performance Parity Handoff
 
-Status: indoor-core implementation and validation complete. Primary
+Status: indoor-core lighting implementation and validation complete. Primary
 direct diffuse/GGX, full-rate direct sampling, active RR guides, real smooth
 specular, packed-F0 rough reconstruction, and radiance isolations were
 implemented on 2026-08-28. Reference-scene, all-level, and moving-lighting
 acceptance pass. Direct reservoirs remain dormant because every measured
-temporal/spatial ReSTIR DI variant was less stable than fresh RIS.
+temporal/spatial ReSTIR DI variant was less stable than fresh RIS. Performance
+parity was reopened on 2026-08-29: the accepted lighting result is now the
+quality oracle, while Q2RTX's measured frame cost and work scheduling are the
+performance comparator.
 
 Date: 2026-08-27
+
+Last updated: 2026-08-29
+
+## Performance parity reopening (2026-08-29)
+
+- The renderer does not yet have a valid current GPU-performance baseline.
+  The earlier approximately `8.1 ms` Ultra Performance measurements predate
+  full-rate primary direct sampling, the completed smooth/rough specular work,
+  and the 16-path adaptive indirect burst. The later `96.77s` versus `92.80s`
+  all-level smoke result is test wall time, not steady-state GPU frame time.
+  The Shotgun `renderer_present` timer also includes frame-latency waiting,
+  command recording, submission, and presentation. None of those numbers can
+  establish Q2RTX performance parity.
+- The approved Q2RTX checkout at commit
+  `f2526e9a165949f66e91e82f0d63aa7bb2567b4d` has a non-blocking timestamp
+  profiler in `src/refresh/vkpt/profiler.c`. `main.c`, `path_tracer.c`,
+  `shader/global_ubo.h`, `shader/direct_lighting.rgen`, and
+  `shader/indirect_lighting.rgen` establish the relevant observable workload:
+  separate primary, direct, and indirect dispatches; one local-light shadow
+  sample at the primary receiver; a default `pt_num_bounce_rays=1`; one first
+  continuation selected between diffuse and GGX rather than two independent
+  continuations; an optional `0.5` dense half-resolution diffuse mode; and an
+  optional GPU-time-driven dynamic-resolution controller that is off by
+  default.
+- The current AB3D2 default performs materially different work: two independent
+  primary RIS survivors, a deterministic mirror-distance guide ray, a separate
+  GGX continuation, as many as two diffuse continuation surfaces at default
+  depth three, and up to 16 fresh diffuse paths at missing, disoccluded,
+  immature, or changing pixels. Stable mature pixels already rotate one fresh
+  diffuse path through a 2-by-2 phase. A raw frame-time comparison without ray
+  counts, internal pixel counts, and stage timings would therefore be
+  misleading.
+- Performance parity has two required results. The matched-work benchmark must
+  show that the native DXR stages are no slower than Q2RTX outside measured
+  run-to-run noise when both render the same source Level A pose and material/
+  emitter set at the same internal pixel count and equivalent bounce/light
+  work. The shipping
+  benchmark must then bring the accepted default lighting path into the same
+  steady-state frame-time envelope without reducing authored content, changing
+  transport energy, hiding work behind extra queued frames, or weakening the
+  locked visual and temporal acceptance oracles.
 
 ## Implementation progress (2026-08-28)
 
@@ -269,10 +313,11 @@ Date: 2026-08-27
 
 ## Goal
 
-Match the useful indoor lighting structure of Q2RTX while preserving the
-current diffuse indirect-GI result, which is already accepted. The next work is
-material-dependent direct and specular transport, not another exposure change
-and not an ambient/shadow lift.
+Match the useful indoor lighting structure and steady-state performance
+envelope of Q2RTX while preserving the current diffuse indirect-GI result,
+which is already accepted. Lighting transport is complete; the active work is
+now measurement-driven reduction of frame cost and variance in frame pacing,
+not another exposure change, ambient/shadow lift, or unmeasured quality cut.
 
 The target pipeline is:
 
@@ -285,6 +330,10 @@ The target pipeline is:
 6. One combined noisy-HDR input with correct diffuse/specular guides for DLSS
    Ray Reconstruction, followed by the already accepted bloom, adaptive tone
    curve, exposure bias, and SDR/HDR presentation.
+7. A profiled frame schedule whose traced-ray, reconstruction, post-processing,
+   scene-update, and presentation costs match Q2RTX's performance envelope at
+   equivalent internal resolution and work, while retaining the accepted
+   result above.
 
 No ambient term is part of this work. Exact black must remain black when no
 authored emission or traced light path reaches a surface.
@@ -323,15 +372,36 @@ Q2RTX evidence under `<Q2RTX-root>/src/refresh/vkpt/`:
   transparent materials. It is not the ordinary opaque GGX continuation.
 - `shader/god_rays.comp`, `god_rays_filter.comp`, `physical_sky.comp`, and the
   caustic path are optional/content-dependent stages, not ambient fill.
+- `profiler.c` and the `PROFILER_LIST` contract in `vkpt.h` use timestamp-query
+  pairs for frame, instance geometry, BVH, primary, direct, indirect,
+  reconstruction, bloom, tone mapping, and upscale costs without a same-frame
+  GPU wait.
+- `path_tracer.c::vkpt_pt_trace_primary_rays` and
+  `::vkpt_pt_trace_lighting` dispatch primary, direct, and up to two indirect
+  passes separately. The `0.5` indirect mode launches a dense half-height grid
+  and maps it to alternating output rows instead of launching a full frame of
+  inactive threads.
+- `shader/global_ubo.h::pt_num_bounce_rays` defaults to one. The first
+  `shader/indirect_lighting.rgen::indirect_lighting` continuation selects one
+  diffuse or GGX direction and applies the matching selection probability; it
+  does not trace independent diffuse and specular continuations for the same
+  pixel.
+- `main.c::drs_process` consumes the GPU frame timestamp, rejects non-world and
+  invalid samples, and uses a short trimmed history to control an optional
+  bounded resolution scale. Q2RTX leaves this controller disabled by default,
+  so it is a frame-pacing tool after fixed-resolution efficiency, not evidence
+  for claiming parity at a lower unreported resolution.
 
-Current AB3D2 evidence:
+Pre-implementation AB3D2 lighting evidence retained for this handoff:
 
-- `src/renderer_dxr/shaders/path_trace.hlsl::RayGeneration` currently calls
-  `sampleDiffusePolygonLight` and `sampleDiffusePath`, so the live estimator is
+- At the start of this handoff,
+  `src/renderer_dxr/shaders/path_trace.hlsl::RayGeneration` called
+  `sampleDiffusePolygonLight` and `sampleDiffusePath`, so the live estimator was
   intentionally diffuse-only.
-- `writeDiffuseSurfaceGuides` writes zero specular albedo, a fully rough guide,
-  and zero specular hit distance even though the material system already
-  supplies base color, normal, metalness, roughness, and specular factor.
+- At the same baseline, `writeDiffuseSurfaceGuides` wrote zero specular albedo,
+  a fully rough guide, and zero specular hit distance even though the material
+  system already supplied base color, normal, metalness, roughness, and
+  specular factor.
 - `evaluateBsdf`, `sampleBsdf`, `sampleGgxVisibleNormal`, `surfaceF0`, and
   `reconstructionSpecularAlbedo` already contain most of the required clean
   PBR and RR mathematics, but the live path bypasses them.
@@ -350,9 +420,9 @@ Current AB3D2 evidence:
   authoritative for the source/OpenGL raster path but are not physical
   radiance and must not be reinterpreted as path-traced ambient light.
 
-The working tree already contains intentional tone-mapping, HDR, exposure, and
-radiance-clamp changes. Inspect `git diff` before implementation and do not
-revert or overwrite those changes.
+The implementation history contains intentional tone-mapping, HDR, exposure,
+and radiance-clamp changes. Inspect `git diff` before implementation and do not
+revert or overwrite unrelated user changes.
 
 ## Invariants
 
@@ -377,6 +447,22 @@ revert or overwrite those changes.
   behavior.
 - Send the final lighting sum through Ray Reconstruction once. Do not denoise
   diffuse and specular with separate RR invocations.
+- Treat the 2026-08-28 lighting captures, isolated-channel sums, exact-black
+  tests, and motion-compensated metrics as the performance phase's quality
+  oracle. A faster candidate is rejected if it changes transport energy,
+  material response, authored emitter coverage, or temporal behavior outside
+  the established repeat-run variation.
+- Report presentation extent, path-tracing extent, reconstruction-output
+  extent, ray counts, bounce work, and RR mode with every timing. A lower input
+  resolution or smaller workload is a separate preset result, not a code-level
+  speedup.
+- Performance timestamp collection must be frame-latent and non-blocking. Do
+  not map unresolved data, wait for the GPU, or enable full diagnostic readback
+  in an ordinary visible frame.
+- The existing independent diffuse and smooth-GGX continuations remain the
+  production baseline. The performance phase may evaluate Q2RTX's one-ray
+  diffuse/GGX selection as an explicit A/B candidate, but it becomes production
+  only if both performance and all lighting acceptance gates pass.
 
 ## Implementation plan
 
@@ -537,6 +623,206 @@ reservoir history, neighbor reuse, and hard-coded environment candidates are
 not required for the Q2RTX indoor lighting decomposition and previously made
 the active path harder to reason about.
 
+### 7. Add a non-blocking frame and stage profiler
+
+Instrument before changing sampling or pass structure.
+
+Implementation status (2026-08-29): the first frame-latent profiler is now in
+`src/renderer_dxr/dxr_performance.{h,cpp}` and is opt-in through
+`AB3D2_DXR_PROFILE`. It owns two non-overlapping query slices, resolves the
+current slice into one readback buffer, and maps it only after the corresponding
+existing frame fence has completed. The JSON summary reports adapter/driver,
+all three extents, settings, history/rebuild state, median/p95/p99/maximum GPU
+stage distributions, and CPU phase distributions. Missing optional stages are
+reported as exact zero rather than timestamp-resolution noise. The remaining
+stage-7 work is the finer BLAS/TLAS/refit split, validation-only ray/bounce
+counters, per-sample records, and video-memory fields.
+
+The same implementation removes hidden-smoke diagnostics from ordinary visible
+frames. Validation still clears and copies the diagnostic UAV and retains all
+coverage/non-finite atomics; visible play sets `validation_enabled=false`, so
+those atomics and the finite-guide scan do not run. This changes no radiance,
+ray schedule, history, reconstruction, or post-processing result.
+
+Preliminary same-process A/B evidence on 2026-08-29 (Debug host build, RTX 3090,
+driver 32.0.15.9186, Level A, 2568x1471 tracing/presentation, RR off, 120 warmup
+and 120 measured visible frames) is:
+
+| workload | GPU frame median / p95 (ms) | primary/radiance median / p95 (ms) |
+| --- | ---: | ---: |
+| validation work forced on | 55.3175 / 56.4252 | 52.2301 / 53.2041 |
+| ordinary visible path | 52.2993 / 53.2368 | 49.1126 / 50.2319 |
+
+The removal saves 3.0182 ms (5.46%) at the median complete frame and 3.1175 ms
+(5.97%) in the measured hot dispatch in this preliminary run. A subsequent
+Level A hidden smoke retained exact diagnostic coverage and passed. These two
+single trials demonstrate that the validation separation is worthwhile; they
+do not replace the five alternating 600-frame shipping/Q2RTX baselines below.
+
+- Add a D3D12 timestamp query heap with one non-overlapping slice per in-flight
+  frame. Resolve each completed slice into frame-owned readback storage and
+  consume it only after that frame's existing fence has completed. Convert
+  ticks with `ID3D12CommandQueue::GetTimestampFrequency`; never wait merely to
+  obtain a profile.
+- Mirror the useful Q2RTX categories while retaining project ownership:
+  complete GPU frame, scene upload/instance work, static and dynamic BLAS,
+  TLAS, ReGIR refresh, primary/radiance tracing, indirect gradient, temporal
+  reconstruction, regional/deflicker/wavelet filtering, final indirect
+  reconstruction/composition, DLSS Ray Reconstruction, bloom, histogram/tone
+  curve, and presentation draw. Nested totals must reconcile with the complete
+  frame within timestamp resolution.
+- Record CPU frame-latency wait, scene compilation, command recording, queue
+  submission, and `Present` separately. The existing `renderer_present`
+  elapsed time remains an end-to-end latency observation, not a GPU-stage
+  measurement.
+- Add validation-only ray counters for primary segments, deterministic
+  specular-guide rays, primary visibility rays, smooth-GGX continuations,
+  diffuse continuations by depth, secondary BRDF proposal rays, and secondary
+  visibility rays. Counters must be absent from the ordinary shader path; a
+  profile collected with atomic ray counters is diagnostic evidence, not the
+  performance result itself.
+- Emit a machine-readable hidden-smoke report containing adapter/driver,
+  extents, RR mode, active quality settings, history state, per-stage GPU and
+  CPU samples, ray counts, scene rebuild/refit counts, and committed/local video
+  memory. Do not add a user-facing brightness or quality setting merely for the
+  profiler.
+
+### 8. Establish matched Q2RTX and shipping baselines
+
+Use the generated Q2RTX Level A package only as an external comparator; the
+native renderer must continue consuming its own `SceneFrame` geometry and
+renderer-native material package.
+
+1. Build/install the comparator with `tools/build_q2rtx.py --lighting none` so
+   Q2RTX receives a map generated from the same source level pairs, PBR sheets,
+   and two authored emitter identities without converted zone/point lights.
+   Record the native and converted triangle/emitter counts; they are comparable
+   source scenes, not byte-identical acceleration structures.
+2. Record the exact AB3D2 commit, Q2RTX commit, generated-package manifest,
+   adapter LUID, driver, OS, power state, presentation extent, internal tracing
+   extent, output mode, FOV, camera transform, and every renderer setting.
+   Match internal traced pixel counts; similarly named Quality/Performance
+   presets are not assumed to be equivalent.
+3. Disable VSync/frame caps and Q2RTX DRS for throughput runs. Use the common
+   Level A source spawn plus a locked corridor pose, settle reconstruction and
+   pipelines for at least 120 unmeasured frames, then collect at least 600
+   frames. Run five alternating AB3D2/Q2RTX trials rather than all trials of
+   one executable first.
+4. Report median, p95, p99, maximum, and run-to-run dispersion for complete GPU
+   frame time and CPU submit/present time. Report stage times and rays per
+   output/internal pixel beside the totals. A mean alone cannot accept a
+   frame-pacing change.
+   Use one pinned external GPU/frame trace for cross-executable total
+   percentiles; Q2RTX's built-in profiler supplies its stage attribution, not a
+   substitute set of differently collected total-frame percentiles.
+5. Keep three distinct profiles: a static matched-work profile for backend
+   efficiency, each renderer's normal shipping-default profile for the user
+   experience, and the native moving Shotgun/disocclusion sequence for dynamic
+   history, BLAS/TLAS, and hitch regression. Do not use the cheaper static
+   comparator to hide a moving native regression.
+
+The baseline report must be committed or summarized in this handoff before an
+optimization is accepted. Old pre-lighting timings stay historical and must not
+be substituted.
+
+### 9. Bring the ray schedule toward Q2RTX's cost
+
+Use the profiler and ray counters to order these experiments. Change one cost
+domain at a time and rebuild the locked captures after each candidate.
+
+- Recheck one versus two independent primary RIS groups. Q2RTX's local-light
+  direct path spends one local visibility ray; AB3D2 currently spends two to
+  stabilize sparse authored emitters. One group is accepted only if it produces
+  a measurable GPU win and retains direct-diffuse/direct-specular moving,
+  saturation, exact-black, and captured panel/left-wall behavior. The earlier
+  unprofiled one-ray rejection is evidence to remeasure, not permission to
+  assume a win.
+- Implement a diagnostic Q2RTX-shaped first-continuation candidate: choose one
+  diffuse or GGX continuation, apply that lobe's selection probability and
+  existing Fresnel/throughput equations, and route the reached radiance into
+  the existing diffuse or smooth-specular channel. Preserve the direct/fake
+  specular complement, additive traversal, secondary local-light contract, and
+  channel-sum test. Compare it against the independent two-estimator baseline;
+  do not ship a noisier lobe lottery merely because it traces fewer rays.
+- Sweep the adaptive indirect burst ceiling through `1, 2, 4, 8, 16` with the
+  same motion-compensated oracle. Q2RTX's default is one full-resolution first
+  continuation; AB3D2's larger burst exists for RR/custom-filter convergence.
+  Select the lowest measured ceiling that preserves disocclusion recovery and
+  the four accepted moving poses. Mature 2-by-2 scheduling remains unchanged
+  unless a separate candidate proves better.
+- Keep default depth three unless a new complete audit reverses the prior depth
+  two rejection, which lost approximately eight percent of indirect energy.
+  Bounce removal is a quality change, not a code optimization.
+- Retain the deterministic mirror-distance ray while DLSS Ray Reconstruction
+  uses specular hit distance. Remove or amortize it only after an independently
+  valid specular-motion-vector path passes the same RR edge/smear tests; never
+  derive the guide from stochastic radiance or old history.
+
+### 10. Restructure only the measured hot path
+
+Q2RTX's split dispatches are evidence for coherent work scheduling, not a
+requirement to copy its Vulkan/GLSL structure. The native monolithic primary
+dispatch should be split only if timestamps or shader profiling show that
+divergent continuation/burst work dominates more than the extra G-buffer and
+barrier traffic would cost.
+
+- A/B a project-owned primary/guide pass, primary direct pass, and continuation
+  pass against the current combined `RayGeneration`. Preserve one primary
+  visibility result and the exact current-surface guide values; do not retrace
+  the camera ray in later passes.
+- If mature sparse continuation is hot, launch its scheduled pixels as a dense
+  phase-sized dispatch with an explicit pixel mapping, analogous only in
+  behavior to Q2RTX's dense half-resolution launch. If irregular disocclusion
+  bursts are hot, evaluate a bounded GPU work list or separate burst layers.
+  Define capacity and fail validation on overflow; do not silently drop paths.
+- Specialize ray payloads, instance masks, and trace flags for shadow and
+  deterministic-guide rays only when the profile attributes time to them.
+  Preserve alpha-test, additive, weapon, billboard, vector, projectile, and
+  geometric-normal behavior.
+- Audit UAV barriers, transient resource lifetimes, descriptor rebinding, and
+  surface formats with PIX/D3D12 validation. Remove only barriers proven
+  redundant by the resource-state contract. Compress a target only after its
+  guide/radiance tolerance test passes; do not trade signed range or history
+  semantics for bandwidth by inspection alone.
+
+### 11. Close scene, reconstruction, post, and frame-pacing costs
+
+- Time full scene rebuild, per-frame vertex upload, dynamic BLAS refit, TLAS
+  update, and history promotion separately. Static geometry/material/emitter
+  identity must not rebuild in steady state. The known first appearance of a
+  new material kind remains a cold event reported separately; the warmed second
+  Shotgun burst must keep zero scene rebuilds.
+- Report the proprietary DLSS Ray Reconstruction evaluation as its own stage.
+  Optimize the resources and work on either side of it, but do not claim a
+  native shader win by changing RR mode or input pixel count. Any SDK-mode
+  comparison reports both input and output extents.
+- Profile bloom, histogram/tone mapping, resource transitions, and the final
+  presentation draw at the shipping mode. Retain the accepted Q2RTX-derived
+  tone curve and bloom image. A reduced post chain is a preset candidate only
+  when SSIM/PSNR plus the locked display captures pass.
+- Preserve the frame-latency waitable-object path and report input-to-present
+  latency beside throughput. Do not obtain a higher FPS result merely by
+  increasing queued frames. Any change to frames in flight requires an explicit
+  latency/throughput comparison and separate user acceptance.
+
+### 12. Add optional Q2RTX-style dynamic resolution only after fixed parity
+
+Q2RTX's DRS is optional and disabled by default. A corresponding native
+controller is a final frame-pacing feature, not a substitute for the fixed-
+resolution work above.
+
+- Drive it from the completed GPU-frame timestamp, ignore invalid/non-world/
+  reset samples, and use a short outlier-resistant history. Expose target FPS
+  and bounded minimum/maximum scale only as deliberate rendering controls;
+  retain off as the default unless the user later requests otherwise.
+- Quantize/reconfigure in a way that does not allocate resources, flush the
+  queue, rebuild the scene, or reset RR history every frame. Measure the cost of
+  every actual scale transition and fail clearly if Streamline cannot support a
+  requested extent.
+- Report achieved scale beside every frame-time percentile. DRS acceptance
+  requires stable pacing, no oscillation, and the same edge/history visual
+  checks at the minimum accepted scale.
+
 ## Content-gated stages after indoor parity
 
 These are real Q2RTX lighting stages, but they are not the next fix for the
@@ -637,6 +923,35 @@ Acceptance requires:
 - exposure, tone curve, bloom, SDR/HDR output, and the accepted indirect-GI
   diagnostics retain their pre-change results.
 
+### Performance validation
+
+- The profiler's complete-frame GPU interval reconciles with its non-overlapping
+  top-level stage intervals, and a disabled profiler changes neither output nor
+  frame time outside measured run-to-run variation.
+- Performance reports contain the exact hardware/software manifest, settings,
+  presentation/tracing/reconstruction extents, ray counts, warm-up/sample
+  counts, median/p95/p99/maximum, and scene rebuild/refit counts. Reject any
+  report that compares preset names without matching actual pixel counts and
+  work.
+- Run five alternating trials of the static matched-work Level A comparator.
+  Performance parity is reached only when AB3D2's median and p95 GPU frame time
+  are not slower than Q2RTX outside the dispersion measured by repeated control
+  runs. If the confidence bands do not separate the results, record parity
+  rather than a percentage win.
+- Run the same five-trial protocol at shipping defaults. The accepted native
+  default must enter the Q2RTX steady-state envelope while retaining all
+  lighting gates. A matched-work win alone does not close the user-visible
+  performance task.
+- The native locked corridor, yawing Shotgun, disocclusion burst, warmed second
+  Shotgun firing burst, and all-level smoke must have no new p95/p99 hitch,
+  scene rebuild, history reset, non-finite guide/radiance value, or visible
+  blur/trail. Cold atlas population is reported separately and is not averaged
+  into steady state.
+- Re-run shader warnings-as-errors, Release renderer build, Debug `29/29`
+  CTest, native/Streamline GPU reference scenes, radiance-channel sum, locked
+  captures, all-level smoke, and the source/package provenance audit for the
+  final accepted performance configuration.
+
 ## Explicit non-goals for this handoff
 
 - No authored-zone ambient or legacy Gouraud/ZoneT lighting in DXR.
@@ -648,6 +963,14 @@ Acceptance requires:
 - No new exposure, HDR, radiance-clamp, paper-white, or shadow controls.
 - No reinterpretation of additive/glare effects as area, sphere, or point
   lights.
+- No performance claim based only on all-level wall time, CPU
+  `renderer_present` time, average FPS, a lower unreported render extent, or a
+  different RR/upscale mode.
+- No emitter pruning, distance/zone/PVS light cap, reduced material/geometry
+  coverage, hidden radiance clamp, bounce-energy compensation, or reactivated
+  screen-space reservoir presented as an optimization.
+- No dynamic resolution or extra frames in flight used to conceal a slower
+  fixed-resolution renderer.
 
 ## Handoff completion definition
 
@@ -655,5 +978,9 @@ The indoor-core work is complete only when direct GGX, real smooth specular,
 rough reconstructed specular, and active RR specular guides are all present;
 the accepted diffuse GI and display pipeline remain unchanged; isolated-stage
 captures sum to the combined result; and the CPU, GPU-reference, and all-level
-validation above passes. A partial direct highlight without the specular
-continuation/reconstruction and guide work is not completion.
+validation above passes. Performance parity is complete only when the
+non-blocking profiler and reproducible Q2RTX/native benchmark report exist,
+matched-work and shipping-default median/p95 GPU results enter Q2RTX's measured
+envelope, the moving native p95/p99 path has no new hitch, and every lighting
+oracle still passes. A partial direct highlight or a faster low-resolution
+preset without those paired results is not completion.

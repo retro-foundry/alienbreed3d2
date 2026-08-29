@@ -24,6 +24,7 @@ namespace ab3d2::dxr {
 namespace {
 
 static_assert(DxrDevice::frame_count == DxrScene::upload_frame_count);
+static_assert(DxrDevice::frame_count == DxrGpuProfiler::frame_count);
 
 std::string adapter_name(const DXGI_ADAPTER_DESC1 &description)
 {
@@ -1094,6 +1095,8 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
 
     if (!enable_diagnostics(error) || !create_factory(error) ||
         !select_adapter_and_device(error) || !create_command_objects(error) ||
+        !performance_profiler_.initialize(
+            device_.Get(), command_queue_.Get(), adapter_.Get(), error) ||
         !create_swap_chain(error)) {
         return false;
     }
@@ -1188,6 +1191,9 @@ bool DxrDevice::flush(std::string &error)
     if (!wait_for_fence(fence_value, "wait for D3D12 queue flush", error)) {
         return false;
     }
+    if (!performance_profiler_.collect_all(error)) {
+        return false;
+    }
     for (FrameContext &frame : frames_) {
         frame.fence_value = 0;
     }
@@ -1222,6 +1228,12 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
 {
     RECT client = {};
     bool scene_requires_flush = false;
+    DxrCpuFrameTiming cpu_timing = {};
+    const auto cpu_frame_begin = std::chrono::steady_clock::now();
+    const auto elapsed_ms = [](std::chrono::steady_clock::time_point begin) {
+        return std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - begin).count();
+    };
 
     if (!device_ || !swap_chain_ || !pipeline.pipeline_state() ||
         !pipeline.root_signature()) {
@@ -1243,9 +1255,12 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     }
     /* Interactive callers wait before sampling input. Direct presentation
      * clients (including hidden validation) are paced here as a safe fallback. */
+    auto cpu_phase_begin = std::chrono::steady_clock::now();
     if (!wait_for_present(error)) {
         return false;
     }
+    cpu_timing.present_wait_ms = elapsed_ms(cpu_phase_begin);
+    cpu_phase_begin = std::chrono::steady_clock::now();
     if (!refresh_output_configuration(
             pipeline, static_cast<UINT>(client_width),
             static_cast<UINT>(client_height), error)) {
@@ -1258,6 +1273,7 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     if (scene_requires_flush && !flush(error)) {
         return false;
     }
+    cpu_timing.scene_update_ms = elapsed_ms(cpu_phase_begin);
 
     frame_index_ = swap_chain_->GetCurrentBackBufferIndex();
     if (frame_index_ >= frame_count) {
@@ -1265,9 +1281,15 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         return false;
     }
     FrameContext &frame = frames_[frame_index_];
+    cpu_phase_begin = std::chrono::steady_clock::now();
     if (!wait_for_frame(frame, error)) {
         return false;
     }
+    cpu_timing.frame_reuse_wait_ms = elapsed_ms(cpu_phase_begin);
+    if (!performance_profiler_.collect(frame_index_, error)) {
+        return false;
+    }
+    const auto command_record_begin = std::chrono::steady_clock::now();
     HRESULT result = frame.command_allocator->Reset();
     if (FAILED(result)) {
         return fail_device_operation("ID3D12CommandAllocator::Reset", result, error);
@@ -1276,6 +1298,9 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     if (FAILED(result)) {
         return fail_device_operation("ID3D12GraphicsCommandList::Reset", result, error);
     }
+    const uint32_t frame_number = rendered_frame_count_++;
+    performance_profiler_.begin_frame(
+        command_list_.Get(), frame_index_, frame_number);
 
     const D3D12_RESOURCE_BARRIER to_render_target = transition_barrier(
         frame.render_target.Get(), D3D12_RESOURCE_STATE_PRESENT,
@@ -1299,14 +1324,19 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     previous_render_time_valid_ = true;
     if (!pipeline.record(device_.Get(), command_list_.Get(), width_, height_,
                           frame.render_target_view, scene_frame, view,
-                          rendered_frame_count_++,
+                          frame_number,
                           frame_index_, exposure_delta_seconds,
-                          streamline_, error)) {
+                          streamline_, hidden_window_,
+                          &performance_profiler_, error)) {
         return false;
     }
     const bool capture_scene = hidden_window_ && pipeline.has_scene();
     ID3D12Resource *const scene_motion =
         pipeline.streamline_scene_motion_resource();
+    if (capture_scene) {
+        performance_profiler_.begin_stage(
+            command_list_.Get(), DxrGpuStage::validation_readback);
+    }
     if (capture_scene) {
         if (!ensure_scene_motion_readback(scene_motion, error)) {
             return false;
@@ -1391,6 +1421,11 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
             D3D12_RESOURCE_STATE_PRESENT);
         command_list_->ResourceBarrier(1, &to_present);
     }
+    if (capture_scene) {
+        performance_profiler_.end_stage(
+            command_list_.Get(), DxrGpuStage::validation_readback);
+    }
+    performance_profiler_.end_frame(command_list_.Get());
     result = command_list_->Close();
     if (FAILED(result)) {
         std::string debug_error;
@@ -1401,13 +1436,18 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         }
         return fail_device_operation("ID3D12GraphicsCommandList::Close", result, error);
     }
+    cpu_timing.command_record_ms = elapsed_ms(command_record_begin);
     ID3D12CommandList *command_lists[] = {command_list_.Get()};
+    cpu_phase_begin = std::chrono::steady_clock::now();
     command_queue_->ExecuteCommandLists(1, command_lists);
+    cpu_timing.queue_submit_ms = elapsed_ms(cpu_phase_begin);
 
+    cpu_phase_begin = std::chrono::steady_clock::now();
     result = swap_chain_->Present(hidden_window_ ? 0 : 1, 0);
     if (FAILED(result)) {
         return fail_device_operation("IDXGISwapChain::Present", result, error);
     }
+    cpu_timing.present_ms = elapsed_ms(cpu_phase_begin);
     frame_latency_wait_satisfied_ = false;
     pipeline.commit_presented_frame();
     const UINT64 fence_value = next_fence_value_++;
@@ -1416,6 +1456,8 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         return fail_device_operation("ID3D12CommandQueue::Signal(frame)", result, error);
     }
     frame.fence_value = fence_value;
+    cpu_timing.frame_ms = elapsed_ms(cpu_frame_begin);
+    const auto validation_readback_begin = std::chrono::steady_clock::now();
     if (capture_scene) {
         if (!collect_scene_readback(fence_value, error) ||
             (capture_noisy_radiance &&
@@ -1423,6 +1465,13 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
             !pipeline.collect_diagnostics(error)) {
             return false;
         }
+    }
+    cpu_timing.validation_readback_ms = capture_scene ?
+        elapsed_ms(validation_readback_begin) : 0.0;
+    performance_profiler_.set_cpu_timing(frame_index_, cpu_timing);
+    if (capture_scene &&
+        !performance_profiler_.collect(frame_index_, error)) {
+        return false;
     }
     return check_debug_messages(error);
 }
@@ -1546,6 +1595,14 @@ void DxrDevice::shutdown(bool flush_queue)
             debug_output("shutdown flush failed: " + flush_error);
         }
     }
+    if (performance_profiler_.enabled()) {
+        std::string profile_error;
+        if (!performance_profiler_.collect_all(profile_error)) {
+            debug_output("performance collection during shutdown failed: " +
+                         profile_error);
+        }
+    }
+    performance_profiler_.shutdown();
     for (FrameContext &frame : frames_) {
         frame.render_target.Reset();
         frame.command_allocator.Reset();

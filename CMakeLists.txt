@@ -279,6 +279,7 @@ if(AB3D2_ENABLE_DXR)
     src/renderer_dxr/dxr_debug.cpp
     src/renderer_dxr/dxr_device.cpp
     src/renderer_dxr/dxr_materials.cpp
+    src/renderer_dxr/dxr_performance.cpp
     src/renderer_dxr/dxr_pipeline.cpp
     src/renderer_dxr/dxr_renderer.cpp
     src/renderer_dxr/dxr_scene.cpp

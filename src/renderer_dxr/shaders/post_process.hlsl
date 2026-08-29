@@ -16,7 +16,7 @@ cbuffer PostConstants : register(b0)
     float DeltaSeconds;
     uint ResetHistory;
     uint BloomOperation;
-    uint Reserved;
+    uint ValidationEnabled;
 };
 
 static const uint HistogramBinCount = 128u;
@@ -415,10 +415,12 @@ void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     ToneMapState[AverageLuminanceStateIndex] = averageLuminance;
     ToneMapState[LowLuminanceStateIndex] = lowLuminance;
     ToneMapState[HighLuminanceStateIndex] = highLuminance;
-    Diagnostics[5] = asuint(exp2(-3.0) / targetLuminance);
-    Diagnostics[6] = asuint(exp2(-3.0) / adaptedLuminance);
-    Diagnostics[7] = asuint(averageLuminance);
-    Diagnostics[8] = asuint(lowLuminance);
-    Diagnostics[9] = asuint(highLuminance);
-    Diagnostics[10] = integerWeight;
+    if (ValidationEnabled != 0u) {
+        Diagnostics[5] = asuint(exp2(-3.0) / targetLuminance);
+        Diagnostics[6] = asuint(exp2(-3.0) / adaptedLuminance);
+        Diagnostics[7] = asuint(averageLuminance);
+        Diagnostics[8] = asuint(lowLuminance);
+        Diagnostics[9] = asuint(highLuminance);
+        Diagnostics[10] = integerWeight;
+    }
 }

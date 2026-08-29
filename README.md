@@ -795,6 +795,23 @@ callers. Hidden GPU validation remains unpaced because it reads each result
 back through a GPU fence and has no input-to-photon path; display pacing would
 only contaminate its timing metric.
 
+Set `AB3D2_DXR_PROFILE=1` to enable the frame-latent D3D12 timestamp profiler.
+`AB3D2_DXR_PROFILE_WARMUP` selects the unmeasured warmup (default 120 frames),
+and `AB3D2_DXR_PROFILE_SAMPLES` selects the measured window (default 600).
+After the last completed query slice is consumed through its existing frame
+fence, stdout receives one `[DXR-PERF]` JSON summary with adapter/driver,
+presentation/tracing/reconstruction extents, active ray settings, median/p95/
+p99/maximum GPU-stage times, and the corresponding CPU phase distributions.
+The profiler is off by default and never adds a same-frame wait. Profiles state
+`validation_enabled`: hidden smoke reports `true` because its acceptance
+counters and image readback are active, while ordinary visible performance
+reports `false`. Invalid environment values fail renderer initialization.
+
+Ordinary visible frames no longer clear, update, or copy the hidden-smoke
+diagnostic buffer. Its shader atomics and finite-guide scan remain enabled for
+hidden validation, preserving the exact coverage and non-finite checks without
+charging that validation workload to normal play.
+
 The RTX smoke then freezes the camera, view, and scene frame and presents
 `AB3D2_DXR_STABILITY_FRAMES` frames (default 24, range 4--4096), reporting the
 mean absolute per-component difference between consecutive presented frames on

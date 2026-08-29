@@ -21,6 +21,7 @@
 namespace ab3d2::dxr {
 
 class DxrStreamline;
+class DxrGpuProfiler;
 
 /* Layout mirrored by `PackedLightReservoir` in shaders/path_trace.hlsl. The
  * production renderer no longer publishes screen-space direct reservoirs, but
@@ -71,10 +72,11 @@ public:
                  UINT width, UINT height,
                  D3D12_CPU_DESCRIPTOR_HANDLE render_target_view,
                  const SceneFrame &frame,
-                 const RenderView &view, uint32_t frame_number,
-                 uint32_t frame_slot, float exposure_delta_seconds,
-                 DxrStreamline *streamline,
-                 std::string &error);
+                const RenderView &view, uint32_t frame_number,
+                uint32_t frame_slot, float exposure_delta_seconds,
+                DxrStreamline *streamline, bool validation_enabled,
+                DxrGpuProfiler *profiler,
+                std::string &error);
     void commit_presented_frame();
     bool collect_diagnostics(std::string &error);
     bool select_radiance_channel(uint32_t channel);
