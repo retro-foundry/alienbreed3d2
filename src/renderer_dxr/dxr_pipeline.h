@@ -266,7 +266,6 @@ private:
     uint32_t debug_view_ = 0;
     bool debug_view_requested_ = false;
     float debug_scalar_range_ = 8192.0f;
-    uint32_t indirect_reconstruction_mode_ = 0u;
     uint32_t radiance_channel_ = 0u;
     bool split_primary_ = false;
     bool single_primary_direct_survivor_ = false;

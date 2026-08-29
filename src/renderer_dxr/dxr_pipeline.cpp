@@ -586,9 +586,9 @@ bool DxrPipeline::configure_debug_view(std::string &error)
                      names[debug_view_]);
     }
 
-    constexpr std::array<const char *, 8> indirect_mode_names = {
-        "full", "temporal", "raw", "regional", "deflicker", "wavelet1",
-        "wavelet2", "restir"};
+    /* DLSS Ray Reconstruction owns indirect denoising. Keep `full` as a
+     * transition alias for existing launch configurations, but never select a
+     * renderer-owned temporal, regional, wavelet, or ReSTIR-GI path. */
     char reconstruction_value[64] = {};
     const DWORD reconstruction_length = GetEnvironmentVariableA(
         "AB3D2_DXR_INDIRECT_RECONSTRUCTION", reconstruction_value,
@@ -597,24 +597,15 @@ bool DxrPipeline::configure_debug_view(std::string &error)
         error = "AB3D2_DXR_INDIRECT_RECONSTRUCTION exceeds 63 bytes";
         return false;
     }
-    indirect_reconstruction_mode_ = static_cast<uint32_t>(
-        indirect_reconstruction::Mode::full);
     if (reconstruction_length != 0u) {
-        const auto found = std::find_if(
-            indirect_mode_names.begin(), indirect_mode_names.end(),
-            [&reconstruction_value](const char *name) {
-                return std::strcmp(reconstruction_value, name) == 0;
-            });
-        if (found == indirect_mode_names.end()) {
-            error = "AB3D2_DXR_INDIRECT_RECONSTRUCTION must be full, "
-                    "temporal, raw, regional, deflicker, wavelet1, or "
-                    "wavelet2, or restir";
+        if (std::strcmp(reconstruction_value, "raw") != 0 &&
+            std::strcmp(reconstruction_value, "full") != 0) {
+            error = "AB3D2_DXR_INDIRECT_RECONSTRUCTION supports only raw "
+                    "(`full` is a compatibility alias); DLSS Ray "
+                    "Reconstruction owns indirect denoising";
             return false;
         }
-        indirect_reconstruction_mode_ = static_cast<uint32_t>(
-            found - indirect_mode_names.begin());
-        debug_output(std::string("DXR indirect reconstruction mode: ") +
-                     indirect_mode_names[indirect_reconstruction_mode_]);
+        debug_output("DXR indirect reconstruction: fresh raw RR input");
     }
 
     constexpr std::array<const char *, 7> radiance_channel_names = {
@@ -879,12 +870,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         return false;
     }
 
-    const bool production_scheduler_supported =
-        indirect_reconstruction_mode_ != static_cast<uint32_t>(
-            indirect_reconstruction::Mode::raw) &&
-        indirect_reconstruction_mode_ != static_cast<uint32_t>(
-            indirect_reconstruction::Mode::restir) &&
-        reservoir_sample_limit_ != 0u && radiance_clamp_ == 0.0f;
+    const bool production_scheduler_supported = radiance_clamp_ == 0.0f;
     split_primary_ = resolve_environment_toggle(
         split_primary_override, production_scheduler_supported);
     single_primary_direct_survivor_ = resolve_environment_toggle(
@@ -897,52 +883,27 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     }
 
     single_continuation_lobe_ = resolve_environment_toggle(
-        continuation_lobe_override,
-        production_scheduler_supported && single_primary_direct_survivor_);
+        continuation_lobe_override, false);
     if (single_continuation_lobe_ && !single_primary_direct_survivor_) {
         error = "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1 requires "
             "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1";
         return false;
     }
-    if (single_continuation_lobe_ &&
-        indirect_reconstruction_mode_ == static_cast<uint32_t>(
-            indirect_reconstruction::Mode::restir)) {
-        error = "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1 is not valid with "
-            "AB3D2_DXR_INDIRECT_RECONSTRUCTION=restir";
-        return false;
-    }
-
     dense_mature_continuations_ = resolve_environment_toggle(
-        dense_mature_override,
-        production_scheduler_supported && single_continuation_lobe_);
-    if (dense_mature_continuations_ && !single_continuation_lobe_) {
-        error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 requires "
-            "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1";
+        dense_mature_override, false);
+    if (dense_mature_continuations_) {
+        error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 is unavailable: "
+            "fresh RR input has no renderer-owned radiance history";
         return false;
     }
-    if (dense_mature_continuations_ &&
-        (indirect_reconstruction_mode_ == static_cast<uint32_t>(
-             indirect_reconstruction::Mode::raw) ||
-         indirect_reconstruction_mode_ == static_cast<uint32_t>(
-             indirect_reconstruction::Mode::restir) ||
-         reservoir_sample_limit_ == 0u)) {
-        error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 requires an "
-            "adaptive temporal indirect reconstruction mode and a "
-            "nonzero reservoir limit";
-        return false;
-    }
-    if (dense_mature_continuations_ && radiance_clamp_ > 0.0f) {
-        error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 is not valid "
-            "with a nonzero AB3D2_DXR_RADIANCE_CLAMP";
-        return false;
-    }
-
     bounded_burst_continuations_ = resolve_environment_toggle(
         bounded_burst_override,
-        production_scheduler_supported && dense_mature_continuations_);
-    if (bounded_burst_continuations_ && !dense_mature_continuations_) {
+        production_scheduler_supported && split_primary_ &&
+            single_primary_direct_survivor_);
+    if (bounded_burst_continuations_ &&
+        (!split_primary_ || !single_primary_direct_survivor_)) {
         error = "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1 requires "
-            "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1";
+            "split primary and one primary direct survivor";
         return false;
     }
     interleaved_deep_diffuse_ = resolve_environment_toggle(
@@ -962,8 +923,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         bounded_burst_override == EnvironmentToggle::automatic &&
         interleaved_deep_diffuse_override == EnvironmentToggle::automatic) {
         debug_output("DXR combined scheduler automatic mode is inactive: "
-                     "raw/ReSTIR reconstruction, zero history, and nonzero "
-                     "radiance clamp retain their diagnostic control path");
+                     "a nonzero radiance clamp retains the direct path");
     }
     {
         char value[64] = {};
@@ -2674,11 +2634,10 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         direct_reservoir_binding_->SetName(
             L"AB3D2 Inactive Direct Reservoir Binding");
     }
-    const bool use_restir_gi =
-        indirect_reconstruction_mode_ == static_cast<uint32_t>(
-            indirect_reconstruction::Mode::restir);
-    const UINT gi_reservoir_element_count =
-        use_restir_gi ? width * height : 1u;
+    /* Kept as one inert descriptor until the obsolete diagnostic shader
+     * declarations are removed; RR-only production never allocates a GI
+     * reservoir per pixel. */
+    const UINT gi_reservoir_element_count = 1u;
     const D3D12_RESOURCE_DESC gi_reservoir_description =
         [gi_reservoir_element_count] {
         D3D12_RESOURCE_DESC reservoir = buffer_description(
@@ -2898,18 +2857,12 @@ bool DxrPipeline::record(ID3D12Device5 *device,
 #else
     (void)streamline;
 #endif
-    /* DLSS Ray Reconstruction is itself the production denoiser. Feeding its
-     * full mode through the project ASVGF-style temporal/regional/wavelet
-     * chain double-denoises sparse GI and turns high-energy samples into broad
-     * blotches. The accepted S0/S1 split and bounded work list instead publish
-     * fresh, unbiased indirect paths at every internal pixel. Named diagnostic
-     * reconstruction modes retain their exact stage boundaries. */
+    /* DLSS Ray Reconstruction is the sole production denoiser. The S0/S1
+     * split and bounded work list publish fresh, unbiased indirect paths at
+     * every internal pixel; no renderer-owned radiance history or spatial
+     * reconstruction is selected. */
     const bool ray_reconstruction_raw_indirect =
-        streamline_active && !debug_view_requested_ &&
-        indirect_reconstruction_mode_ == static_cast<uint32_t>(
-            indirect_reconstruction::Mode::full) &&
-        split_primary_ && single_primary_direct_survivor_ &&
-        bounded_burst_continuations_;
+        streamline_active && !debug_view_requested_;
     const bool effective_single_continuation_lobe =
         single_continuation_lobe_ && !ray_reconstruction_raw_indirect;
     const bool effective_dense_mature_continuations =
@@ -2917,9 +2870,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     const bool effective_bounded_burst_continuations =
         bounded_burst_continuations_ || ray_reconstruction_raw_indirect;
     const uint32_t effective_indirect_reconstruction_mode =
-        ray_reconstruction_raw_indirect ?
-            static_cast<uint32_t>(indirect_reconstruction::Mode::raw) :
-            indirect_reconstruction_mode_;
+        static_cast<uint32_t>(indirect_reconstruction::Mode::raw);
     bool speed_first_post = false;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     speed_first_post = streamline_active && streamline &&
