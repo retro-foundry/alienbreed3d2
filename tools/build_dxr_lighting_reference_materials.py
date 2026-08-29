@@ -73,6 +73,22 @@ def build_material(
 
 
 def build_reference_package(source_dir: Path, output_dir: Path) -> Path:
+    sparse_emitter = build_material(
+        source_dir,
+        "reference_sparse_emitter",
+        0xF0000009,
+        (255, 255, 255, 255),
+        0,
+        255,
+        200.0,
+    )
+    sparse_image = Image.new("RGBA", MATERIAL_SIZE, (0, 0, 0, 255))
+    for y in range(2):
+        for x in range(2):
+            sparse_image.putpixel((x, y), (255, 255, 255, 255))
+    sparse_image.save(
+        source_dir / sparse_emitter["channels"]["emissive"], format="PNG"
+    )
     materials = [
         build_material(
             source_dir,
@@ -139,6 +155,7 @@ def build_reference_package(source_dir: Path, output_dir: Path) -> Path:
             255,
             200.0,
         ),
+        sparse_emitter,
         build_material(
             source_dir,
             "reference_additive",

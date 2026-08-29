@@ -664,12 +664,14 @@ Indirect-light recovery oracle, 2026-08-29:
   identity, area, material, receiver, camera, and history epoch remain fixed;
   only the indirect radiance changes. The oracle reads the reconstructed
   `indirect` FP16 channel for twelve frames and compares ceilings
-  `16/8/4/2/1` from identical sample zero.
+  `16/8/4/2/1` from identical sample zero. The 4-by-4 emitter is deliberately
+  hostile to cheap material proxies: one 2-by-2 quadrant emits and the other
+  twelve texels are black.
 - Ceiling 16's normalized response over frames three through eight is
-  `0.5211`, with its fourth captured frame at `0.5478` of settled radiance.
-  The same six-frame metric is `0.1294/0.0413/0.0772/0.0002` for ceilings
-  `8/4/2/1`: only `24.82%/7.93%/14.80%/0.05%` of the control. Settled ratios
-  are `0.9261/0.8750/0.8367/0.5343`.
+  `0.4926`, with its fourth captured frame at `0.4247` of settled radiance.
+  The same six-frame metric is `0.0835/0.0785/0.0403/0.0078` for ceilings
+  `8/4/2/1`: only `16.95%/15.94%/8.17%/1.58%` of the control. Settled ratios
+  are `1.2990/0.9930/0.8655/0.2527`.
 - The acceptance gate requires at least `90%` of ceiling 16's recovery and
   settled radiance within `10%`. Every lower ceiling is rejected. Production
   remains at 16; the `6.3730/9.6050/10.5056 ms` ceiling-one profile is not a
@@ -679,6 +681,27 @@ The burst tail must therefore be made cheaper per ray or scheduled more
 coherently without reducing confirmed-change samples. Milestone 2's
 hardware-native material access and ray/payload specialization are now the
 next production work; deleting burst paths is closed by measured evidence.
+
+Retained-ray material attribution, 2026-08-29:
+
+- Specializing diffuse continuation hits to omit normal and roughness atlas
+  reads produced no repeatable timing gain and was removed; the shader compiler
+  already eliminates the unused result fields.
+- A second candidate kept all 16 continuation proposals and exact geometry but
+  selected them with a cheap material-independent proxy, reading the exact
+  emissive texel only for the survivor. It reduced the no-RR frame median from
+  `10.5597` to `9.1356 ms` and p95 from `57.1009` to `43.7454 ms`; burst median
+  fell from `5.3089` to `3.6987 ms`. With Streamline RR Quality, frame median
+  fell from `9.2116` to `8.0098 ms` and p95 from `28.2545` to `21.4356 ms`.
+- The candidate is mathematically unbiased, and broad Level A and saved-frame
+  comparisons looked stable, but it failed the sparse-emitter recovery oracle:
+  ceiling-16 recovery fell from the exact sampler's `0.4926` to `0.2776`, and
+  its fourth response frame fell from `0.4247` to `0.0736`. The proxy was
+  rejected and removed. Production continues to evaluate the exact emissive
+  texture for every proposal.
+- This result isolates repeated material access as meaningful cost without
+  authorizing a lower-quality proposal distribution. Continue with
+  hardware-native material sampling and exact payload/traversal specialization.
 
 ### Milestone 1 gate
 

@@ -19,6 +19,7 @@ enum { REFERENCE_FRAME_COUNT = 4, RADIANCE_CHANNEL_COUNT = 7 };
 #define REFERENCE_EMITTER UINT32_C(0xF0000006)
 #define REFERENCE_METAL_BELOW_016 UINT32_C(0xF0000007)
 #define REFERENCE_ROUGHNESS_025 UINT32_C(0xF0000008)
+#define REFERENCE_SPARSE_EMITTER UINT32_C(0xF0000009)
 #define REFERENCE_ADDITIVE UINT32_C(0xF0000100)
 
 typedef struct {
@@ -176,6 +177,12 @@ static void set_recovery_emitter_position(SceneVertex *vertices, int active)
         (SceneWorldPoint){450 + offset, 7680, -80 + offset};
     vertices[2].position =
         (SceneWorldPoint){400 + offset, -7680, -80 + offset};
+    vertices[0].texture_u = 0;
+    vertices[0].texture_v = 0;
+    vertices[1].texture_u = 1;
+    vertices[1].texture_v = 0;
+    vertices[2].texture_u = 0;
+    vertices[2].texture_v = 1;
 }
 
 static int run_indirect_recovery_capture(
@@ -230,7 +237,7 @@ static int run_indirect_recovery_capture(
                             REFERENCE_ROUGHNESS_100);
     SceneMeshSurface light_surface = {0};
     initialize_wall_surface(&light_surface, light_vertices, 3u,
-                            REFERENCE_EMITTER);
+                            REFERENCE_SPARSE_EMITTER);
     SceneCommand commands[3] = {0};
     commands[0].type = SCENE_COMMAND_CAMERA;
     commands[1].type = SCENE_COMMAND_GEOMETRY_INSTANCE;

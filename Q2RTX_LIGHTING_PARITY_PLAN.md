@@ -120,10 +120,12 @@ Last updated: 2026-08-29
   `ab3d2_renderer_rtx_indirect_recovery_test`. It matures dark history without
   changing the camera or receiver, moves the same dynamic authored emitter into
   its lit position without resetting history, and measures twelve reconstructed
-  indirect-only frames. Ceiling 16 reaches a `0.5211` normalized mean across
-  response frames three through eight. Ceilings 8/4/2/1 reach only
-  `0.1294/0.0413/0.0772/0.0002`, or
-  `24.82%/7.93%/14.80%/0.05%` of the control. All lower ceilings therefore
+  indirect-only frames. The emitter texture is deliberately sparse: one 2-by-2
+  white quadrant and twelve black texels. Ceiling 16 reaches a `0.4926`
+  normalized mean across response frames three through eight and `0.4247` on
+  the fourth response frame. Ceilings 8/4/2/1 reach only
+  `0.0835/0.0785/0.0403/0.0078`, or
+  `16.95%/15.94%/8.17%/1.58%` of the control. All lower ceilings therefore
   fail the `90%` recovery gate; ceiling 16 remains the production quality
   contract and the fast ceiling-one profile remains attribution only.
 
