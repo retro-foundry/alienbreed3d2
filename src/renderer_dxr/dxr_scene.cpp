@@ -201,10 +201,37 @@ struct MaterialImage {
     float maximum_emissive_luminance = 0.0f;
 };
 
-uint32_t material_packed_height(const MaterialImage &image)
+/* Every software mip is surrounded by one wrapped texel. The ray shader can
+ * then use one hardware-bilinear sample without filtering into another atlas
+ * tile, while the existing explicit Load path still addresses the content
+ * origin recorded in DxrSceneMaterial. */
+uint32_t material_atlas_packed_height(const MaterialImage &image)
 {
     return image.material_mips ?
-        material_mip::packed_height(image.width, image.height) : image.height;
+        material_mip::wrapped_packed_height(image.width, image.height) :
+        image.height + 2u;
+}
+
+void copy_wrapped_material_level(std::vector<uint8_t> &atlas,
+                                 uint32_t atlas_width,
+                                 uint32_t content_x, uint32_t content_y,
+                                 const std::vector<uint8_t> &pixels,
+                                 uint32_t width, uint32_t height)
+{
+    for (uint32_t padded_y = 0u; padded_y < height + 2u; ++padded_y) {
+        const uint32_t source_y = (padded_y + height - 1u) % height;
+        for (uint32_t padded_x = 0u; padded_x < width + 2u; ++padded_x) {
+            const uint32_t source_x = (padded_x + width - 1u) % width;
+            const size_t source_offset =
+                (static_cast<size_t>(source_y) * width + source_x) * 4u;
+            const size_t destination_offset =
+                (static_cast<size_t>(content_y - 1u + padded_y) *
+                     atlas_width +
+                 content_x - 1u + padded_x) * 4u;
+            std::memcpy(atlas.data() + destination_offset,
+                        pixels.data() + source_offset, 4u);
+        }
+    }
 }
 
 bool is_floor_material_source(SceneMaterialSource source)
@@ -1698,13 +1725,19 @@ bool DxrScene::compile(const SceneFrame &frame,
             uint32_t row_height = 0u;
             bool fits = true;
             for (MaterialImage &image : images) {
-                const uint32_t packed_height =
-                    material_packed_height(image);
-                if (image.width > candidate_width) {
+                if (image.width > atlas_maximum_extent - 2u ||
+                    image.height > atlas_maximum_extent - 2u) {
                     fits = false;
                     break;
                 }
-                if (x + image.width > candidate_width) {
+                const uint32_t packed_height =
+                    material_atlas_packed_height(image);
+                const uint32_t packed_width = image.width + 2u;
+                if (packed_width > candidate_width) {
+                    fits = false;
+                    break;
+                }
+                if (x + packed_width > candidate_width) {
                     x = 0u;
                     y += row_height;
                     row_height = 0u;
@@ -1713,9 +1746,9 @@ bool DxrScene::compile(const SceneFrame &frame,
                     fits = false;
                     break;
                 }
-                image.x = x;
-                image.y = y;
-                x += image.width;
+                image.x = x + 1u;
+                image.y = y + 1u;
+                x += packed_width;
                 row_height = std::max(row_height, packed_height);
             }
             if (fits) {
@@ -1747,21 +1780,17 @@ bool DxrScene::compile(const SceneFrame &frame,
                         material_mip::level_extent(image.height, level);
                     const uint32_t level_y = image.y +
                         (image.material_mips ?
-                             material_mip::level_y_offset(image.height, level) :
+                             material_mip::wrapped_level_y_offset(
+                                 image.height, level) :
                              0u);
                     const std::vector<uint8_t> &level_pixels =
                         image.material_mips ?
                             image.mip_pixels[channel][level] :
                             image.pixels[channel];
-                    for (uint32_t row = 0u; row < level_height; ++row) {
-                        std::memcpy(
-                            compiled_atlases[channel].data() +
-                                (static_cast<size_t>(level_y + row) *
-                                     atlas_width + image.x) * 4u,
-                            level_pixels.data() +
-                                static_cast<size_t>(row) * level_width * 4u,
-                            static_cast<size_t>(level_width) * 4u);
-                    }
+                    copy_wrapped_material_level(
+                        compiled_atlases[channel], atlas_width,
+                        image.x, level_y, level_pixels,
+                        level_width, level_height);
                 }
             }
             DxrSceneMaterial &material = compiled_materials[image_index];

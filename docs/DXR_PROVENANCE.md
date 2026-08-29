@@ -92,6 +92,13 @@ differentiates the camera-ray/triangle-plane intersection, computes the texel
 footprint's singular axes, uses a project-selected eight-tap bound, and performs
 manual repeat-aware line/trilinear sampling. No Q2RTX constant, equation, source
 text, sampler layout, texture data, or generated asset was copied.
+The 2026-08-29 performance pass retained that project-owned packed atlas and
+added a one-texel repeat gutter around every software mip. Exact authored-
+emitter proposals now use a project-authored D3D12 hardware-bilinear level-zero
+lookup over those gutters; directional reached-surface filtering remains the
+manual path above. The representation and sampler integration were derived in
+this repository, and no Q2RTX texture representation, descriptor layout,
+sampler code, or shader expression was copied.
 Authored sheets without a demonstrated runtime binding remain unbound. Source
 wall IDs 0 and 12 and every otherwise unauthored entry now have committed
 neutral placeholder PBR maps, so the runtime has no decoded-source material

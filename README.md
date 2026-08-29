@@ -618,6 +618,13 @@ source mode together, so animation does not repack the atlas or reset RR
 history. A missing/corrupt map or missing world/entity/weapon binding is fatal;
 the runtime does not regenerate fallback textures.
 
+Each software mip in the renderer-local atlas has a one-texel repeat-wrapped
+gutter. Exact primary and continuation emitter proposals use that gutter for
+one hardware-bilinear emissive lookup instead of four explicit atlas loads;
+all configured candidates, textured target values, PDFs, and selected-only
+visibility rays remain intact. The directional surface-material filter still
+uses the existing bounded software mip/anisotropic path.
+
 The current staged renderer keeps one pixel-centred camera ray with zero
 frame-varying subpixel jitter. Base colour is written as a reconstruction guide,
 not added to HDR as fake self-emission. The image shows directly visible

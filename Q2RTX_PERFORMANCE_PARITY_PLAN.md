@@ -703,6 +703,41 @@ Retained-ray material attribution, 2026-08-29:
   authorizing a lower-quality proposal distribution. Continue with
   hardware-native material sampling and exact payload/traversal specialization.
 
+First hardware-material checkpoint, 2026-08-29:
+
+- Every packed software mip now has a one-texel repeat-wrapped gutter. Primary
+  and continuation emitter evaluations use a static D3D12 bilinear sampler for
+  one exact level-zero emissive lookup instead of four explicit `Load`s. This
+  changes neither candidate count nor proposal distribution, and visibility is
+  still traced only for the exact RIS survivor. The existing bounded software
+  mip/anisotropic filter remains in place for reached-surface material channels.
+- Two 120-frame RR-off Level A controls measured frame median/p95 at
+  `7.7428/18.9941` and `7.3044/18.2324 ms`. The guttered hardware path measured
+  `6.5658/16.5215` and `6.9162/16.6094 ms`: average frame median improves
+  `10.4%` and p95 `11.0%`. Primary-shading median improves from an average
+  `3.1258` to `2.6947 ms` (`13.8%`). Burst p95 improves from `12.5896` to
+  `11.2337 ms` (`10.8%`) and burst p99 from `71.7227` to `64.2946 ms` (`10.4%`).
+- Streamline RR Quality at `853x480` tracing to `1280x720` passes the complete
+  Level A route at `6.6777/13.3097/37.6417 ms` frame median/p95/p99, with
+  `6.9053 ms` burst p95 and `1.7162 ms` RR median. The saved-state RR Quality
+  route also passes.
+- The sparse-emitter ceiling-16 recovery is `0.4725` with a `0.4288` fourth
+  response frame, versus `0.4926/0.4247` for explicit software bilinear. The
+  recovery ratio is `95.9%`, clearing the `90%` gate; ceilings 8/4/2/1 remain
+  rejected. RR-off saved-state metrics remain within noise of the software
+  path: frozen `6.8752/6.7721` delta/reprojected and Shotgun
+  `7.4052/7.1713`, with zero unexpected walk rebuilds in Level A.
+- Compacting the surface payload from 20 to 16 bytes by adopting Q2RTX's
+  invalid-primitive hit sentinel passed all lighting tests but was removed: two
+  candidate runs averaged `7.3765/18.8092 ms` frame median/p95 versus
+  `7.5236/18.6133 ms` for two controls, and burst p95 regressed from `12.5896`
+  to `12.9335 ms`. Source-level payload reduction without GPU-time improvement
+  does not pass this plan's acceptance rule.
+
+This first material slice is accepted. Full hardware-native surface filtering
+and bindless/per-material representation remain open; Milestone 2 is not
+complete.
+
 ### Milestone 1 gate
 
 The combined primary/direct/indirect/guide stages must reach `22 ms` or less at
@@ -722,6 +757,11 @@ their rays.
 The current software atlas can require four loads per bilinear mip, two mips per
 trilinear sample, up to eight anisotropic samples, and as many as five material
 channels. This is a likely multiplier on primary and continuation cost.
+
+The accepted first slice replaces the repeated level-zero emissive candidate
+lookup with a gutter-safe hardware sample. The work below now refers to the
+remaining reached-surface base-color, normal, metalness, roughness, emissive,
+mip, and anisotropic accesses.
 
 - Prototype one bindless SRV per authored texture/channel with real mip chains
   and hardware anisotropic sampling, or another single D3D12 representation

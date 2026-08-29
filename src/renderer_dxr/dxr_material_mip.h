@@ -93,6 +93,26 @@ inline constexpr uint32_t packed_height(uint32_t width, uint32_t height)
     return count == 0u ? 0u : level_y_offset(height, count);
 }
 
+/* Hardware filtering within a packed atlas needs one repeat-wrapped texel on
+ * every edge of every software mip. Coordinates stored in SceneMaterial point
+ * at the content origin inside this two-texel larger allocation. */
+inline constexpr uint32_t wrapped_level_y_offset(uint32_t base_height,
+                                                 uint32_t level)
+{
+    uint32_t offset = 0u;
+    for (uint32_t index = 0u; index < level; ++index) {
+        offset += level_extent(base_height, index) + 2u;
+    }
+    return offset;
+}
+
+inline constexpr uint32_t wrapped_packed_height(uint32_t width,
+                                                uint32_t height)
+{
+    const uint32_t count = level_count(width, height);
+    return count == 0u ? 0u : wrapped_level_y_offset(height, count);
+}
+
 inline float srgb_to_linear(uint8_t encoded)
 {
     const float value = static_cast<float>(encoded) / 255.0f;

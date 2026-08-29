@@ -206,6 +206,7 @@ Texture2D<float4> EmissiveAtlas : register(t7);
 StructuredBuffer<EmissiveTriangle> Emitters : register(t8);
 StructuredBuffer<SceneVertex> PreviousVertices : register(t9);
 ByteAddressBuffer BlueNoiseSampler : register(t10);
+SamplerState MaterialBilinearSampler : register(s0);
 
 RWTexture2D<float4> NoisyRadiance : register(u0);
 RWTexture2D<float4> DiffuseAlbedo : register(u1);
@@ -918,7 +919,7 @@ uint materialMipYOffset(uint baseHeight, uint level)
 {
     uint offset = 0u;
     for (uint index = 0u; index < level; ++index) {
-        offset += max(1u, baseHeight >> index);
+        offset += max(1u, baseHeight >> index) + 2u;
     }
     return offset;
 }
@@ -985,6 +986,30 @@ float4 sampleMaterialAtlas(Texture2D<float4> atlas,
                         atlas.Load(int3(footprint.texel11, 0)),
                         footprint.blend.x);
     return lerp(upper, lower, footprint.blend.y);
+}
+
+/* Scene compilation wraps every material level in a one-texel repeat gutter.
+ * All source subwindows are isolated into complete material tiles before this
+ * point, so hardware bilinear filtering is both exact at repeat seams and one
+ * texture operation instead of four explicit loads. */
+float4 sampleMaterialAtlasHardware(Texture2D<float4> atlas,
+                                   SceneMaterial material,
+                                   float2 textureCoordinate,
+                                   uint packedWindowOrigin,
+                                   uint packedWindowExtent)
+{
+    MaterialTextureWindow window = materialTextureWindow(
+        material, packedWindowOrigin, packedWindowExtent);
+    uint atlasWidth;
+    uint atlasHeight;
+    atlas.GetDimensions(atlasWidth, atlasHeight);
+    float2 atlasPosition = float2(material.atlasX, material.atlasY) +
+        float2(window.origin) +
+        frac(textureCoordinate) * float2(window.extent);
+    return atlas.SampleLevel(MaterialBilinearSampler,
+                             atlasPosition /
+                                 float2(atlasWidth, atlasHeight),
+                             0.0);
 }
 
 float4 sampleMaterialAtlasTrilinear(
@@ -1822,15 +1847,14 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
         return evaluation;
     }
     SceneMaterial lightMaterial = Materials[first.materialIndex];
-    MaterialSampleFootprint lightFootprint =
-        materialSampleFootprint(lightMaterial, lightUv,
-                                first.textureWindowOrigin,
-                                first.textureWindowExtent);
     float lightEmissiveScale = first.emissiveScale * barycentrics.x +
         second.emissiveScale * barycentrics.y +
         third.emissiveScale * barycentrics.z;
     float3 emittedRadiance =
-        sampleMaterialAtlas(EmissiveAtlas, lightFootprint).rgb *
+        sampleMaterialAtlasHardware(
+            EmissiveAtlas, lightMaterial, lightUv,
+            first.textureWindowOrigin,
+            first.textureWindowExtent).rgb *
         lightMaterial.emissiveFactor * lightEmissiveScale;
     BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
     evaluation.diffuseContribution =
@@ -1984,14 +2008,13 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
         return evaluation;
     }
     SceneMaterial lightMaterial = Materials[first.materialIndex];
-    MaterialSampleFootprint lightFootprint = materialSampleFootprint(
-        lightMaterial, lightUv, first.textureWindowOrigin,
-        first.textureWindowExtent);
     float lightEmissiveScale = first.emissiveScale * barycentrics.x +
         second.emissiveScale * barycentrics.y +
         third.emissiveScale * barycentrics.z;
-    float3 emittedRadiance = sampleMaterialAtlas(
-        EmissiveAtlas, lightFootprint).rgb *
+    float3 emittedRadiance = sampleMaterialAtlasHardware(
+        EmissiveAtlas, lightMaterial, lightUv,
+        first.textureWindowOrigin,
+        first.textureWindowExtent).rgb *
         lightMaterial.emissiveFactor * lightEmissiveScale;
     if (!any(emittedRadiance > 0.0)) {
         return evaluation;

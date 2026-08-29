@@ -64,6 +64,7 @@ struct DxrSceneVertex {
 static_assert(sizeof(DxrSceneVertex) == 56u);
 
 struct DxrSceneMaterial {
+    /* Content origin inside the material level's one-texel wrapped gutter. */
     uint32_t atlas_x;
     uint32_t atlas_y;
     uint32_t width;

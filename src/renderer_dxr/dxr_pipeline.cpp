@@ -1323,9 +1323,23 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
+    D3D12_STATIC_SAMPLER_DESC material_sampler = {};
+    material_sampler.Filter = D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+    material_sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    material_sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    material_sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    material_sampler.MaxAnisotropy = 1u;
+    material_sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    material_sampler.MinLOD = 0.0f;
+    material_sampler.MaxLOD = D3D12_FLOAT32_MAX;
+    material_sampler.ShaderRegister = 0u;
+    material_sampler.RegisterSpace = 0u;
+    material_sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     D3D12_ROOT_SIGNATURE_DESC root_description = {};
     root_description.NumParameters = static_cast<UINT>(parameters.size());
     root_description.pParameters = parameters.data();
+    root_description.NumStaticSamplers = 1u;
+    root_description.pStaticSamplers = &material_sampler;
     if (!serialize_root_signature(root_description, device, ray_root_signature_,
                                   L"AB3D2 DXR Path Trace Global Root Signature",
                                   error)) {

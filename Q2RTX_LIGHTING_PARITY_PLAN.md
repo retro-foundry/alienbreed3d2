@@ -128,6 +128,12 @@ Last updated: 2026-08-29
   `16.95%/15.94%/8.17%/1.58%` of the control. All lower ceilings therefore
   fail the `90%` recovery gate; ceiling 16 remains the production quality
   contract and the fast ceiling-one profile remains attribution only.
+- Exact emitter evaluation now uses one hardware-bilinear emissive sample from
+  a repeat-guttered atlas tile instead of four explicit texel loads. The
+  ceiling-16 sparse-emitter recovery remains `0.4725`, or `95.9%` of the
+  software sampler's `0.4926`, and its fourth response frame is `0.4288` versus
+  `0.4247`. All 16 proposals and the exact textured RIS target remain present;
+  this is an accepted cost reduction rather than the rejected proxy estimator.
 
 ## Implementation progress (2026-08-28)
 

@@ -47,6 +47,14 @@ int main()
            "256x256 floor/ceiling tile produces its complete packed pyramid");
     expect(level_count(3u, 5u) == 3u && packed_height(3u, 5u) == 8u,
            "non-power-of-two chains terminate and pack correctly");
+    expect(wrapped_level_y_offset(4u, 0u) == 0u &&
+               wrapped_level_y_offset(4u, 1u) == 6u &&
+               wrapped_level_y_offset(4u, 2u) == 10u &&
+               wrapped_packed_height(4u, 4u) == 13u,
+           "wrapped 4x4 levels reserve one repeat texel on every edge");
+    expect(wrapped_packed_height(256u, 256u) == 529u &&
+               wrapped_packed_height(3u, 5u) == 14u,
+           "wrapped atlas height covers power-of-two and uneven chains");
 
     const FilterFootprint isotropic = filter_footprint(
         4.0f, 4.0f, 1.0f, 9u);
