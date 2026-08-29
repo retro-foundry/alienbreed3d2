@@ -15,7 +15,6 @@
 #include "dxr_reconstruction_math.h"
 #include "dxr_light_grid.h"
 #include "dxr_output.h"
-#include "dxr_restir_gi.h"
 #include "dxr_scene.h"
 
 namespace ab3d2::dxr {
@@ -203,9 +202,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> indirect_radiance_;
     Microsoft::WRL::ComPtr<ID3D12Resource> indirect_filtered_;
     Microsoft::WRL::ComPtr<ID3D12Resource> indirect_chroma_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> indirect_chroma_filtered_;
-    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2>
-        indirect_gradients_;
     /* Streamline cannot use the renderer-private FP16 invalid-motion sentinel
      * when camera motion is already included. Keep a sanitized copy for RR. */
     Microsoft::WRL::ComPtr<ID3D12Resource> streamline_scene_motion_;
@@ -242,8 +238,6 @@ private:
         reconstruction_targets_;
     Microsoft::WRL::ComPtr<ID3D12Resource> streamline_output_;
     Microsoft::WRL::ComPtr<ID3D12Resource> direct_reservoir_binding_;
-    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> gi_reservoirs_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> gi_reservoir_scratch_;
     UINT descriptor_size_ = 0;
     UINT render_width_ = 0;
     UINT render_height_ = 0;

@@ -137,19 +137,6 @@ struct PackedLightReservoir
     uint surfaceTextureWindowExtent;
 };
 
-/* Project-owned ReSTIR GI sample layout mirrored by
- * restir_gi::PackedReservoir. The triangle/barycentric identity is stable
- * across geometry motion; position and orientation are reconstructed from the
- * current vertex buffer whenever the sample is reconnected. */
-struct PackedGIReservoir
-{
-    uint primitiveIndex;
-    uint sampleCount;
-    float weight;
-    float3 sampleRadiance;
-    float2 barycentrics;
-};
-
 struct SurfacePayload
 {
     float rayDistance;
@@ -239,9 +226,6 @@ RWTexture2D<float4> IndirectFiltered : register(u17);
 RWStructuredBuffer<float> AutomaticExposure : register(u18);
 RWTexture2D<float2> IndirectChroma : register(u19);
 RWTexture2D<float2> IndirectChromaFiltered : register(u20);
-RWTexture2D<float2> IndirectGradients[2] : register(u21);
-RWStructuredBuffer<PackedGIReservoir> GIReservoirs[2] : register(u23);
-RWStructuredBuffer<PackedGIReservoir> GITemporalScratch : register(u25);
 RWTexture2D<float2> StreamlineSceneMotion : register(u26);
 RWTexture2D<uint> ViewWeaponHistories[2] : register(u27);
 RWTexture2D<float> RayReconstructionDisocclusion : register(u29);
@@ -284,7 +268,7 @@ cbuffer FrameConstants : register(b0)
     float NdfTrim;
     uint SamplesPerPixel;
     float ExposureDeltaSeconds;
-    uint IndirectReconstructionMode;
+    uint ReservedIndirectReconstruction;
     uint RadianceChannel;
     uint RayReconstructionWeaponPoseTransition;
     uint IndirectSamplesPerPixel;
@@ -296,7 +280,7 @@ cbuffer FrameConstants : register(b0)
     uint ValidationEnabled;
     uint SinglePrimaryDirectSurvivor;
     uint SingleContinuationLobe;
-    uint DenseMatureContinuations;
+    uint ReservedDenseMatureContinuations;
     uint BoundedBurstContinuations;
     uint CompactLocalPrimary;
     uint ProxyPrimaryCandidates;
@@ -346,11 +330,6 @@ static const uint MaximumMaterialFilterTaps = 8u;
  * exhausting it leaves an opaque emissive quad rather than a hole in the world.
  */
 static const uint AdditiveLayerLimit = 16u;
-/* The split visibility payload has 28 spare bits above the bounded additive
- * layer count. The top bit hands one mature, scheduled diffuse continuation
- * to the dense quarter-pixel dispatch without allocating another full-frame
- * work mask. PrimaryVisibility overwrites it every frame. */
-static const uint PrimaryVisibilityDenseMatureFlag = 0x80000000u;
 /* D3D12_DISPATCH_RAYS_DESC::Width follows the four shader-table address
  * ranges. Native code pins this ABI with an offsetof static assertion. */
 static const uint BurstDispatchWidthOffset = 88u;
@@ -379,36 +358,6 @@ static const uint ReservoirNeighborOffsetMask =
 static const float ReservoirSpatialRadius = 32.0;
 static const float ReservoirDepthTolerance = 0.1;
 static const float ReservoirNormalTolerance = 0.5;
-static const uint IndirectDownsampleFactor = 3u;
-static const int IndirectFilterStep1 = 1;
-static const int IndirectFilterStep2 = 2;
-static const int IndirectFilterStep3 = 4;
-static const float IndirectDeflickerNeighborFactor = 2.0;
-static const uint IndirectGradientPassCount = 7u;
-static const float IndirectTemporalAntilagScale = 0.2;
-static const float IndirectTemporalAntilagHistoryPower = 10.0;
-static const float IndirectTemporalMinimumCurrentWeight = 0.01;
-static const float IndirectGradientConfirmationRate = 0.25;
-static const float IndirectGradientConfirmationThreshold = 0.4;
-static const uint StableIndirectSampleCount = 1u;
-static const uint StableIndirectSamplingPhaseCount = 4u;
-static const float AdaptiveHistoryMaturityTolerance = 0.5;
-static const uint IndirectReconstructionFull = 0u;
-static const uint IndirectReconstructionTemporal = 1u;
-static const uint IndirectReconstructionRaw = 2u;
-static const uint IndirectReconstructionRegional = 3u;
-static const uint IndirectReconstructionDeflicker = 4u;
-static const uint IndirectReconstructionWavelet1 = 5u;
-static const uint IndirectReconstructionWavelet2 = 6u;
-static const uint IndirectReconstructionRestir = 7u;
-static const float GIContinuationRadialPower = 0.4;
-static const uint GISpatialSampleCount = 4u;
-static const float GISpatialRadius = 32.0;
-static const uint GITemporalStream = 0x30000u;
-static const uint GITemporalAcceptanceStream = 0x30100u;
-static const uint GISpatialStream = 0x30200u;
-static const uint GISpatialAcceptanceStream = 0x30300u;
-static const uint GIInitialAcceptanceStream = 0x30400u;
 static const float IndirectShBasisL0 = 0.282095;
 static const float IndirectShBasisL1 = 0.488603;
 static const float IndirectShIrradianceL0 = 0.886226;
@@ -874,32 +823,6 @@ MaterialTextureWindow materialTextureWindow(SceneMaterial material,
         window.extent = uint2(material.width, material.height);
     }
     return window;
-}
-
-/* Solid-angle density of lowFrequencyDiffuseHemisphere. With radial sample
- * r=u^p and uniform azimuth, p_omega is
- * cos(theta)/(2*pi*p) * sin(theta)^(1/p-2). */
-float lowFrequencyDiffusePdf(float3 geometricNormal, float3 direction)
-{
-    float cosine = saturate(dot(geometricNormal, direction));
-    float radial = sqrt(max(0.0, 1.0 - cosine * cosine));
-    float exponent = 1.0 / GIContinuationRadialPower - 2.0;
-    return cosine > 0.0 ?
-        cosine * pow(radial, exponent) /
-            (2.0 * Pi * GIContinuationRadialPower) : 0.0;
-}
-
-/* Q2RTX's low-frequency continuation broadens a cosine sample with p=0.4
- * while retaining cosine-estimator throughput. Express that deliberate
- * directional kernel as p_broad/p_cos so ReSTIR can resample it coherently.
- * Its integral is one for constant incident radiance: this redistributes
- * transport toward grazing doorway directions; it is not an energy gain. */
-float lowFrequencyDiffuseBias(float3 geometricNormal, float3 direction)
-{
-    float cosine = saturate(dot(geometricNormal, direction));
-    float cosinePdf = cosine / Pi;
-    float broadPdf = lowFrequencyDiffusePdf(geometricNormal, direction);
-    return cosinePdf > 0.0 ? broadPdf / cosinePdf : 0.0;
 }
 
 uint2 materialTexel(SceneMaterial material, float2 textureCoordinate,
@@ -2403,162 +2326,6 @@ float3 sampleSmoothSpecularPath(uint2 pixel, uint sampleIndex,
     return result;
 }
 
-PackedGIReservoir emptyGIReservoir()
-{
-    PackedGIReservoir reservoir = (PackedGIReservoir)0;
-    reservoir.primitiveIndex = InvalidIndex;
-    return reservoir;
-}
-
-struct GISampleEvaluation
-{
-    float3 incident;
-    float target;
-    bool valid;
-};
-
-/* ReSTIR GI uses secondary surface area as its common sample measure. The
- * initial broad continuation density becomes p_A = p_omega cos_y/r^2. */
-float giAreaPdf(float3 primaryPosition, float3 primaryNormal,
-                SurfaceData secondarySurface)
-{
-    float3 offset = secondarySurface.position - primaryPosition;
-    float distanceSquared = dot(offset, offset);
-    if (!(distanceSquared > RayEpsilon * RayEpsilon)) {
-        return 0.0;
-    }
-    float3 direction = offset * rsqrt(distanceSquared);
-    float secondaryCosine = saturate(dot(
-        secondarySurface.geometricNormal, -direction));
-    return lowFrequencyDiffusePdf(primaryNormal, direction) *
-        secondaryCosine / distanceSquared;
-}
-
-float3 giReconnectIncident(float3 primaryPosition, float3 primaryNormal,
-                           SurfaceData secondarySurface,
-                           float3 secondaryRadiance)
-{
-    float3 offset = secondarySurface.position - primaryPosition;
-    float distanceSquared = dot(offset, offset);
-    if (!(distanceSquared > RayEpsilon * RayEpsilon)) {
-        return 0.0;
-    }
-    float3 direction = offset * rsqrt(distanceSquared);
-    float primaryCosine = saturate(dot(primaryNormal, direction));
-    float secondaryCosine = saturate(dot(
-        secondarySurface.geometricNormal, -direction));
-    float directionalBias = lowFrequencyDiffuseBias(
-        primaryNormal, direction);
-    return secondaryRadiance * directionalBias *
-        (primaryCosine * secondaryCosine / (Pi * distanceSquared));
-}
-
-bool loadGISecondarySurface(PackedGIReservoir reservoir,
-                            float3 primaryPosition,
-                            out SurfaceData secondarySurface)
-{
-    secondarySurface = (SurfaceData)0;
-    if (reservoir.primitiveIndex >= TriangleCount ||
-        any(reservoir.barycentrics < 0.0) ||
-        reservoir.barycentrics.x + reservoir.barycentrics.y > 1.0) {
-        return false;
-    }
-    uint firstVertex = reservoir.primitiveIndex * 3u;
-    float firstWeight = 1.0 - reservoir.barycentrics.x -
-        reservoir.barycentrics.y;
-    float3 secondaryPosition =
-        Vertices[firstVertex + 0u].position * firstWeight +
-        Vertices[firstVertex + 1u].position * reservoir.barycentrics.x +
-        Vertices[firstVertex + 2u].position * reservoir.barycentrics.y;
-    float3 incoming = secondaryPosition - primaryPosition;
-    if (dot(incoming, incoming) <= RayEpsilon * RayEpsilon) {
-        return false;
-    }
-    SurfacePayload payload;
-    payload.rayDistance = length(incoming);
-    payload.barycentrics = reservoir.barycentrics;
-    payload.primitiveIndex = reservoir.primitiveIndex;
-    payload.hit = 1u;
-    secondarySurface = loadSurface(payload, normalize(incoming));
-    secondarySurface.shadingNormal = secondarySurface.geometricNormal;
-    return secondarySurface.primitive != WorldEffectPrimitive;
-}
-
-GISampleEvaluation evaluateGISample(PackedGIReservoir reservoir,
-                                    float3 primaryPosition,
-                                    float3 primaryNormal,
-                                    float3 primaryAlbedo,
-                                    bool testVisibility)
-{
-    GISampleEvaluation evaluation;
-    evaluation.incident = 0.0;
-    evaluation.target = 0.0;
-    evaluation.valid = false;
-    if (!(reservoir.weight > 0.0) || reservoir.sampleCount == 0u ||
-        !any(reservoir.sampleRadiance > 0.0)) {
-        return evaluation;
-    }
-    SurfaceData secondarySurface;
-    if (!loadGISecondarySurface(reservoir, primaryPosition,
-                                secondarySurface)) {
-        return evaluation;
-    }
-    float3 offset = secondarySurface.position - primaryPosition;
-    float distance = length(offset);
-    float3 direction = offset / max(distance, RayEpsilon);
-    if (testVisibility && !traceVisibility(
-            primaryPosition + primaryNormal * RayEpsilon, direction,
-            distance - RayEpsilon, SceneInstanceMask)) {
-        return evaluation;
-    }
-    evaluation.incident = giReconnectIncident(
-        primaryPosition, primaryNormal, secondarySurface,
-        reservoir.sampleRadiance);
-    evaluation.target = luminance(primaryAlbedo * evaluation.incident);
-    evaluation.valid = evaluation.target > 0.0 &&
-        !any(isnan(evaluation.incident)) &&
-        !any(isinf(evaluation.incident));
-    return evaluation;
-}
-
-void streamGIReservoir(inout PackedGIReservoir output,
-                       PackedGIReservoir source,
-                       GISampleEvaluation evaluation,
-                       float acceptance,
-                       inout float weightSum,
-                       inout uint totalCount,
-                       inout float selectedTarget)
-{
-    uint sourceCount = min(source.sampleCount,
-        max(ReservoirSampleLimit, max(IndirectSamplesPerPixel, 1u)));
-    float candidateWeight = evaluation.valid ?
-        evaluation.target * source.weight * float(sourceCount) : 0.0;
-    float combinedWeight = weightSum + candidateWeight;
-    if (candidateWeight > 0.0 &&
-        acceptance * combinedWeight < candidateWeight) {
-        output = source;
-        selectedTarget = evaluation.target;
-    }
-    weightSum = combinedWeight;
-    totalCount += sourceCount;
-}
-
-void finalizeGIReservoir(inout PackedGIReservoir reservoir,
-                         float weightSum, float selectedTarget,
-                         uint totalCount)
-{
-    uint countLimit = ReservoirSampleLimit > 0u ? ReservoirSampleLimit :
-        max(IndirectSamplesPerPixel, 1u);
-    reservoir.sampleCount = min(totalCount, countLimit);
-    reservoir.weight = weightSum > 0.0 && selectedTarget > 0.0 &&
-            totalCount > 0u ?
-        weightSum / (selectedTarget * float(totalCount)) : 0.0;
-    if (!(reservoir.weight > 0.0) || isnan(reservoir.weight) ||
-        isinf(reservoir.weight)) {
-        reservoir = emptyGIReservoir();
-        reservoir.sampleCount = min(totalCount, countLimit);
-    }
-}
 
 EmitterEvaluation evaluateEnvironmentSample(SurfaceData surface,
                                              float3 viewDirection,
@@ -3484,11 +3251,6 @@ void writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
     }
 }
 
-uint adaptiveIndirectSampleCount(uint2 pixel, uint2 dimensions,
-                                 float currentDepth,
-                                 float3 currentNormal,
-                                 out bool stableHistory);
-
 void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                   float3 unjitteredDirection,
                   SegmentTraversal primarySegment)
@@ -3509,10 +3271,6 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
     float3 resolvedRadiance = includeVisibleEmission ?
         primarySegment.additiveRadiance : 0.0;
     IndirectSignal resolvedIndirectSignal = emptyIndirectSignal();
-    PackedGIReservoir currentGI = emptyGIReservoir();
-    float giWeightSum = 0.0;
-    float giSelectedTarget = 0.0;
-    uint giCandidateCount = 0u;
     float3 primaryGeometricNormal = 0.0;
     float primaryDepth = 0.0;
     uint indirectSampleCount = 0u;
@@ -3540,29 +3298,13 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
          * EmitterCount; do not suppress smooth or diffuse transport here. */
         if (EmitterCount > 0u || MaximumDepth >= 2u) {
             uint directSampleCount = max(SamplesPerPixel, 1u);
-            /* Direct polygon NEE and indirect continuation counts are
-             * independent. Extra GI paths therefore spend no primary shadow
-             * ray, and their true count can advance temporal history below. */
-            bool stableHistory = false;
+            /* Direct polygon NEE and fresh indirect continuation counts are
+             * independent. Extra GI paths spend no primary shadow ray. */
             indirectSampleCount = MaximumDepth >= 2u && DiffuseGiScale > 0.0 &&
                     luminance(primaryThroughput) > 1.0e-6 ?
-                adaptiveIndirectSampleCount(
-                    pixel, dimensions, primaryDepth,
-                    primaryGeometricNormal,
-                    stableHistory) : 0u;
-            bool deferMatureContinuation =
-                DenseMatureContinuations != 0u && stableHistory &&
-                indirectSampleCount == StableIndirectSampleCount;
-            if (deferMatureContinuation) {
-                uint4 densePacked = PrimaryVisibilityBuffer[pixel];
-                densePacked.w =
-                    primarySegment.additiveLayers |
-                    PrimaryVisibilityDenseMatureFlag;
-                PrimaryVisibilityBuffer[pixel] = densePacked;
-            }
+                max(IndirectSamplesPerPixel, 1u) : 0u;
             bool deferBurstContinuation =
-                BoundedBurstContinuations != 0u && !stableHistory &&
-                indirectSampleCount > 0u;
+                BoundedBurstContinuations != 0u && indirectSampleCount > 0u;
             if (deferBurstContinuation) {
                 uint appendSlot = 0u;
                 BurstDispatchArguments.InterlockedAdd(
@@ -3636,8 +3378,7 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                 /* The dense pass repeats the exact lobe choice and diffuse
                  * sample stream. Smooth continuation and all direct work stay
                  * here, while burst/disoccluded GI never sets this flag. */
-                if ((deferMatureContinuation && sampleOrdinal == 0u) ||
-                    deferBurstContinuation) {
+                if (deferBurstContinuation) {
                     traceDiffuseContinuation = false;
                 }
                 float3 sampleSmoothSpecular = traceSmoothSpecular ?
@@ -3647,10 +3388,6 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                 float3 sampleIndirectIncident = 0.0;
                 float3 sampleIndirectDirection = surface.geometricNormal;
                 if (traceDiffuseContinuation) {
-                    if (IndirectReconstructionMode ==
-                            IndirectReconstructionRestir) {
-                        giCandidateCount += 1u;
-                    }
                     DiffusePathSample pathSample = sampleDiffusePath(
                         pixel, indirectSampleIndex, surface);
                     sampleIndirectDirection = pathSample.firstDirection;
@@ -3659,44 +3396,6 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                     if (sampleOrdinal == 0u &&
                         (DiagnosticGuideMask & 2u) != 0u) {
                         DiffuseHitDistance[pixel] = pathSample.firstDistance;
-                    }
-                    bool finiteIndirect =
-                        !any(isnan(sampleIndirectIncident)) &&
-                        !any(isinf(sampleIndirectIncident));
-                    if (IndirectReconstructionMode ==
-                            IndirectReconstructionRestir &&
-                        pathSample.firstHit && finiteIndirect &&
-                        any(sampleIndirectIncident > 0.0)) {
-                        PackedGIReservoir candidate = emptyGIReservoir();
-                        candidate.primitiveIndex =
-                            pathSample.firstPayload.primitiveIndex;
-                        candidate.sampleCount = 1u;
-                        candidate.weight = 1.0;
-                        candidate.sampleRadiance = sampleIndirectIncident;
-                        candidate.barycentrics =
-                            pathSample.firstPayload.barycentrics;
-                        float3 incident = giReconnectIncident(
-                            surface.position, surface.geometricNormal,
-                            pathSample.firstSurface,
-                            sampleIndirectIncident);
-                        float candidateTarget = luminance(
-                            primaryThroughput * incident);
-                        float areaPdf = giAreaPdf(
-                            surface.position, surface.geometricNormal,
-                            pathSample.firstSurface);
-                        float candidateWeight = areaPdf > 0.0 ?
-                            candidateTarget / areaPdf : 0.0;
-                        float combinedWeight =
-                            giWeightSum + candidateWeight;
-                        float acceptance = sampleStream(
-                            pixel, indirectSampleIndex,
-                            GIInitialAcceptanceStream).x;
-                        if (candidateWeight > 0.0 &&
-                            acceptance * combinedWeight < candidateWeight) {
-                            currentGI = candidate;
-                            giSelectedTarget = candidateTarget;
-                        }
-                        giWeightSum = combinedWeight;
                     }
                 }
                 float3 sampleRadiance = sampleDirect.diffuse +
@@ -3774,14 +3473,6 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
     IndirectChroma[pixel] = resolvedIndirectSignal.chroma;
     uint historyIndex = pixel.y * dimensions.x + pixel.x;
     uint currentHistorySlot = SampleIndex & 1u;
-    if (IndirectReconstructionMode == IndirectReconstructionRestir &&
-        primaryPayload.hit != 0u) {
-        finalizeGIReservoir(currentGI, giWeightSum, giSelectedTarget,
-                            giCandidateCount);
-    }
-    if (IndirectReconstructionMode == IndirectReconstructionRestir) {
-        GIReservoirs[currentHistorySlot][historyIndex] = currentGI;
-    }
     IndirectHistoryPixel currentIndirect = (IndirectHistoryPixel)0;
     if (primaryPayload.hit != 0u) {
         currentIndirect.luminanceSH = resolvedIndirectSignal.luminanceSH;
@@ -3919,427 +3610,11 @@ void ShadePrimary()
     segment.payload.hit = packed.x != InvalidIndex ? 1u : 0u;
     segment.additiveRadiance = NoisyRadiance[pixel].rgb;
     segment.distance = 0.0;
-    segment.additiveLayers =
-        packed.w & ~PrimaryVisibilityDenseMatureFlag;
+    segment.additiveLayers = packed.w;
     shadePrimary(pixel, dimensions, direction, unjitteredDirection, segment);
 }
 
-float indirectDepthWeight(float centerDepth, float sampleDepth)
-{
-    if (!(centerDepth > 0.0) || !(sampleDepth > 0.0)) {
-        return 0.0;
-    }
-    float relativeDifference = abs(sampleDepth - centerDepth) /
-        max(centerDepth, 1.0);
-    return saturate(1.0 - relativeDifference / ReservoirDepthTolerance);
-}
 
-float indirectNormalWeight(float normalDot)
-{
-    float accepted = saturate(
-        (normalDot - ReservoirNormalTolerance) /
-        (1.0 - ReservoirNormalTolerance));
-    return accepted * accepted;
-}
-
-float3 primaryWorldPosition(uint2 pixel, uint2 dimensions, float depth)
-{
-    float2 screen = (float2(pixel) + 0.5) / float2(dimensions);
-    float2 ndc = float2(screen.x * 2.0 - 1.0,
-                        1.0 - screen.y * 2.0);
-    float3 direction = normalize(CameraForward +
-        CameraRight * (ndc.x * Aspect * TanHalfFovY) +
-        CameraUp * (ndc.y * TanHalfFovY));
-    float projected = max(dot(direction, CameraForward), 1.0e-6);
-    return CameraPosition + direction * (depth / projected);
-}
-
-bool giTemporalGuideMatches(IndirectHistoryPixel previousGuide,
-                            float3 currentPosition,
-                            float3 currentNormal)
-{
-    if (!(previousGuide.historyLength > 0.0)) {
-        return false;
-    }
-    float expectedDepth = dot(
-        currentPosition - PreviousCameraPosition, PreviousCameraForward);
-    if (!(expectedDepth > RayEpsilon) ||
-        abs(previousGuide.depth - expectedDepth) >
-            ReservoirDepthTolerance * max(expectedDepth, 1.0)) {
-        return false;
-    }
-    return dot(currentNormal,
-               unpackOctahedralNormal(previousGuide.normal)) >=
-        ReservoirNormalTolerance;
-}
-
-bool giSpatialGuideMatches(IndirectHistoryPixel centerGuide,
-                           IndirectHistoryPixel neighborGuide)
-{
-    /* A ReSTIR GI reservoir stores a secondary surface, not filtered
-     * irradiance at its original primary. Do not reject a nearby proposal
-     * merely because the two visible primaries meet at a corner. SpatialGI
-     * reconstructs current secondary geometry, retargets the sample at the
-     * center primary, and traces fresh visibility before it can contribute. */
-    return centerGuide.historyLength > 0.0 &&
-        neighborGuide.historyLength > 0.0;
-}
-
-/* The first ReSTIR GI reuse pass combines the current secondary-surface
- * sample with one validated, motion-reprojected reservoir. Every reused path
- * is reconnected at the current primary and conservatively visibility tested.
- * Basic normalization is intentional: it is the published low-cost biased
- * mode, while final visibility is always fresh. */
-[shader("raygeneration")]
-void TemporalGI()
-{
-    uint2 pixel = DispatchRaysIndex().xy;
-    uint2 dimensions = DispatchRaysDimensions().xy;
-    uint index = pixel.y * dimensions.x + pixel.x;
-    uint currentSlot = SampleIndex & 1u;
-    uint previousSlot = 1u - currentSlot;
-    IndirectHistoryPixel centerGuide =
-        loadIndirectHistory(currentSlot, index);
-    if (!(centerGuide.historyLength > 0.0)) {
-        GITemporalScratch[index] = emptyGIReservoir();
-        return;
-    }
-
-    float3 primaryPosition = giPrimaryWorldPosition(
-        pixel, dimensions, centerGuide.depth);
-    float3 primaryNormal = unpackOctahedralNormal(centerGuide.normal);
-    float3 primaryAlbedo = DiffuseAlbedo[pixel].rgb;
-    PackedGIReservoir output = emptyGIReservoir();
-    float weightSum = 0.0;
-    float selectedTarget = 0.0;
-    uint totalCount = 0u;
-
-    PackedGIReservoir current = GIReservoirs[currentSlot][index];
-    GISampleEvaluation currentEvaluation = evaluateGISample(
-        current, primaryPosition, primaryNormal, primaryAlbedo, false);
-    streamGIReservoir(
-        output, current, currentEvaluation,
-        sampleStream(pixel, SampleIndex, GITemporalAcceptanceStream).x,
-        weightSum, totalCount, selectedTarget);
-
-    float2 motion = SceneMotion[pixel];
-    if (HistoryValid != 0u && ReservoirSampleLimit > 0u &&
-        !any(abs(motion) >= InvalidMotion)) {
-        float2 reprojected = reprojectHistoryPixel(pixel, motion);
-        int2 center = int2(floor(reprojected));
-        for (uint attempt = 0u;
-             attempt < ReservoirTemporalSearchAttempts; ++attempt) {
-            int2 offset = 0;
-            if (attempt > 0u) {
-                float2 random = sampleStream(
-                    pixel, SampleIndex, GITemporalStream + attempt).xy;
-                offset = int2(round((random - 0.5) *
-                                    ReservoirTemporalSearchRadius));
-            }
-            int2 previousPixel = center + offset;
-            if (any(previousPixel < 0) ||
-                any(previousPixel >= int2(dimensions))) {
-                continue;
-            }
-            uint previousIndex = uint(previousPixel.y) * dimensions.x +
-                uint(previousPixel.x);
-            IndirectHistoryPixel previousGuide =
-                loadIndirectHistory(previousSlot, previousIndex);
-            if (!giTemporalGuideMatches(previousGuide, primaryPosition,
-                                        primaryNormal)) {
-                continue;
-            }
-            PackedGIReservoir previous =
-                GIReservoirs[previousSlot][previousIndex];
-            GISampleEvaluation previousEvaluation = evaluateGISample(
-                previous, primaryPosition, primaryNormal, primaryAlbedo,
-                true);
-            streamGIReservoir(
-                output, previous, previousEvaluation,
-                sampleStream(pixel, SampleIndex,
-                    GITemporalAcceptanceStream + attempt + 1u).x,
-                weightSum, totalCount, selectedTarget);
-            break;
-        }
-    }
-    finalizeGIReservoir(output, weightSum, selectedTarget, totalCount);
-    GITemporalScratch[index] = output;
-}
-
-/* A separate dispatch is required so every lookup observes the completed
- * temporal field. Four project-authored low-discrepancy offsets reconnect
- * neighbor samples at the center surface; the published reservoir remains in
- * the current ping-pong slot for next frame's temporal pass. */
-[shader("raygeneration")]
-void SpatialGI()
-{
-    uint2 pixel = DispatchRaysIndex().xy;
-    uint2 dimensions = DispatchRaysDimensions().xy;
-    uint index = pixel.y * dimensions.x + pixel.x;
-    uint currentSlot = SampleIndex & 1u;
-    IndirectHistoryPixel centerGuide =
-        loadIndirectHistory(currentSlot, index);
-    if (!(centerGuide.historyLength > 0.0)) {
-        GIReservoirs[currentSlot][index] = emptyGIReservoir();
-        return;
-    }
-
-    float3 primaryPosition = giPrimaryWorldPosition(
-        pixel, dimensions, centerGuide.depth);
-    float3 primaryNormal = unpackOctahedralNormal(centerGuide.normal);
-    float3 primaryAlbedo = DiffuseAlbedo[pixel].rgb;
-    PackedGIReservoir output = emptyGIReservoir();
-    float weightSum = 0.0;
-    float selectedTarget = 0.0;
-    uint totalCount = 0u;
-
-    PackedGIReservoir center = GITemporalScratch[index];
-    GISampleEvaluation centerEvaluation = evaluateGISample(
-        center, primaryPosition, primaryNormal, primaryAlbedo, false);
-    streamGIReservoir(
-        output, center, centerEvaluation,
-        sampleStream(pixel, SampleIndex, GISpatialAcceptanceStream).x,
-        weightSum, totalCount, selectedTarget);
-
-    if (ReservoirSampleLimit > 0u) {
-        uint neighborStart = min(uint(sampleStream(
-            pixel, SampleIndex, GISpatialStream).x *
-            float(ReservoirNeighborOffsetCount)),
-            ReservoirNeighborOffsetMask);
-        for (uint attempt = 0u; attempt < GISpatialSampleCount; ++attempt) {
-            float2 offset = reservoirNeighborOffset(neighborStart + attempt);
-            int2 neighborPixel = int2(pixel) +
-                int2(round(GISpatialRadius * offset));
-            if (all(neighborPixel == int2(pixel)) ||
-                any(neighborPixel < 0) ||
-                any(neighborPixel >= int2(dimensions))) {
-                continue;
-            }
-            uint neighborIndex = uint(neighborPixel.y) * dimensions.x +
-                uint(neighborPixel.x);
-            IndirectHistoryPixel neighborGuide =
-                loadIndirectHistory(currentSlot, neighborIndex);
-            if (!giSpatialGuideMatches(centerGuide, neighborGuide)) {
-                continue;
-            }
-            PackedGIReservoir neighbor =
-                GITemporalScratch[neighborIndex];
-            /* This is the cross-corner safety boundary: reconnection applies
-             * the center normal and geometry term, while `true` requires a
-             * fresh segment visibility query in current scene geometry. */
-            GISampleEvaluation neighborEvaluation = evaluateGISample(
-                neighbor, primaryPosition, primaryNormal, primaryAlbedo,
-                true);
-            streamGIReservoir(
-                output, neighbor, neighborEvaluation,
-                sampleStream(pixel, SampleIndex,
-                    GISpatialAcceptanceStream + attempt + 1u).x,
-                weightSum, totalCount, selectedTarget);
-        }
-    }
-    finalizeGIReservoir(output, weightSum, selectedTarget, totalCount);
-    GIReservoirs[currentSlot][index] = output;
-}
-
-struct IndirectTemporalSample
-{
-    IndirectSignal signal;
-    float historyLength;
-    float gradientConfidence;
-    float weightSum;
-};
-
-IndirectTemporalSample reprojectIndirectHistory(
-    uint2 pixel, uint2 dimensions, float currentDepth, float3 currentNormal)
-{
-    IndirectTemporalSample result;
-    result.signal = emptyIndirectSignal();
-    result.historyLength = 0.0;
-    result.gradientConfidence = 0.0;
-    result.weightSum = 0.0;
-    float2 motion = SceneMotion[pixel];
-    if (HistoryValid == 0u || ReservoirSampleLimit == 0u ||
-        any(abs(motion) >= InvalidMotion)) {
-        return result;
-    }
-
-    /* SceneMotion is previousPixel-currentPixel in pixel units. Keeping the
-     * fractional coordinate and gathering its four surrounding samples avoids
-     * the one-pixel history jumps caused by the former rounded lookup. */
-    float2 previousPosition = float2(pixel) + motion;
-    int2 previousBase = int2(floor(previousPosition));
-    float2 previousFraction = frac(previousPosition);
-    float bilinearWeights[4] = {
-        (1.0 - previousFraction.x) * (1.0 - previousFraction.y),
-        previousFraction.x * (1.0 - previousFraction.y),
-        (1.0 - previousFraction.x) * previousFraction.y,
-        previousFraction.x * previousFraction.y,
-    };
-    int2 offsets[4] = {
-        int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
-    uint previousSlot = 1u - (SampleIndex & 1u);
-    float3 worldPosition = primaryWorldPosition(
-        pixel, dimensions, currentDepth);
-    float expectedPreviousDepth = dot(
-        worldPosition - PreviousCameraPosition,
-        PreviousCameraForward);
-    for (uint tap = 0u; tap < 4u; ++tap) {
-        int2 previousPixel = previousBase + offsets[tap];
-        if (bilinearWeights[tap] <= 0.0 || any(previousPixel < 0) ||
-            any(previousPixel >= int2(dimensions))) {
-            continue;
-        }
-        uint previousIndex = uint(previousPixel.y) * dimensions.x +
-            uint(previousPixel.x);
-        IndirectHistoryPixel previous =
-            loadIndirectHistory(previousSlot, previousIndex);
-        if (!(previous.historyLength > 0.0)) {
-            continue;
-        }
-        float guideWeight = indirectDepthWeight(
-            expectedPreviousDepth, previous.depth) *
-            indirectNormalWeight(dot(
-                currentNormal, unpackOctahedralNormal(previous.normal)));
-        float weight = bilinearWeights[tap] * guideWeight;
-        if (weight <= 0.0) {
-            continue;
-        }
-        result.signal.luminanceSH += previous.luminanceSH * weight;
-        result.signal.chroma += previous.chroma * weight;
-        result.historyLength += previous.historyLength * weight;
-        result.gradientConfidence +=
-            previous.gradientConfidence * weight;
-        result.weightSum += weight;
-    }
-    if (result.weightSum > 0.0) {
-        float inverseWeight = 1.0 / result.weightSum;
-        result.signal = scaleIndirectSignal(result.signal, inverseWeight);
-        result.historyLength *= inverseWeight;
-        result.gradientConfidence *= inverseWeight;
-    }
-    return result;
-}
-
-/* The configured GI count is a per-pixel burst ceiling in reconstructed
- * modes. New/disoccluded pixels and histories that have not filled the
- * temporal reservoir use the ceiling. Mature pixels rotate one fresh path
- * across a 2x2 phase; the other three carry validated radiance. Every 3x3
- * gradient region contains every phase, so a persistent
- * lighting change is still observed each frame and restores the ceiling.
- * Exact raw and ReSTIR diagnostics retain fixed SPP. */
-uint adaptiveIndirectSampleCount(uint2 pixel, uint2 dimensions,
-                                 float currentDepth, float3 currentNormal,
-                                 out bool stableHistory)
-{
-    stableHistory = false;
-    uint configuredMaximum = max(IndirectSamplesPerPixel,
-                                 StableIndirectSampleCount);
-    if ((DiagnosticGuideMask & 2u) != 0u) {
-        return configuredMaximum;
-    }
-    if (IndirectReconstructionMode == IndirectReconstructionRaw ||
-        IndirectReconstructionMode == IndirectReconstructionRestir ||
-        ReservoirSampleLimit == 0u) {
-        return configuredMaximum;
-    }
-    IndirectTemporalSample previous = reprojectIndirectHistory(
-        pixel, dimensions, currentDepth, currentNormal);
-    if (!(previous.weightSum > 0.0) ||
-        isnan(previous.historyLength) || isinf(previous.historyLength) ||
-        isnan(previous.gradientConfidence) ||
-        isinf(previous.gradientConfidence)) {
-        return configuredMaximum;
-    }
-    float matureHistory = max(
-        1.0, float(ReservoirSampleLimit) -
-            AdaptiveHistoryMaturityTolerance);
-    if (previous.historyLength < matureHistory ||
-        abs(previous.gradientConfidence) >=
-            IndirectGradientConfirmationThreshold) {
-        return configuredMaximum;
-    }
-    stableHistory = true;
-    uint stablePhase = (pixel.x & 1u) | ((pixel.y & 1u) << 1u);
-    bool scheduled = stablePhase ==
-        SampleIndex % StableIndirectSamplingPhaseCount;
-    if (scheduled) {
-        return StableIndirectSampleCount;
-    }
-    return 0u;
-}
-
-/* Q2RTX's `indirect_lighting.rgen::main` turns a sparse phase into a compact
- * launch by remapping dispatch coordinates. Mature AB3D2 histories already
- * schedule exactly one pixel in each 2x2 quad, so this independent DXR pass
- * applies the same structural idea in both axes. Pixels that still need the
- * configured burst ceiling remain in ShadePrimary; the flag distinguishes
- * the mature subset without a lossy or capacity-limited work list. */
-[shader("raygeneration")]
-void DenseMatureContinuation()
-{
-    uint2 dispatchPixel = DispatchRaysIndex().xy;
-    uint fullWidth = 0u;
-    uint fullHeight = 0u;
-    PrimaryVisibilityBuffer.GetDimensions(fullWidth, fullHeight);
-    uint phase = SampleIndex % StableIndirectSamplingPhaseCount;
-    uint2 pixel = dispatchPixel * 2u +
-        uint2(phase & 1u, (phase >> 1u) & 1u);
-    uint2 dimensions = uint2(fullWidth, fullHeight);
-    if (any(pixel >= dimensions)) {
-        return;
-    }
-
-    uint4 packed = PrimaryVisibilityBuffer[pixel];
-    if ((packed.w & PrimaryVisibilityDenseMatureFlag) == 0u ||
-        packed.x == InvalidIndex) {
-        return;
-    }
-
-    SurfacePayload payload;
-    payload.rayDistance = 0.0;
-    payload.barycentrics = float2(asfloat(packed.y), asfloat(packed.z));
-    payload.primitiveIndex = packed.x;
-    payload.hit = 1u;
-    float3 direction;
-    float3 unjitteredDirection;
-    primaryDirections(pixel, dimensions, direction, unjitteredDirection);
-    SurfaceData surface = loadSurface(payload, direction);
-
-    uint directSampleIndex = SampleIndex * max(SamplesPerPixel, 1u);
-    float smoothProbability =
-        continuationSpecularProbability(surface, -direction);
-    bool chooseSmooth = sampleStream(
-        pixel, directSampleIndex,
-        ContinuationLobeSelectionStream).x < smoothProbability;
-    IndirectSignal signal = emptyIndirectSignal();
-    if (!chooseSmooth) {
-        uint indirectSampleIndex =
-            SampleIndex * max(IndirectSamplesPerPixel, 1u);
-        DiffusePathSample pathSample = sampleDiffusePath(
-            pixel, indirectSampleIndex, surface);
-        float3 incident = pathSample.radiance *
-            rcp(max(1.0 - smoothProbability, 1.0e-6));
-        if (!any(isnan(incident)) && !any(isinf(incident))) {
-            signal = indirectSignalFromRadiance(
-                incident, pathSample.firstDirection);
-        }
-    }
-
-    IndirectRadiance[pixel] = signal.luminanceSH;
-    IndirectChroma[pixel] = signal.chroma;
-    uint historyIndex = pixel.y * dimensions.x + pixel.x;
-    uint currentHistorySlot = SampleIndex & 1u;
-    IndirectHistoryPixel current = (IndirectHistoryPixel)0;
-    current.luminanceSH = signal.luminanceSH;
-    current.chroma = signal.chroma;
-    current.depth = LinearDepth[pixel];
-    current.normal = packOctahedralNormal(surface.geometricNormal);
-    /* A smooth selection is a valid zero-valued diffuse estimator, not a
-     * missing sample. Publishing length one preserves S2's unbiased temporal
-     * average for both outcomes of the mutually exclusive lobe choice. */
-    current.historyLength = min(1.0, float(ReservoirSampleLimit));
-    storeIndirectHistory(currentHistorySlot, historyIndex, current);
-}
 
 /* One compact entry represents one burst pixel and its exact configured path
  * count. The argument Width starts at one for a sentinel thread, then primary
@@ -4444,432 +3719,6 @@ void BurstContinuation()
         currentHistorySlot, pixelIndex, current);
 }
 
-/* Q2RTX's low-frequency anti-lag signal compares the sparse current frame to
- * accumulated history only after averaging over a very broad screen region.
- * This independent implementation starts with one current/history luminance
- * pair per guide-compatible 3x3 region. Seven unguided wavelet stages below
- * spread real lighting changes far enough that isolated path hits do not reset
- * otherwise useful temporal history. */
-[shader("raygeneration")]
-void BuildIndirectGradient()
-{
-    uint2 lowPixel = DispatchRaysIndex().xy;
-    uint2 lowDimensions = DispatchRaysDimensions().xy;
-    if (any(lowPixel >= lowDimensions)) {
-        return;
-    }
-    uint fullWidth = 0u;
-    uint fullHeight = 0u;
-    DiffuseAlbedo.GetDimensions(fullWidth, fullHeight);
-    uint2 dimensions = uint2(fullWidth, fullHeight);
-    uint2 regionStart = lowPixel * IndirectDownsampleFactor;
-    uint currentSlot = SampleIndex & 1u;
-    float currentLuminance = 0.0;
-    float previousLuminance = 0.0;
-    for (uint offsetY = 0u; offsetY < IndirectDownsampleFactor; ++offsetY) {
-        for (uint offsetX = 0u; offsetX < IndirectDownsampleFactor;
-             ++offsetX) {
-            uint2 pixel = regionStart + uint2(offsetX, offsetY);
-            if (any(pixel >= dimensions)) {
-                continue;
-            }
-            uint historyIndex = pixel.y * dimensions.x + pixel.x;
-            IndirectHistoryPixel current =
-                loadIndirectHistory(currentSlot, historyIndex);
-            if (!(current.historyLength > 0.0)) {
-                continue;
-            }
-            float3 currentNormal = unpackOctahedralNormal(current.normal);
-            IndirectTemporalSample previous = reprojectIndirectHistory(
-                pixel, dimensions, current.depth, currentNormal);
-            if (!(previous.weightSum > 0.0)) {
-                continue;
-            }
-            currentLuminance += max(current.luminanceSH.w, 0.0);
-            previousLuminance += max(
-                previous.signal.luminanceSH.w, 0.0);
-        }
-    }
-    IndirectGradients[0][lowPixel] =
-        float2(currentLuminance, previousLuminance);
-}
-
-float indirectGradientKernel(int offset)
-{
-    return offset == 0 ? 1.0 : 0.5;
-}
-
-void filterIndirectGradient(uint passIndex)
-{
-    uint2 pixel = DispatchRaysIndex().xy;
-    uint2 dimensions = DispatchRaysDimensions().xy;
-    uint source = passIndex & 1u;
-    uint destination = 1u - source;
-    int step = int(1u << passIndex);
-    float2 luminanceSum = 0.0;
-    float weightSum = 0.0;
-    for (int offsetY = -1; offsetY <= 1; ++offsetY) {
-        for (int offsetX = -1; offsetX <= 1; ++offsetX) {
-            int2 samplePixel = int2(pixel) +
-                int2(offsetX, offsetY) * step;
-            if (any(samplePixel < 0) ||
-                any(samplePixel >= int2(dimensions))) {
-                continue;
-            }
-            float weight = indirectGradientKernel(offsetX) *
-                indirectGradientKernel(offsetY);
-            luminanceSum += IndirectGradients[source][samplePixel] * weight;
-            weightSum += weight;
-        }
-    }
-    float2 filtered = weightSum > 0.0 ?
-        luminanceSum / weightSum : 0.0;
-    if (passIndex + 1u == IndirectGradientPassCount) {
-        float maximumLuminance = max(filtered.x, filtered.y);
-        float signedGradient = maximumLuminance > 0.0 ?
-            (filtered.x - filtered.y) / maximumLuminance : 0.0;
-        filtered = float2(signedGradient * signedGradient,
-                          signedGradient);
-    }
-    IndirectGradients[destination][pixel] = filtered;
-}
-
-[shader("raygeneration")]
-void FilterIndirectGradient0() { filterIndirectGradient(0u); }
-[shader("raygeneration")]
-void FilterIndirectGradient1() { filterIndirectGradient(1u); }
-[shader("raygeneration")]
-void FilterIndirectGradient2() { filterIndirectGradient(2u); }
-[shader("raygeneration")]
-void FilterIndirectGradient3() { filterIndirectGradient(3u); }
-[shader("raygeneration")]
-void FilterIndirectGradient4() { filterIndirectGradient(4u); }
-[shader("raygeneration")]
-void FilterIndirectGradient5() { filterIndirectGradient(5u); }
-[shader("raygeneration")]
-void FilterIndirectGradient6() { filterIndirectGradient(6u); }
-
-/* Temporal stage for the dedicated indirect channel. Four guide-validated
- * history taps provide subpixel reprojection. The broad lighting gradient
- * shrinks history and raises the current-frame weight when illumination
- * changes; ordinary sparse path differences retain the bounded running mean.
- * Screen-space ReSTIR remains disabled because this is reconstruction of an
- * already unbiased secondary-NEE estimator, not path-reservoir reuse. */
-[shader("raygeneration")]
-void TemporalIndirect()
-{
-    uint2 pixel = DispatchRaysIndex().xy;
-    uint2 dimensions = DispatchRaysDimensions().xy;
-    uint historyIndex = pixel.y * dimensions.x + pixel.x;
-    uint currentSlot = SampleIndex & 1u;
-    IndirectHistoryPixel current =
-        loadIndirectHistory(currentSlot, historyIndex);
-    bool hasCurrentSample = current.historyLength > 0.0;
-    float3 currentNormal = unpackOctahedralNormal(current.normal);
-    IndirectTemporalSample previous = reprojectIndirectHistory(
-        pixel, dimensions, current.depth, currentNormal);
-    if (previous.weightSum > 0.0) {
-        uint2 gradientDimensions =
-            (dimensions + IndirectDownsampleFactor - 1u) /
-            IndirectDownsampleFactor;
-        uint2 gradientPixel = min(
-            pixel / IndirectDownsampleFactor, gradientDimensions - 1u);
-        float2 rawGradient = IndirectGradients[1][gradientPixel];
-        float signedGradient = clamp(rawGradient.y, -1.0, 1.0);
-        float gradientConfidence = lerp(
-            previous.gradientConfidence, signedGradient,
-            IndirectGradientConfirmationRate);
-        float confirmation = saturate(
-            (abs(gradientConfidence) -
-             IndirectGradientConfirmationThreshold) /
-            (1.0 - IndirectGradientConfirmationThreshold));
-        float gradient = saturate(rawGradient.x) * confirmation;
-        float antilag = saturate(
-            IndirectTemporalAntilagScale * gradient);
-        current.gradientConfidence = gradientConfidence;
-        if (hasCurrentSample) {
-            float currentSampleCount = max(current.historyLength, 1.0);
-            float retainedHistory = previous.historyLength * pow(
-                1.0 - antilag,
-                IndirectTemporalAntilagHistoryPower);
-            float historyLength = min(
-                retainedHistory + currentSampleCount,
-                float(ReservoirSampleLimit));
-            float currentWeight = max(
-                IndirectTemporalMinimumCurrentWeight,
-                saturate(currentSampleCount /
-                         max(historyLength, currentSampleCount)));
-            currentWeight = lerp(currentWeight, 1.0, antilag);
-            current.luminanceSH = lerp(
-                previous.signal.luminanceSH,
-                current.luminanceSH, currentWeight);
-            current.chroma = lerp(
-                previous.signal.chroma, current.chroma, currentWeight);
-            current.historyLength = historyLength;
-        } else {
-            /* No estimator ran for this stable phase. Preserve validated
-             * history exactly while still advancing broad change confidence. */
-            current.luminanceSH = previous.signal.luminanceSH;
-            current.chroma = previous.signal.chroma;
-            current.historyLength = previous.historyLength;
-        }
-    }
-    storeIndirectHistory(currentSlot, historyIndex, current);
-}
-
-uint2 indirectLowDimensions(uint2 dimensions)
-{
-    return (dimensions + IndirectDownsampleFactor - 1u) /
-        IndirectDownsampleFactor;
-}
-
-uint2 indirectFullDimensions()
-{
-    uint width = 0u;
-    uint height = 0u;
-    DiffuseAlbedo.GetDimensions(width, height);
-    return uint2(width, height);
-}
-
-uint2 indirectLowAnchor(uint2 lowPixel, uint2 dimensions)
-{
-    return min(lowPixel * IndirectDownsampleFactor + 1u,
-               dimensions - 1u);
-}
-
-float indirectLowSpatialWeight(int2 samplePixel, uint2 dimensions,
-                               uint currentSlot, float centerDepth,
-                               float3 centerNormal, float3 centerPosition)
-{
-    if (any(samplePixel < 0) || any(samplePixel >= int2(dimensions))) {
-        return 0.0;
-    }
-    uint sampleIndex = uint(samplePixel.y) * dimensions.x +
-        uint(samplePixel.x);
-    IndirectHistoryPixel sampleHistory =
-        loadIndirectHistory(currentSlot, sampleIndex);
-    if (!(sampleHistory.historyLength > 0.0)) {
-        return 0.0;
-    }
-    float3 sampleNormal = unpackOctahedralNormal(sampleHistory.normal);
-    float normalWeight = pow(saturate(dot(centerNormal, sampleNormal)), 8.0);
-    if (normalWeight <= 0.0) {
-        return 0.0;
-    }
-    float3 samplePosition = primaryWorldPosition(
-        uint2(samplePixel), dimensions, sampleHistory.depth);
-    float planeDistance = abs(dot(
-        samplePosition - centerPosition, centerNormal));
-    float planeTolerance = max(centerDepth * 0.02, 1.0);
-    return normalWeight *
-        saturate(1.0 - planeDistance / planeTolerance);
-}
-
-float indirectWaveletWeight(int2 offset)
-{
-    float horizontal = offset.x == 0 ? 1.0 : 0.5;
-    float vertical = offset.y == 0 ? 1.0 : 0.5;
-    return horizontal * vertical;
-}
-
-/* Clamp only a spatially isolated low-frequency regional excursion. Pass zero
- * has already integrated every value over its guide-compatible 3x3 region.
- * Scaling all directional and chroma coefficients together preserves hue;
- * later passes own spatial mixing. */
-[shader("raygeneration")]
-void DeflickerIndirect()
-{
-    uint2 lowPixel = DispatchRaysIndex().xy;
-    uint2 dimensions = indirectFullDimensions();
-    uint2 lowDimensions = indirectLowDimensions(
-        dimensions);
-    if (any(lowPixel >= lowDimensions)) {
-        return;
-    }
-    uint currentSlot = SampleIndex & 1u;
-    uint2 centerAnchor = indirectLowAnchor(lowPixel, dimensions);
-    uint centerIndex = centerAnchor.y * dimensions.x + centerAnchor.x;
-    if (!(loadIndirectHistory(
-            currentSlot, centerIndex).historyLength > 0.0)) {
-        storeIndirectLow(lowPixel, true, emptyIndirectSignal());
-        return;
-    }
-    IndirectSignal center = loadIndirectLow(int2(lowPixel), false);
-
-    float neighborLuminanceSum = 0.0;
-    uint neighborCount = 0u;
-    for (int offsetY = -1; offsetY <= 1; ++offsetY) {
-        for (int offsetX = -1; offsetX <= 1; ++offsetX) {
-            if (offsetX == 0 && offsetY == 0) {
-                continue;
-            }
-            int2 samplePixel = int2(lowPixel) + int2(offsetX, offsetY);
-            if (any(samplePixel < 0) ||
-                any(samplePixel >= int2(lowDimensions))) {
-                continue;
-            }
-            IndirectSignal sampleValue = loadIndirectLow(samplePixel, false);
-            neighborLuminanceSum += indirectSignalLuminance(sampleValue);
-            neighborCount += 1u;
-        }
-    }
-
-    float centerLuminance = indirectSignalLuminance(center);
-    if (neighborCount > 0u && centerLuminance > 0.0) {
-        float maximumLuminance = IndirectDeflickerNeighborFactor *
-            neighborLuminanceSum / float(neighborCount);
-        if (centerLuminance > maximumLuminance) {
-            center = scaleIndirectSignal(
-                center, maximumLuminance / centerLuminance);
-        }
-    }
-    storeIndirectLow(lowPixel, true, center);
-}
-
-/* One guide-aware 3x3 wavelet stage at one-third resolution. Steps 1, 2 and 4
- * correspond to full-resolution separations 3, 6 and 12. The widest pass also
- * rejects a much brighter distant neighbor so its footprint cannot step over
- * a thin obstacle and visibly leak light. */
-void filterIndirect(uint passIndex, int step)
-{
-    uint2 lowPixel = DispatchRaysIndex().xy;
-    uint2 dimensions = indirectFullDimensions();
-    uint2 lowDimensions = indirectLowDimensions(dimensions);
-    if (any(lowPixel >= lowDimensions)) {
-        return;
-    }
-    bool sourceFiltered = (passIndex & 1u) != 0u;
-    bool outputFiltered = !sourceFiltered;
-    IndirectSignal centerValue = loadIndirectLow(
-        int2(lowPixel), sourceFiltered);
-    uint currentSlot = SampleIndex & 1u;
-    uint2 centerAnchor = indirectLowAnchor(lowPixel, dimensions);
-    uint centerIndex = centerAnchor.y * dimensions.x + centerAnchor.x;
-    IndirectHistoryPixel centerHistory =
-        loadIndirectHistory(currentSlot, centerIndex);
-    if (!(centerHistory.historyLength > 0.0)) {
-        storeIndirectLow(lowPixel, outputFiltered, emptyIndirectSignal());
-        return;
-    }
-    float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
-    float3 centerPosition = primaryWorldPosition(
-        centerAnchor, dimensions, centerHistory.depth);
-    float centerLuminance = indirectSignalLuminance(centerValue);
-    IndirectSignal incidentSum = emptyIndirectSignal();
-    float weightSum = 0.0;
-    for (int offsetY = -1; offsetY <= 1; ++offsetY) {
-        for (int offsetX = -1; offsetX <= 1; ++offsetX) {
-            int2 sampleLow = int2(lowPixel) +
-                int2(offsetX, offsetY) * step;
-            if (any(sampleLow < 0) ||
-                any(sampleLow >= int2(lowDimensions))) {
-                continue;
-            }
-            uint2 sampleAnchor = indirectLowAnchor(
-                uint2(sampleLow), dimensions);
-            float weight = indirectLowSpatialWeight(
-                int2(sampleAnchor), dimensions, currentSlot,
-                centerHistory.depth, centerNormal, centerPosition);
-            weight *= indirectWaveletWeight(int2(offsetX, offsetY));
-            IndirectSignal sampleValue = loadIndirectLow(
-                sampleLow, sourceFiltered);
-            if (passIndex == 3u) {
-                float sampleLuminance =
-                    indirectSignalLuminance(sampleValue);
-                float relativeLuminance = sampleLuminance /
-                    max(centerLuminance, 1.0e-6);
-                weight *= saturate(1.5 - relativeLuminance * 0.25);
-            }
-            incidentSum.luminanceSH += sampleValue.luminanceSH * weight;
-            incidentSum.chroma += sampleValue.chroma * weight;
-            weightSum += weight;
-        }
-    }
-    if (weightSum > 0.0) {
-        incidentSum = scaleIndirectSignal(incidentSum, 1.0 / weightSum);
-    }
-    storeIndirectLow(lowPixel, outputFiltered, incidentSum);
-}
-
-[shader("raygeneration")]
-void FilterIndirect0()
-{
-    uint2 lowPixel = DispatchRaysIndex().xy;
-    uint2 dimensions = indirectFullDimensions();
-    uint2 lowDimensions = indirectLowDimensions(dimensions);
-    if (any(lowPixel >= lowDimensions)) {
-        return;
-    }
-    uint currentSlot = SampleIndex & 1u;
-    uint2 anchor = indirectLowAnchor(lowPixel, dimensions);
-    uint anchorIndex = anchor.y * dimensions.x + anchor.x;
-    IndirectHistoryPixel anchorHistory =
-        loadIndirectHistory(currentSlot, anchorIndex);
-    if (!(anchorHistory.historyLength > 0.0)) {
-        storeIndirectLow(lowPixel, false, emptyIndirectSignal());
-        return;
-    }
-    float3 anchorNormal = unpackOctahedralNormal(anchorHistory.normal);
-    float3 anchorPosition = primaryWorldPosition(
-        anchor, dimensions, anchorHistory.depth);
-    IndirectSignal incidentSum = emptyIndirectSignal();
-    float weightSum = 0.0;
-    for (int offsetY = -1; offsetY <= 1; ++offsetY) {
-        for (int offsetX = -1; offsetX <= 1; ++offsetX) {
-            int2 samplePixel = int2(anchor) + int2(offsetX, offsetY);
-            float weight = indirectLowSpatialWeight(
-                samplePixel, dimensions, currentSlot, anchorHistory.depth,
-                anchorNormal, anchorPosition);
-            if (weight <= 0.0) {
-                continue;
-            }
-            uint sampleIndex = uint(samplePixel.y) * dimensions.x +
-                uint(samplePixel.x);
-            IndirectHistoryPixel sampleHistory =
-                loadIndirectHistory(currentSlot, sampleIndex);
-            incidentSum.luminanceSH += sampleHistory.luminanceSH * weight;
-            incidentSum.chroma += sampleHistory.chroma * weight;
-            weightSum += weight;
-        }
-    }
-    if (weightSum > 0.0) {
-        incidentSum = scaleIndirectSignal(incidentSum, 1.0 / weightSum);
-    }
-    storeIndirectLow(lowPixel, false, incidentSum);
-}
-
-[shader("raygeneration")]
-void FilterIndirect1()
-{
-    filterIndirect(1u, IndirectFilterStep1);
-}
-
-[shader("raygeneration")]
-void FilterIndirect2()
-{
-    filterIndirect(2u, IndirectFilterStep2);
-}
-
-[shader("raygeneration")]
-void FilterIndirect3()
-{
-    filterIndirect(3u, IndirectFilterStep3);
-}
-
-/* Even reduced-stage experiments finish in the B ping-pong resources. Resolve
- * their low-resolution signal before ReconstructIndirect overwrites B with its
- * full-resolution RGB diagnostic output. */
-[shader("raygeneration")]
-void ResolveIndirectFiltered()
-{
-    uint2 lowPixel = DispatchRaysIndex().xy;
-    uint2 lowDimensions = indirectLowDimensions(indirectFullDimensions());
-    if (any(lowPixel >= lowDimensions)) {
-        return;
-    }
-    storeIndirectLow(
-        lowPixel, false, loadIndirectLow(int2(lowPixel), true));
-}
 
 float3 evaluateGgxSpecularTimesCos(
     float3 viewDirection, float3 lightDirection, float3 normal,
@@ -4964,86 +3813,16 @@ void ReconstructIndirect()
         IndirectFiltered[pixel] = 0.0;
         return;
     }
-    float3 filteredIncident;
+    /* Publish only the current frame's genuine estimator. Directional SH is
+     * a compact per-pixel storage format here, not a temporal or spatial
+     * reconstruction stage. */
+    IndirectSignal rawSignal;
+    rawSignal.luminanceSH = centerHistory.luminanceSH;
+    rawSignal.chroma = centerHistory.chroma;
+    float3 filteredIncident = decodeIndirectSignalColor(rawSignal);
     float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
-    IndirectSignal specularSignal = emptyIndirectSignal();
-    bool hasSpecularSignal = false;
-    if (IndirectReconstructionMode == IndirectReconstructionRestir) {
-        float3 centerPosition = giPrimaryWorldPosition(
-            pixel, dimensions, centerHistory.depth);
-        PackedGIReservoir reservoir =
-            GIReservoirs[currentSlot][centerIndex];
-        GISampleEvaluation evaluation = evaluateGISample(
-            reservoir, centerPosition, centerNormal, centerAlbedo.rgb, true);
-        filteredIncident = evaluation.valid ?
-            evaluation.incident * reservoir.weight : 0.0;
-    } else if (IndirectReconstructionMode == IndirectReconstructionRaw) {
-        /* Feed the exact current-frame RGB estimator to DLSS-RR. No temporal
-         * accumulation, directional SH projection, regional filtering,
-         * deflicker, or wavelet stage participates in this mode. */
-        IndirectSignal rawSignal;
-        rawSignal.luminanceSH = centerHistory.luminanceSH;
-        rawSignal.chroma = centerHistory.chroma;
-        specularSignal = rawSignal;
-        hasSpecularSignal = true;
-        filteredIncident = decodeIndirectSignalColor(rawSignal);
-    } else {
-        IndirectSignal filteredSignal;
-        if (IndirectReconstructionMode == IndirectReconstructionTemporal) {
-            filteredSignal.luminanceSH = centerHistory.luminanceSH;
-            filteredSignal.chroma = centerHistory.chroma;
-        } else {
-            float3 centerPosition = primaryWorldPosition(
-                pixel, dimensions, centerHistory.depth);
-            float2 lowPosition = (float2(pixel) + 0.5) /
-                float(IndirectDownsampleFactor) - 0.5;
-            int2 lowBase = int2(floor(lowPosition));
-            float2 lowFraction = frac(lowPosition);
-            uint2 lowDimensions = indirectLowDimensions(dimensions);
-            IndirectSignal incidentSum = emptyIndirectSignal();
-            float weightSum = 0.0;
-            for (int offsetY = 0; offsetY <= 1; ++offsetY) {
-                for (int offsetX = 0; offsetX <= 1; ++offsetX) {
-                    int2 sampleLow = lowBase + int2(offsetX, offsetY);
-                    if (any(sampleLow < 0) ||
-                        any(sampleLow >= int2(lowDimensions))) {
-                        continue;
-                    }
-                    float2 bilinearAxis = float2(
-                        offsetX == 0 ?
-                            1.0 - lowFraction.x : lowFraction.x,
-                        offsetY == 0 ?
-                            1.0 - lowFraction.y : lowFraction.y);
-                    uint2 sampleAnchor = indirectLowAnchor(
-                        uint2(sampleLow), dimensions);
-                    float weight = bilinearAxis.x * bilinearAxis.y *
-                        indirectLowSpatialWeight(
-                            int2(sampleAnchor), dimensions, currentSlot,
-                            centerHistory.depth, centerNormal, centerPosition);
-                    IndirectSignal sampleValue = loadIndirectLow(
-                        sampleLow, false);
-                    if (weight <= 0.0) {
-                        continue;
-                    }
-                    incidentSum.luminanceSH +=
-                        sampleValue.luminanceSH * weight;
-                    incidentSum.chroma += sampleValue.chroma * weight;
-                    weightSum += weight;
-                }
-            }
-            if (weightSum > 0.0) {
-                filteredSignal = scaleIndirectSignal(
-                    incidentSum, 1.0 / weightSum);
-            } else {
-                filteredSignal.luminanceSH = centerHistory.luminanceSH;
-                filteredSignal.chroma = centerHistory.chroma;
-            }
-        }
-        filteredIncident = projectIndirectSignal(
-            filteredSignal, centerNormal);
-        specularSignal = filteredSignal;
-        hasSpecularSignal = true;
-    }
+    IndirectSignal specularSignal = rawSignal;
+    bool hasSpecularSignal = true;
     if (any(isnan(filteredIncident)) || any(isinf(filteredIncident))) {
         filteredIncident = 0.0;
     }

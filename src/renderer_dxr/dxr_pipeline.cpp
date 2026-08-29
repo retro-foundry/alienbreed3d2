@@ -53,10 +53,6 @@ enum DescriptorIndex : UINT {
     indirect_filtered_uav = 33,
     automatic_exposure_uav = 34,
     indirect_chroma_uav = 35,
-    indirect_chroma_filtered_uav = 36,
-    indirect_gradient_uav_start = 37,
-    gi_reservoir_uav_start = 39,
-    gi_reservoir_scratch_uav = 41,
     streamline_scene_motion_uav = 42,
     view_weapon_history_uav_start = 43,
     rr_disocclusion_mask_uav = 45,
@@ -118,41 +114,14 @@ constexpr std::array<const wchar_t *,
         L"AB3D2 RR Diffuse Hit Distance History",
     };
 
-/*
- * Fresh polygon-light candidates per surface vertex and the maximum number of
- * frames accumulated by low-frequency indirect reconstruction. Direct-light
- * reservoirs remain current-frame only; the history cap belongs to the
- * demodulated indirect channel.
- *
- * `AB3D2_DXR_CANDIDATES` and `AB3D2_DXR_RESERVOIR_LIMIT` override both, and a
- * limit of zero disables only indirect temporal accumulation.
- */
+/* Shader records retained by the fresh-sample path and RR handoff. */
 constexpr UINT shader_record_size = D3D12_RAYTRACING_SHADER_TABLE_BYTE_ALIGNMENT;
 enum ShaderRecordIndex : UINT {
     shader_record_build_light_grid = 0u,
     shader_record_ray_generation,
     shader_record_primary_visibility,
     shader_record_shade_primary,
-    shader_record_dense_mature_continuation,
     shader_record_burst_continuation,
-    shader_record_temporal_gi,
-    shader_record_spatial_gi,
-    shader_record_spatial_shade,
-    shader_record_build_indirect_gradient,
-    shader_record_filter_indirect_gradient_0,
-    shader_record_filter_indirect_gradient_1,
-    shader_record_filter_indirect_gradient_2,
-    shader_record_filter_indirect_gradient_3,
-    shader_record_filter_indirect_gradient_4,
-    shader_record_filter_indirect_gradient_5,
-    shader_record_filter_indirect_gradient_6,
-    shader_record_temporal_indirect,
-    shader_record_filter_indirect_0,
-    shader_record_deflicker_indirect,
-    shader_record_filter_indirect_1,
-    shader_record_filter_indirect_2,
-    shader_record_filter_indirect_3,
-    shader_record_resolve_indirect_filtered,
     shader_record_reconstruct_indirect,
     shader_record_calculate_automatic_exposure,
     shader_record_surface_miss,
@@ -221,7 +190,7 @@ struct FrameConstants {
     float ndf_trim;
     uint32_t samples_per_pixel;
     float exposure_delta_seconds;
-    uint32_t indirect_reconstruction_mode;
+    uint32_t reserved_indirect_reconstruction;
     uint32_t radiance_channel;
     uint32_t rr_weapon_pose_transition;
     uint32_t indirect_samples_per_pixel;
@@ -233,7 +202,7 @@ struct FrameConstants {
     uint32_t validation_enabled;
     uint32_t single_primary_direct_survivor;
     uint32_t single_continuation_lobe;
-    uint32_t dense_mature_continuations;
+    uint32_t reserved_dense_mature_continuations;
     uint32_t bounded_burst_continuations;
     uint32_t compact_local_primary;
     uint32_t proxy_primary_candidates;
@@ -1330,36 +1299,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t ray_generation[] = L"RayGeneration";
     static constexpr wchar_t primary_visibility[] = L"PrimaryVisibility";
     static constexpr wchar_t shade_primary[] = L"ShadePrimary";
-    static constexpr wchar_t dense_mature_continuation[] =
-        L"DenseMatureContinuation";
     static constexpr wchar_t burst_continuation[] = L"BurstContinuation";
-    static constexpr wchar_t temporal_gi[] = L"TemporalGI";
-    static constexpr wchar_t spatial_gi[] = L"SpatialGI";
-    static constexpr wchar_t spatial_shade[] = L"SpatialShade";
-    static constexpr wchar_t build_indirect_gradient[] =
-        L"BuildIndirectGradient";
-    static constexpr wchar_t filter_indirect_gradient_0[] =
-        L"FilterIndirectGradient0";
-    static constexpr wchar_t filter_indirect_gradient_1[] =
-        L"FilterIndirectGradient1";
-    static constexpr wchar_t filter_indirect_gradient_2[] =
-        L"FilterIndirectGradient2";
-    static constexpr wchar_t filter_indirect_gradient_3[] =
-        L"FilterIndirectGradient3";
-    static constexpr wchar_t filter_indirect_gradient_4[] =
-        L"FilterIndirectGradient4";
-    static constexpr wchar_t filter_indirect_gradient_5[] =
-        L"FilterIndirectGradient5";
-    static constexpr wchar_t filter_indirect_gradient_6[] =
-        L"FilterIndirectGradient6";
-    static constexpr wchar_t temporal_indirect[] = L"TemporalIndirect";
-    static constexpr wchar_t filter_indirect_0[] = L"FilterIndirect0";
-    static constexpr wchar_t deflicker_indirect[] = L"DeflickerIndirect";
-    static constexpr wchar_t filter_indirect_1[] = L"FilterIndirect1";
-    static constexpr wchar_t filter_indirect_2[] = L"FilterIndirect2";
-    static constexpr wchar_t filter_indirect_3[] = L"FilterIndirect3";
-    static constexpr wchar_t resolve_indirect_filtered[] =
-        L"ResolveIndirectFiltered";
     static constexpr wchar_t reconstruct_indirect[] = L"ReconstructIndirect";
     static constexpr wchar_t calculate_automatic_exposure[] =
         L"CalculateAutomaticExposure";
@@ -1368,37 +1308,18 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t closest_hit[] = L"ClosestHit";
     static constexpr wchar_t any_hit[] = L"AnyHit";
     static constexpr wchar_t hit_group_name[] = L"HitGroup";
-    std::array<D3D12_EXPORT_DESC, 30> exports = {};
+    std::array<D3D12_EXPORT_DESC, 11> exports = {};
     exports[0].Name = build_light_grid;
     exports[1].Name = ray_generation;
     exports[2].Name = primary_visibility;
     exports[3].Name = shade_primary;
-    exports[4].Name = dense_mature_continuation;
-    exports[5].Name = burst_continuation;
-    exports[6].Name = temporal_gi;
-    exports[7].Name = spatial_gi;
-    exports[8].Name = spatial_shade;
-    exports[9].Name = build_indirect_gradient;
-    exports[10].Name = filter_indirect_gradient_0;
-    exports[11].Name = filter_indirect_gradient_1;
-    exports[12].Name = filter_indirect_gradient_2;
-    exports[13].Name = filter_indirect_gradient_3;
-    exports[14].Name = filter_indirect_gradient_4;
-    exports[15].Name = filter_indirect_gradient_5;
-    exports[16].Name = filter_indirect_gradient_6;
-    exports[17].Name = temporal_indirect;
-    exports[18].Name = filter_indirect_0;
-    exports[19].Name = deflicker_indirect;
-    exports[20].Name = filter_indirect_1;
-    exports[21].Name = filter_indirect_2;
-    exports[22].Name = filter_indirect_3;
-    exports[23].Name = resolve_indirect_filtered;
-    exports[24].Name = reconstruct_indirect;
-    exports[25].Name = calculate_automatic_exposure;
-    exports[26].Name = surface_miss;
-    exports[27].Name = shadow_miss;
-    exports[28].Name = closest_hit;
-    exports[29].Name = any_hit;
+    exports[4].Name = burst_continuation;
+    exports[5].Name = reconstruct_indirect;
+    exports[6].Name = calculate_automatic_exposure;
+    exports[7].Name = surface_miss;
+    exports[8].Name = shadow_miss;
+    exports[9].Name = closest_hit;
+    exports[10].Name = any_hit;
     D3D12_DXIL_LIBRARY_DESC library_description = {};
     library_description.DXILLibrary = {library.data(), library.size()};
     library_description.NumExports = static_cast<UINT>(exports.size());
@@ -1411,19 +1332,9 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     D3D12_RAYTRACING_SHADER_CONFIG shader_configuration = {};
     shader_configuration.MaxPayloadSizeInBytes = 20u;
     shader_configuration.MaxAttributeSizeInBytes = 8u;
-    std::array<const wchar_t *, 29> configured_exports = {
+    std::array<const wchar_t *, 10> configured_exports = {
         build_light_grid, ray_generation, primary_visibility, shade_primary,
-        dense_mature_continuation, burst_continuation,
-        temporal_gi, spatial_gi,
-        spatial_shade,
-        build_indirect_gradient,
-        filter_indirect_gradient_0, filter_indirect_gradient_1,
-        filter_indirect_gradient_2, filter_indirect_gradient_3,
-        filter_indirect_gradient_4, filter_indirect_gradient_5,
-        filter_indirect_gradient_6, temporal_indirect,
-        filter_indirect_0, deflicker_indirect,
-        filter_indirect_1, filter_indirect_2,
-        filter_indirect_3, resolve_indirect_filtered, reconstruct_indirect,
+        burst_continuation, reconstruct_indirect,
         calculate_automatic_exposure, surface_miss, shadow_miss,
         hit_group_name};
     D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION shader_association = {};
@@ -1484,26 +1395,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
         properties->GetShaderIdentifier(ray_generation),
         properties->GetShaderIdentifier(primary_visibility),
         properties->GetShaderIdentifier(shade_primary),
-        properties->GetShaderIdentifier(dense_mature_continuation),
         properties->GetShaderIdentifier(burst_continuation),
-        properties->GetShaderIdentifier(temporal_gi),
-        properties->GetShaderIdentifier(spatial_gi),
-        properties->GetShaderIdentifier(spatial_shade),
-        properties->GetShaderIdentifier(build_indirect_gradient),
-        properties->GetShaderIdentifier(filter_indirect_gradient_0),
-        properties->GetShaderIdentifier(filter_indirect_gradient_1),
-        properties->GetShaderIdentifier(filter_indirect_gradient_2),
-        properties->GetShaderIdentifier(filter_indirect_gradient_3),
-        properties->GetShaderIdentifier(filter_indirect_gradient_4),
-        properties->GetShaderIdentifier(filter_indirect_gradient_5),
-        properties->GetShaderIdentifier(filter_indirect_gradient_6),
-        properties->GetShaderIdentifier(temporal_indirect),
-        properties->GetShaderIdentifier(filter_indirect_0),
-        properties->GetShaderIdentifier(deflicker_indirect),
-        properties->GetShaderIdentifier(filter_indirect_1),
-        properties->GetShaderIdentifier(filter_indirect_2),
-        properties->GetShaderIdentifier(filter_indirect_3),
-        properties->GetShaderIdentifier(resolve_indirect_filtered),
         properties->GetShaderIdentifier(reconstruct_indirect),
         properties->GetShaderIdentifier(calculate_automatic_exposure),
         properties->GetShaderIdentifier(surface_miss),
@@ -1940,17 +1832,13 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             burst_dispatch_arguments_.end(),
             [](const auto &resource) { return resource.Get() != nullptr; });
     if (reconstruction_targets_[0] && indirect_radiance_ &&
-        indirect_filtered_ && indirect_chroma_ &&
-        indirect_chroma_filtered_ && indirect_gradients_[0] &&
-        indirect_gradients_[1] && automatic_exposure_ &&
+        indirect_filtered_ && indirect_chroma_ && automatic_exposure_ &&
         tone_map_histogram_ && tone_map_state_ &&
         bloom_targets_[0] && bloom_targets_[1] && bloom_targets_[2] &&
         bloom_targets_[3] && bloom_targets_[4] && bloom_targets_[5] &&
         post_hdr_output_ &&
         indirect_histories_[0] && indirect_histories_[1] &&
         direct_reservoir_binding_ &&
-        gi_reservoirs_[0] && gi_reservoirs_[1] &&
-        gi_reservoir_scratch_ &&
         streamline_scene_motion_ &&
         view_weapon_histories_[0] && view_weapon_histories_[1] &&
         rr_disocclusion_mask_ && rr_bias_current_color_mask_ &&
@@ -1965,10 +1853,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         target.Reset();
     }
     direct_reservoir_binding_.Reset();
-    for (auto &reservoir : gi_reservoirs_) {
-        reservoir.Reset();
-    }
-    gi_reservoir_scratch_.Reset();
     streamline_scene_motion_.Reset();
     for (auto &history : view_weapon_histories_) {
         history.Reset();
@@ -1986,10 +1870,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     indirect_radiance_.Reset();
     indirect_filtered_.Reset();
     indirect_chroma_.Reset();
-    indirect_chroma_filtered_.Reset();
-    for (auto &gradient : indirect_gradients_) {
-        gradient.Reset();
-    }
     automatic_exposure_.Reset();
     tone_map_histogram_.Reset();
     tone_map_state_.Reset();
@@ -2315,57 +2195,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             cpu_descriptor(indirect_chroma_uav));
     }
     {
-        const HRESULT result = device->CreateCommittedResource(
-            &default_heap, D3D12_HEAP_FLAG_NONE, &description,
-            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-            IID_PPV_ARGS(&indirect_chroma_filtered_));
-        if (FAILED(result)) {
-            error = hresult_error(
-                "ID3D12Device::CreateCommittedResource(filtered indirect chroma)",
-                result);
-            return false;
-        }
-        indirect_chroma_filtered_->SetName(
-            L"AB3D2 Low-Frequency Indirect Chroma B");
-        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-        uav.Format = description.Format;
-        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-        device->CreateUnorderedAccessView(
-            indirect_chroma_filtered_.Get(), nullptr, &uav,
-            cpu_descriptor(indirect_chroma_filtered_uav));
-    }
-    {
-        D3D12_RESOURCE_DESC gradient_description = description;
-        gradient_description.Width =
-            (width + indirect_reconstruction::downsample_factor - 1u) /
-            indirect_reconstruction::downsample_factor;
-        gradient_description.Height =
-            (height + indirect_reconstruction::downsample_factor - 1u) /
-            indirect_reconstruction::downsample_factor;
-        for (size_t index = 0; index < indirect_gradients_.size(); ++index) {
-            const HRESULT result = device->CreateCommittedResource(
-                &default_heap, D3D12_HEAP_FLAG_NONE, &gradient_description,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-                IID_PPV_ARGS(&indirect_gradients_[index]));
-            if (FAILED(result)) {
-                error = hresult_error(
-                    "ID3D12Device::CreateCommittedResource(indirect gradient)",
-                    result);
-                return false;
-            }
-            indirect_gradients_[index]->SetName(index == 0u ?
-                L"AB3D2 Low-Frequency Lighting Gradient A" :
-                L"AB3D2 Low-Frequency Lighting Gradient B");
-            D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-            uav.Format = gradient_description.Format;
-            uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-            device->CreateUnorderedAccessView(
-                indirect_gradients_[index].Get(), nullptr, &uav,
-                cpu_descriptor(indirect_gradient_uav_start +
-                               static_cast<UINT>(index)));
-        }
-    }
-    {
         const UINT64 pixel_count = static_cast<UINT64>(width) * height;
         D3D12_RESOURCE_DESC history_description = buffer_description(
             pixel_count *
@@ -2634,59 +2463,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         direct_reservoir_binding_->SetName(
             L"AB3D2 Inactive Direct Reservoir Binding");
     }
-    /* Kept as one inert descriptor until the obsolete diagnostic shader
-     * declarations are removed; RR-only production never allocates a GI
-     * reservoir per pixel. */
-    const UINT gi_reservoir_element_count = 1u;
-    const D3D12_RESOURCE_DESC gi_reservoir_description =
-        [gi_reservoir_element_count] {
-        D3D12_RESOURCE_DESC reservoir = buffer_description(
-            static_cast<UINT64>(gi_reservoir_element_count) *
-            sizeof(restir_gi::PackedReservoir));
-        reservoir.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        return reservoir;
-    }();
-    D3D12_UNORDERED_ACCESS_VIEW_DESC gi_uav = {};
-    gi_uav.Format = DXGI_FORMAT_UNKNOWN;
-    gi_uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-    gi_uav.Buffer.NumElements = gi_reservoir_element_count;
-    gi_uav.Buffer.StructureByteStride = sizeof(restir_gi::PackedReservoir);
-    for (size_t index = 0; index < gi_reservoirs_.size(); ++index) {
-        const HRESULT result = device->CreateCommittedResource(
-            &default_heap, D3D12_HEAP_FLAG_NONE, &gi_reservoir_description,
-            D3D12_RESOURCE_STATE_COMMON, nullptr,
-            IID_PPV_ARGS(&gi_reservoirs_[index]));
-        if (FAILED(result)) {
-            error = hresult_error(
-                "ID3D12Device::CreateCommittedResource(GI reservoir)",
-                result);
-            return false;
-        }
-        gi_reservoirs_[index]->SetName(index == 0u ?
-            L"AB3D2 ReSTIR GI Reservoirs A" :
-            L"AB3D2 ReSTIR GI Reservoirs B");
-        device->CreateUnorderedAccessView(
-            gi_reservoirs_[index].Get(), nullptr, &gi_uav,
-            cpu_descriptor(gi_reservoir_uav_start +
-                           static_cast<UINT>(index)));
-    }
-    {
-        const HRESULT result = device->CreateCommittedResource(
-            &default_heap, D3D12_HEAP_FLAG_NONE, &gi_reservoir_description,
-            D3D12_RESOURCE_STATE_COMMON, nullptr,
-            IID_PPV_ARGS(&gi_reservoir_scratch_));
-        if (FAILED(result)) {
-            error = hresult_error(
-                "ID3D12Device::CreateCommittedResource(GI temporal scratch)",
-                result);
-            return false;
-        }
-        gi_reservoir_scratch_->SetName(
-            L"AB3D2 ReSTIR GI Temporal Scratch");
-        device->CreateUnorderedAccessView(
-            gi_reservoir_scratch_.Get(), nullptr, &gi_uav,
-            cpu_descriptor(gi_reservoir_scratch_uav));
-    }
     render_width_ = width;
     render_height_ = height;
     present_width_ = present_width;
@@ -2869,8 +2645,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         dense_mature_continuations_ && !ray_reconstruction_raw_indirect;
     const bool effective_bounded_burst_continuations =
         bounded_burst_continuations_ || ray_reconstruction_raw_indirect;
-    const uint32_t effective_indirect_reconstruction_mode =
-        static_cast<uint32_t>(indirect_reconstruction::Mode::raw);
     bool speed_first_post = false;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     speed_first_post = streamline_active && streamline &&
@@ -2901,8 +2675,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         scene_.light_grid_layout_hash();
     const uint32_t effective_indirect_spp = diffuse_gi_scale_ > 0.0f ?
         indirect_spp_ : 0u;
-    const bool diffuse_gi_active = maximum_depth_ >= 2u &&
-        effective_indirect_spp > 0u;
     const bool light_grid_active =
         (maximum_depth_ >= 2u || compact_local_primary_) &&
         scene_.emitter_count() > 0u;
@@ -3008,8 +2780,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.exposure_delta_seconds =
         std::isfinite(exposure_delta_seconds) && exposure_delta_seconds > 0.0f ?
         exposure_delta_seconds : 0.0f;
-    constants.indirect_reconstruction_mode =
-        effective_indirect_reconstruction_mode;
+    constants.reserved_indirect_reconstruction = 0u;
     constants.radiance_channel = radiance_channel_;
     uint64_t current_weapon_pose_hash = 0u;
     const bool current_weapon_pose_hash_valid =
@@ -3042,8 +2813,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         single_primary_direct_survivor_ ? 1u : 0u;
     constants.single_continuation_lobe =
         effective_single_continuation_lobe ? 1u : 0u;
-    constants.dense_mature_continuations =
-        effective_dense_mature_continuations ? 1u : 0u;
+    constants.reserved_dense_mature_continuations = 0u;
     constants.bounded_burst_continuations =
         effective_bounded_burst_continuations ? 1u : 0u;
     constants.compact_local_primary = compact_local_primary_ ? 1u : 0u;
@@ -3074,17 +2844,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         command_list->ResourceBarrier(1, &light_grid_state);
     }
     if (targets_recreated) {
-        const std::array<D3D12_RESOURCE_BARRIER, 9> history_states = {
+        const std::array<D3D12_RESOURCE_BARRIER, 6> history_states = {
             transition(direct_reservoir_binding_.Get(),
-                       D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            transition(gi_reservoirs_[0].Get(),
-                       D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            transition(gi_reservoirs_[1].Get(),
-                       D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            transition(gi_reservoir_scratch_.Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
             transition(indirect_histories_[0].Get(),
@@ -3228,27 +2989,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             profiler, command_list, DxrGpuStage::primary_shading);
         command_list->DispatchRays(&dispatch);
     }
-    if (effective_dense_mature_continuations) {
-        const D3D12_RESOURCE_BARRIER primary_outputs_ready[] = {
-            uav_barrier(primary_visibility_.Get()),
-            uav_barrier(indirect_radiance_.Get()),
-            uav_barrier(indirect_chroma_.Get()),
-            uav_barrier(indirect_histories_[sample_index & 1u].Get()),
-        };
-        command_list->ResourceBarrier(
-            static_cast<UINT>(std::size(primary_outputs_ready)),
-            primary_outputs_ready);
-        dispatch.Width = (render_width + 1u) / 2u;
-        dispatch.Height = (render_height + 1u) / 2u;
-        dispatch.RayGenerationShaderRecord = {
-            table + shader_record_size *
-                shader_record_dense_mature_continuation,
-            shader_record_size};
-        DxrGpuProfileScope profile(
-            profiler, command_list,
-            DxrGpuStage::dense_mature_continuation);
-        command_list->DispatchRays(&dispatch);
-    }
     if (effective_bounded_burst_continuations) {
         const D3D12_RESOURCE_BARRIER burst_inputs_ready[] = {
             uav_barrier(burst_work_items),
@@ -3272,11 +3012,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             burst_dispatch_signature_.Get(), 1u,
             burst_dispatch_arguments, 0u, nullptr, 0u);
     }
-    const auto indirect_mode = static_cast<indirect_reconstruction::Mode>(
-        effective_indirect_reconstruction_mode);
-    const bool use_restir_gi = diffuse_gi_active &&
-        indirect_mode == indirect_reconstruction::Mode::restir;
-    const D3D12_RESOURCE_BARRIER indirect_input_ready[] = {
+    const D3D12_RESOURCE_BARRIER fresh_indirect_ready[] = {
         uav_barrier(indirect_radiance_.Get()),
         uav_barrier(indirect_chroma_.Get()),
         uav_barrier(indirect_histories_[sample_index & 1u].Get()),
@@ -3286,177 +3022,11 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             DxrReconstructionBuffer::shading_normal)),
         uav_barrier(reconstruction_resource(
             DxrReconstructionBuffer::linear_depth)),
-        uav_barrier(reconstruction_resource(
-            DxrReconstructionBuffer::scene_motion)),
         uav_barrier(surface_parameters_.Get()),
     };
     command_list->ResourceBarrier(
-        static_cast<UINT>(std::size(indirect_input_ready)),
-        indirect_input_ready);
-    const UINT indirect_low_width = (render_width +
-        indirect_reconstruction::downsample_factor - 1u) /
-        indirect_reconstruction::downsample_factor;
-    const UINT indirect_low_height = (render_height +
-        indirect_reconstruction::downsample_factor - 1u) /
-        indirect_reconstruction::downsample_factor;
-    const bool use_temporal_reconstruction = diffuse_gi_active &&
-        indirect_mode != indirect_reconstruction::Mode::raw &&
-        !use_restir_gi;
-    const bool use_regional_reconstruction = diffuse_gi_active &&
-        indirect_mode != indirect_reconstruction::Mode::temporal &&
-        indirect_mode != indirect_reconstruction::Mode::raw &&
-        !use_restir_gi;
-    const bool use_deflicker =
-        indirect_mode == indirect_reconstruction::Mode::full ||
-        indirect_mode == indirect_reconstruction::Mode::deflicker ||
-        indirect_mode == indirect_reconstruction::Mode::wavelet1 ||
-        indirect_mode == indirect_reconstruction::Mode::wavelet2;
-    const UINT wavelet_pass_count =
-        indirect_mode == indirect_reconstruction::Mode::full ? 3u :
-        indirect_mode == indirect_reconstruction::Mode::wavelet1 ? 1u :
-        indirect_mode == indirect_reconstruction::Mode::wavelet2 ? 2u : 0u;
-    if (use_restir_gi) {
-        DxrGpuProfileScope profile(
-            profiler, command_list, DxrGpuStage::indirect_resampling);
-        const D3D12_RESOURCE_BARRIER initial_gi_ready =
-            uav_barrier(gi_reservoirs_[sample_index & 1u].Get());
-        command_list->ResourceBarrier(1, &initial_gi_ready);
-        dispatch.Width = render_width;
-        dispatch.Height = render_height;
-        dispatch.RayGenerationShaderRecord = {
-            table + shader_record_size * shader_record_temporal_gi,
-            shader_record_size};
-        command_list->DispatchRays(&dispatch);
-        const D3D12_RESOURCE_BARRIER temporal_gi_ready =
-            uav_barrier(gi_reservoir_scratch_.Get());
-        command_list->ResourceBarrier(1, &temporal_gi_ready);
-
-        dispatch.RayGenerationShaderRecord = {
-            table + shader_record_size * shader_record_spatial_gi,
-            shader_record_size};
-        command_list->DispatchRays(&dispatch);
-        const D3D12_RESOURCE_BARRIER spatial_gi_ready =
-            uav_barrier(gi_reservoirs_[sample_index & 1u].Get());
-        command_list->ResourceBarrier(1, &spatial_gi_ready);
-    }
-    if (use_temporal_reconstruction) {
-        {
-            DxrGpuProfileScope profile(
-                profiler, command_list, DxrGpuStage::indirect_gradient);
-            dispatch.Width = indirect_low_width;
-            dispatch.Height = indirect_low_height;
-            dispatch.RayGenerationShaderRecord = {
-                table + shader_record_size *
-                    shader_record_build_indirect_gradient,
-                shader_record_size};
-            command_list->DispatchRays(&dispatch);
-            D3D12_RESOURCE_BARRIER gradient_ready =
-                uav_barrier(indirect_gradients_[0].Get());
-            command_list->ResourceBarrier(1, &gradient_ready);
-            for (UINT gradient_pass = 0u;
-                 gradient_pass <
-                     indirect_reconstruction::gradient_filter_steps.size();
-                 ++gradient_pass) {
-                dispatch.RayGenerationShaderRecord = {
-                    table + shader_record_size *
-                        (shader_record_filter_indirect_gradient_0 +
-                         gradient_pass),
-                    shader_record_size};
-                command_list->DispatchRays(&dispatch);
-                const size_t output_slot = 1u - (gradient_pass & 1u);
-                gradient_ready = uav_barrier(
-                    indirect_gradients_[output_slot].Get());
-                command_list->ResourceBarrier(1, &gradient_ready);
-            }
-        }
-
-        {
-            DxrGpuProfileScope profile(
-                profiler, command_list, DxrGpuStage::indirect_temporal);
-            dispatch.Width = render_width;
-            dispatch.Height = render_height;
-            dispatch.RayGenerationShaderRecord = {
-                table + shader_record_size * shader_record_temporal_indirect,
-                shader_record_size};
-            command_list->DispatchRays(&dispatch);
-            const size_t indirect_history_slot = sample_index & 1u;
-            const D3D12_RESOURCE_BARRIER temporal_indirect_ready =
-                uav_barrier(indirect_histories_[indirect_history_slot].Get());
-            command_list->ResourceBarrier(1, &temporal_indirect_ready);
-        }
-    }
-
-    if (use_regional_reconstruction) {
-        DxrGpuProfileScope profile(
-            profiler, command_list, DxrGpuStage::indirect_spatial);
-        /* Integrate gradient-responsive temporal incident radiance into
-         * guide-compatible 3x3 regions, deflicker that one-third-resolution
-         * image, then run its three wavelet stages before bilateral
-         * reconstruction. */
-        ID3D12Resource *const indirect_filter_outputs[] = {
-            indirect_radiance_.Get(), indirect_radiance_.Get(),
-            indirect_filtered_.Get(), indirect_radiance_.Get()};
-        ID3D12Resource *const indirect_chroma_outputs[] = {
-            indirect_chroma_.Get(), indirect_chroma_.Get(),
-            indirect_chroma_filtered_.Get(), indirect_chroma_.Get()};
-        dispatch.Width = indirect_low_width;
-        dispatch.Height = indirect_low_height;
-        dispatch.RayGenerationShaderRecord = {
-            table + shader_record_size * shader_record_filter_indirect_0,
-            shader_record_size};
-        command_list->DispatchRays(&dispatch);
-        D3D12_RESOURCE_BARRIER filter_ready[] = {
-            uav_barrier(indirect_filter_outputs[0]),
-            uav_barrier(indirect_chroma_outputs[0]),
-        };
-        command_list->ResourceBarrier(
-            static_cast<UINT>(std::size(filter_ready)), filter_ready);
-
-        if (use_deflicker) {
-            dispatch.RayGenerationShaderRecord = {
-                table + shader_record_size * shader_record_deflicker_indirect,
-                shader_record_size};
-            command_list->DispatchRays(&dispatch);
-            const D3D12_RESOURCE_BARRIER deflicker_ready[] = {
-                uav_barrier(indirect_filtered_.Get()),
-                uav_barrier(indirect_chroma_filtered_.Get()),
-            };
-            command_list->ResourceBarrier(
-                static_cast<UINT>(std::size(deflicker_ready)),
-                deflicker_ready);
-
-            for (UINT filter_pass = 1u;
-                 filter_pass <= wavelet_pass_count; ++filter_pass) {
-                dispatch.RayGenerationShaderRecord = {
-                    table + shader_record_size *
-                        (shader_record_filter_indirect_1 + filter_pass - 1u),
-                    shader_record_size};
-                command_list->DispatchRays(&dispatch);
-                filter_ready[0] =
-                    uav_barrier(indirect_filter_outputs[filter_pass]);
-                filter_ready[1] =
-                    uav_barrier(indirect_chroma_outputs[filter_pass]);
-                command_list->ResourceBarrier(
-                    static_cast<UINT>(std::size(filter_ready)), filter_ready);
-            }
-        }
-        const bool final_signal_is_filtered =
-            indirect_mode == indirect_reconstruction::Mode::deflicker ||
-            indirect_mode == indirect_reconstruction::Mode::wavelet2;
-        if (final_signal_is_filtered) {
-            dispatch.RayGenerationShaderRecord = {
-                table + shader_record_size *
-                    shader_record_resolve_indirect_filtered,
-                shader_record_size};
-            command_list->DispatchRays(&dispatch);
-            const D3D12_RESOURCE_BARRIER resolved_ready[] = {
-                uav_barrier(indirect_radiance_.Get()),
-                uav_barrier(indirect_chroma_.Get()),
-            };
-            command_list->ResourceBarrier(
-                static_cast<UINT>(std::size(resolved_ready)), resolved_ready);
-        }
-    }
+        static_cast<UINT>(std::size(fresh_indirect_ready)),
+        fresh_indirect_ready);
     {
         DxrGpuProfileScope profile(profiler, command_list,
                                    DxrGpuStage::indirect_reconstruct);
@@ -3501,17 +3071,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         command_list->ResourceBarrier(
             static_cast<UINT>(std::size(rr_weapon_guides_ready)),
             rr_weapon_guides_ready);
-        if (use_restir_gi) {
-            const D3D12_RESOURCE_BARRIER reservoir_barriers[] = {
-                uav_barrier(gi_reservoirs_[0].Get()),
-                uav_barrier(gi_reservoirs_[1].Get()),
-                uav_barrier(gi_reservoir_scratch_.Get()),
-            };
-            command_list->ResourceBarrier(
-                static_cast<UINT>(std::size(reservoir_barriers)),
-                reservoir_barriers);
-        }
-
         const bool diffuse_distance_debug =
             debug_view_ == static_cast<uint32_t>(
                                DxrReconstructionBuffer::diffuse_hit_distance) ||
