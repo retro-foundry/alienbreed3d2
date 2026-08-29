@@ -101,6 +101,11 @@ Last updated: 2026-08-29
   metrics are identical; RR Quality and the guide debug view retain the exact
   deterministic current-geometry ray. This removes `16-19%` of primary-shading
   median in the measured S3 pairs without weakening the lighting gates.
+- Combining that gate with burst ceiling one reaches
+  `6.3730/9.6050/10.5056 ms` frame median/p95/p99 and passes Level A, but the
+  ceiling is not accepted: its first-frame confirmed-light-change weight is
+  still `0.380` versus ceiling 16's `0.859`. The isolated indirect-light toggle
+  oracle remains required before the production lighting schedule can change.
 
 ## Implementation progress (2026-08-28)
 

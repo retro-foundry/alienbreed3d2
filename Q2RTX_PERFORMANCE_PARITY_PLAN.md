@@ -607,6 +607,26 @@ This consumer gate is accepted for RR-off rendering. It is source-consistent
 with the observed Q2RTX pass structure, which has no DLSS-RR guide trace, while
 retaining the native guide contract whenever the native RR path needs it.
 
+Combined S4 timing check after the guide gate, 2026-08-29:
+
+- S3 plus the accepted RR-off guide gate and burst ceiling one measures
+  `6.3730/9.6050/10.5056 ms` frame median/p95/p99 in one 120-frame Level A
+  hidden-validation profile. Primary shading is `2.8826/4.0053 ms` and burst
+  continuation is `0.2422/4.3175 ms` median/p95. This is the first combined
+  preliminary result with substantial margin below 16.67 ms at both p95 and
+  p99; its `22.3392 ms` maximum includes the changing/rebuild route.
+- The complete route passes with frozen early/late delta
+  `14.2977/14.2645`, moving delta `26.6014`, zero unexpected walk rebuilds,
+  and no burst-work overflow. These are consistent with the earlier settled
+  and saved-motion ceiling sweep, but still do not exercise a confirmed
+  indirect-light change at a fixed receiver.
+
+Ceiling one therefore remains an unaccepted diagnostic despite the strong
+timing. Implement the indirect-only light-toggle recovery oracle and compare
+first-frame/current-weight recovery against ceiling 16 before changing the
+production burst ceiling. The theoretical `0.380` versus `0.859` current
+weights remain a blocker until that visual/metric test exists.
+
 ### Milestone 1 gate
 
 The combined primary/direct/indirect/guide stages must reach `22 ms` or less at
