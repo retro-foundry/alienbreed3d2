@@ -278,6 +278,45 @@ struct PostConstants {
 
 static_assert(sizeof(PostConstants) == 8u * sizeof(uint32_t));
 
+enum class EnvironmentToggle {
+    automatic,
+    disabled,
+    enabled,
+};
+
+bool read_environment_toggle(const char *name, EnvironmentToggle &toggle,
+                             std::string &error)
+{
+    char value[64] = {};
+    const DWORD length = GetEnvironmentVariableA(
+        name, value, static_cast<DWORD>(sizeof(value)));
+    if (length >= sizeof(value)) {
+        error = std::string(name) + " exceeds 63 bytes";
+        return false;
+    }
+    if (length == 0u) {
+        toggle = EnvironmentToggle::automatic;
+        return true;
+    }
+    if (std::strcmp(value, "0") == 0) {
+        toggle = EnvironmentToggle::disabled;
+        return true;
+    }
+    if (std::strcmp(value, "1") == 0) {
+        toggle = EnvironmentToggle::enabled;
+        return true;
+    }
+    error = std::string(name) + " must be 0 or 1";
+    return false;
+}
+
+bool resolve_environment_toggle(EnvironmentToggle toggle,
+                                bool automatic_value)
+{
+    return toggle == EnvironmentToggle::automatic ? automatic_value :
+        toggle == EnvironmentToggle::enabled;
+}
+
 std::string path_text(const std::filesystem::path &path)
 {
     const std::string converted = wide_to_utf8(path.c_str());
@@ -816,134 +855,101 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         }
         *entry.target = static_cast<uint32_t>(parsed);
     }
-    {
-        char value[64] = {};
-        const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_SPLIT_PRIMARY", value,
-            static_cast<DWORD>(sizeof(value)));
-        if (length >= sizeof(value)) {
-            error = "AB3D2_DXR_SPLIT_PRIMARY exceeds 63 bytes";
-            return false;
-        }
-        if (length != 0u && std::strcmp(value, "0") != 0 &&
-            std::strcmp(value, "1") != 0) {
-            error = "AB3D2_DXR_SPLIT_PRIMARY must be 0 or 1";
-            return false;
-        }
-        split_primary_ = length != 0u && std::strcmp(value, "1") == 0;
+    EnvironmentToggle split_primary_override = EnvironmentToggle::automatic;
+    EnvironmentToggle primary_survivor_override =
+        EnvironmentToggle::automatic;
+    EnvironmentToggle continuation_lobe_override =
+        EnvironmentToggle::automatic;
+    EnvironmentToggle dense_mature_override = EnvironmentToggle::automatic;
+    EnvironmentToggle bounded_burst_override = EnvironmentToggle::automatic;
+    if (!read_environment_toggle("AB3D2_DXR_SPLIT_PRIMARY",
+                                 split_primary_override, error) ||
+        !read_environment_toggle("AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR",
+                                 primary_survivor_override, error) ||
+        !read_environment_toggle("AB3D2_DXR_SINGLE_CONTINUATION_LOBE",
+                                 continuation_lobe_override, error) ||
+        !read_environment_toggle("AB3D2_DXR_DENSE_MATURE_CONTINUATIONS",
+                                 dense_mature_override, error) ||
+        !read_environment_toggle("AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS",
+                                 bounded_burst_override, error)) {
+        return false;
     }
-    {
-        char value[64] = {};
-        const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR", value,
-            static_cast<DWORD>(sizeof(value)));
-        if (length >= sizeof(value)) {
-            error = "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR exceeds 63 bytes";
-            return false;
-        }
-        if (length != 0u && std::strcmp(value, "0") != 0 &&
-            std::strcmp(value, "1") != 0) {
-            error = "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR must be 0 or 1";
-            return false;
-        }
-        single_primary_direct_survivor_ =
-            length != 0u && std::strcmp(value, "1") == 0;
-        if (single_primary_direct_survivor_ && !split_primary_) {
-            error = "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1 requires "
-                "AB3D2_DXR_SPLIT_PRIMARY=1";
-            return false;
-        }
+
+    const bool production_scheduler_supported =
+        indirect_reconstruction_mode_ != static_cast<uint32_t>(
+            indirect_reconstruction::Mode::raw) &&
+        indirect_reconstruction_mode_ != static_cast<uint32_t>(
+            indirect_reconstruction::Mode::restir) &&
+        reservoir_sample_limit_ != 0u && radiance_clamp_ == 0.0f;
+    split_primary_ = resolve_environment_toggle(
+        split_primary_override, production_scheduler_supported);
+    single_primary_direct_survivor_ = resolve_environment_toggle(
+        primary_survivor_override,
+        production_scheduler_supported && split_primary_);
+    if (single_primary_direct_survivor_ && !split_primary_) {
+        error = "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1 requires "
+            "AB3D2_DXR_SPLIT_PRIMARY=1";
+        return false;
     }
-    {
-        char value[64] = {};
-        const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_SINGLE_CONTINUATION_LOBE", value,
-            static_cast<DWORD>(sizeof(value)));
-        if (length >= sizeof(value)) {
-            error = "AB3D2_DXR_SINGLE_CONTINUATION_LOBE exceeds 63 bytes";
-            return false;
-        }
-        if (length != 0u && std::strcmp(value, "0") != 0 &&
-            std::strcmp(value, "1") != 0) {
-            error = "AB3D2_DXR_SINGLE_CONTINUATION_LOBE must be 0 or 1";
-            return false;
-        }
-        single_continuation_lobe_ =
-            length != 0u && std::strcmp(value, "1") == 0;
-        if (single_continuation_lobe_ &&
-            !single_primary_direct_survivor_) {
-            error = "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1 requires "
-                "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1";
-            return false;
-        }
-        if (single_continuation_lobe_ &&
-            indirect_reconstruction_mode_ == static_cast<uint32_t>(
-                indirect_reconstruction::Mode::restir)) {
-            error = "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1 is not valid with "
-                "AB3D2_DXR_INDIRECT_RECONSTRUCTION=restir";
-            return false;
-        }
+
+    single_continuation_lobe_ = resolve_environment_toggle(
+        continuation_lobe_override,
+        production_scheduler_supported && single_primary_direct_survivor_);
+    if (single_continuation_lobe_ && !single_primary_direct_survivor_) {
+        error = "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1 requires "
+            "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1";
+        return false;
     }
-    {
-        char value[64] = {};
-        const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS", value,
-            static_cast<DWORD>(sizeof(value)));
-        if (length >= sizeof(value)) {
-            error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS exceeds 63 bytes";
-            return false;
-        }
-        if (length != 0u && std::strcmp(value, "0") != 0 &&
-            std::strcmp(value, "1") != 0) {
-            error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS must be 0 or 1";
-            return false;
-        }
-        dense_mature_continuations_ =
-            length != 0u && std::strcmp(value, "1") == 0;
-        if (dense_mature_continuations_ && !single_continuation_lobe_) {
-            error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 requires "
-                "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1";
-            return false;
-        }
-        if (dense_mature_continuations_ &&
-            (indirect_reconstruction_mode_ == static_cast<uint32_t>(
-                 indirect_reconstruction::Mode::raw) ||
-             indirect_reconstruction_mode_ == static_cast<uint32_t>(
-                 indirect_reconstruction::Mode::restir) ||
-             reservoir_sample_limit_ == 0u)) {
-            error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 requires an "
-                "adaptive temporal indirect reconstruction mode and a "
-                "nonzero reservoir limit";
-            return false;
-        }
-        if (dense_mature_continuations_ && radiance_clamp_ > 0.0f) {
-            error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 is not valid "
-                "with a nonzero AB3D2_DXR_RADIANCE_CLAMP";
-            return false;
-        }
+    if (single_continuation_lobe_ &&
+        indirect_reconstruction_mode_ == static_cast<uint32_t>(
+            indirect_reconstruction::Mode::restir)) {
+        error = "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1 is not valid with "
+            "AB3D2_DXR_INDIRECT_RECONSTRUCTION=restir";
+        return false;
     }
-    {
-        char value[64] = {};
-        const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS", value,
-            static_cast<DWORD>(sizeof(value)));
-        if (length >= sizeof(value)) {
-            error = "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS exceeds 63 bytes";
-            return false;
-        }
-        if (length != 0u && std::strcmp(value, "0") != 0 &&
-            std::strcmp(value, "1") != 0) {
-            error = "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS must be 0 or 1";
-            return false;
-        }
-        bounded_burst_continuations_ =
-            length != 0u && std::strcmp(value, "1") == 0;
-        if (bounded_burst_continuations_ &&
-            !dense_mature_continuations_) {
-            error = "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1 requires "
-                "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1";
-            return false;
-        }
+
+    dense_mature_continuations_ = resolve_environment_toggle(
+        dense_mature_override,
+        production_scheduler_supported && single_continuation_lobe_);
+    if (dense_mature_continuations_ && !single_continuation_lobe_) {
+        error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 requires "
+            "AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1";
+        return false;
+    }
+    if (dense_mature_continuations_ &&
+        (indirect_reconstruction_mode_ == static_cast<uint32_t>(
+             indirect_reconstruction::Mode::raw) ||
+         indirect_reconstruction_mode_ == static_cast<uint32_t>(
+             indirect_reconstruction::Mode::restir) ||
+         reservoir_sample_limit_ == 0u)) {
+        error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 requires an "
+            "adaptive temporal indirect reconstruction mode and a "
+            "nonzero reservoir limit";
+        return false;
+    }
+    if (dense_mature_continuations_ && radiance_clamp_ > 0.0f) {
+        error = "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1 is not valid "
+            "with a nonzero AB3D2_DXR_RADIANCE_CLAMP";
+        return false;
+    }
+
+    bounded_burst_continuations_ = resolve_environment_toggle(
+        bounded_burst_override,
+        production_scheduler_supported && dense_mature_continuations_);
+    if (bounded_burst_continuations_ && !dense_mature_continuations_) {
+        error = "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1 requires "
+            "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1";
+        return false;
+    }
+    if (!production_scheduler_supported &&
+        split_primary_override == EnvironmentToggle::automatic &&
+        primary_survivor_override == EnvironmentToggle::automatic &&
+        continuation_lobe_override == EnvironmentToggle::automatic &&
+        dense_mature_override == EnvironmentToggle::automatic &&
+        bounded_burst_override == EnvironmentToggle::automatic) {
+        debug_output("DXR combined scheduler automatic mode is inactive: "
+                     "raw/ReSTIR reconstruction, zero history, and nonzero "
+                     "radiance clamp retain their diagnostic control path");
     }
     {
         char value[64] = {};
@@ -2181,7 +2187,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         D3D12_RESOURCE_DESC visibility_description = description;
         if (!split_primary_) {
             /* Keep u32 valid for the shared root table without charging the
-             * shipping monolithic path for a dormant full-frame texture. */
+             * explicit monolithic control for a dormant full-frame texture. */
             visibility_description.Width = 1u;
             visibility_description.Height = 1u;
         }

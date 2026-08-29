@@ -805,37 +805,31 @@ p99/maximum GPU-stage times, and the corresponding CPU phase distributions.
 The profiler is off by default and never adds a same-frame wait. Profiles state
 `validation_enabled`: hidden smoke reports `true` because its acceptance
 counters and image readback are active, while ordinary visible performance
-reports `false`. The primary work is reported as separate `primary_visibility`
-and `primary_shading` stages. The former is exactly zero on the shipping
-monolithic path. `AB3D2_DXR_SPLIT_PRIMARY=1` enables the development S0 control:
-one pass stores the full-precision primary triangle/barycentrics plus crossed
-additive layers, and the shading pass consumes that hit without retracing it.
-`AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1` adds S1 and requires S0: all configured
-primary proposals feed one RIS survivor, so diffuse and direct GGX share one
-selected sample and one visibility ray.
-`AB3D2_DXR_SINGLE_CONTINUATION_LOBE=1` adds S2 and requires S1: when the first
-diffuse and smooth-GGX continuations coincide, one is selected from a bounded
-material/Fresnel probability and divided by that probability. S2 is rejected
-with the diagnostic ReSTIR-GI reconstruction, whose reservoir weights do not
-yet encode this selection measure. The summary records all feature bits;
-invalid environment combinations fail renderer initialization.
-`AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1` adds the S3a checkpoint and requires
-S2, adaptive temporal indirect reconstruction, nonzero history, and the
-production zero radiance clamp. It extracts the rotating mature 2-by-2 phase
-into one quarter-pixel `DenseMatureContinuation` dispatch while new,
-disoccluded, or changing burst pixels remain on the full primary path. The
-profiler reports that pass separately. S3a has no bounded burst work list yet
-and is not the complete S3 candidate.
-`AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1` completes the S3 scheduling shape and
-requires S3a. Primary shading appends one `(pixel, sample-count)` entry per
-new/disoccluded/changing pixel to a per-frame buffer sized to the exact internal
-pixel count, then a GPU-written indirect ray dispatch executes only those burst
-pixels. Its maximum continuation work is therefore internal pixels multiplied
-by the configured burst ceiling. Hidden validation treats any capacity breach
-as a failure and the overflowing pixel is still processed inline. The profiler
-reports `burst_continuation` separately. These controls are off by default until
-the combined scheduling slice clears the performance and image gates in
-`Q2RTX_PERFORMANCE_PARITY_PLAN.md`.
+reports `false`. The normal adaptive-temporal renderer reports primary work as
+separate `primary_visibility` and `primary_shading` stages. Its accepted S0-S3
+scheduler stores full-precision primary triangle/barycentrics plus crossed
+additive layers, shares one RIS survivor and visibility ray between direct
+diffuse and GGX, selects one first diffuse or smooth-GGX continuation with
+inverse-probability weighting, launches the rotating mature 2-by-2 phase as one
+dense quarter-pixel dispatch, and executes new/disoccluded/changing burst pixels
+through a bounded GPU-written indirect dispatch. The burst list is sized to the
+exact internal pixel count; hidden validation treats any capacity breach as a
+failure and the overflowing pixel is still processed inline. The profiler
+reports `primary_visibility`, `primary_shading`,
+`dense_mature_continuation`, and `burst_continuation` separately.
+
+`AB3D2_DXR_SPLIT_PRIMARY`, `AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR`,
+`AB3D2_DXR_SINGLE_CONTINUATION_LOBE`,
+`AB3D2_DXR_DENSE_MATURE_CONTINUATIONS`, and
+`AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS` are startup A/B overrides: absent uses
+the complete production scheduler, `0` disables that stage and automatic
+dependent stages, and `1` explicitly requests it. Raw/ReSTIR reconstruction,
+zero indirect history, and a nonzero diagnostic radiance clamp retain the
+monolithic control automatically because S3's adaptive-history contract does
+not apply to them. S2 may still be requested explicitly with raw reconstruction
+but is rejected with ReSTIR-GI, whose reservoir weights do not encode its lobe
+selection measure. Invalid explicit combinations fail renderer initialization;
+the profiler records every effective feature bit.
 `AB3D2_DXR_COMPACT_LOCAL_PRIMARY=1` is the next opt-in 1C diagnostic and
 requires the complete S3 stack. It bounds only primary direct RIS to eight
 exact evaluations: six draws retain the complete global emitter alias

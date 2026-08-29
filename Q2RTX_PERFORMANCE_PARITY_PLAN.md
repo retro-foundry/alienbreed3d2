@@ -1,7 +1,7 @@
 # Q2RTX Performance Parity Execution Plan
 
 Status: execution plan, 2026-08-29. The accepted lighting result remains the
-quality oracle. Performance parity is open.
+quality oracle. S0-S3 is the production scheduler; performance parity is open.
 
 This document is the performance companion to
 `Q2RTX_LIGHTING_PARITY_PLAN.md`. It replaces a sequence of isolated
@@ -218,8 +218,9 @@ not to be copied.
 
 Implementation checkpoint, 2026-08-29:
 
-- S0 now exists behind the startup-only diagnostic switch
-  `AB3D2_DXR_SPLIT_PRIMARY=1`; the default remains the monolithic control.
+- S0 first existed behind the startup-only diagnostic switch
+  `AB3D2_DXR_SPLIT_PRIMARY=1`; the default at this checkpoint remained the
+  monolithic control.
 - `PrimaryVisibility` traces the camera segment once and publishes its triangle
   index, full-precision barycentrics, crossed-additive-layer count, and additive
   radiance. `ShadePrimary` consumes that handoff and runs the unchanged guide,
@@ -244,10 +245,10 @@ Implementation checkpoint, 2026-08-29:
   storage/rounding tolerance but does not replace the locked radiance/channel
   acceptance suite required for S3/S4.
 
-S0 remains a development foundation because it enables the following direct,
-continuation, and dense scheduling passes to reuse one primary hit. Do not make
-it the shipping path or claim a speedup until those pieces are combined and the
-fixed Release profile clears the gates below.
+At this checkpoint S0 remained a development foundation because it enabled the
+following direct, continuation, and dense scheduling passes to reuse one
+primary hit. It was not a shipping path until those pieces were combined and
+the fixed Release profile cleared the gates below.
 
 ### 1B. Combine the ray-count reductions
 
@@ -311,8 +312,9 @@ S1 checkpoint, 2026-08-29:
   default change. Sparse textured-emitter quality and proposal-load accounting
   in 1C must pass before that setting is accepted.
 
-S1 remains diagnostic and off by default. Its reduction clears the per-slice
-`15%` direction gate, but only the combined S3/S4 route can become production.
+At this checkpoint S1 remained diagnostic and off by default. Its reduction
+cleared the per-slice `15%` direction gate, but only the combined S3/S4 route
+could become production.
 
 S2 checkpoint, 2026-08-29:
 
@@ -338,15 +340,15 @@ S2 checkpoint, 2026-08-29:
   stability was `14.3405/14.3644`.
 
 S2 is required work for S3 but does not independently clear the `15%` slice
-gate. It remains diagnostic and off by default; no energy compensation,
+gate. It remained diagnostic and off by default; no energy compensation,
 fallback lobe, or temporal visibility reuse was added.
 
 S3a checkpoint, 2026-08-29:
 
 - `AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1` requires S2, an adaptive temporal
   reconstruction mode, a nonzero reservoir limit, and the production zero
-  radiance clamp. Unsupported combinations fail initialization; the mode is
-  off by default.
+  radiance clamp. Unsupported combinations fail initialization; the mode was
+  off by default at this checkpoint.
 - A mature scheduled pixel marks the spare high bit of the exact split-primary
   payload and defers only its diffuse continuation. A quarter-pixel raygen
   launch maps `(x,y)` to `2*(x,y) + phase`, with the four `SampleIndex` phases
@@ -381,9 +383,10 @@ five-run dispersion, and direct Q2RTX comparison remain required.
 
 S3 bounded-burst checkpoint, 2026-08-29:
 
-- `AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1` requires S3a and remains off by
-  default. Primary shading appends one compact `(linear pixel, sample count)`
-  entry for each new, disoccluded, immature, or changing pixel. A GPU-written
+- `AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1` requires S3a and remained off by
+  default at this checkpoint. Primary shading appends one compact
+  `(linear pixel, sample count)` entry for each new, disoccluded, immature, or
+  changing pixel. A GPU-written
   `D3D12_DISPATCH_RAYS_DESC` then launches `BurstContinuation` through
   `ExecuteIndirect`, eliminating the full-frame divergent burst loop from
   `ShadePrimary`.
@@ -416,12 +419,12 @@ S3 bounded-burst checkpoint, 2026-08-29:
   lighting-reference/channel-sum/foundation tests passed. Raw and zero-history
   reference modes intentionally reject S3's adaptive-history prerequisites.
 
-S3 is a verified scheduling foundation, not an accepted production path. Its
-median setup cost does not clear the per-slice direction gate, and burst p95
-still exceeds the 16.67 ms frame budget in these changing-route samples. S4
-must now sweep ceilings `1, 2, 4, 8, 16`, retain the lowest ceiling that passes
-disocclusion/change recovery and every lighting gate, and then run the locked
-repeated native/Q2RTX profiles.
+At this checkpoint S3 was a verified scheduling foundation, not an accepted
+production path. Its median setup cost did not clear the per-slice direction
+gate, and burst p95 still exceeded the 16.67 ms frame budget in these
+changing-route samples. S4 therefore had to sweep ceilings `1, 2, 4, 8, 16`,
+retain the lowest ceiling that passed disocclusion/change recovery and every
+lighting gate, and then run the locked repeated native/Q2RTX profiles.
 
 S4 exploratory sweep, 2026-08-29:
 
@@ -626,6 +629,33 @@ timing. Implement the indirect-only light-toggle recovery oracle and compare
 first-frame/current-weight recovery against ceiling 16 before changing the
 production burst ceiling. The theoretical `0.380` versus `0.859` current
 weights remain a blocker until that visual/metric test exists.
+
+Production-scheduler promotion, 2026-08-29:
+
+- S0-S3 now activates automatically for the normal adaptive-temporal,
+  nonzero-history, zero-clamp renderer. The five environment controls are
+  explicit `0|1` A/B overrides rather than opt-in requirements. Raw/ReSTIR,
+  zero-history, and nonzero-clamp diagnostic configurations retain the
+  monolithic oracle unless compatible stages are requested explicitly;
+  invalid dependency combinations still fail initialization.
+- In one paired Release Level A 120-frame changing window at `1280x720`, the
+  no-override production path reduced frame median from the explicit
+  monolithic control's `21.5461 ms` to `10.9554 ms` (`49.2%`) and p95 from
+  `84.5120 ms` to `58.2606 ms` (`31.1%`). Primary/radiance work moved from a
+  `19.6439 ms` monolithic median to `0.1178 ms` primary visibility,
+  `2.6982 ms` primary shading, `0.8018 ms` dense mature continuation, and
+  `5.0637 ms` burst continuation medians.
+- The no-override complete route passed with frozen stability
+  `14.3395/14.3626`, moving delta `26.6886`, and zero unexpected walk rebuilds.
+  Raw lighting/channel oracles and the ReSTIR Level A route also pass. The
+  Streamline RR Quality route reports the same five production bits active at
+  `853x480` tracing to `1280x720`, with `9.2116 ms` frame median; its
+  `28.2545 ms` p95 remains burst-dominated.
+
+This promotion repairs the user-visible configuration but does not complete
+Milestone 1 or establish Q2RTX parity. The ceiling-16 burst tail is now the
+next measured production bottleneck; it may not be reduced until the named
+indirect-light recovery oracle clears the temporal-energy gate.
 
 ### Milestone 1 gate
 

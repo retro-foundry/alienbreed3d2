@@ -426,6 +426,14 @@ is disabled by default. The project performance plan is independently written
 for its existing D3D12 frame contexts, `SceneFrame` resources, HLSL, and DLSS
 Ray Reconstruction integration. It does not copy Q2RTX's Vulkan query code,
 GLSL control flow, constants, data layout, or dynamic-resolution implementation.
+The independently written S0-S3 production scheduler now uses that observed
+shape through project-owned `PrimaryVisibility`, `ShadePrimary`,
+`DenseMatureContinuation`, and `BurstContinuation` DXR exports: one stored
+primary hit, one shared direct survivor, one inverse-probability-selected first
+continuation lobe, a dense mature phase, and a capacity-proved GPU indirect
+burst list. Its AB3D2 transport equations, material/emitter representation,
+history classifier, work-list layout, HLSL, and D3D12 host scheduling remain
+project-authored; no Q2RTX shader or host expression was copied or adapted.
 
 ## Approved conceptual references inspected
 

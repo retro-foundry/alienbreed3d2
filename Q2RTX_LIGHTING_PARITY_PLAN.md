@@ -55,7 +55,7 @@ Last updated: 2026-08-29
 
 ### Combined scheduler progress (2026-08-29)
 
-- The opt-in S0/S1/S2 sequence now splits primary visibility, shares one direct
+- The S0/S1/S2 sequence splits primary visibility, shares one direct
   RIS survivor between diffuse and GGX, and selects one mutually exclusive
   first smooth/diffuse continuation with inverse-probability weighting. S3a
   adds a dense quarter-pixel launch for the already accepted mature rotating
@@ -66,15 +66,26 @@ Last updated: 2026-08-29
   final SDR captures stayed within one 8-bit code with mean absolute component
   difference `0.02447`, and the full moving/firing route retained zero
   unexpected scene rebuilds.
-- This is an implementation checkpoint, not a new production default or a
+- At this implementation checkpoint it was not yet a production default or a
   performance-parity claim. The bounded S3 burst list is now implemented and
   moves new/disoccluded/changing pixels into an exact GPU-indirect dispatch.
   Across two alternating pairs it added `1.3-2.6%` median setup cost but reduced
   frame p95 by `29.0-30.2%` and p99 by `18.0-26.9%`; an unprofiled paired SDR
-  capture stayed within one 8-bit code. S0-S3 remain off by default. The S4
+  capture stayed within one 8-bit code. S0-S3 remained off by default. The S4
   burst-ceiling sweep, locked repeated profiles, validation work counters, and
   direct Q2RTX run remain open in `Q2RTX_PERFORMANCE_PARITY_PLAN.md`; the
   lighting and temporal acceptance contract in this document is unchanged.
+- The validated S0-S3 scheduler is now the ordinary adaptive-temporal production
+  route rather than an environment-only experiment. A no-override Release
+  Level A pair at `1280x720` reduced GPU frame median from the explicit
+  monolithic control's `21.5461 ms` to `10.9554 ms` (`49.2%`) and p95 from
+  `84.5120 ms` to `58.2606 ms` (`31.1%`) over the same changing 120-frame
+  window. The complete route retained frozen stability `14.3395/14.3626`,
+  moving delta `26.6886`, and zero unexpected walk rebuilds. Raw/ReSTIR,
+  zero-history, and nonzero-clamp diagnostics retain their established control
+  automatically; explicit `0|1` feature overrides remain for attribution.
+  This promotion fixes the user-visible default but does not close performance
+  parity: S3 burst continuation remains the dominant p95 stage.
 - The first S4 ceiling sweep did not change that decision. Ceiling one reached
   `16.6009 ms` p95 in its single preliminary trial, but its confirmed-change
   temporal current weight is only `0.380` versus ceiling 16's `0.859`; settled
