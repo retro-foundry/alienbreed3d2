@@ -299,6 +299,7 @@ cbuffer FrameConstants : register(b0)
     uint BoundedBurstContinuations;
     uint CompactLocalPrimary;
     uint ProxyPrimaryCandidates;
+    uint ForceSpecularGuide;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -3464,8 +3465,10 @@ void writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
         pixel, surfaceMotion(payload, surface, float2(dimensions),
                              surface.primitive == ViewWeaponPrimitive),
         float2(dimensions));
-    SpecularHitDistance[pixel] = deterministicSpecularHitDistance(
-        surface, viewDirection);
+    bool writeSpecularGuide = RayReconstructionActive != 0u ||
+        ForceSpecularGuide != 0u || (DiagnosticGuideMask & 4u) != 0u;
+    SpecularHitDistance[pixel] = writeSpecularGuide ?
+        deterministicSpecularHitDistance(surface, viewDirection) : 0.0;
     SurfaceParameters[pixel] = packSurfaceF0(surfaceF0(surface));
     if ((DiagnosticGuideMask & 2u) != 0u) {
         DiffuseHitDistance[pixel] = 0.0;

@@ -853,6 +853,14 @@ normalization, so a sampled black texel contributes zero without bias. This
 path is off by default: measured primary timing was effectively neutral and
 the saved-motion variance gate failed.
 
+The deterministic mirror-distance guide ray is now consumer-gated. It remains
+active whenever DLSS Ray Reconstruction or the `specular-hit-distance` debug
+view consumes it; RR-off ordinary rendering writes zero to the otherwise
+unused guide texture without tracing a mirror segment. Set
+`AB3D2_DXR_FORCE_SPECULAR_GUIDE=1` to restore the old full-rate guide for paired
+diagnostic profiles. The profiler records `specular_guide_active` so the two
+workloads cannot be mixed silently.
+
 Ordinary visible frames no longer clear, update, or copy the hidden-smoke
 diagnostic buffer. Its shader atomics and finite-guide scan remain enabled for
 hidden validation, preserving the exact coverage and non-finite checks without

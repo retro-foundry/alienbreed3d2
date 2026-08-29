@@ -166,7 +166,8 @@ bool same_configuration(const DxrPerformanceMetadata &left,
         left.bounded_burst_continuations ==
             right.bounded_burst_continuations &&
         left.compact_local_primary == right.compact_local_primary &&
-        left.proxy_primary_candidates == right.proxy_primary_candidates;
+        left.proxy_primary_candidates == right.proxy_primary_candidates &&
+        left.specular_guide_active == right.specular_guide_active;
 }
 
 const char *reconstruction_name(RendererRayReconstructionMode mode)
@@ -546,6 +547,8 @@ void DxrGpuProfiler::report()
            << (metadata.compact_local_primary ? "true" : "false")
            << ",\"proxy_primary_candidates\":"
            << (metadata.proxy_primary_candidates ? "true" : "false")
+           << ",\"specular_guide_active\":"
+           << (metadata.specular_guide_active ? "true" : "false")
            << ",\"history_valid_frames\":" << history_valid_frames
            << ",\"scene_rebuilds_start\":"
            << samples_.front().metadata.scene_rebuild_count

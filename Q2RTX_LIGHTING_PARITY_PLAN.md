@@ -96,6 +96,11 @@ Last updated: 2026-08-29
   so rejection is based on variance and low leverage rather than broken energy
   accounting. The accepted lighting contract therefore still uses 16 exact
   global candidates; performance work moves to the conditional RR guide.
+- The RR guide is now consumer-gated without changing lighting. RR-off
+  force/skip final captures differ by at most one 8-bit code and saved-motion
+  metrics are identical; RR Quality and the guide debug view retain the exact
+  deterministic current-geometry ray. This removes `16-19%` of primary-shading
+  median in the measured S3 pairs without weakening the lighting gates.
 
 ## Implementation progress (2026-08-28)
 

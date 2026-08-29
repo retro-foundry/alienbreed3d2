@@ -237,6 +237,7 @@ struct FrameConstants {
     uint32_t bounded_burst_continuations;
     uint32_t compact_local_primary;
     uint32_t proxy_primary_candidates;
+    uint32_t force_specular_guide;
 };
 
 /*
@@ -245,7 +246,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 63u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 64u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -994,6 +995,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             return false;
         }
     }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_FORCE_SPECULAR_GUIDE", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = "AB3D2_DXR_FORCE_SPECULAR_GUIDE exceeds 63 bytes";
+            return false;
+        }
+        if (length != 0u && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "1") != 0) {
+            error = "AB3D2_DXR_FORCE_SPECULAR_GUIDE must be 0 or 1";
+            return false;
+        }
+        force_specular_guide_ =
+            length != 0u && std::strcmp(value, "1") == 0;
+    }
     debug_output("DXR ray tracing: direct samples per pixel=" +
                  std::to_string(spp_) + " indirect sample ceiling=" +
                  std::to_string(indirect_spp_) + " diffuse GI=" +
@@ -1016,7 +1034,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  " compact local primary=" +
                  (compact_local_primary_ ? "on" : "off") +
                  " proxy primary candidates=" +
-                 (proxy_primary_candidates_ ? "on" : "off"));
+                 (proxy_primary_candidates_ ? "on" : "off") +
+                 " force specular guide=" +
+                 (force_specular_guide_ ? "on" : "off"));
     return true;
 }
 
@@ -2880,6 +2900,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         history_.input_height == render_height;
     const uint32_t sample_index =
         history_valid ? history_.sample_index + 1u : 0u;
+    const bool specular_guide_active = force_specular_guide_ ||
+        (streamline_active && !debug_view_requested_) ||
+        debug_view_ == static_cast<uint32_t>(
+            DxrReconstructionBuffer::specular_hit_distance);
     DxrPerformanceMetadata performance_metadata = {};
     performance_metadata.presentation_width = width;
     performance_metadata.presentation_height = height;
@@ -2910,6 +2934,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.compact_local_primary = compact_local_primary_;
     performance_metadata.proxy_primary_candidates =
         proxy_primary_candidates_;
+    performance_metadata.specular_guide_active = specular_guide_active;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     performance_metadata.reconstruction_mode = streamline_active && streamline ?
         streamline->active_mode() : RENDERER_RAY_RECONSTRUCTION_OFF;
@@ -2985,7 +3010,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
               DxrReconstructionBuffer::diffuse_hit_distance) ||
           debug_view_ == static_cast<uint32_t>(
               DxrReconstructionBuffer::diffuse_hit_distance_history)) ?
-             2u : 0u);
+             2u : 0u) |
+        (debug_view_ == static_cast<uint32_t>(
+             DxrReconstructionBuffer::specular_hit_distance) ? 4u : 0u);
     constants.diffuse_gi_scale = diffuse_gi_scale_;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
     constants.single_primary_direct_survivor =
@@ -2999,6 +3026,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.compact_local_primary = compact_local_primary_ ? 1u : 0u;
     constants.proxy_primary_candidates =
         proxy_primary_candidates_ ? 1u : 0u;
+    constants.force_specular_guide = force_specular_guide_ ? 1u : 0u;
     const UINT64 frame_constant_offset = frame_constant_stride * frame_slot;
     void *mapped_frame_constants = nullptr;
     const D3D12_RANGE no_read = {0, 0};

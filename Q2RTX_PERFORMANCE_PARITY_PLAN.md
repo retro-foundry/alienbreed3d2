@@ -575,6 +575,38 @@ not pay. It cannot simply be removed while RR consumes the guide.
   moving-camera captures match the deterministic baseline. Do not use old
   history or a stochastic radiance hit as a plausible-looking substitute.
 
+First 1D consumer-gated guide checkpoint, 2026-08-29:
+
+- `writeSurfaceGuides` now traces `deterministicSpecularHitDistance` only when
+  DLSS Ray Reconstruction or the `specular-hit-distance` debug view consumes
+  the result. RR-off rendering writes zero to the otherwise unused texture.
+  `AB3D2_DXR_FORCE_SPECULAR_GUIDE=1` restores the old full-rate ray as an exact
+  attribution control, and profiler summaries record `specular_guide_active`.
+- Two alternating 120-frame S3 pairs at `1280x720` measured primary-shading
+  median/p95 at `3.5789/4.5415` and `3.4606/4.4257 ms` with the guide forced,
+  versus `2.9005/3.9873` and `2.8959/3.6291 ms` when consumer-gated. The
+  primary median reduction repeats at `18.9%` and `16.3%`; primary p95 improves
+  `12.2%` and `18.0%`.
+- Total-frame median moved from `7.3665/7.6005` to `7.0685/6.3756 ms` in the
+  two pairs. Motion-route tail timing remains burst-dominated: p95 changed
+  from `19.5415/18.1421` to `17.6865/18.9077 ms`, so this pass alone is not a
+  60 FPS tail-parity claim.
+- Paired final SDR captures differ by at most one 8-bit code with mean absolute
+  component difference `0.27868`. Forced and gated saved-state metrics are
+  identical: frozen `6.8747/6.7689` delta/reprojected and Shotgun
+  `7.4075/7.1723`, with identical outlier and reprojected-sample counts. The
+  changed hashes therefore reflect last-bit scheduling/compiler variation, not
+  a structural or temporal image change.
+- The Streamline Release build passed the complete Level A route in RR Quality
+  at `853x480` traced to `1280x720`, reporting `specular_guide_active:true`.
+  The standalone specular-hit-distance debug route also reports the guide
+  active and passes. No stale/history substitute was introduced; RR continues
+  to receive the exact current-geometry deterministic distance.
+
+This consumer gate is accepted for RR-off rendering. It is source-consistent
+with the observed Q2RTX pass structure, which has no DLSS-RR guide trace, while
+retaining the native guide contract whenever the native RR path needs it.
+
 ### Milestone 1 gate
 
 The combined primary/direct/indirect/guide stages must reach `22 ms` or less at
