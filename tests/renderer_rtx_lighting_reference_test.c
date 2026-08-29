@@ -33,6 +33,13 @@ typedef struct {
     size_t value_count;
 } RadianceCapture;
 
+typedef struct {
+    unsigned burst_ceiling;
+    double off_luminance;
+    double response_luminance[12];
+    double settled_luminance;
+} IndirectRecoveryCapture;
+
 static void initialize_wall_surface(SceneMeshSurface *surface,
                                     SceneVertex *vertices,
                                     uint32_t vertex_count,
@@ -124,6 +131,296 @@ static float half_ulp(uint16_t encoded)
         return INFINITY;
     }
     return ldexpf(1.0f, exponent == 0u ? -24 : (int)exponent - 25);
+}
+
+static int capture_indirect_luminance(RendererRtx *renderer,
+                                      double *out_luminance)
+{
+    const size_t value_count =
+        renderer_rtx_last_noisy_radiance_value_count(renderer);
+    uint16_t *values = value_count != 0u ?
+        (uint16_t *)malloc(value_count * sizeof(*values)) : NULL;
+    if (!values || value_count % 4u != 0u ||
+        !renderer_rtx_copy_last_noisy_radiance(
+            renderer, values, value_count)) {
+        fprintf(stderr,
+                "DXR indirect-recovery oracle returned no RGBA16F readback\n");
+        free(values);
+        return 0;
+    }
+    double sum = 0.0;
+    for (size_t index = 0u; index < value_count; index += 4u) {
+        const float red = half_to_float(values[index]);
+        const float green = half_to_float(values[index + 1u]);
+        const float blue = half_to_float(values[index + 2u]);
+        if (!isfinite(red) || !isfinite(green) || !isfinite(blue)) {
+            fprintf(stderr,
+                    "DXR indirect-recovery oracle stored non-finite radiance\n");
+            free(values);
+            return 0;
+        }
+        sum += 0.2126 * (double)red + 0.7152 * (double)green +
+            0.0722 * (double)blue;
+    }
+    free(values);
+    *out_luminance = sum / (double)(value_count / 4u);
+    return 1;
+}
+
+static void set_recovery_emitter_position(SceneVertex *vertices, int active)
+{
+    const int32_t offset = active ? 0 : 24000;
+    vertices[0].position =
+        (SceneWorldPoint){350 + offset, 7680, -80 + offset};
+    vertices[1].position =
+        (SceneWorldPoint){450 + offset, 7680, -80 + offset};
+    vertices[2].position =
+        (SceneWorldPoint){400 + offset, -7680, -80 + offset};
+}
+
+static int run_indirect_recovery_capture(
+    unsigned burst_ceiling, IndirectRecoveryCapture *capture)
+{
+    enum {
+        RECOVERY_MATURE_FRAMES = 48,
+        RECOVERY_OFF_CAPTURE_FRAMES = 4,
+        RECOVERY_RESPONSE_FRAMES = 12,
+        RECOVERY_SETTLE_FRAMES = 64,
+        RECOVERY_SETTLED_CAPTURE_FRAMES = 8
+    };
+    char error[1024] = {0};
+    RenderView view = {0};
+    RendererRayTracingOptions options = {0};
+    options.samples_per_pixel = 1u;
+    options.indirect_samples_per_pixel = (uint8_t)burst_ceiling;
+    options.diffuse_gi_scale = 0.75f;
+    options.diffuse_gi_scale_set = UINT8_MAX;
+    options.maximum_bounces = 3u;
+    options.light_candidates = 16u;
+    options.reservoir_sample_limit = 32u;
+    options.reservoir_sample_limit_set = UINT8_MAX;
+    options.radiance_clamp = 0.0f;
+    options.exposure_bias_stops = -1.0f;
+    options.exposure_bias_set = UINT8_MAX;
+    options.ndf_trim = 0.9f;
+    options.reconstruction = RENDERER_RAY_RECONSTRUCTION_OFF;
+    options.output = RENDERER_OUTPUT_SDR;
+
+    SceneVertex receiver_vertices[6] = {0};
+    receiver_vertices[0].position = (SceneWorldPoint){-160, 7680, 320};
+    receiver_vertices[1].position = (SceneWorldPoint){160, 7680, 320};
+    receiver_vertices[2].position = (SceneWorldPoint){160, -7680, 320};
+    receiver_vertices[3] = receiver_vertices[0];
+    receiver_vertices[4] = receiver_vertices[2];
+    receiver_vertices[5].position = (SceneWorldPoint){-160, -7680, 320};
+    SceneVertex wall_vertices[6] = {0};
+    wall_vertices[0].position = (SceneWorldPoint){-480, 23040, -160};
+    wall_vertices[1].position = (SceneWorldPoint){480, 23040, -160};
+    wall_vertices[2].position = (SceneWorldPoint){480, -23040, -160};
+    wall_vertices[3] = wall_vertices[0];
+    wall_vertices[4] = wall_vertices[2];
+    wall_vertices[5].position = (SceneWorldPoint){-480, -23040, -160};
+    SceneVertex light_vertices[3] = {0};
+    set_recovery_emitter_position(light_vertices, 0);
+
+    SceneMeshSurface static_surfaces[2] = {0};
+    initialize_wall_surface(&static_surfaces[0], receiver_vertices, 6u,
+                            REFERENCE_ROUGHNESS_025);
+    initialize_wall_surface(&static_surfaces[1], wall_vertices, 6u,
+                            REFERENCE_ROUGHNESS_100);
+    SceneMeshSurface light_surface = {0};
+    initialize_wall_surface(&light_surface, light_vertices, 3u,
+                            REFERENCE_EMITTER);
+    SceneCommand commands[3] = {0};
+    commands[0].type = SCENE_COMMAND_CAMERA;
+    commands[1].type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+    commands[1].data.geometry_instance.source_instance_id = 10u;
+    commands[1].data.geometry_instance.mesh.source_mesh_id = 10u;
+    commands[1].data.geometry_instance.mesh.acceleration_class =
+        SCENE_ACCELERATION_CLASS_STATIC;
+    commands[1].data.geometry_instance.mesh.surfaces = static_surfaces;
+    commands[1].data.geometry_instance.mesh.surface_count = 2u;
+    commands[2].type = SCENE_COMMAND_GEOMETRY_INSTANCE;
+    commands[2].data.geometry_instance.source_instance_id = 11u;
+    commands[2].data.geometry_instance.mesh.source_mesh_id = 11u;
+    commands[2].data.geometry_instance.mesh.acceleration_class =
+        SCENE_ACCELERATION_CLASS_DYNAMIC;
+    commands[2].data.geometry_instance.mesh.surfaces = &light_surface;
+    commands[2].data.geometry_instance.mesh.surface_count = 1u;
+    SceneFrame frame = {0};
+    frame.commands = commands;
+    frame.count = 3u;
+
+    RendererRtx *renderer = renderer_rtx_create(
+        320, 180, "AB3D2 DXR indirect recovery oracle", 0, 1, 1u,
+        &options, error, sizeof(error));
+    if (!renderer) {
+        fprintf(stderr,
+                "DXR indirect-recovery renderer creation failed at ceiling %u: %s\n",
+                burst_ceiling, error);
+        return 0;
+    }
+    int valid = renderer_rtx_enable_noisy_radiance_readback(renderer) &&
+        renderer_rtx_select_radiance_channel(
+            renderer, RENDERER_RTX_RADIANCE_INDIRECT);
+    double off_sum = 0.0;
+    double settled_sum = 0.0;
+    for (unsigned frame_index = 0u;
+         valid && frame_index < RECOVERY_MATURE_FRAMES; ++frame_index) {
+        valid = present_reference(
+            renderer, &frame, &view, error, sizeof(error));
+    }
+    for (unsigned frame_index = 0u;
+         valid && frame_index < RECOVERY_OFF_CAPTURE_FRAMES; ++frame_index) {
+        double luminance = 0.0;
+        valid = present_reference(
+                    renderer, &frame, &view, error, sizeof(error)) &&
+            capture_indirect_luminance(renderer, &luminance);
+        off_sum += luminance;
+    }
+    capture->burst_ceiling = burst_ceiling;
+    capture->off_luminance =
+        off_sum / (double)RECOVERY_OFF_CAPTURE_FRAMES;
+
+    set_recovery_emitter_position(light_vertices, 1);
+    for (unsigned frame_index = 0u;
+         valid && frame_index < RECOVERY_RESPONSE_FRAMES; ++frame_index) {
+        valid = present_reference(
+                    renderer, &frame, &view, error, sizeof(error)) &&
+            capture_indirect_luminance(
+                renderer, &capture->response_luminance[frame_index]);
+    }
+    for (unsigned frame_index = 0u;
+         valid && frame_index < RECOVERY_SETTLE_FRAMES; ++frame_index) {
+        valid = present_reference(
+            renderer, &frame, &view, error, sizeof(error));
+    }
+    for (unsigned frame_index = 0u;
+         valid && frame_index < RECOVERY_SETTLED_CAPTURE_FRAMES; ++frame_index) {
+        double luminance = 0.0;
+        valid = present_reference(
+                    renderer, &frame, &view, error, sizeof(error)) &&
+            capture_indirect_luminance(renderer, &luminance);
+        settled_sum += luminance;
+    }
+    capture->settled_luminance =
+        settled_sum / (double)RECOVERY_SETTLED_CAPTURE_FRAMES;
+    renderer_rtx_destroy(renderer);
+    return valid;
+}
+
+static double indirect_recovery_average(
+    const IndirectRecoveryCapture *capture, size_t first_frame,
+    size_t frame_count)
+{
+    const double range =
+        capture->settled_luminance - capture->off_luminance;
+    if (!(range > 0.0) || frame_count == 0u) {
+        return 0.0;
+    }
+    double sum = 0.0;
+    for (size_t frame_index = first_frame;
+         frame_index < first_frame + frame_count; ++frame_index) {
+        sum += (capture->response_luminance[frame_index] -
+                capture->off_luminance) / range;
+    }
+    return sum / (double)frame_count;
+}
+
+static int run_indirect_recovery_reference(void)
+{
+    static const unsigned ceilings[] = {16u, 8u, 4u, 2u, 1u};
+    IndirectRecoveryCapture captures[
+        sizeof(ceilings) / sizeof(ceilings[0])] = {0};
+    if (_putenv_s("AB3D2_DXR_RADIANCE_CHANNEL", "indirect") != 0 ||
+        _putenv_s("AB3D2_DXR_INDIRECT_RECONSTRUCTION", "full") != 0) {
+        fprintf(stderr, "Could not configure DXR indirect-recovery oracle\n");
+        return 0;
+    }
+    int valid = 1;
+    for (size_t ceiling_index = 0u;
+         valid && ceiling_index < sizeof(ceilings) / sizeof(ceilings[0]);
+         ++ceiling_index) {
+        valid = run_indirect_recovery_capture(
+            ceilings[ceiling_index], &captures[ceiling_index]);
+    }
+    if (valid) {
+        const IndirectRecoveryCapture *control = &captures[0];
+        const double control_range =
+            control->settled_luminance - control->off_luminance;
+        if (!(control_range > 0.0) ||
+            control->off_luminance > control->settled_luminance * 0.05) {
+            fprintf(stderr,
+                    "DXR indirect-recovery scene did not isolate a light toggle "
+                    "(off=%g settled=%g)\n",
+                    control->off_luminance, control->settled_luminance);
+            valid = 0;
+        }
+        double control_recovery = 0.0;
+        double control_fourth_frame = 0.0;
+        if (valid) {
+            control_recovery = indirect_recovery_average(control, 2u, 6u);
+            control_fourth_frame =
+                (control->response_luminance[3] -
+                 control->off_luminance) / control_range;
+        }
+        if (valid && (control_recovery < 0.4 ||
+                      control_fourth_frame < 0.4)) {
+            fprintf(stderr,
+                    "DXR ceiling-16 indirect recovery is too slow "
+                    "(six-frame average=%.4f fourth-frame=%.4f)\n",
+                    control_recovery, control_fourth_frame);
+            valid = 0;
+        }
+        for (size_t ceiling_index = 0u;
+             valid && ceiling_index < sizeof(ceilings) / sizeof(ceilings[0]);
+             ++ceiling_index) {
+            const IndirectRecoveryCapture *candidate =
+                &captures[ceiling_index];
+            const double range = candidate->settled_luminance -
+                candidate->off_luminance;
+            const double recovery =
+                indirect_recovery_average(candidate, 2u, 6u);
+            const double recovery_ratio = control_recovery > 0.0 ?
+                recovery / control_recovery : 0.0;
+            const double settled_ratio = control->settled_luminance > 0.0 ?
+                candidate->settled_luminance /
+                    control->settled_luminance : 0.0;
+            const int acceptable = ceiling_index == 0u ||
+                (recovery_ratio >= 0.9 && settled_ratio >= 0.9 &&
+                 settled_ratio <= 1.1);
+            fprintf(stdout,
+                    "[DXR-RECOVERY] ceiling=%u off=%.9g settled=%.9g "
+                    "recovery=%.4f recovery_ratio=%.4f settled_ratio=%.4f "
+                    "decision=%s response=",
+                    candidate->burst_ceiling, candidate->off_luminance,
+                    candidate->settled_luminance, recovery, recovery_ratio,
+                    settled_ratio,
+                    ceiling_index == 0u ? "control" :
+                        acceptable ? "pass" : "reject");
+            for (size_t frame_index = 0u;
+                 frame_index < sizeof(candidate->response_luminance) /
+                                   sizeof(candidate->response_luminance[0]);
+                 ++frame_index) {
+                const double response = range > 0.0 ?
+                    (candidate->response_luminance[frame_index] -
+                     candidate->off_luminance) / range : 0.0;
+                fprintf(stdout, "%s%.4f", frame_index != 0u ? "," : "",
+                        response);
+            }
+            fprintf(stdout, "\n");
+            if (!(range > 0.0)) {
+                fprintf(stderr,
+                        "DXR indirect-recovery ceiling %u produced no "
+                        "positive settled response\n",
+                        candidate->burst_ceiling);
+                valid = 0;
+            }
+        }
+    }
+    (void)_putenv_s("AB3D2_DXR_RADIANCE_CHANNEL", "");
+    (void)_putenv_s("AB3D2_DXR_INDIRECT_RECONSTRUCTION", "");
+    return valid;
 }
 
 static int validate_radiance_channel_sum(
@@ -392,6 +689,11 @@ int main(int argc, char **argv)
     }
     if (argc == 2 && strcmp(argv[1], "--channel-sum") == 0) {
         const int valid = run_radiance_channel_reference();
+        SDL_Quit();
+        return valid ? 0 : 1;
+    }
+    if (argc == 2 && strcmp(argv[1], "--indirect-recovery") == 0) {
+        const int valid = run_indirect_recovery_reference();
         SDL_Quit();
         return valid ? 0 : 1;
     }

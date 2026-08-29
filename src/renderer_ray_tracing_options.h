@@ -43,7 +43,9 @@ typedef enum {
  * available only through reservoir_sample_limit_set for the history-off
  * diagnostic. Sixteen independent GI paths fill the 32-sample history in two
  * presented frames after a disocclusion or confirmed lighting change. Mature
- * pixels retain the sparse one-path-per-2x2-block schedule. */
+ * pixels retain the sparse one-path-per-2x2-block schedule. The fixed-receiver
+ * indirect-light recovery oracle rejects every lower tested ceiling because
+ * none retains 90% of the early ceiling-16 response. */
 enum {
     RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES = 16,
     RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL = 16,

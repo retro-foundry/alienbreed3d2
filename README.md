@@ -85,6 +85,10 @@ default, so the shipped template lists them commented out with their defaults:
   then rotates one fresh path through each 2-by-2 block of stable pixels while
   the other three reproject validated history. The `raw` and `restir`
   diagnostic modes retain a fixed count. The primary ray remains pixel-centred.
+  A fixed-receiver indirect-light recovery oracle also pins the shipping
+  ceiling at 16: ceilings 8, 4, 2, and 1 all recover less than 25% of the
+  control's early response when a real emitter turns on, so they remain
+  explicit quality/performance experiments rather than shipping shortcuts.
   `rtx_diffuse_gi=0` through `1` independently scales only the reconstructed
   secondary diffuse transfer and defaults to `0.75`; exact zero bypasses its
   continuation rays and reconstruction stages without changing direct light or

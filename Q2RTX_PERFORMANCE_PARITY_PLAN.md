@@ -452,8 +452,9 @@ S4 exploratory sweep, 2026-08-29:
   current burst. The exact temporal current weights for ceilings 1/2/4/8/16
   are therefore `0.380/0.494/0.630/0.760/0.859`. Ceiling one's apparently
   calmer settled delta buys materially slower first-frame lighting recovery.
-  It is not accepted until a locked indirect-only light-toggle/disocclusion
-  oracle demonstrates that this lag is visually harmless; no default changed.
+  It was held for the locked indirect-only light-toggle oracle below; that
+  oracle now confirms the lag and rejects the lower ceiling, so no default
+  changed.
 - Combining S3, ceiling 16, and eight global RIS candidates measured
   `9.0502/15.8996/62.0167 ms` frame median/p95/p99 and `9.4701 ms` burst p95.
   It clears the preliminary median/p95 budget without weakening burst recovery,
@@ -624,11 +625,9 @@ Combined S4 timing check after the guide gate, 2026-08-29:
   and saved-motion ceiling sweep, but still do not exercise a confirmed
   indirect-light change at a fixed receiver.
 
-Ceiling one therefore remains an unaccepted diagnostic despite the strong
-timing. Implement the indirect-only light-toggle recovery oracle and compare
-first-frame/current-weight recovery against ceiling 16 before changing the
-production burst ceiling. The theoretical `0.380` versus `0.859` current
-weights remain a blocker until that visual/metric test exists.
+Ceiling one therefore remained an unaccepted diagnostic despite the strong
+timing. The indirect-only light-toggle recovery oracle below now resolves the
+named evidence gap and rejects every lower ceiling.
 
 Production-scheduler promotion, 2026-08-29:
 
@@ -654,8 +653,32 @@ Production-scheduler promotion, 2026-08-29:
 
 This promotion repairs the user-visible configuration but does not complete
 Milestone 1 or establish Q2RTX parity. The ceiling-16 burst tail is now the
-next measured production bottleneck; it may not be reduced until the named
-indirect-light recovery oracle clears the temporal-energy gate.
+next measured production bottleneck.
+
+Indirect-light recovery oracle, 2026-08-29:
+
+- `ab3d2_renderer_rtx_indirect_recovery_test` constructs a fixed camera and
+  receiver with an off-camera secondary wall and one dynamic authored emitter.
+  It matures the adaptive history while the emitter is too distant to
+  contribute, then moves the same emitter into the lit position. The emitter
+  identity, area, material, receiver, camera, and history epoch remain fixed;
+  only the indirect radiance changes. The oracle reads the reconstructed
+  `indirect` FP16 channel for twelve frames and compares ceilings
+  `16/8/4/2/1` from identical sample zero.
+- Ceiling 16's normalized response over frames three through eight is
+  `0.5211`, with its fourth captured frame at `0.5478` of settled radiance.
+  The same six-frame metric is `0.1294/0.0413/0.0772/0.0002` for ceilings
+  `8/4/2/1`: only `24.82%/7.93%/14.80%/0.05%` of the control. Settled ratios
+  are `0.9261/0.8750/0.8367/0.5343`.
+- The acceptance gate requires at least `90%` of ceiling 16's recovery and
+  settled radiance within `10%`. Every lower ceiling is rejected. Production
+  remains at 16; the `6.3730/9.6050/10.5056 ms` ceiling-one profile is not a
+  shippable speedup.
+
+The burst tail must therefore be made cheaper per ray or scheduled more
+coherently without reducing confirmed-change samples. Milestone 2's
+hardware-native material access and ray/payload specialization are now the
+next production work; deleting burst paths is closed by measured evidence.
 
 ### Milestone 1 gate
 

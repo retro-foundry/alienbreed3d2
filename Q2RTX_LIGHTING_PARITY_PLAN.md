@@ -115,8 +115,17 @@ Last updated: 2026-08-29
 - Combining that gate with burst ceiling one reaches
   `6.3730/9.6050/10.5056 ms` frame median/p95/p99 and passes Level A, but the
   ceiling is not accepted: its first-frame confirmed-light-change weight is
-  still `0.380` versus ceiling 16's `0.859`. The isolated indirect-light toggle
-  oracle remains required before the production lighting schedule can change.
+  still `0.380` versus ceiling 16's `0.859`.
+- The fixed-receiver indirect-only light-toggle oracle is now implemented in
+  `ab3d2_renderer_rtx_indirect_recovery_test`. It matures dark history without
+  changing the camera or receiver, moves the same dynamic authored emitter into
+  its lit position without resetting history, and measures twelve reconstructed
+  indirect-only frames. Ceiling 16 reaches a `0.5211` normalized mean across
+  response frames three through eight. Ceilings 8/4/2/1 reach only
+  `0.1294/0.0413/0.0772/0.0002`, or
+  `24.82%/7.93%/14.80%/0.05%` of the control. All lower ceilings therefore
+  fail the `90%` recovery gate; ceiling 16 remains the production quality
+  contract and the fast ceiling-one profile remains attribution only.
 
 ## Implementation progress (2026-08-28)
 
