@@ -347,24 +347,33 @@ The separate bounded diffuse-indirect channel uses project-authored HLSL and
 host code. `rtx_max_bounces` counts the primary surface and up to seven real
 continuations. Each continuation owns a separate eight-dimension sample group
 and a disjoint polygon-light candidate stream; later terms retain every
-preceding diffuse reflectance. Its first full-resolution reconstruction was derived and validated
-inside this repository. After the explicit 2026-08-26 direction, the bounded
-Q2RTX audit below identified the missing stage structure. The replacement keeps
-full-resolution validated temporal history gathered through four bilinear taps,
-represents incident luminance with standard first-order real spherical harmonics
-plus two opponent-chroma values, computes a broad seven-stage low-resolution
-lighting-change gradient, integrates guide-compatible 3-by-3 regions at one-
-third resolution, applies a regional luminance bound and three guided wavelet
-stages, and reconstructs with four bilateral taps. The project signal contains
-only sparse polygon-light transport rather than Q2RTX's complete LF input, so
-signed temporal confirmation prevents alternating Monte Carlo changes from
-triggering anti-lag. The stage does not filter the fresh direct/specular signal
-tagged for DLSS Ray Reconstruction.
+preceding diffuse reflectance. Its first full-resolution reconstruction was
+derived and validated inside this repository. After the explicit 2026-08-26
+direction, the bounded Q2RTX audit below identified the missing stage structure.
+The native RR-off route keeps full-resolution validated temporal history
+gathered through four bilinear taps, represents incident luminance with standard
+first-order real spherical harmonics plus two opponent-chroma values, computes a
+broad seven-stage low-resolution lighting-change gradient, integrates
+guide-compatible 3-by-3 regions at one-third resolution, applies a regional
+luminance bound and three guided wavelet stages, and reconstructs with four
+bilateral taps. The project signal contains only sparse polygon-light transport
+rather than Q2RTX's complete LF input, so signed temporal confirmation prevents
+alternating Monte Carlo changes from triggering anti-lag.
+
+The 2026-08-29 saved-corridor stage capture established that this native chain
+must not precede DLSS Ray Reconstruction: isolated indirect outliers became
+broad blurred blotches as they crossed the regional and wavelet stages. In
+ordinary active-RR `full` mode, one fresh raw diffuse estimate is now generated
+at every internal pixel and DLSS RR is the only temporal/spatial denoiser.
+Explicit stage diagnostics and RR-off rendering retain the native chain. Fresh
+direct/specular lighting is never processed by that native LF chain.
 
 ### ReSTIR GI comparison path
 
 On 2026-08-26 the user explicitly directed a ReSTIR GI implementation after the
-exact raw indirect signal proved too sparse for DLSS Ray Reconstruction alone.
+then-sparse raw indirect schedule proved too sparse for DLSS Ray Reconstruction
+alone. That historical experiment predates the full-density raw-RR route and
+projected-solid-angle emitter sampling described above.
 Only primary publications and NVIDIA's public integration contract were used:
 
 - Yaobin Ouyang, Shiqiu Liu, Markus Kettunen, Matt Pharr, and Jacopo Pantaleoni,
@@ -390,7 +399,7 @@ reservoir implementation, layout, or shader text was copied or adapted.
 
 ### User-authorized Q2RTX behavioral audit
 
-- Local checkout: `C:\Users\paula\Documents\Projects\Q2RTX`
+- Local checkout: user-authorized `<Q2RTX-root>`
 - Exact commit: `f2526e9a165949f66e91e82f0d63aa7bb2567b4d`
 - Checkout state during inspection: clean
 - Licence of inspected source/shaders: GPL-2.0-or-later
@@ -423,6 +432,18 @@ Q2RTX's dispatch or shader structure. The inspection also showed that this is
 not a ReSTIR-GI pipeline. No GPL implementation text or expression was copied or
 adapted. No Q2RTX dependency, source, shader, table, data, binary, or asset is
 present in the build or repository as a result.
+
+The final 2026-08-29 audit also recorded that `main.c` invokes ASVGF only when
+Q2RTX's own denoiser is enabled; this checkout has no DLSS Ray Reconstruction
+stage. `shader/light_lists.h::spherical_tri_area`,
+`::sample_projected_triangle`, and `::sample_polygonal_lights` establish the
+observable estimator behavior: local polygon candidates are weighted in
+receiver-space spherical measure and the selected triangle is sampled uniformly
+in solid angle. The project implements that behavior independently using the
+published Eriksson solid-angle identity and Arvo spherical-triangle sampling
+algorithm, its existing complete-emitter/ReGIR proposals, HLSL robustness
+guards, exact authored texture sampling, and its own unbiased RIS normalization.
+No Q2RTX light-list implementation, layout, constant, or shader text is present.
 
 The 2026-08-29 performance extension recorded only observable boundaries:
 `profiler.c` uses frame-latent timestamp pairs for the complete frame and named

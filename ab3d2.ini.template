@@ -46,10 +46,13 @@ world_light_tessellation=4
 #rtx_samples_per_pixel=1
 
 # Maximum fresh diffuse-indirect paths per pixel per frame, 1 through 32. These
-# do not repeat primary direct-light shadow rays. Production reconstruction uses
-# the maximum for missing, disoccluded, immature, or confirmed-changing history,
-# then rotates one path through each 2x2 block of stable pixels while the other
-# three reproject validated history. Raw and ReSTIR diagnostics keep a fixed count.
+# do not repeat primary direct-light shadow rays. With Ray Reconstruction active,
+# the normal full mode feeds RR one fresh raw path at every internal pixel and
+# skips the native temporal/regional/deflicker/wavelet chain. With RR off, the
+# native reconstruction uses this maximum for missing, disoccluded, immature, or
+# confirmed-changing history, then rotates one path through each 2x2 block of
+# stable pixels while the other three reproject validated history. Explicit
+# diagnostic modes retain this configured count and their named stage boundary.
 #rtx_indirect_samples=16
 
 # Secondary diffuse-light transfer, 0 through 1. Default 0.75. Zero disables
@@ -65,7 +68,9 @@ world_light_tessellation=4
 
 # DLSS Ray Reconstruction mode: quality, balanced, performance,
 # ultra-performance, or off. This also sets the resolution the path tracer
-# renders at before reconstruction. Ultra Performance is explicitly speed-first:
+# renders at before reconstruction. Enabled modes own indirect denoising and
+# therefore bypass the native low-frequency filter in normal full mode. Ultra
+# Performance is explicitly speed-first:
 # at a 1280x720 window it traces 285x160, reconstructs to 854x480, then uses the
 # final linear presentation upscale. The other enabled modes reconstruct
 # directly to the window extent. Default quality.
@@ -86,9 +91,10 @@ world_light_tessellation=4
 
 # Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
 # primary vertex uses the complete alias table; the indirect vertex uses a
-# quantized world-stable local ReGIR proposal. The retained limit caps the validated
-# temporal history of the separate diffuse-indirect reconstruction. Defaults
-# 16 candidates and 32 effective history samples; zero disables accumulation.
+# quantized world-stable local ReGIR proposal and projected-solid-angle triangle
+# sampling. The retained limit caps validated temporal history only in the native
+# RR-off diffuse-indirect reconstruction. Defaults 16 candidates and 32 effective
+# history samples; zero disables native accumulation.
 #rtx_light_candidates=16
 #rtx_reservoir_limit=32
 

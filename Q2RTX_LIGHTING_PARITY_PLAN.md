@@ -8,7 +8,10 @@ acceptance pass. Direct reservoirs remain dormant because every measured
 temporal/spatial ReSTIR DI variant was less stable than fresh RIS. Performance
 parity was reopened on 2026-08-29: the accepted lighting result is now the
 quality oracle, while Q2RTX's measured frame cost and work scheduling are the
-performance comparator.
+performance comparator. The 2026-08-29 firefly audit additionally made the
+native ASVGF-style indirect filter and DLSS Ray Reconstruction mutually
+exclusive: active RR consumes full-density raw indirect, while RR-off and named
+diagnostics retain the native filter.
 
 Date: 2026-08-27
 
@@ -162,8 +165,49 @@ Last updated: 2026-08-29
   `52.79 dB / 0.99808` for RR-off indirect-only, and
   `48.42 dB / 0.99721` for RR Quality combined. RR Quality frozen delta is
   `0.5045/0.5045`; Shotgun delta is `4.7364/4.7331` and reprojected delta is
-  `0.6775/0.6790`. The sparse-emitter recovery remains exactly `0.4725` with
-  fourth response `0.4288`, because all first diffuse paths are unchanged.
+  `0.6775/0.6790`. At this pre-projected-sampling checkpoint, sparse-emitter
+  recovery was `0.4725` with fourth response `0.4288`, because all first
+  diffuse paths were then unchanged.
+
+### Ray Reconstruction ownership and firefly correction (2026-08-29)
+
+- The reported bright blot was reproduced from the Streamline executable's
+  saved Level A corridor, in the indirect-only RR-off capture. Stage captures
+  showed isolated high-energy samples at `regional`; `deflicker` retained them,
+  and the three guided wavelet passes expanded them into the broad blurred mark
+  visible in the report. Strengthening deflicker would hide energy rather than
+  correct the estimator.
+- Q2RTX's `main.c` dispatches its ASVGF filter only when its own denoiser is
+  enabled. This audited checkout contains no DLSS Ray Reconstruction stage.
+  Therefore Q2RTX's `regional -> deflicker -> wavelet` sequence is evidence for
+  the native RR-off denoiser, not evidence that it should run before DLSS RR.
+- Normal active-RR `full` mode now publishes one fresh raw diffuse path at every
+  internal pixel, skips native temporal accumulation, regional integration,
+  deflicker, and all three wavelet passes, and invokes DLSS RR once on the final
+  noisy lighting sum. Explicit diagnostic stage names remain exact, and RR-off
+  `full` retains the complete native filter.
+- The remaining sample variance was addressed at its source. The observable
+  behavior in Q2RTX `shader/light_lists.h::spherical_tri_area`,
+  `::sample_projected_triangle`, and `::sample_polygonal_lights` ranks local
+  polygon lights in receiver-space spherical measure and samples the survivor
+  uniformly in solid angle. The project independently implements the published
+  Eriksson/Arvo mathematics with its existing ReGIR proposal and unbiased RIS
+  normalization. Only the selected survivor reads exact authored emission.
+  This removes the uniform-area estimator's distance-squared/grazing-cosine
+  spikes without a biased radiance clamp.
+- Saved-corridor indirect-only captures are clean in both active RR raw mode and
+  RR-off native `full`; the reported left-wall blot is absent. A short hidden
+  saved-corridor RR Quality validation at default depth three reports
+  `6.2724/13.3398/25.1787 ms` frame median/p95/p99 and
+  `1.2652/3.4236 ms` burst median/p95. These short figures establish that the
+  corrected path remains comfortably inside 60 FPS at p95; they do not replace
+  the repeated fixed-work Q2RTX parity protocol.
+- The projected-sampling fixed-receiver oracle passes with ceiling-16 recovery
+  `0.4482` and fourth response `0.4889`. Ceilings 8/4/2/1 reach
+  `45.03%/51.20%/4.42%/0%` of the control's early recovery, so every lower
+  native RR-off ceiling still fails the existing 90% gate. The earlier
+  `0.4725/0.4288` figures above remain the pre-projected-sampling checkpoint,
+  not the current oracle.
 
 ## Implementation progress (2026-08-28)
 
@@ -313,10 +357,10 @@ Last updated: 2026-08-29
   already uses Streamline's Quality preset. A radiance clamp of `10` was also
   neutral, showing that broad estimator variance rather than a few fireflies is
   the remaining problem.
-- These results leave the production path unchanged. Do not revive the dormant
-  screen-space reservoir, freeze its samples, increase ray count, or alter the
-  conservative emitter distribution without a new oracle that beats both the
-  moving metrics and the captured left-wall/panel behavior.
+- At this checkpoint these results left the production path unchanged. The
+  later saved-corridor firefly audit below supersedes only the denoiser
+  ownership and polygon-sampling decision; it does not revive the dormant
+  screen-space reservoir or freeze reused samples.
 
 ### Motion-compensated stability oracle (2026-08-28)
 
@@ -426,19 +470,22 @@ Last updated: 2026-08-29
 ## Goal
 
 Match the useful indoor lighting structure and steady-state performance
-envelope of Q2RTX while preserving the current diffuse indirect-GI result,
-which is already accepted. Lighting transport is complete; the active work is
-now measurement-driven reduction of frame cost and variance in frame pacing,
-not another exposure change, ambient/shadow lift, or unmeasured quality cut.
+envelope of Q2RTX while preserving the accepted diffuse indirect-GI energy and
+authored response. Lighting transport is complete; the active work is now
+measurement-driven reduction of frame cost and variance in frame pacing, not
+another exposure change, ambient/shadow lift, or unmeasured quality cut.
 
 The target pipeline is:
 
 1. Primary visibility, material reconstruction, visible authored emission, and
    non-occluding additive layers.
 2. Direct diffuse plus GGX specular lighting from authored local emitters.
-3. The existing accepted low-frequency diffuse indirect GI, unchanged.
+3. Diffuse indirect GI with projected-solid-angle polygon sampling: raw and
+   full-density when DLSS RR is active, or reconstructed by the accepted native
+   low-frequency filter when RR is off.
 4. Real first-bounce GGX specular transport for smooth materials.
-5. Q2RTX-style reconstructed rough specular from the filtered directional GI.
+5. Q2RTX-style reconstructed rough specular from the directional GI at the
+   selected raw or native-filtered reconstruction boundary.
 6. One combined noisy-HDR input with correct diffuse/specular guides for DLSS
    Ray Reconstruction, followed by the already accepted bloom, adaptive tone
    curve, exposure bias, and SDR/HDR presentation.
@@ -520,9 +567,9 @@ Pre-implementation AB3D2 lighting evidence retained for this handoff:
 - `resampleDirectTemporal` and `SpatialShade` are dormant screen-space direct
   reservoir experiments. `dxr_pipeline.cpp::record` deliberately does not
   dispatch `SpatialShade`; do not revive it for this milestone.
-- `ReconstructIndirect` owns the accepted filtered, directional diffuse-GI
-  composition point. It is the correct place to derive rough specular from the
-  already filtered incident field.
+- `ReconstructIndirect` owns the directional diffuse-GI composition point. It
+  derives rough specular from the selected raw or native-filtered incident
+  field before the combined signal reaches its one denoiser.
 - `environmentRadiance` is a hard-coded analytic gradient with no AB3D2 scene
   authority. It is dormant and must not be activated. The real backdrop is in
   `SceneEnvironment` and the packaged `environment_backdrop` material is
@@ -538,9 +585,11 @@ revert or overwrite unrelated user changes.
 
 ## Invariants
 
-- Do not change the accepted diffuse continuation distribution, ReGIR proposal,
-  indirect history, directional representation, deflicker, wavelet filters, or
-  final diffuse-GI remodulation.
+- Preserve diffuse transport energy, the ReGIR proposal's complete emitter
+  coverage, directional representation, and final diffuse-GI remodulation.
+  Native indirect history, deflicker, and wavelet stages remain the accepted
+  RR-off path and exact named diagnostics; they must be bypassed in ordinary
+  active-RR `full` mode so the image is not denoised twice.
 - Keep `rtx_radiance_clamp=0` as the production default. A nonzero diagnostic
   clamp must operate on completed finite path samples; it is not a brightness
   control.
@@ -558,7 +607,8 @@ revert or overwrite unrelated user changes.
   motion, BLAS/TLAS, alpha-test, weapon, billboard, vector, and projectile
   behavior.
 - Send the final lighting sum through Ray Reconstruction once. Do not denoise
-  diffuse and specular with separate RR invocations.
+  diffuse and specular with separate RR invocations, and do not run the native
+  indirect denoiser before that production RR invocation.
 - Treat the 2026-08-28 lighting captures, isolated-channel sums, exact-black
   tests, and motion-compensated metrics as the performance phase's quality
   oracle. A faster candidate is rejected if it changes transport energy,
@@ -690,9 +740,10 @@ precedence over reproducing Q2RTX's noisier lobe lottery.
 
 ### 5. Reconstruct Q2RTX-style rough specular from accepted GI
 
-After the existing temporal/regional/wavelet indirect filtering, extend
-`ReconstructIndirect` while its filtered first-order directional signal is
-available:
+At the selected indirect reconstruction boundary, extend `ReconstructIndirect`
+while its first-order directional signal is available. RR-off `full` supplies
+the native temporal/regional/wavelet result; active-RR `full` supplies the raw
+current-frame signal:
 
 1. Read the packed primary F0, actual roughness, shading normal, and primary
    view direction.
@@ -702,16 +753,16 @@ available:
    blend the mirror direction toward the normalized dominant direction,
    increase effective roughness toward one by `directionality^3`, and use the
    Q2RTX compensation scale `(roughness + 1)^3`.
-4. Project the same filtered incident field used by diffuse GI, evaluate GGX
+4. Project the same incident field used by diffuse GI, evaluate GGX
    toward that dominant direction, and multiply by
    `smoothstep(0.20, 0.30, materialRoughness)`.
 5. Add this reconstructed rough-specular radiance to the specular contribution,
    not to the diffuse incident field. Do not remodulate it with diffuse albedo.
 
-Raw/diagnostic indirect modes must preserve their named stage boundaries. The
-production `full` mode performs rough-specular reconstruction from the fully
-filtered directional signal; `raw` may show the corresponding unfiltered
-reference but must not silently run production filters.
+Raw/diagnostic indirect modes must preserve their named stage boundaries.
+RR-off `full` performs rough-specular reconstruction from the fully filtered
+directional signal. Active-RR `full` performs it from the raw signal and must
+not silently run the native filters before RR.
 
 ### 6. Compose once and retain dormant experiments as dormant
 
@@ -1017,7 +1068,9 @@ ctest --test-dir build -C Debug --output-on-failure
 
 Also capture the locked Level A corridor with combined, indirect-diffuse,
 direct-specular, and indirect-specular selections. Compare against the frozen
-pre-change indirect-only capture: the accepted diffuse GI must not change.
+pre-change indirect-only capture: authored diffuse-GI energy and coverage must
+remain, while the active-RR result may become sharper because the redundant
+native filter has been removed.
 
 Acceptance requires:
 
