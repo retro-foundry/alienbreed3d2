@@ -65,6 +65,7 @@ struct DxrPerformanceMetadata {
     bool history_valid = false;
     bool validation_enabled = false;
     bool split_primary = false;
+    bool single_primary_direct_survivor = false;
 };
 
 class DxrGpuProfiler final {

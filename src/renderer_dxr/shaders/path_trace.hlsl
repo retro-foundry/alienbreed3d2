@@ -291,6 +291,7 @@ cbuffer FrameConstants : register(b0)
     uint DiagnosticGuideMask;
     float DiffuseGiScale;
     uint ValidationEnabled;
+    uint SinglePrimaryDirectSurvivor;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -1984,8 +1985,9 @@ DirectLightingSample samplePrimaryPolygonLight(
         return result;
     }
     uint candidateCount = max(CandidateCount, 1u);
-    uint visibilitySampleCount = min(
-        candidateCount, PrimaryDirectVisibilitySampleLimit);
+    uint visibilitySampleLimit = SinglePrimaryDirectSurvivor != 0u ?
+        1u : PrimaryDirectVisibilitySampleLimit;
+    uint visibilitySampleCount = min(candidateCount, visibilitySampleLimit);
     for (uint visibilitySample = 0u;
          visibilitySample < visibilitySampleCount; ++visibilitySample) {
         EmitterSample selected = (EmitterSample)0;

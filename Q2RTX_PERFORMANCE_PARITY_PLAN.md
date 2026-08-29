@@ -287,6 +287,33 @@ Report each mode once to attribute the result, but judge the combined `S3/S4`
 image and timing as the product candidate. This provides causality without
 forcing five partial production landings.
 
+S1 checkpoint, 2026-08-29:
+
+- `AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1` now enables S1 and is rejected unless
+  S0 is also enabled. The profiler records this feature bit in every summary.
+- All primary proposals enter one RIS stream. The selected point's exact
+  material evaluation, diffuse and GGX contributions, normalization, and one
+  shadow result remain shared. No lobe energy multiplier or visibility reuse
+  from another frame was introduced.
+- On the same Release `1280x720` Level A hidden-validation route used for S0,
+  S1 reduced frame median from `17.6099` to `12.8654 ms` (`26.9%`) and primary
+  shading median from `15.7409` to `10.9706 ms` (`30.3%`). Frame p95 improved
+  from `35.4383` to `28.7643 ms`, though this changing route is still not the
+  locked acceptance profile.
+- The isolated lighting reference, six-channel sum, foundation test, complete
+  Level A moving/firing route, both Shotgun bursts, entity/additive coverage,
+  and zero-rebuild checks passed with S1 active. Stability changed from S0's
+  `14.3572/14.3983` early/late display-delta pair to
+  `14.3216/14.3499`; this is evidence against added divergence, not the final
+  moving-image gate.
+- An exploratory eight-proposal run reduced the S1 frame median again to
+  `12.2324 ms` and primary shading to `10.1755 ms`, but it is not yet a code or
+  default change. Sparse textured-emitter quality and proposal-load accounting
+  in 1C must pass before that setting is accepted.
+
+S1 remains diagnostic and off by default. Its reduction clears the per-slice
+`15%` direction gate, but only the combined S3/S4 route can become production.
+
 ### 1C. Stop evaluating expensive light data for every candidate
 
 Ray-count changes alone may not close the gap because native direct RIS shades

@@ -810,9 +810,12 @@ and `primary_shading` stages. The former is exactly zero on the shipping
 monolithic path. `AB3D2_DXR_SPLIT_PRIMARY=1` enables the development S0 control:
 one pass stores the full-precision primary triangle/barycentrics plus crossed
 additive layers, and the shading pass consumes that hit without retracing it.
-The summary records `split_primary`; invalid environment values fail renderer
-initialization. This control is off by default until the combined scheduling
-slice clears the performance and image gates in
+`AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1` adds S1 and requires S0: all configured
+primary proposals feed one RIS survivor, so diffuse and direct GGX share one
+selected sample and one visibility ray. The summary records both feature bits;
+invalid environment values fail renderer initialization. These controls are
+off by default until the combined scheduling slice clears the performance and
+image gates in
 `Q2RTX_PERFORMANCE_PARITY_PLAN.md`.
 
 Ordinary visible frames no longer clear, update, or copy the hidden-smoke

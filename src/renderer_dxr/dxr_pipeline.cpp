@@ -225,6 +225,7 @@ struct FrameConstants {
     uint32_t diagnostic_guide_mask;
     float diffuse_gi_scale;
     uint32_t validation_enabled;
+    uint32_t single_primary_direct_survivor;
 };
 
 /*
@@ -233,7 +234,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 57u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 58u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -819,6 +820,28 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         }
         split_primary_ = length != 0u && std::strcmp(value, "1") == 0;
     }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR exceeds 63 bytes";
+            return false;
+        }
+        if (length != 0u && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "1") != 0) {
+            error = "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR must be 0 or 1";
+            return false;
+        }
+        single_primary_direct_survivor_ =
+            length != 0u && std::strcmp(value, "1") == 0;
+        if (single_primary_direct_survivor_ && !split_primary_) {
+            error = "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1 requires "
+                "AB3D2_DXR_SPLIT_PRIMARY=1";
+            return false;
+        }
+    }
     debug_output("DXR ray tracing: direct samples per pixel=" +
                  std::to_string(spp_) + " indirect sample ceiling=" +
                  std::to_string(indirect_spp_) + " diffuse GI=" +
@@ -829,7 +852,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  std::to_string(radiance_clamp_) + " exposure bias=" +
                  std::to_string(exposure_bias_stops_) + " EV NDF trim=" +
                  std::to_string(ndf_trim_) + " split primary=" +
-                 (split_primary_ ? "on" : "off"));
+                 (split_primary_ ? "on" : "off") +
+                 " single primary direct survivor=" +
+                 (single_primary_direct_survivor_ ? "on" : "off"));
     return true;
 }
 
@@ -2574,6 +2599,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.history_valid = history_valid;
     performance_metadata.validation_enabled = validation_enabled;
     performance_metadata.split_primary = split_primary_;
+    performance_metadata.single_primary_direct_survivor =
+        single_primary_direct_survivor_;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     performance_metadata.reconstruction_mode = streamline_active && streamline ?
         streamline->active_mode() : RENDERER_RAY_RECONSTRUCTION_OFF;
@@ -2652,6 +2679,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
              2u : 0u);
     constants.diffuse_gi_scale = diffuse_gi_scale_;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
+    constants.single_primary_direct_survivor =
+        single_primary_direct_survivor_ ? 1u : 0u;
     const UINT64 frame_constant_offset = frame_constant_stride * frame_slot;
     void *mapped_frame_constants = nullptr;
     const D3D12_RANGE no_read = {0, 0};
