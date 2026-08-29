@@ -36,8 +36,8 @@ Last updated: 2026-08-29
   the default.
 - Those four paths use ordinary cosine-weighted Lambertian continuation and
   uniform-area authored-triangle NEE. Their radial and azimuthal random values
-  are stratified per pixel, continuation, and frame. This interpolates sample
-  locations across the integration domain; it never fabricates or filters a
+  are stratified per pixel, continuation, and frame. This distributes genuine
+  ray locations across the integration domain; it never fabricates or filters a
   radiance value for RR.
 - The final stratified saved-game validation measured `8.0234 ms` frame median,
   `9.1955 ms` p95, `3.3736 ms` burst median, and `1.7582 ms` RR median on the
