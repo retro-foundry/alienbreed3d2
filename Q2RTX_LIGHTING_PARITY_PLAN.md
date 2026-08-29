@@ -141,6 +141,11 @@ Last updated: 2026-08-29
   and RR-off saved-state frozen/Shotgun metrics remain
   `6.8729/6.7701` and `7.4038/7.1706` delta/reprojected versus the emitter-only
   checkpoint's `6.8752/6.7721` and `7.4052/7.1713`.
+- Atlas dimensions now arrive once as integer root constants instead of a
+  resource query in every hot evaluation. Keeping the reciprocal in HLSL
+  preserves the prior deterministic first-frame hashes in both RR-off and RR
+  Quality; passing CPU-computed reciprocals was explicitly rejected because it
+  perturbed sample coordinates.
 
 ## Implementation progress (2026-08-28)
 

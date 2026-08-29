@@ -1286,7 +1286,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     ranges[3].NumDescriptors = 20;
     ranges[3].BaseShaderRegister = 13;
-    std::array<D3D12_ROOT_PARAMETER, 15> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 16> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1320,6 +1320,10 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[13].Descriptor.ShaderRegister = 33;
     parameters[14].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[14].Descriptor.ShaderRegister = 34;
+    parameters[15].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[15].Constants.Num32BitValues = 2u;
+    parameters[15].Constants.ShaderRegister = 1u;
+    parameters[15].Constants.RegisterSpace = 0u;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -3154,6 +3158,13 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         13, burst_work_items->GetGPUVirtualAddress());
     command_list->SetComputeRootUnorderedAccessView(
         14, burst_dispatch_arguments->GetGPUVirtualAddress());
+    const std::array<uint32_t, 2> atlas_dimensions = {
+        scene_.atlas_width(),
+        scene_.atlas_height(),
+    };
+    command_list->SetComputeRoot32BitConstants(
+        15, static_cast<UINT>(atlas_dimensions.size()),
+        atlas_dimensions.data(), 0u);
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};

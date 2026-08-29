@@ -625,7 +625,10 @@ all configured candidates, textured target values, PDFs, and selected-only
 visibility rays remain intact. Reached surfaces retain the existing
 directional footprint, software mip choice, trilinear blend, and bounded
 anisotropic tap positions, but each bilinear tap across all five PBR channels
-is likewise one hardware sample rather than four explicit loads.
+is likewise one hardware sample rather than four explicit loads. Atlas
+dimensions are supplied once as two integer root constants; the shader retains
+the same reciprocal arithmetic rather than querying the texture in every hot
+material evaluation.
 
 The current staged renderer keeps one pixel-centred camera ray with zero
 frame-varying subpixel jitter. Base colour is written as a reconstruction guide,

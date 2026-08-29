@@ -303,6 +303,13 @@ cbuffer FrameConstants : register(b0)
     uint ForceSpecularGuide;
 };
 
+cbuffer MaterialAtlasConstants : register(b1)
+{
+    /* Integer dimensions deliberately retain the shader-side reciprocal used
+     * by the prior GetDimensions path, preserving deterministic sample math. */
+    uint2 MaterialAtlasDimensions;
+};
+
 static const uint RadianceChannelCombined = 0u;
 static const uint RadianceChannelEmission = 1u;
 static const uint RadianceChannelDirectDiffuse = 2u;
@@ -906,12 +913,9 @@ uint materialMipYOffset(uint baseHeight, uint level)
  * All source subwindows are isolated into complete material tiles before this
  * point, so hardware bilinear filtering is both exact at repeat seams and one
  * texture operation instead of four explicit loads. */
-float2 materialAtlasInverseDimensions(Texture2D<float4> atlas)
+float2 materialAtlasInverseDimensions()
 {
-    uint atlasWidth;
-    uint atlasHeight;
-    atlas.GetDimensions(atlasWidth, atlasHeight);
-    return rcp(float2(atlasWidth, atlasHeight));
+    return rcp(float2(MaterialAtlasDimensions));
 }
 
 float4 sampleMaterialAtlasLevelHardware(
@@ -941,7 +945,7 @@ float4 sampleMaterialAtlasHardware(Texture2D<float4> atlas,
 {
     return sampleMaterialAtlasLevelHardware(
         atlas, material, textureCoordinate, packedWindowOrigin,
-        packedWindowExtent, 0u, materialAtlasInverseDimensions(atlas));
+        packedWindowExtent, 0u, materialAtlasInverseDimensions());
 }
 
 struct MaterialFilterFootprint
@@ -1162,8 +1166,7 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     MaterialFilterFootprint filter = worldMaterialFilterFootprint(
         material, first, second, third, surface.position,
         surface.geometricNormal);
-    float2 inverseAtlasDimensions =
-        materialAtlasInverseDimensions(BaseColorAtlas);
+    float2 inverseAtlasDimensions = materialAtlasInverseDimensions();
     surface.baseColor = saturate(
         sampleMaterialAtlasFilteredHardware(
             BaseColorAtlas, material, surface.textureCoordinate,
@@ -3027,8 +3030,7 @@ SurfaceData reservoirSurface(PackedLightReservoir reservoir)
     surface.textureWindowOrigin = reservoir.surfaceTextureWindowOrigin;
     surface.textureWindowExtent = reservoir.surfaceTextureWindowExtent;
     SceneMaterial material = Materials[surface.materialIndex];
-    float2 inverseAtlasDimensions =
-        materialAtlasInverseDimensions(BaseColorAtlas);
+    float2 inverseAtlasDimensions = materialAtlasInverseDimensions();
     surface.baseColor = saturate(
         sampleMaterialAtlasLevelHardware(
             BaseColorAtlas, material, surface.textureCoordinate,

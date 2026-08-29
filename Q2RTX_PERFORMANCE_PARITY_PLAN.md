@@ -766,6 +766,28 @@ This extension is accepted. A real hardware-mip or bindless/per-material
 representation may still reduce address arithmetic and explicit tap count, but
 it must beat this now-hardware-filtered packed-atlas baseline.
 
+Atlas-dimension root-constant checkpoint, 2026-08-29:
+
+- The sampler no longer executes `Texture2D::GetDimensions` in every emitter
+  and surface evaluation. The scene's atlas width and height are bound once as
+  two 32-bit root constants. They remain integers and the HLSL retains its
+  original reciprocal operation, which reproduces the committed RR-off and RR
+  Quality first-frame hashes. A CPU-reciprocal variant changed sample
+  coordinates and was rejected.
+- Three 120-frame RR-off runs measure `6.3290`, `6.1224`, and `6.0612 ms` frame
+  medians, averaging `6.1709 ms` versus the prior `6.4251 ms` (`4.0%` faster).
+  Primary-shading p95 averages `3.0380` versus `3.3408 ms` (`9.1%` faster), and
+  dense-continuation p95 averages `1.2254` versus `1.4338 ms` (`14.5%` faster).
+  Frame p95/p99 are neutral within run spread at `15.5176/62.1062 ms` versus
+  `15.3449/61.8436 ms`; burst p95 is likewise neutral.
+- Streamline RR Quality measures `5.7260/10.7917/36.5664 ms` frame
+  median/p95/p99 versus `6.1148/10.8312/36.5381 ms`. Median improves `6.4%`
+  while both tail percentiles remain effectively unchanged. The exact Level A
+  route passes with zero unexpected walk rebuilds.
+
+This exact hot-loop cleanup is accepted. It does not change filtering,
+candidate selection, ray count, reconstruction, or authored material data.
+
 ### Milestone 1 gate
 
 The combined primary/direct/indirect/guide stages must reach `22 ms` or less at
