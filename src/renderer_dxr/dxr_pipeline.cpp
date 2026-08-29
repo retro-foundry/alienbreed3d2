@@ -862,6 +862,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         EnvironmentToggle::automatic;
     EnvironmentToggle dense_mature_override = EnvironmentToggle::automatic;
     EnvironmentToggle bounded_burst_override = EnvironmentToggle::automatic;
+    EnvironmentToggle interleaved_deep_diffuse_override =
+        EnvironmentToggle::automatic;
     if (!read_environment_toggle("AB3D2_DXR_SPLIT_PRIMARY",
                                  split_primary_override, error) ||
         !read_environment_toggle("AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR",
@@ -871,7 +873,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         !read_environment_toggle("AB3D2_DXR_DENSE_MATURE_CONTINUATIONS",
                                  dense_mature_override, error) ||
         !read_environment_toggle("AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS",
-                                 bounded_burst_override, error)) {
+                                 bounded_burst_override, error) ||
+        !read_environment_toggle("AB3D2_DXR_INTERLEAVED_DEEP_DIFFUSE",
+                                 interleaved_deep_diffuse_override, error)) {
         return false;
     }
 
@@ -941,12 +945,22 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1";
         return false;
     }
+    interleaved_deep_diffuse_ = resolve_environment_toggle(
+        interleaved_deep_diffuse_override,
+        production_scheduler_supported && bounded_burst_continuations_ &&
+            maximum_depth_ >= 3u);
+    if (interleaved_deep_diffuse_ && maximum_depth_ < 3u) {
+        error = "AB3D2_DXR_INTERLEAVED_DEEP_DIFFUSE=1 requires "
+            "rtx_max_bounces or AB3D2_DXR_MAX_BOUNCES of at least 3";
+        return false;
+    }
     if (!production_scheduler_supported &&
         split_primary_override == EnvironmentToggle::automatic &&
         primary_survivor_override == EnvironmentToggle::automatic &&
         continuation_lobe_override == EnvironmentToggle::automatic &&
         dense_mature_override == EnvironmentToggle::automatic &&
-        bounded_burst_override == EnvironmentToggle::automatic) {
+        bounded_burst_override == EnvironmentToggle::automatic &&
+        interleaved_deep_diffuse_override == EnvironmentToggle::automatic) {
         debug_output("DXR combined scheduler automatic mode is inactive: "
                      "raw/ReSTIR reconstruction, zero history, and nonzero "
                      "radiance clamp retain their diagnostic control path");
@@ -1037,6 +1051,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  (dense_mature_continuations_ ? "on" : "off") +
                  " bounded burst continuations=" +
                  (bounded_burst_continuations_ ? "on" : "off") +
+                 " interleaved deep diffuse=" +
+                 (interleaved_deep_diffuse_ ? "on" : "off") +
                  " compact local primary=" +
                  (compact_local_primary_ ? "on" : "off") +
                  " proxy primary candidates=" +
@@ -1321,7 +1337,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[14].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[14].Descriptor.ShaderRegister = 34;
     parameters[15].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    parameters[15].Constants.Num32BitValues = 2u;
+    parameters[15].Constants.Num32BitValues = 3u;
     parameters[15].Constants.ShaderRegister = 1u;
     parameters[15].Constants.RegisterSpace = 0u;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
@@ -2955,6 +2971,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         dense_mature_continuations_;
     performance_metadata.bounded_burst_continuations =
         bounded_burst_continuations_;
+    performance_metadata.interleaved_deep_diffuse =
+        interleaved_deep_diffuse_;
     performance_metadata.compact_local_primary = compact_local_primary_;
     performance_metadata.proxy_primary_candidates =
         proxy_primary_candidates_;
@@ -3158,13 +3176,14 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         13, burst_work_items->GetGPUVirtualAddress());
     command_list->SetComputeRootUnorderedAccessView(
         14, burst_dispatch_arguments->GetGPUVirtualAddress());
-    const std::array<uint32_t, 2> atlas_dimensions = {
+    const std::array<uint32_t, 3> ray_root_constants = {
         scene_.atlas_width(),
         scene_.atlas_height(),
+        interleaved_deep_diffuse_ ? 1u : 0u,
     };
     command_list->SetComputeRoot32BitConstants(
-        15, static_cast<UINT>(atlas_dimensions.size()),
-        atlas_dimensions.data(), 0u);
+        15, static_cast<UINT>(ray_root_constants.size()),
+        ray_root_constants.data(), 0u);
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};

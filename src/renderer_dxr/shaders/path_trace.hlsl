@@ -303,11 +303,12 @@ cbuffer FrameConstants : register(b0)
     uint ForceSpecularGuide;
 };
 
-cbuffer MaterialAtlasConstants : register(b1)
+cbuffer RayRootConstants : register(b1)
 {
     /* Integer dimensions deliberately retain the shader-side reciprocal used
      * by the prior GetDimensions path, preserving deterministic sample math. */
     uint2 MaterialAtlasDimensions;
+    uint InterleavedDeepDiffuse;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -327,6 +328,10 @@ static const uint BlueNoiseScramblingOffset = 65536u;
 static const uint BlueNoiseRankingOffset = 196608u;
 static const uint MaximumDiffusePathDepth = 8u;
 static const uint PathDimensionsPerBounce = 8u;
+/* The first diffuse continuation is always traced. Only the lower-energy
+ * suffix behind its reached surface is interleaved. The floor prevents rare
+ * dark-path survivors from receiving an excessive inverse weight. */
+static const float DeepDiffuseMinimumContinuationProbability = 0.25;
 static const uint MaximumMaterialFilterTaps = 8u;
 /*
  * How many additive layers one ray segment resolves before it gives up and
@@ -2252,6 +2257,25 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
             any(isnan(suffixThroughput)) ||
             any(isinf(suffixThroughput))) {
             break;
+        }
+        /* Q2RTX ships one continuation by default and makes deeper transport
+         * optional. Retain this renderer's accepted deep suffix without paying
+         * for it on every path: a blue-noise Russian-roulette decision after
+         * the fully evaluated first surface preserves the estimator with 1/p
+         * weighting. One decision owns the complete remaining suffix, so
+         * explicitly requested depths above three do not compound variance. */
+        if (InterleavedDeepDiffuse != 0u && continuationIndex == 0u) {
+            uint rouletteDimension = PathDimensionsPerBounce + 5u;
+            float continuationProbability = clamp(
+                max(suffixThroughput.x,
+                    max(suffixThroughput.y, suffixThroughput.z)),
+                DeepDiffuseMinimumContinuationProbability, 1.0);
+            float continuationSample = sampleBlueNoise(
+                pixel, sampleIndex, rouletteDimension);
+            if (continuationSample >= continuationProbability) {
+                break;
+            }
+            suffixThroughput *= rcp(continuationProbability);
         }
         departureSurface = reachedSurface;
     }

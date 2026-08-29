@@ -58,7 +58,9 @@ world_light_tessellation=4
 #rtx_diffuse_gi=0.75
 
 # Path length counting the primary hit, 1 through 8. 1 is direct lighting only.
-# Each further bounce adds its own shadow and continuation rays. Default 3.
+# Each further bounce adds its own shadow and continuation rays. The first
+# diffuse continuation is always traced; production interleaves the deeper
+# suffix with unbiased throughput-adaptive Russian roulette. Default 3.
 #rtx_max_bounces=3
 
 # DLSS Ray Reconstruction mode: quality, balanced, performance,

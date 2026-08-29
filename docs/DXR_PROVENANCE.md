@@ -443,6 +443,13 @@ continuation lobe, a dense mature phase, and a capacity-proved GPU indirect
 burst list. Its AB3D2 transport equations, material/emitter representation,
 history classifier, work-list layout, HLSL, and D3D12 host scheduling remain
 project-authored; no Q2RTX shader or host expression was copied or adapted.
+The subsequent deep-diffuse optimization records only Q2RTX's observable
+default/optional workload boundary above. The project-authored HLSL retains its
+own depth-three transport and independently applies standard throughput-based
+Russian roulette after the fully shaded first continuation, using its existing
+blue-noise sampler and exact inverse survival probability. No Q2RTX probability,
+constant, random dimension, control flow, expression, or shader text was copied
+or adapted.
 
 ## Approved conceptual references inspected
 

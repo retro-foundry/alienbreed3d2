@@ -146,6 +146,24 @@ Last updated: 2026-08-29
   preserves the prior deterministic first-frame hashes in both RR-off and RR
   Quality; passing CPU-computed reciprocals was explicitly rejected because it
   perturbed sample coordinates.
+- The production adaptive scheduler now always traces the first diffuse
+  continuation, then uses one blue-noise, throughput-adaptive Russian-roulette
+  decision for the complete deeper suffix. A surviving suffix is divided by
+  its exact probability, so the default second indirect surface remains an
+  unbiased estimator rather than being removed or replaced by a fitted energy
+  constant. This follows the observable workload boundary in Q2RTX
+  `shader/indirect_lighting.rgen`, whose default is one continuation and whose
+  deeper pass is optional, while retaining this renderer's accepted depth-three
+  result.
+- Acceptance uses the saved Level A corridor beside the Streamline executable,
+  not the unrelated older save in the non-Streamline build directory or the
+  Level A starting room. At the locked saved Shotgun frame, candidate/control
+  comparisons measure `48.74 dB / 0.99730` PSNR/SSIM for RR-off combined,
+  `52.79 dB / 0.99808` for RR-off indirect-only, and
+  `48.42 dB / 0.99721` for RR Quality combined. RR Quality frozen delta is
+  `0.5045/0.5045`; Shotgun delta is `4.7364/4.7331` and reprojected delta is
+  `0.6775/0.6790`. The sparse-emitter recovery remains exactly `0.4725` with
+  fourth response `0.4288`, because all first diffuse paths are unchanged.
 
 ## Implementation progress (2026-08-28)
 

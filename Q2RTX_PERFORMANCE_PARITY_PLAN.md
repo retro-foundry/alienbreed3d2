@@ -788,6 +788,48 @@ Atlas-dimension root-constant checkpoint, 2026-08-29:
 This exact hot-loop cleanup is accepted. It does not change filtering,
 candidate selection, ray count, reconstruction, or authored material data.
 
+Throughput-adaptive deep-diffuse checkpoint, 2026-08-29:
+
+- Q2RTX `shader/global_ubo.h` defaults to one bounce ray and
+  `shader/indirect_lighting.rgen` treats its deeper pass as optional. The native
+  renderer still retains its accepted default depth of three: it traces every
+  first diffuse continuation and its exact local-light NEE, then applies one
+  blue-noise Russian-roulette decision to the complete deeper suffix. Survival
+  probability is the maximum carried diffuse-throughput component, floored at
+  `0.25`; surviving energy is divided by that exact probability. This is an
+  unbiased interleaving of the second surface, not its deletion or a brightness
+  compensation constant.
+- In a paired 120-frame RR-off Level A route, frame p95 falls from
+  `16.7135` to `13.2261 ms` (`20.9%`) and p99 from `64.1566` to
+  `44.5170 ms` (`30.6%`); median is neutral at `6.3140/6.3099 ms`.
+  Burst-continuation p95 falls from `11.2803` to `8.0765 ms` (`28.4%`) and
+  p99 from `53.4294` to `38.4034 ms` (`28.1%`). Dense-continuation median
+  falls from `0.7869` to `0.6543 ms` (`16.8%`).
+- RR Quality Level A p95 falls from `10.5309` to `9.4060 ms` (`10.7%`) and
+  p99 from `34.0539` to `26.1336 ms` (`23.3%`). The candidate's
+  `6.2461 ms` median is within the route's run spread; burst p95/p99 fall from
+  `5.7868/27.1901` to `4.1768/19.9239 ms`.
+- A final no-override shipping confirmation reports the production bit active
+  at `6.0958/9.3562/26.4005 ms` frame median/p95/p99 and
+  `4.0186/20.5636 ms` burst p95/p99, with the complete Level A route passing.
+- The more relevant locked saved-corridor RR Quality pair measures frame
+  `6.2593/32.9720/51.1690 ms` control versus
+  `5.8838/21.6059/39.4206 ms` candidate: `6.0%` median, `34.5%` p95, and
+  `23.0%` p99 reductions. Burst p95 falls from `27.8203` to `16.6191 ms`
+  (`40.3%`) and burst p99 from `32.4875` to `21.2842 ms` (`34.5%`).
+- Quality acceptance uses that saved corridor's exact control/candidate frame,
+  not the Level A starting room or the unrelated older non-Streamline save.
+  RR-off combined is `48.74 dB / 0.99730` PSNR/SSIM, RR-off indirect-only is
+  `52.79 dB / 0.99808`, and RR Quality combined is
+  `48.42 dB / 0.99721`. Frozen and Shotgun temporal metrics remain stable, the
+  complete moving route passes, and the ceiling-16 sparse-emitter recovery is
+  unchanged at `0.4725` with fourth response `0.4288`.
+
+This estimator is accepted and automatic with the production scheduler at
+depth three or greater. `AB3D2_DXR_INTERLEAVED_DEEP_DIFFUSE=0|1` remains a
+reported A/B override. Diagnostic configurations outside that scheduler retain
+their control automatically.
+
 ### Milestone 1 gate
 
 The combined primary/direct/indirect/guide stages must reach `22 ms` or less at

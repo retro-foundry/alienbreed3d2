@@ -95,10 +95,15 @@ default, so the shipped template lists them commented out with their defaults:
   continuation rays and reconstruction stages without changing direct light or
   visible emission. `rtx_max_bounces=1` evaluates directly
   visible emission and primary-hit Fresnel-partitioned Lambert plus GGX
-  polygon NEE. Each value from `2`
-  through `8` adds one real diffuse continuation and polygon-light evaluation;
-  the default `3` therefore shades two successive indirect surfaces. A value
-  of at least `2` also enables the independent first-bounce GGX continuation;
+  polygon NEE. Each value from `2` through `8` adds one real diffuse
+  continuation and polygon-light evaluation; the default `3` therefore shades
+  two successive indirect surfaces. The first diffuse continuation is always
+  traced. In the production adaptive scheduler, the lower-energy suffix after
+  that first reached surface uses blue-noise, throughput-adaptive Russian
+  roulette with exact inverse-probability weighting. Dark suffixes therefore
+  cost fewer rays without deleting their expected energy, while bright suffixes
+  survive more often. A value of at least `2` also enables the independent
+  first-bounce GGX continuation;
 - `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
   path tracer renders at before reconstruction upscales it. Quality, Balanced,
@@ -644,8 +649,10 @@ binary shadow decision without introducing screen-space reservoir history. It
 runs at every primary pixel rather than alternating a half-rate checkerboard.
 The first indirect
 continuation uses the broad low-frequency geometric-normal distribution; each
-later continuation uses an ordinary cosine distribution. Every reached surface
-evaluates fresh polygon RIS from its quantized world-stable light-grid cell,
+later continuation uses an ordinary cosine distribution. The first is always
+traced; one throughput-adaptive blue-noise decision interleaves the complete
+deeper suffix and divides each survivor by its exact probability. Every reached
+surface evaluates fresh polygon RIS from its quantized world-stable light-grid cell,
 so Level A's starting-room emitters remain in local proposals instead of being
 diluted among every emissive triangle in the level. Indirect vertices retain
 metal-free diffuse reflectance, the emitter's exact area-to-solid-angle PDF,
@@ -837,8 +844,9 @@ reports `primary_visibility`, `primary_shading`,
 
 `AB3D2_DXR_SPLIT_PRIMARY`, `AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR`,
 `AB3D2_DXR_SINGLE_CONTINUATION_LOBE`,
-`AB3D2_DXR_DENSE_MATURE_CONTINUATIONS`, and
-`AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS` are startup A/B overrides: absent uses
+`AB3D2_DXR_DENSE_MATURE_CONTINUATIONS`,
+`AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS`, and
+`AB3D2_DXR_INTERLEAVED_DEEP_DIFFUSE` are startup A/B overrides: absent uses
 the complete production scheduler, `0` disables that stage and automatic
 dependent stages, and `1` explicitly requests it. Raw/ReSTIR reconstruction,
 zero indirect history, and a nonzero diagnostic radiance clamp retain the
@@ -846,7 +854,9 @@ monolithic control automatically because S3's adaptive-history contract does
 not apply to them. S2 may still be requested explicitly with raw reconstruction
 but is rejected with ReSTIR-GI, whose reservoir weights do not encode its lobe
 selection measure. Invalid explicit combinations fail renderer initialization;
-the profiler records every effective feature bit.
+the profiler records every effective feature bit. Deep-diffuse interleaving
+requires a path depth of at least three; it leaves all first continuations and
+the configured 16-path recovery ceiling intact.
 `AB3D2_DXR_COMPACT_LOCAL_PRIMARY=1` is the next opt-in 1C diagnostic and
 requires the complete S3 stack. It bounds only primary direct RIS to eight
 exact evaluations: six draws retain the complete global emitter alias

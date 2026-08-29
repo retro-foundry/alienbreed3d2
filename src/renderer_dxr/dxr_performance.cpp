@@ -165,6 +165,8 @@ bool same_configuration(const DxrPerformanceMetadata &left,
             right.dense_mature_continuations &&
         left.bounded_burst_continuations ==
             right.bounded_burst_continuations &&
+        left.interleaved_deep_diffuse ==
+            right.interleaved_deep_diffuse &&
         left.compact_local_primary == right.compact_local_primary &&
         left.proxy_primary_candidates == right.proxy_primary_candidates &&
         left.specular_guide_active == right.specular_guide_active;
@@ -543,6 +545,8 @@ void DxrGpuProfiler::report()
            << (metadata.dense_mature_continuations ? "true" : "false")
            << ",\"bounded_burst_continuations\":"
            << (metadata.bounded_burst_continuations ? "true" : "false")
+           << ",\"interleaved_deep_diffuse\":"
+           << (metadata.interleaved_deep_diffuse ? "true" : "false")
            << ",\"compact_local_primary\":"
            << (metadata.compact_local_primary ? "true" : "false")
            << ",\"proxy_primary_candidates\":"

@@ -273,6 +273,7 @@ private:
     bool single_continuation_lobe_ = false;
     bool dense_mature_continuations_ = false;
     bool bounded_burst_continuations_ = false;
+    bool interleaved_deep_diffuse_ = false;
     bool compact_local_primary_ = false;
     bool proxy_primary_candidates_ = false;
     bool force_specular_guide_ = false;
