@@ -379,6 +379,50 @@ profile below 16.67 ms, but it is not S3 or performance parity. The bounded
 burst schedule, validation-only work counters, locked static/motion trials,
 five-run dispersion, and direct Q2RTX comparison remain required.
 
+S3 bounded-burst checkpoint, 2026-08-29:
+
+- `AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1` requires S3a and remains off by
+  default. Primary shading appends one compact `(linear pixel, sample count)`
+  entry for each new, disoccluded, immature, or changing pixel. A GPU-written
+  `D3D12_DISPATCH_RAYS_DESC` then launches `BurstContinuation` through
+  `ExecuteIndirect`, eliminating the full-frame divergent burst loop from
+  `ShadePrimary`.
+- Each in-flight frame owns an independent work buffer and indirect argument.
+  Capacity is exactly the internal pixel count because the classifier can
+  append at most once per pixel; the ray-work bound is that capacity multiplied
+  by the configured indirect burst ceiling. Width begins at one sentinel thread
+  so zero-work dispatches remain valid. A future capacity violation processes
+  that pixel on the primary path and increments a validation counter; hidden
+  validation fails explicitly, so overflow cannot silently drop radiance.
+- The burst export reconstructs the exact split-primary hit and repeats S2's
+  per-ordinal lobe decision, sample stream, inverse probability, directional
+  accumulation, first-hit guide, mean, and effective history length. The
+  indirect command is reset with a frame-owned copy/transition sequence and
+  never requires a CPU readback or same-frame wait.
+- Two alternating Release Level A pairs used `1280x720`, 60 warm-up and 120
+  measured hidden-validation frames. In the first pair S3a/S3 frame median was
+  `10.3959/10.6611 ms`, p95 `25.6482/17.9054 ms`, and p99
+  `101.9704/83.5762 ms`. In the reverse-order pair it was
+  `7.2650/7.3618 ms`, p95 `26.6489/18.9245 ms`, and p99
+  `102.2108/74.7521 ms`. S3 therefore cost `2.6%` and `1.3%` at the median but
+  reduced p95 by `30.2%` and `29.0%`, and p99 by `18.0%` and `26.9%`.
+  Primary-shading p95 moved from `23.1380/23.7051 ms` to
+  `7.0731/4.2168 ms`; explicit burst p95 was `12.5339/11.8002 ms`.
+- The unprofiled paired final SDR captures differed by mean `0.31276` of an
+  8-bit code per component and a maximum of one code. The complete Level A
+  route passed twice with no work overflow or unexpected rebuild, retaining
+  both Shotgun bursts and 400-frame walking/firing. The Release build, forced-S3
+  foundation test, and authoritative default BRDF/reconstruction/material-mip/
+  lighting-reference/channel-sum/foundation tests passed. Raw and zero-history
+  reference modes intentionally reject S3's adaptive-history prerequisites.
+
+S3 is a verified scheduling foundation, not an accepted production path. Its
+median setup cost does not clear the per-slice direction gate, and burst p95
+still exceeds the 16.67 ms frame budget in these changing-route samples. S4
+must now sweep ceilings `1, 2, 4, 8, 16`, retain the lowest ceiling that passes
+disocclusion/change recovery and every lighting gate, and then run the locked
+repeated native/Q2RTX profiles.
+
 ### 1C. Stop evaluating expensive light data for every candidate
 
 Ray-count changes alone may not close the gap because native direct RIS shades

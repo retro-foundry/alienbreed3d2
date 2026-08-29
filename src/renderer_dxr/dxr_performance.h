@@ -22,6 +22,7 @@ enum class DxrGpuStage : size_t {
     primary_visibility,
     primary_shading,
     dense_mature_continuation,
+    burst_continuation,
     indirect_resampling,
     indirect_gradient,
     indirect_temporal,
@@ -69,6 +70,7 @@ struct DxrPerformanceMetadata {
     bool single_primary_direct_survivor = false;
     bool single_continuation_lobe = false;
     bool dense_mature_continuations = false;
+    bool bounded_burst_continuations = false;
 };
 
 class DxrGpuProfiler final {

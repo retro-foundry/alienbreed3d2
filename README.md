@@ -825,7 +825,15 @@ production zero radiance clamp. It extracts the rotating mature 2-by-2 phase
 into one quarter-pixel `DenseMatureContinuation` dispatch while new,
 disoccluded, or changing burst pixels remain on the full primary path. The
 profiler reports that pass separately. S3a has no bounded burst work list yet
-and is not the complete S3 candidate. These controls are off by default until
+and is not the complete S3 candidate.
+`AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1` completes the S3 scheduling shape and
+requires S3a. Primary shading appends one `(pixel, sample-count)` entry per
+new/disoccluded/changing pixel to a per-frame buffer sized to the exact internal
+pixel count, then a GPU-written indirect ray dispatch executes only those burst
+pixels. Its maximum continuation work is therefore internal pixels multiplied
+by the configured burst ceiling. Hidden validation treats any capacity breach
+as a failure and the overflowing pixel is still processed inline. The profiler
+reports `burst_continuation` separately. These controls are off by default until
 the combined scheduling slice clears the performance and image gates in
 `Q2RTX_PERFORMANCE_PARITY_PLAN.md`.
 

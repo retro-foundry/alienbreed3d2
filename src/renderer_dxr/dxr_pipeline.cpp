@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
@@ -133,6 +134,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_primary_visibility,
     shader_record_shade_primary,
     shader_record_dense_mature_continuation,
+    shader_record_burst_continuation,
     shader_record_temporal_gi,
     shader_record_spatial_gi,
     shader_record_spatial_shade,
@@ -159,7 +161,10 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 15u;
+constexpr UINT diagnostic_value_count = 16u;
+constexpr UINT burst_dispatch_width_offset = 88u;
+static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
+              burst_dispatch_width_offset);
 constexpr UINT tone_map_histogram_bin_count = 128u;
 constexpr UINT tone_map_state_value_count =
     tone_map_histogram_bin_count + 1u + 5u;
@@ -229,6 +234,7 @@ struct FrameConstants {
     uint32_t single_primary_direct_survivor;
     uint32_t single_continuation_lobe;
     uint32_t dense_mature_continuations;
+    uint32_t bounded_burst_continuations;
 };
 
 /*
@@ -237,7 +243,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 60u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 61u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -913,6 +919,29 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             return false;
         }
     }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS exceeds 63 bytes";
+            return false;
+        }
+        if (length != 0u && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "1") != 0) {
+            error = "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS must be 0 or 1";
+            return false;
+        }
+        bounded_burst_continuations_ =
+            length != 0u && std::strcmp(value, "1") == 0;
+        if (bounded_burst_continuations_ &&
+            !dense_mature_continuations_) {
+            error = "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1 requires "
+                "AB3D2_DXR_DENSE_MATURE_CONTINUATIONS=1";
+            return false;
+        }
+    }
     debug_output("DXR ray tracing: direct samples per pixel=" +
                  std::to_string(spp_) + " indirect sample ceiling=" +
                  std::to_string(indirect_spp_) + " diffuse GI=" +
@@ -929,7 +958,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  " single continuation lobe=" +
                  (single_continuation_lobe_ ? "on" : "off") +
                  " dense mature continuations=" +
-                 (dense_mature_continuations_ ? "on" : "off"));
+                 (dense_mature_continuations_ ? "on" : "off") +
+                 " bounded burst continuations=" +
+                 (bounded_burst_continuations_ ? "on" : "off"));
     return true;
 }
 
@@ -1173,7 +1204,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     ranges[3].NumDescriptors = 20;
     ranges[3].BaseShaderRegister = 13;
-    std::array<D3D12_ROOT_PARAMETER, 13> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 15> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1203,6 +1234,10 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[12].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     parameters[12].DescriptorTable.NumDescriptorRanges = 1;
     parameters[12].DescriptorTable.pDescriptorRanges = &ranges[3];
+    parameters[13].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[13].Descriptor.ShaderRegister = 33;
+    parameters[14].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[14].Descriptor.ShaderRegister = 34;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -1221,6 +1256,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t shade_primary[] = L"ShadePrimary";
     static constexpr wchar_t dense_mature_continuation[] =
         L"DenseMatureContinuation";
+    static constexpr wchar_t burst_continuation[] = L"BurstContinuation";
     static constexpr wchar_t temporal_gi[] = L"TemporalGI";
     static constexpr wchar_t spatial_gi[] = L"SpatialGI";
     static constexpr wchar_t spatial_shade[] = L"SpatialShade";
@@ -1256,36 +1292,37 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t closest_hit[] = L"ClosestHit";
     static constexpr wchar_t any_hit[] = L"AnyHit";
     static constexpr wchar_t hit_group_name[] = L"HitGroup";
-    std::array<D3D12_EXPORT_DESC, 29> exports = {};
+    std::array<D3D12_EXPORT_DESC, 30> exports = {};
     exports[0].Name = build_light_grid;
     exports[1].Name = ray_generation;
     exports[2].Name = primary_visibility;
     exports[3].Name = shade_primary;
     exports[4].Name = dense_mature_continuation;
-    exports[5].Name = temporal_gi;
-    exports[6].Name = spatial_gi;
-    exports[7].Name = spatial_shade;
-    exports[8].Name = build_indirect_gradient;
-    exports[9].Name = filter_indirect_gradient_0;
-    exports[10].Name = filter_indirect_gradient_1;
-    exports[11].Name = filter_indirect_gradient_2;
-    exports[12].Name = filter_indirect_gradient_3;
-    exports[13].Name = filter_indirect_gradient_4;
-    exports[14].Name = filter_indirect_gradient_5;
-    exports[15].Name = filter_indirect_gradient_6;
-    exports[16].Name = temporal_indirect;
-    exports[17].Name = filter_indirect_0;
-    exports[18].Name = deflicker_indirect;
-    exports[19].Name = filter_indirect_1;
-    exports[20].Name = filter_indirect_2;
-    exports[21].Name = filter_indirect_3;
-    exports[22].Name = resolve_indirect_filtered;
-    exports[23].Name = reconstruct_indirect;
-    exports[24].Name = calculate_automatic_exposure;
-    exports[25].Name = surface_miss;
-    exports[26].Name = shadow_miss;
-    exports[27].Name = closest_hit;
-    exports[28].Name = any_hit;
+    exports[5].Name = burst_continuation;
+    exports[6].Name = temporal_gi;
+    exports[7].Name = spatial_gi;
+    exports[8].Name = spatial_shade;
+    exports[9].Name = build_indirect_gradient;
+    exports[10].Name = filter_indirect_gradient_0;
+    exports[11].Name = filter_indirect_gradient_1;
+    exports[12].Name = filter_indirect_gradient_2;
+    exports[13].Name = filter_indirect_gradient_3;
+    exports[14].Name = filter_indirect_gradient_4;
+    exports[15].Name = filter_indirect_gradient_5;
+    exports[16].Name = filter_indirect_gradient_6;
+    exports[17].Name = temporal_indirect;
+    exports[18].Name = filter_indirect_0;
+    exports[19].Name = deflicker_indirect;
+    exports[20].Name = filter_indirect_1;
+    exports[21].Name = filter_indirect_2;
+    exports[22].Name = filter_indirect_3;
+    exports[23].Name = resolve_indirect_filtered;
+    exports[24].Name = reconstruct_indirect;
+    exports[25].Name = calculate_automatic_exposure;
+    exports[26].Name = surface_miss;
+    exports[27].Name = shadow_miss;
+    exports[28].Name = closest_hit;
+    exports[29].Name = any_hit;
     D3D12_DXIL_LIBRARY_DESC library_description = {};
     library_description.DXILLibrary = {library.data(), library.size()};
     library_description.NumExports = static_cast<UINT>(exports.size());
@@ -1298,9 +1335,9 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     D3D12_RAYTRACING_SHADER_CONFIG shader_configuration = {};
     shader_configuration.MaxPayloadSizeInBytes = 20u;
     shader_configuration.MaxAttributeSizeInBytes = 8u;
-    std::array<const wchar_t *, 28> configured_exports = {
+    std::array<const wchar_t *, 29> configured_exports = {
         build_light_grid, ray_generation, primary_visibility, shade_primary,
-        dense_mature_continuation,
+        dense_mature_continuation, burst_continuation,
         temporal_gi, spatial_gi,
         spatial_shade,
         build_indirect_gradient,
@@ -1372,6 +1409,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
         properties->GetShaderIdentifier(primary_visibility),
         properties->GetShaderIdentifier(shade_primary),
         properties->GetShaderIdentifier(dense_mature_continuation),
+        properties->GetShaderIdentifier(burst_continuation),
         properties->GetShaderIdentifier(temporal_gi),
         properties->GetShaderIdentifier(spatial_gi),
         properties->GetShaderIdentifier(spatial_shade),
@@ -1407,6 +1445,67 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
                     identifiers[index], D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES);
     }
     shader_table_->Unmap(0, nullptr);
+
+    D3D12_INDIRECT_ARGUMENT_DESC indirect_argument = {};
+    indirect_argument.Type = D3D12_INDIRECT_ARGUMENT_TYPE_DISPATCH_RAYS;
+    D3D12_COMMAND_SIGNATURE_DESC signature_description = {};
+    signature_description.ByteStride = sizeof(D3D12_DISPATCH_RAYS_DESC);
+    signature_description.NumArgumentDescs = 1u;
+    signature_description.pArgumentDescs = &indirect_argument;
+    result = device->CreateCommandSignature(
+        &signature_description, nullptr,
+        IID_PPV_ARGS(&burst_dispatch_signature_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateCommandSignature(burst continuations)",
+            result);
+        return false;
+    }
+    burst_dispatch_signature_->SetName(
+        L"AB3D2 DXR Burst Continuation Command Signature");
+
+    const D3D12_RESOURCE_DESC argument_description = buffer_description(
+        sizeof(D3D12_DISPATCH_RAYS_DESC));
+    result = device->CreateCommittedResource(
+        &upload_heap, D3D12_HEAP_FLAG_NONE, &argument_description,
+        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+        IID_PPV_ARGS(&burst_dispatch_template_));
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Device::CreateCommittedResource(burst dispatch template)",
+            result);
+        return false;
+    }
+    burst_dispatch_template_->SetName(
+        L"AB3D2 DXR Burst Dispatch Template");
+    void *mapped_arguments = nullptr;
+    result = burst_dispatch_template_->Map(
+        0, &no_read, &mapped_arguments);
+    if (FAILED(result)) {
+        error = hresult_error(
+            "ID3D12Resource::Map(burst dispatch template)", result);
+        return false;
+    }
+    D3D12_DISPATCH_RAYS_DESC burst_dispatch = {};
+    burst_dispatch.RayGenerationShaderRecord = {
+        shader_table_->GetGPUVirtualAddress() +
+            shader_record_size * shader_record_burst_continuation,
+        shader_record_size};
+    burst_dispatch.MissShaderTable = {
+        shader_table_->GetGPUVirtualAddress() +
+            shader_record_size * shader_record_surface_miss,
+        shader_record_size * 2u, shader_record_size};
+    burst_dispatch.HitGroupTable = {
+        shader_table_->GetGPUVirtualAddress() +
+            shader_record_size * shader_record_hit_group,
+        shader_record_size, shader_record_size};
+    /* Keep one sentinel raygen thread so a frame with no burst pixels remains
+     * a valid indirect dispatch. Appends begin at slot one. */
+    burst_dispatch.Width = 1u;
+    burst_dispatch.Height = 1u;
+    burst_dispatch.Depth = 1u;
+    std::memcpy(mapped_arguments, &burst_dispatch, sizeof(burst_dispatch));
+    burst_dispatch_template_->Unmap(0, nullptr);
     return true;
 }
 
@@ -1683,6 +1782,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     last_direct_specular_coverage_ = values[12];
     last_invalid_lighting_or_guide_pixels_ = values[13];
     last_smooth_specular_coverage_ = values[14];
+    last_burst_work_overflow_ = values[15];
     const D3D12_RANGE no_write = {0, 0};
     diagnostics_readback_->Unmap(0, &no_write);
     debug_output(
@@ -1704,7 +1804,14 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
         " invalid_lighting_or_guides=" +
         std::to_string(last_invalid_lighting_or_guide_pixels_) +
         " smooth_specular=" +
-        std::to_string(last_smooth_specular_coverage_));
+        std::to_string(last_smooth_specular_coverage_) +
+        " burst_work_overflow=" +
+        std::to_string(last_burst_work_overflow_));
+    if (last_burst_work_overflow_ != 0u) {
+        error = "DXR burst continuation work capacity was exceeded by " +
+            std::to_string(last_burst_work_overflow_) + " pixels";
+        return false;
+    }
     return true;
 }
 
@@ -1749,6 +1856,13 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
                                                  std::string &error)
 {
     recreated = false;
+    const bool burst_resources_ready = std::all_of(
+        burst_work_items_.begin(), burst_work_items_.end(),
+        [](const auto &resource) { return resource.Get() != nullptr; }) &&
+        std::all_of(
+            burst_dispatch_arguments_.begin(),
+            burst_dispatch_arguments_.end(),
+            [](const auto &resource) { return resource.Get() != nullptr; });
     if (reconstruction_targets_[0] && indirect_radiance_ &&
         indirect_filtered_ && indirect_chroma_ &&
         indirect_chroma_filtered_ && indirect_gradients_[0] &&
@@ -1764,7 +1878,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         streamline_scene_motion_ &&
         view_weapon_histories_[0] && view_weapon_histories_[1] &&
         rr_disocclusion_mask_ && rr_bias_current_color_mask_ &&
-        surface_parameters_ && primary_visibility_ &&
+        surface_parameters_ && primary_visibility_ && burst_resources_ready &&
         render_width_ == width &&
         render_height_ == height && present_width_ == present_width &&
         present_height_ == present_height &&
@@ -1787,6 +1901,12 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     rr_bias_current_color_mask_.Reset();
     surface_parameters_.Reset();
     primary_visibility_.Reset();
+    for (auto &items : burst_work_items_) {
+        items.Reset();
+    }
+    for (auto &arguments : burst_dispatch_arguments_) {
+        arguments.Reset();
+    }
     indirect_radiance_.Reset();
     indirect_filtered_.Reset();
     indirect_chroma_.Reset();
@@ -2006,6 +2126,46 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         device->CreateUnorderedAccessView(
             primary_visibility_.Get(), nullptr, &uav,
             cpu_descriptor(primary_visibility_uav));
+    }
+    {
+        const UINT64 pixel_count = static_cast<UINT64>(width) * height;
+        const UINT64 work_item_capacity = bounded_burst_continuations_ ?
+            pixel_count : 1u;
+        D3D12_RESOURCE_DESC work_description = buffer_description(
+            work_item_capacity * sizeof(uint32_t) * 2u);
+        work_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        D3D12_RESOURCE_DESC argument_description = buffer_description(
+            sizeof(D3D12_DISPATCH_RAYS_DESC));
+        argument_description.Flags =
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        for (size_t index = 0u; index < burst_work_items_.size(); ++index) {
+            HRESULT result = device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &work_description,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                IID_PPV_ARGS(&burst_work_items_[index]));
+            if (FAILED(result)) {
+                error = hresult_error(
+                    "ID3D12Device::CreateCommittedResource(burst work items)",
+                    result);
+                return false;
+            }
+            burst_work_items_[index]->SetName(index == 0u ?
+                L"AB3D2 DXR Burst Work Items A" :
+                L"AB3D2 DXR Burst Work Items B");
+            result = device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &argument_description,
+                D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, nullptr,
+                IID_PPV_ARGS(&burst_dispatch_arguments_[index]));
+            if (FAILED(result)) {
+                error = hresult_error(
+                    "ID3D12Device::CreateCommittedResource(burst dispatch arguments)",
+                    result);
+                return false;
+            }
+            burst_dispatch_arguments_[index]->SetName(index == 0u ?
+                L"AB3D2 DXR Burst Dispatch Arguments A" :
+                L"AB3D2 DXR Burst Dispatch Arguments B");
+        }
     }
     description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     {
@@ -2685,6 +2845,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         single_continuation_lobe_;
     performance_metadata.dense_mature_continuations =
         dense_mature_continuations_;
+    performance_metadata.bounded_burst_continuations =
+        bounded_burst_continuations_;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     performance_metadata.reconstruction_mode = streamline_active && streamline ?
         streamline->active_mode() : RENDERER_RAY_RECONSTRUCTION_OFF;
@@ -2769,6 +2931,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         single_continuation_lobe_ ? 1u : 0u;
     constants.dense_mature_continuations =
         dense_mature_continuations_ ? 1u : 0u;
+    constants.bounded_burst_continuations =
+        bounded_burst_continuations_ ? 1u : 0u;
     const UINT64 frame_constant_offset = frame_constant_stride * frame_slot;
     void *mapped_frame_constants = nullptr;
     const D3D12_RANGE no_read = {0, 0};
@@ -2826,6 +2990,26 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             static_cast<UINT>(history_states.size()),
             history_states.data());
     }
+    ID3D12Resource *burst_work_items =
+        burst_work_items_[frame_slot].Get();
+    ID3D12Resource *burst_dispatch_arguments =
+        burst_dispatch_arguments_[frame_slot].Get();
+    if (bounded_burst_continuations_) {
+        const D3D12_RESOURCE_BARRIER to_copy = transition(
+            burst_dispatch_arguments,
+            D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT,
+            D3D12_RESOURCE_STATE_COPY_DEST);
+        command_list->ResourceBarrier(1, &to_copy);
+        command_list->CopyBufferRegion(
+            burst_dispatch_arguments, 0u,
+            burst_dispatch_template_.Get(), 0u,
+            sizeof(D3D12_DISPATCH_RAYS_DESC));
+        const D3D12_RESOURCE_BARRIER to_append = transition(
+            burst_dispatch_arguments,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        command_list->ResourceBarrier(1, &to_append);
+    }
 
     ID3D12DescriptorHeap *heaps[] = {descriptor_heap_.Get()};
     command_list->SetDescriptorHeaps(1, heaps);
@@ -2852,6 +3036,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         11, diagnostics_->GetGPUVirtualAddress());
     command_list->SetComputeRootDescriptorTable(
         12, gpu_descriptor(light_grid_uav));
+    command_list->SetComputeRootUnorderedAccessView(
+        13, burst_work_items->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
+        14, burst_dispatch_arguments->GetGPUVirtualAddress());
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
     D3D12_DISPATCH_RAYS_DESC dispatch = {};
@@ -2934,6 +3122,29 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             profiler, command_list,
             DxrGpuStage::dense_mature_continuation);
         command_list->DispatchRays(&dispatch);
+    }
+    if (bounded_burst_continuations_) {
+        const D3D12_RESOURCE_BARRIER burst_inputs_ready[] = {
+            uav_barrier(burst_work_items),
+            uav_barrier(burst_dispatch_arguments),
+            uav_barrier(primary_visibility_.Get()),
+            uav_barrier(indirect_radiance_.Get()),
+            uav_barrier(indirect_chroma_.Get()),
+            uav_barrier(indirect_histories_[sample_index & 1u].Get()),
+        };
+        command_list->ResourceBarrier(
+            static_cast<UINT>(std::size(burst_inputs_ready)),
+            burst_inputs_ready);
+        const D3D12_RESOURCE_BARRIER to_indirect = transition(
+            burst_dispatch_arguments,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT);
+        command_list->ResourceBarrier(1, &to_indirect);
+        DxrGpuProfileScope profile(
+            profiler, command_list, DxrGpuStage::burst_continuation);
+        command_list->ExecuteIndirect(
+            burst_dispatch_signature_.Get(), 1u,
+            burst_dispatch_arguments, 0u, nullptr, 0u);
     }
     const auto indirect_mode = static_cast<indirect_reconstruction::Mode>(
         indirect_reconstruction_mode_);

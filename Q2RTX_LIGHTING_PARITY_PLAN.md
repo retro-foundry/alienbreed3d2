@@ -67,8 +67,12 @@ Last updated: 2026-08-29
   difference `0.02447`, and the full moving/firing route retained zero
   unexpected scene rebuilds.
 - This is an implementation checkpoint, not a new production default or a
-  performance-parity claim. S0-S3a remain off by default. The bounded burst
-  schedule, locked repeated profiles, p99 investigation, work counters, and
+  performance-parity claim. The bounded S3 burst list is now implemented and
+  moves new/disoccluded/changing pixels into an exact GPU-indirect dispatch.
+  Across two alternating pairs it added `1.3-2.6%` median setup cost but reduced
+  frame p95 by `29.0-30.2%` and p99 by `18.0-26.9%`; an unprofiled paired SDR
+  capture stayed within one 8-bit code. S0-S3 remain off by default. The S4
+  burst-ceiling sweep, locked repeated profiles, validation work counters, and
   direct Q2RTX run remain open in `Q2RTX_PERFORMANCE_PARITY_PLAN.md`; the
   lighting and temporal acceptance contract in this document is unchanged.
 

@@ -249,6 +249,8 @@ RWTexture2D<uint> SurfaceParameters : register(u31);
 /* Exact full-precision primary payload for the split-scheduling control.
  * Additive radiance uses NoisyRadiance as the adjacent handoff. */
 RWTexture2D<uint4> PrimaryVisibilityBuffer : register(u32);
+RWStructuredBuffer<uint2> BurstWorkItems : register(u33);
+RWByteAddressBuffer BurstDispatchArguments : register(u34);
 
 cbuffer FrameConstants : register(b0)
 {
@@ -294,6 +296,7 @@ cbuffer FrameConstants : register(b0)
     uint SinglePrimaryDirectSurvivor;
     uint SingleContinuationLobe;
     uint DenseMatureContinuations;
+    uint BoundedBurstContinuations;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -332,6 +335,9 @@ static const uint AdditiveLayerLimit = 16u;
  * to the dense quarter-pixel dispatch without allocating another full-frame
  * work mask. PrimaryVisibility overwrites it every frame. */
 static const uint PrimaryVisibilityDenseMatureFlag = 0x80000000u;
+/* D3D12_DISPATCH_RAYS_DESC::Width follows the four shader-table address
+ * ranges. Native code pins this ABI with an offsetof static assertion. */
+static const uint BurstDispatchWidthOffset = 88u;
 /*
  * The default RTXDI pass shape is staged: temporal reuse searches around the
  * motion-reprojected pixel, then a second dispatch samples current-frame
@@ -3422,10 +3428,35 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                     PrimaryVisibilityDenseMatureFlag;
                 PrimaryVisibilityBuffer[pixel] = densePacked;
             }
+            bool deferBurstContinuation =
+                BoundedBurstContinuations != 0u && !stableHistory &&
+                indirectSampleCount > 0u;
+            if (deferBurstContinuation) {
+                uint appendSlot = 0u;
+                BurstDispatchArguments.InterlockedAdd(
+                    BurstDispatchWidthOffset, 1u, appendSlot);
+                uint capacity = dimensions.x * dimensions.y;
+                uint workIndex = appendSlot > 0u ?
+                    appendSlot - 1u : capacity;
+                if (workIndex < capacity) {
+                    BurstWorkItems[workIndex] = uint2(
+                        pixel.y * dimensions.x + pixel.x,
+                        indirectSampleCount);
+                } else {
+                    /* Preserve radiance even if a future append bug violates
+                     * the one-item-per-pixel proof. Hidden validation fails
+                     * explicitly instead of dropping the path. */
+                    deferBurstContinuation = false;
+                    if (ValidationEnabled != 0u) {
+                        InterlockedAdd(Diagnostics[15], 1u);
+                    }
+                }
+            }
             indirectHistoryOnly = MaximumDepth >= 2u &&
                 indirectSampleCount == 0u;
-            uint pathSampleCount = max(directSampleCount,
-                                       indirectSampleCount);
+            uint pathSampleCount = max(
+                directSampleCount,
+                deferBurstContinuation ? 0u : indirectSampleCount);
             DirectLightingSample directRadiance =
                 (DirectLightingSample)0;
             float3 smoothSpecularRadiance = 0.0;
@@ -3473,7 +3504,8 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                 /* The dense pass repeats the exact lobe choice and diffuse
                  * sample stream. Smooth continuation and all direct work stay
                  * here, while burst/disoccluded GI never sets this flag. */
-                if (deferMatureContinuation && sampleOrdinal == 0u) {
+                if ((deferMatureContinuation && sampleOrdinal == 0u) ||
+                    deferBurstContinuation) {
                     traceDiffuseContinuation = false;
                 }
                 float3 sampleSmoothSpecular = traceSmoothSpecular ?
@@ -4175,6 +4207,109 @@ void DenseMatureContinuation()
      * average for both outcomes of the mutually exclusive lobe choice. */
     current.historyLength = min(1.0, float(ReservoirSampleLimit));
     storeIndirectHistory(currentHistorySlot, historyIndex, current);
+}
+
+/* One compact entry represents one burst pixel and its exact configured path
+ * count. The argument Width starts at one for a sentinel thread, then primary
+ * shading appends at most one entry per internal pixel. This bounds storage by
+ * width*height and traced continuations by width*height*IndirectSamplesPerPixel
+ * without a fixed-content cap or an overflow drop. */
+[shader("raygeneration")]
+void BurstContinuation()
+{
+    uint dispatchIndex = DispatchRaysIndex().x;
+    if (dispatchIndex == 0u) {
+        return;
+    }
+    uint workIndex = dispatchIndex - 1u;
+    uint fullWidth = 0u;
+    uint fullHeight = 0u;
+    PrimaryVisibilityBuffer.GetDimensions(fullWidth, fullHeight);
+    uint capacity = fullWidth * fullHeight;
+    if (workIndex >= capacity || fullWidth == 0u || fullHeight == 0u) {
+        return;
+    }
+
+    uint2 item = BurstWorkItems[workIndex];
+    uint pixelIndex = item.x;
+    uint sampleCount = item.y;
+    if (sampleCount == 0u || pixelIndex >= capacity) {
+        return;
+    }
+    uint2 dimensions = uint2(fullWidth, fullHeight);
+    uint2 pixel = uint2(pixelIndex % fullWidth, pixelIndex / fullWidth);
+    uint4 packed = PrimaryVisibilityBuffer[pixel];
+    if (packed.x == InvalidIndex) {
+        return;
+    }
+
+    SurfacePayload payload;
+    payload.rayDistance = 0.0;
+    payload.barycentrics = float2(asfloat(packed.y), asfloat(packed.z));
+    payload.primitiveIndex = packed.x;
+    payload.hit = 1u;
+    float3 direction;
+    float3 unjitteredDirection;
+    primaryDirections(pixel, dimensions, direction, unjitteredDirection);
+    SurfaceData surface = loadSurface(payload, direction);
+
+    IndirectSignal signalSum = emptyIndirectSignal();
+    uint directSampleCount = max(SamplesPerPixel, 1u);
+    for (uint sampleOrdinal = 0u;
+         sampleOrdinal < sampleCount; ++sampleOrdinal) {
+        uint directSampleIndex = SampleIndex * directSampleCount +
+            sampleOrdinal;
+        bool traceDiffuse = true;
+        float diffuseScale = 1.0;
+        if (SingleContinuationLobe != 0u &&
+            sampleOrdinal < directSampleCount) {
+            float smoothProbability =
+                continuationSpecularProbability(surface, -direction);
+            bool chooseSmooth = sampleStream(
+                pixel, directSampleIndex,
+                ContinuationLobeSelectionStream).x < smoothProbability;
+            traceDiffuse = !chooseSmooth;
+            diffuseScale = !chooseSmooth ?
+                rcp(max(1.0 - smoothProbability, 1.0e-6)) : 0.0;
+        }
+        if (!traceDiffuse) {
+            continue;
+        }
+
+        uint indirectSampleIndex =
+            SampleIndex * max(IndirectSamplesPerPixel, 1u) +
+            sampleOrdinal;
+        DiffusePathSample pathSample = sampleDiffusePath(
+            pixel, indirectSampleIndex, surface);
+        float3 incident = pathSample.radiance * diffuseScale;
+        if (sampleOrdinal == 0u &&
+            (DiagnosticGuideMask & 2u) != 0u) {
+            DiffuseHitDistance[pixel] = pathSample.firstDistance;
+        }
+        if (any(isnan(incident)) || any(isinf(incident))) {
+            continue;
+        }
+        IndirectSignal sampleSignal = indirectSignalFromRadiance(
+            incident, pathSample.firstDirection);
+        signalSum.luminanceSH += sampleSignal.luminanceSH;
+        signalSum.chroma += sampleSignal.chroma;
+    }
+
+    IndirectSignal signal = scaleIndirectSignal(
+        signalSum, rcp(float(sampleCount)));
+    IndirectRadiance[pixel] = signal.luminanceSH;
+    IndirectChroma[pixel] = signal.chroma;
+    uint currentHistorySlot = SampleIndex & 1u;
+    IndirectHistoryPixel current = (IndirectHistoryPixel)0;
+    current.luminanceSH = signal.luminanceSH;
+    current.chroma = signal.chroma;
+    current.depth = LinearDepth[pixel];
+    current.normal = packOctahedralNormal(surface.geometricNormal);
+    current.historyLength = ReservoirSampleLimit > 0u ?
+        min(float(sampleCount), float(ReservoirSampleLimit)) :
+        float(sampleCount);
+    storeIndirectHistory(
+        currentHistorySlot, pixelIndex, current);
 }
 
 /* Q2RTX's low-frequency anti-lag signal compares the sparse current frame to

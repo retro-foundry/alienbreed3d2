@@ -192,7 +192,9 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> post_bloom_pipeline_state_;
     Microsoft::WRL::ComPtr<ID3D12RootSignature> ray_root_signature_;
     Microsoft::WRL::ComPtr<ID3D12StateObject> ray_state_object_;
+    Microsoft::WRL::ComPtr<ID3D12CommandSignature> burst_dispatch_signature_;
     Microsoft::WRL::ComPtr<ID3D12Resource> shader_table_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> burst_dispatch_template_;
     Microsoft::WRL::ComPtr<ID3D12Resource> blue_noise_sampler_;
     Microsoft::WRL::ComPtr<ID3D12Resource> frame_constants_;
     Microsoft::WRL::ComPtr<ID3D12Resource> light_grid_;
@@ -221,6 +223,12 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> surface_parameters_;
     /* Exact primary-hit handoff used by the split-scheduling control. */
     Microsoft::WRL::ComPtr<ID3D12Resource> primary_visibility_;
+    /* One compact pixel/count pair and one GPU dispatch argument per in-flight
+     * frame. Their capacity is the exact internal pixel count. */
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
+               DxrScene::upload_frame_count> burst_work_items_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
+               DxrScene::upload_frame_count> burst_dispatch_arguments_;
     Microsoft::WRL::ComPtr<ID3D12Resource> automatic_exposure_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_histogram_;
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_state_;
@@ -264,6 +272,7 @@ private:
     bool single_primary_direct_survivor_ = false;
     bool single_continuation_lobe_ = false;
     bool dense_mature_continuations_ = false;
+    bool bounded_burst_continuations_ = false;
     size_t last_view_weapon_coverage_ = 0u;
     uint64_t last_view_weapon_rgb_checksum_ = 0u;
     size_t last_world_bitmap_coverage_ = 0u;
@@ -273,6 +282,7 @@ private:
     size_t last_direct_specular_coverage_ = 0u;
     size_t last_invalid_lighting_or_guide_pixels_ = 0u;
     size_t last_smooth_specular_coverage_ = 0u;
+    size_t last_burst_work_overflow_ = 0u;
     float last_target_exposure_ = 1.0f;
     float last_automatic_exposure_ = 1.0f;
     float last_metered_average_luminance_ = 0.0f;
