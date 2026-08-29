@@ -4,7 +4,6 @@
 #include "renderer_dxr/dxr_emitter_history.h"
 #include "renderer_dxr/dxr_indirect_reconstruction.h"
 #include "renderer_dxr/dxr_light_grid.h"
-#include "renderer_dxr/dxr_restir_gi.h"
 #include "renderer_dxr/dxr_temporal_metrics.h"
 
 #include <cmath>
@@ -42,18 +41,8 @@ int main()
     namespace post = ab3d2::dxr::post_processing;
     namespace indirect = ab3d2::dxr::indirect_reconstruction;
     namespace grid = ab3d2::dxr::light_grid;
-    namespace gi = ab3d2::dxr::restir_gi;
     namespace temporal = ab3d2::dxr::temporal_metrics;
-    static_assert(indirect::downsample_factor == 3 &&
-                  static_cast<uint32_t>(indirect::Mode::full) == 0u &&
-                  static_cast<uint32_t>(indirect::Mode::temporal) == 1u &&
-                  static_cast<uint32_t>(indirect::Mode::raw) == 2u &&
-                  static_cast<uint32_t>(indirect::Mode::regional) == 3u &&
-                  static_cast<uint32_t>(indirect::Mode::deflicker) == 4u &&
-                  static_cast<uint32_t>(indirect::Mode::wavelet1) == 5u &&
-                  static_cast<uint32_t>(indirect::Mode::wavelet2) == 6u &&
-                  static_cast<uint32_t>(indirect::Mode::restir) == 7u &&
-                  static_cast<uint32_t>(
+    static_assert(static_cast<uint32_t>(
                       indirect::RadianceChannel::combined) == 0u &&
                   static_cast<uint32_t>(
                       indirect::RadianceChannel::emission) == 1u &&
@@ -67,49 +56,19 @@ int main()
                       indirect::RadianceChannel::smooth_specular) == 5u &&
                   static_cast<uint32_t>(
                       indirect::RadianceChannel::rough_specular) == 6u &&
-                  indirect::filter_steps[0] == 1 &&
-                  indirect::filter_steps[1] == 2 &&
-                  indirect::filter_steps[2] == 4 &&
-                  indirect::filter_radius == 1 &&
-                  indirect::filter_reach == 22 &&
-                  indirect::filter_kernel[0] == 1.0f &&
-                  indirect::filter_kernel[1] == 0.5f &&
-                  indirect::gradient_filter_steps[0] == 1 &&
-                  indirect::gradient_filter_steps[6] == 64 &&
-                  indirect::deflicker_neighbor_factor == 2.0f &&
-                  indirect::temporal_antilag_scale == 0.2f &&
-                  indirect::temporal_antilag_history_power == 10.0f &&
-                  indirect::temporal_minimum_current_weight == 0.01f &&
-                  indirect::temporal_gradient_confirmation_rate == 0.25f &&
-                  indirect::temporal_gradient_confirmation_threshold == 0.4f &&
-                  indirect::stable_indirect_sample_count == 1u &&
-                  indirect::stable_indirect_sampling_phase_count == 4u &&
-                  indirect::adaptive_history_maturity_tolerance == 0.5f &&
-                  indirect::stable_schedule_covers_gradient_region() &&
                   indirect::maximum_path_depth == 8u &&
                   indirect::path_dimensions_per_continuation == 8u &&
                   indirect::direction_dimension_x == 6u &&
                   indirect::direction_dimension_y == 7u &&
                   indirect::polygon_bounce_stream_stride == 1024u &&
                   indirect::continuation_count(0u) == 0u &&
-                  indirect::continuation_count(1u) == 0u &&
                   indirect::continuation_count(2u) == 1u &&
-                  indirect::continuation_count(3u) == 2u &&
                   indirect::continuation_count(8u) == 7u &&
-                  indirect::continuation_count(9u) == 7u &&
-                  indirect::sh_basis_l0 == 0.282095f &&
-                  indirect::sh_basis_l1 == 0.488603f &&
-                  indirect::filter_support_is_continuous());
-    static_assert(sizeof(gi::PackedReservoir) == 32u);
-    static_assert(sizeof(indirect::PackedHistoryPixel) == 24u);
+                  indirect::continuation_count(9u) == 7u);
     static_assert(grid::refresh_phase_count == 16u &&
                   grid::lights_per_cell == 512u &&
                   grid::entry_count == 2097152u &&
                   grid::lights_per_cell / grid::refresh_phase_count == 32u);
-    static_assert(gi::initial_candidate_count == 4u &&
-                  gi::spatial_sample_count == 4u &&
-                  gi::spatial_radius == 32 &&
-                  !gi::spatial_reuse_requires_primary_guide_match);
     if (!near(temporal::decode_half(0x3c00u), 1.0f) ||
         !near(temporal::decode_half(0xbc00u), -1.0f) ||
         !near(temporal::decode_half(0x0001u),
@@ -133,21 +92,6 @@ int main()
     }
     const grid::Position quantized_grid_center = grid::quantized_center(
         {511.0f, -1.0f, 1024.0f});
-    const uint16_t encoded_full_history =
-        indirect::encode_history_length(24.0f, 24u, 4u);
-    const uint16_t encoded_large_single_sample =
-        indirect::encode_history_length(1.0f, 65536u, 4u);
-    if (encoded_full_history != UINT16_MAX ||
-        encoded_large_single_sample == 0u ||
-        !near(indirect::decode_history_length(
-                  encoded_full_history, 24u, 4u), 24.0f) ||
-        !near(indirect::decode_history_length(
-                  UINT16_MAX, 65536u, 4u), 65536.0f) ||
-        !near(indirect::decode_history_length(
-                  indirect::encode_history_length(4.0f, 0u, 4u),
-                  0u, 4u), 4.0f)) {
-        return fail("packed indirect history did not preserve its limits");
-    }
     if (!near(quantized_grid_center.x, 0.0f) ||
         !near(quantized_grid_center.y, -512.0f) ||
         !near(quantized_grid_center.z, 1024.0f) ||
@@ -162,65 +106,7 @@ int main()
             quantized_grid_center, 7u, quantized_grid_center, 7u, false)) {
         return fail("ReGIR quantized cache invalidation changed");
     }
-    const gi::Vec3 gi_primary = {0.0f, 0.0f, 0.0f};
-    const gi::Vec3 gi_secondary = {
-        1.7320508075688772f, 0.0f, 1.0f};
-    const gi::Vec3 gi_direction = gi::normalize(gi_secondary);
-    const gi::Vec3 gi_secondary_normal = gi::multiply(gi_direction, -1.0f);
-    const gi::Vec3 gi_incident = gi::reconnect_incident(
-        gi_primary, {0.0f, 0.0f, 1.0f}, gi_secondary,
-        gi_secondary_normal, {3.0f, 2.0f, 1.0f});
-    /* The same secondary sample remains a valid proposal for a perpendicular
-     * primary face. The GPU path additionally reconstructs current geometry
-     * and traces fresh visibility before accepting this cross-corner reuse. */
-    const gi::Vec3 gi_cross_corner_incident = gi::reconnect_incident(
-        gi_primary, {1.0f, 0.0f, 0.0f}, gi_secondary,
-        gi_secondary_normal, {3.0f, 2.0f, 1.0f});
-    const float gi_solid_angle_pdf =
-        gi::low_frequency_solid_angle_pdf(0.5f);
-    const float gi_directional_bias =
-        gi::low_frequency_directional_bias(0.5f);
-    const float gi_area_pdf = gi::solid_angle_pdf_to_area(
-        gi_solid_angle_pdf, gi_primary, gi_secondary,
-        gi_secondary_normal);
-    const float gi_target = gi::target({0.5f, 0.5f, 0.5f}, gi_incident);
-    const float gi_initial_weight =
-        gi::initial_candidate_weight(gi_target, gi_area_pdf);
-    const float gi_final_weight =
-        gi::finalize_weight(gi_initial_weight, gi_target, 1u);
-    if (!near(gi_incident.x, 3.0f * gi_directional_bias /
-                                  (8.0f * gi::pi)) ||
-        !near(gi_incident.y, 2.0f * gi_directional_bias /
-                                  (8.0f * gi::pi)) ||
-        !near(gi_incident.z, gi_directional_bias / (8.0f * gi::pi)) ||
-        !near(gi_area_pdf, gi_solid_angle_pdf / 4.0f) ||
-        !(gi_directional_bias > 1.0f) ||
-        !(gi::luminance(gi_cross_corner_incident) > 0.0f) ||
-        !near(gi_final_weight, 1.0f / gi_area_pdf) ||
-        !near(gi::reused_candidate_weight(gi_target, gi_final_weight, 1u),
-              gi_initial_weight) ||
-        gi::initial_candidate_weight(gi_target, 0.0f) != 0.0f ||
-        gi::reused_candidate_weight(0.0f, gi_final_weight, 1u) != 0.0f ||
-        gi::finalize_weight(gi_initial_weight, 0.0f, 1u) != 0.0f) {
-        return fail("ReSTIR GI area-measure reservoir contract changed");
-    }
-    double gi_pdf_mass = 0.0;
-    double gi_biased_cosine_mass = 0.0;
-    constexpr int gi_pdf_steps = 16384;
-    for (int step = 0; step < gi_pdf_steps; ++step) {
-        const float cosine = (static_cast<float>(step) + 0.5f) /
-            static_cast<float>(gi_pdf_steps);
-        const float solid_angle = 2.0f * gi::pi /
-            static_cast<float>(gi_pdf_steps);
-        gi_pdf_mass +=
-            gi::low_frequency_solid_angle_pdf(cosine) * solid_angle;
-        gi_biased_cosine_mass += (cosine / gi::pi) *
-            gi::low_frequency_directional_bias(cosine) * solid_angle;
-    }
-    if (std::abs(gi_pdf_mass - 1.0) > 1.0e-4 ||
-        std::abs(gi_biased_cosine_mass - 1.0) > 1.0e-4) {
-        return fail("ReSTIR GI broad continuation PDF lost unit mass");
-    }
+
     tone::Histogram metering_histogram = {};
     tone::add_sample(metering_histogram, 0.000001f, 10u);
     tone::add_sample(metering_histogram, 0.01f, 80u);
@@ -342,138 +228,7 @@ int main()
         post::hdr_saturation_channel(0.0f, 0.5f, 2.0f) != 0.0f) {
         return fail("Q2RTX-compatible scRGB scale or HDR saturation changed");
     }
-    if (!near(indirect::guide_weight(100.0f, 100.0f, 1.0f), 1.0f) ||
-        !near(indirect::guide_weight(100.0f, 105.0f, 0.75f), 0.125f) ||
-        indirect::guide_weight(100.0f, 110.0f, 1.0f) > 1.0e-5f ||
-        indirect::guide_weight(100.0f, 100.0f, 0.5f) != 0.0f ||
-        indirect::guide_weight(0.0f, 100.0f, 1.0f) != 0.0f) {
-        return fail("low-frequency indirect guide weighting changed");
-    }
-    const std::array<float, 4> temporal_weights =
-        indirect::temporal_bilinear_weights(0.25f, 0.75f);
-    const float temporal_weight_sum = temporal_weights[0] +
-        temporal_weights[1] + temporal_weights[2] + temporal_weights[3];
-    const indirect::TemporalBlend stable_history =
-        indirect::temporal_blend(20.0f, 4.0f, 0.0f, 32u);
-    const indirect::TemporalBlend changed_history =
-        indirect::temporal_blend(100.0f, 4.0f, 1.0f, 32u);
-    const indirect::TemporalBlend capped_history =
-        indirect::temporal_blend(300.0f, 4.0f, 0.0f, 32u);
-    const indirect::TemporalBlend disabled_history =
-        indirect::temporal_blend(20.0f, 4.0f, 1.0f, 0u);
-    const indirect::TemporalBlend eighth_four_ray_frame =
-        indirect::temporal_blend(28.0f, 4.0f, 0.0f, 32u);
-    const indirect::GradientConfirmation first_gradient =
-        indirect::confirm_gradient(0.0f, 1.0f);
-    const indirect::GradientConfirmation second_gradient =
-        indirect::confirm_gradient(first_gradient.confidence, 1.0f);
-    const indirect::GradientConfirmation third_gradient =
-        indirect::confirm_gradient(second_gradient.confidence, 1.0f);
-    const indirect::GradientConfirmation alternating_gradient =
-        indirect::confirm_gradient(first_gradient.confidence, -1.0f);
-    const auto adaptive_samples = [](float history, float confidence,
-                                     uint32_t limit, bool valid,
-                                     indirect::Mode mode =
-                                         indirect::Mode::full,
-                                     bool scheduled = true) {
-        return indirect::adaptive_indirect_sample_count(
-            4u, history, confidence, limit, valid, mode, scheduled);
-    };
-    const float expected_changed_length =
-        100.0f * std::pow(0.8f, 10.0f) + 4.0f;
-    const float expected_changed_weight =
-        4.0f / expected_changed_length * 0.8f + 0.2f;
-    if (!near(temporal_weights[0], 0.1875f) ||
-        !near(temporal_weights[1], 0.0625f) ||
-        !near(temporal_weights[2], 0.5625f) ||
-        !near(temporal_weights[3], 0.1875f) ||
-        !near(temporal_weight_sum, 1.0f) ||
-        !near(indirect::relative_luminance_gradient(4.0f, 2.0f), 0.25f) ||
-        indirect::relative_luminance_gradient(0.0f, 0.0f) != 0.0f ||
-        !near(stable_history.history_length, 24.0f) ||
-        !near(stable_history.current_weight, 1.0f / 6.0f) ||
-        stable_history.antilag != 0.0f ||
-        !near(changed_history.history_length, expected_changed_length) ||
-        !near(changed_history.current_weight, expected_changed_weight) ||
-        !near(changed_history.antilag, 0.2f) ||
-        !near(capped_history.history_length, 32.0f) ||
-        !near(capped_history.current_weight, 0.125f) ||
-        disabled_history.history_length != 4.0f ||
-        disabled_history.current_weight != 1.0f ||
-        !near(eighth_four_ray_frame.history_length, 32.0f) ||
-        !near(eighth_four_ray_frame.current_weight, 0.125f) ||
-        !near(first_gradient.confidence, 0.25f) ||
-        first_gradient.gradient != 0.0f ||
-        !near(second_gradient.confidence, 0.4375f) ||
-        !near(second_gradient.gradient, 0.0625f) ||
-        !near(third_gradient.confidence, 0.578125f) ||
-        !near(third_gradient.gradient, 0.296875f) ||
-        !near(alternating_gradient.confidence, -0.0625f) ||
-        alternating_gradient.gradient != 0.0f ||
-        adaptive_samples(0.0f, 0.0f, 32u, false) != 4u ||
-        adaptive_samples(28.0f, 0.0f, 32u, true) != 4u ||
-        adaptive_samples(31.49f, 0.0f, 32u, true) != 4u ||
-        adaptive_samples(31.5f, 0.0f, 32u, true) != 1u ||
-        adaptive_samples(31.5f, 0.0f, 32u, true,
-                         indirect::Mode::full, false) != 0u ||
-        adaptive_samples(32.0f, 0.39f, 32u, true) != 1u ||
-        adaptive_samples(32.0f, 0.4f, 32u, true) != 4u ||
-        adaptive_samples(32.0f, 0.0f, 0u, true) != 4u ||
-        adaptive_samples(32.0f, 0.0f, 32u, true,
-                         indirect::Mode::raw) != 4u ||
-        adaptive_samples(32.0f, 0.0f, 32u, true,
-                         indirect::Mode::restir) != 4u ||
-        indirect::adaptive_indirect_sample_count(
-            1u, 0.0f, 0.0f, 32u, false,
-            indirect::Mode::full, false) != 1u ||
-        indirect::adaptive_indirect_sample_count(
-            1u, 32.0f, 0.0f, 32u, true,
-            indirect::Mode::full, false) != 0u ||
-        !indirect::stable_indirect_sample_scheduled(0u, 0u, 0u) ||
-        !indirect::stable_indirect_sample_scheduled(1u, 0u, 1u) ||
-        !indirect::stable_indirect_sample_scheduled(0u, 1u, 2u) ||
-        !indirect::stable_indirect_sample_scheduled(1u, 1u, 3u) ||
-        indirect::stable_indirect_sample_scheduled(0u, 0u, 1u) ||
-        adaptive_samples(std::numeric_limits<float>::quiet_NaN(),
-                         0.0f, 32u, true) != 4u) {
-        return fail(
-            "low-frequency temporal/adaptive sampling contract changed");
-    }
-    if (indirect::kernel_weight(-2) != 0.0f ||
-        indirect::kernel_weight(-1) != 0.5f ||
-        indirect::kernel_weight(0) != 1.0f ||
-        indirect::kernel_weight(1) != 0.5f ||
-        indirect::kernel_weight(2) != 0.0f) {
-        return fail("low-frequency indirect filter kernel changed");
-    }
-    if (!near(indirect::deflicker_scale(4.0f, 8.0f, 8u), 0.5f) ||
-        indirect::deflicker_scale(1.0f, 8.0f, 8u) != 1.0f ||
-        indirect::deflicker_scale(1.0f, 0.0f, 8u) != 0.0f ||
-        indirect::deflicker_scale(1.0f, 0.0f, 0u) != 1.0f ||
-        indirect::deflicker_scale(0.0f, 8.0f, 8u) != 1.0f) {
-        return fail("low-frequency indirect deflicker contract changed");
-    }
-    const indirect::Color axial = indirect::project_signal(
-        indirect::signal_from_radiance({1.0f, 0.5f, 0.25f},
-                                       0.0f, 0.0f, 1.0f),
-        0.0f, 0.0f, 1.0f);
-    const indirect::Color tangent = indirect::project_signal(
-        indirect::signal_from_radiance({1.0f, 0.5f, 0.25f},
-                                       0.0f, 0.0f, 1.0f),
-        1.0f, 0.0f, 0.0f);
-    const indirect::Color black = indirect::project_signal(
-        indirect::signal_from_radiance({0.0f, 0.0f, 0.0f},
-                                       0.0f, 0.0f, 1.0f),
-        0.0f, 0.0f, 1.0f);
-    if (!near(axial.red, 1.5f, 2.0e-5f) ||
-        !near(axial.green, 0.75f, 2.0e-5f) ||
-        !near(axial.blue, 0.375f, 2.0e-5f) ||
-        !near(tangent.red, 0.5f, 2.0e-5f) ||
-        !near(tangent.green, 0.25f, 2.0e-5f) ||
-        !near(tangent.blue, 0.125f, 2.0e-5f) ||
-        black.red != 0.0f || black.green != 0.0f || black.blue != 0.0f) {
-        return fail("directional low-frequency projection changed");
-    }
+
     static_assert(grid::cell_count == 4096u);
     static_assert(grid::entry_count == 2097152u);
     static_assert(sizeof(grid::Entry) == 8u);

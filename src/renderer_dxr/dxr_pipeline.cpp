@@ -49,7 +49,6 @@ enum DescriptorIndex : UINT {
     diagnostics_uav = 28,
     light_grid_uav = 29,
     indirect_radiance_uav = 30,
-    indirect_history_uav_start = 31,
     indirect_filtered_uav = 33,
     automatic_exposure_uav = 34,
     indirect_chroma_uav = 35,
@@ -612,16 +611,15 @@ bool DxrPipeline::configure_debug_view(std::string &error)
 
 /*
  * Applies ab3d2.ini's ray-tracing settings over the tuned defaults, then lets
- * the environment override either, so bounce depth, candidate count, and
- * indirect history can be swept against `--gpu-smoke` without editing a file.
- * A larger history cap lengthens the running average of demodulated diffuse
- * incident radiance. The subsequent depth/normal-guided spatial reconstruction
- * is independent of the cap and still runs when it is zero.
+ * the environment override either, so bounce depth, sample count, and candidate
+ * count can be swept against `--gpu-smoke` without editing a file. The former
+ * reservoir-limit spelling remains range-checked for configuration compatibility
+ * but does not alter the RR-only GI path.
  *
  * Zero keeps the renderer default for ordinary quality fields. It explicitly
  * disables the radiance clamp or diffuse-GI transfer when their setting is
  * present. Flags distinguish explicit zero from absence for GI transfer, the
- * history limit, and post-curve exposure bias.
+ * compatibility limit, and post-curve exposure bias.
  */
 bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                                        std::string &error)
@@ -683,8 +681,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         uint32_t limit;
         uint32_t *target;
     };
-    /* A history limit of zero is a meaningful diagnostic setting rather than an
-     * error: it disables only indirect temporal accumulation. */
+    /* Keep the former reservoir-limit spelling range-compatible for existing
+     * launch configurations. RR-only GI does not consume it. */
     const std::array<Override, 4> overrides = {
         Override{"AB3D2_DXR_MAX_BOUNCES", 1u,
                  indirect_reconstruction::maximum_path_depth,
@@ -1217,7 +1215,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     if (!load_shader(L"path_trace.dxil", library, error)) {
         return false;
     }
-    std::array<D3D12_DESCRIPTOR_RANGE, 4> ranges = {};
+    std::array<D3D12_DESCRIPTOR_RANGE, 6> ranges = {};
     ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     ranges[0].NumDescriptors =
         static_cast<UINT>(DxrReconstructionBuffer::count);
@@ -1228,9 +1226,20 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
+    /* The high UAV table follows the descriptor heap's stable register-index
+     * layout, but explicitly skips the deleted GI history/filter slots. */
     ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[3].NumDescriptors = 20;
+    ranges[3].NumDescriptors = 2;
     ranges[3].BaseShaderRegister = 13;
+    ranges[3].OffsetInDescriptorsFromTableStart = 0;
+    ranges[4].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    ranges[4].NumDescriptors = 3;
+    ranges[4].BaseShaderRegister = 17;
+    ranges[4].OffsetInDescriptorsFromTableStart = 4;
+    ranges[5].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    ranges[5].NumDescriptors = 7;
+    ranges[5].BaseShaderRegister = 26;
+    ranges[5].OffsetInDescriptorsFromTableStart = 13;
     std::array<D3D12_ROOT_PARAMETER, 16> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
@@ -1259,7 +1268,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[11].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[11].Descriptor.ShaderRegister = 12;
     parameters[12].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    parameters[12].DescriptorTable.NumDescriptorRanges = 1;
+    parameters[12].DescriptorTable.NumDescriptorRanges = 3;
     parameters[12].DescriptorTable.pDescriptorRanges = &ranges[3];
     parameters[13].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[13].Descriptor.ShaderRegister = 33;
@@ -1837,7 +1846,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         bloom_targets_[0] && bloom_targets_[1] && bloom_targets_[2] &&
         bloom_targets_[3] && bloom_targets_[4] && bloom_targets_[5] &&
         post_hdr_output_ &&
-        indirect_histories_[0] && indirect_histories_[1] &&
         direct_reservoir_binding_ &&
         streamline_scene_motion_ &&
         view_weapon_histories_[0] && view_weapon_histories_[1] &&
@@ -1877,9 +1885,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         target.Reset();
     }
     post_hdr_output_.Reset();
-    for (auto &history : indirect_histories_) {
-        history.Reset();
-    }
     streamline_output_.Reset();
     render_width_ = 0;
     render_height_ = 0;
@@ -2193,38 +2198,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         device->CreateUnorderedAccessView(
             indirect_chroma_.Get(), nullptr, &uav,
             cpu_descriptor(indirect_chroma_uav));
-    }
-    {
-        const UINT64 pixel_count = static_cast<UINT64>(width) * height;
-        D3D12_RESOURCE_DESC history_description = buffer_description(
-            pixel_count *
-            sizeof(indirect_reconstruction::PackedHistoryPixel));
-        history_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        for (size_t index = 0; index < indirect_histories_.size(); ++index) {
-            const HRESULT result = device->CreateCommittedResource(
-                &default_heap, D3D12_HEAP_FLAG_NONE, &history_description,
-                D3D12_RESOURCE_STATE_COMMON, nullptr,
-                IID_PPV_ARGS(&indirect_histories_[index]));
-            if (FAILED(result)) {
-                error = hresult_error(
-                    "ID3D12Device::CreateCommittedResource(indirect history)",
-                    result);
-                return false;
-            }
-            indirect_histories_[index]->SetName(index == 0u ?
-                L"AB3D2 Low-Frequency Indirect History A" :
-                L"AB3D2 Low-Frequency Indirect History B");
-            D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-            uav.Format = DXGI_FORMAT_UNKNOWN;
-            uav.ViewDimension = D3D12_UAV_DIMENSION_BUFFER;
-            uav.Buffer.NumElements = static_cast<UINT>(pixel_count);
-            uav.Buffer.StructureByteStride =
-                sizeof(indirect_reconstruction::PackedHistoryPixel);
-            device->CreateUnorderedAccessView(
-                indirect_histories_[index].Get(), nullptr, &uav,
-                cpu_descriptor(indirect_history_uav_start +
-                               static_cast<UINT>(index)));
-        }
     }
     {
         D3D12_RESOURCE_DESC exposure_description = buffer_description(
@@ -2844,14 +2817,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         command_list->ResourceBarrier(1, &light_grid_state);
     }
     if (targets_recreated) {
-        const std::array<D3D12_RESOURCE_BARRIER, 6> history_states = {
+        const std::array<D3D12_RESOURCE_BARRIER, 4> initial_states = {
             transition(direct_reservoir_binding_.Get(),
-                       D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            transition(indirect_histories_[0].Get(),
-                       D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
-            transition(indirect_histories_[1].Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
             transition(automatic_exposure_.Get(),
@@ -2865,8 +2832,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
         };
         command_list->ResourceBarrier(
-            static_cast<UINT>(history_states.size()),
-            history_states.data());
+            static_cast<UINT>(initial_states.size()),
+            initial_states.data());
     }
     ID3D12Resource *burst_work_items =
         burst_work_items_[frame_slot].Get();
@@ -2996,7 +2963,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             uav_barrier(primary_visibility_.Get()),
             uav_barrier(indirect_radiance_.Get()),
             uav_barrier(indirect_chroma_.Get()),
-            uav_barrier(indirect_histories_[sample_index & 1u].Get()),
         };
         command_list->ResourceBarrier(
             static_cast<UINT>(std::size(burst_inputs_ready)),
@@ -3015,7 +2981,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     const D3D12_RESOURCE_BARRIER fresh_indirect_ready[] = {
         uav_barrier(indirect_radiance_.Get()),
         uav_barrier(indirect_chroma_.Get()),
-        uav_barrier(indirect_histories_[sample_index & 1u].Get()),
         uav_barrier(reconstruction_resource(
             DxrReconstructionBuffer::diffuse_albedo)),
         uav_barrier(reconstruction_resource(

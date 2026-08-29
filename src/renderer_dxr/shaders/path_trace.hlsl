@@ -72,26 +72,6 @@ struct LightGridEntry
     float inverseSelectionProbability;
 };
 
-struct IndirectHistoryPixel
-{
-    float4 luminanceSH;
-    float2 chroma;
-    float depth;
-    uint normal;
-    float historyLength;
-    float gradientConfidence;
-};
-
-struct PackedIndirectHistoryPixel
-{
-    uint luminanceSH01;
-    uint luminanceSH23;
-    uint chroma;
-    float depth;
-    uint normal;
-    uint historyAndConfidence;
-};
-
 struct IndirectSignal
 {
     float4 luminanceSH;
@@ -216,16 +196,12 @@ RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
  * none is used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
-/* Demodulated diffuse-suffix lighting. RayGeneration writes the raw bounded
- * path sample; after temporal accumulation the texture's top-left third-sized
- * area holds the transient one-third-resolution reconstruction. */
+/* Current-frame demodulated diffuse-suffix lighting. RayGeneration or the
+ * bounded continuation burst writes one genuine per-pixel path estimate. */
 RWTexture2D<float4> IndirectRadiance : register(u14);
-RWStructuredBuffer<PackedIndirectHistoryPixel> IndirectHistories[2] :
-    register(u15);
 RWTexture2D<float4> IndirectFiltered : register(u17);
 RWStructuredBuffer<float> AutomaticExposure : register(u18);
 RWTexture2D<float2> IndirectChroma : register(u19);
-RWTexture2D<float2> IndirectChromaFiltered : register(u20);
 RWTexture2D<float2> StreamlineSceneMotion : register(u26);
 RWTexture2D<uint> ViewWeaponHistories[2] : register(u27);
 RWTexture2D<float> RayReconstructionDisocclusion : register(u29);
@@ -360,8 +336,6 @@ static const float ReservoirDepthTolerance = 0.1;
 static const float ReservoirNormalTolerance = 0.5;
 static const float IndirectShBasisL0 = 0.282095;
 static const float IndirectShBasisL1 = 0.488603;
-static const float IndirectShIrradianceL0 = 0.886226;
-static const float IndirectShIrradianceL1 = 1.023326;
 static const uint ExposureSampleColumns = 32u;
 static const uint ExposureSampleRows = 18u;
 static const uint ExposureHistogramBinCount = 64u;
@@ -597,78 +571,10 @@ IndirectSignal emptyIndirectSignal()
     return signal;
 }
 
-float finiteHistoryHalf(float value)
-{
-    return isnan(value) || isinf(value) ? 0.0 :
-        clamp(value, -65504.0, 65504.0);
-}
-
-uint packHistoryHalf2(float2 value)
-{
-    return f32tof16(finiteHistoryHalf(value.x)) |
-        (f32tof16(finiteHistoryHalf(value.y)) << 16u);
-}
-
-float2 unpackHistoryHalf2(uint packed)
-{
-    return float2(f16tof32(packed & 0xffffu),
-                  f16tof32(packed >> 16u));
-}
-
-float indirectHistoryScale()
-{
-    return ReservoirSampleLimit > 0u ? float(ReservoirSampleLimit) :
-        float(max(IndirectSamplesPerPixel, 1u));
-}
-
-PackedIndirectHistoryPixel packIndirectHistory(IndirectHistoryPixel value)
-{
-    PackedIndirectHistoryPixel packed;
-    packed.luminanceSH01 = packHistoryHalf2(value.luminanceSH.xy);
-    packed.luminanceSH23 = packHistoryHalf2(value.luminanceSH.zw);
-    packed.chroma = packHistoryHalf2(value.chroma);
-    packed.depth = value.depth;
-    packed.normal = value.normal;
-    float historyScale = indirectHistoryScale();
-    uint encodedHistory = uint(round(
-        saturate(value.historyLength / historyScale) * 65535.0));
-    uint encodedConfidence = f32tof16(
-        finiteHistoryHalf(clamp(value.gradientConfidence, -1.0, 1.0)));
-    packed.historyAndConfidence = encodedHistory |
-        (encodedConfidence << 16u);
-    return packed;
-}
-
-IndirectHistoryPixel unpackIndirectHistory(PackedIndirectHistoryPixel packed)
-{
-    IndirectHistoryPixel value;
-    value.luminanceSH.xy = unpackHistoryHalf2(packed.luminanceSH01);
-    value.luminanceSH.zw = unpackHistoryHalf2(packed.luminanceSH23);
-    value.chroma = unpackHistoryHalf2(packed.chroma);
-    value.depth = packed.depth;
-    value.normal = packed.normal;
-    value.historyLength =
-        float(packed.historyAndConfidence & 0xffffu) *
-        (indirectHistoryScale() / 65535.0);
-    value.gradientConfidence =
-        f16tof32(packed.historyAndConfidence >> 16u);
-    return value;
-}
-
-IndirectHistoryPixel loadIndirectHistory(uint slot, uint index)
-{
-    return unpackIndirectHistory(IndirectHistories[slot][index]);
-}
-
-void storeIndirectHistory(uint slot, uint index, IndirectHistoryPixel value)
-{
-    IndirectHistories[slot][index] = packIndirectHistory(value);
-}
-
 /* First-order directional luminance plus unprojected opponent chroma. These
- * are standard real spherical-harmonic basis constants. Keeping the signal
- * linear lets temporal and spatial filters average every coefficient without
- * first choosing a receiving normal. */
+ * are standard real spherical-harmonic basis constants. The representation
+ * retains the current sample's incident direction for rough-specular shading;
+ * no temporal or spatial filter consumes it. */
 IndirectSignal indirectSignalFromRadiance(float3 color, float3 direction)
 {
     IndirectSignal signal = emptyIndirectSignal();
@@ -683,11 +589,6 @@ IndirectSignal indirectSignalFromRadiance(float3 color, float3 direction)
     return signal;
 }
 
-float indirectSignalLuminance(IndirectSignal signal)
-{
-    return max(signal.luminanceSH.w / IndirectShBasisL0, 0.0);
-}
-
 IndirectSignal scaleIndirectSignal(IndirectSignal signal, float scale)
 {
     signal.luminanceSH *= scale;
@@ -695,25 +596,8 @@ IndirectSignal scaleIndirectSignal(IndirectSignal signal, float scale)
     return signal;
 }
 
-float3 projectIndirectSignal(IndirectSignal signal, float3 normal)
-{
-    float directional = dot(signal.luminanceSH.xyz, normal);
-    float projectedY = max(2.0 *
-        (IndirectShIrradianceL1 * directional +
-         IndirectShIrradianceL0 * signal.luminanceSH.w), 0.0);
-    float2 projectedChroma = signal.chroma *
-        (projectedY * IndirectShBasisL0 /
-         max(signal.luminanceSH.w, 1.0e-6));
-    float base = projectedY - projectedChroma.y * 0.5;
-    float green = projectedChroma.y + base;
-    float blue = base - projectedChroma.x * 0.5;
-    float red = blue + projectedChroma.x;
-    return max(float3(red, green, blue), 0.0);
-}
-
 /* The opponent-color portion of IndirectSignal is linear and reversible.
- * Raw mode uses this exact RGB decode without applying the directional SH
- * projection that belongs to the project LF reconstruction path. */
+ * RR-only mode uses this exact RGB decode without renderer-owned filtering. */
 float3 decodeIndirectSignalColor(IndirectSignal signal)
 {
     float opponentY = signal.luminanceSH.w / IndirectShBasisL0;
@@ -722,27 +606,6 @@ float3 decodeIndirectSignalColor(IndirectSignal signal)
     float blue = base - signal.chroma.x * 0.5;
     float red = blue + signal.chroma.x;
     return float3(red, green, blue);
-}
-
-IndirectSignal loadIndirectLow(int2 pixel, bool filtered)
-{
-    IndirectSignal signal;
-    signal.luminanceSH = filtered ?
-        IndirectFiltered[pixel] : IndirectRadiance[pixel];
-    signal.chroma = filtered ?
-        IndirectChromaFiltered[pixel] : IndirectChroma[pixel];
-    return signal;
-}
-
-void storeIndirectLow(uint2 pixel, bool filtered, IndirectSignal signal)
-{
-    if (filtered) {
-        IndirectFiltered[pixel] = signal.luminanceSH;
-        IndirectChromaFiltered[pixel] = signal.chroma;
-    } else {
-        IndirectRadiance[pixel] = signal.luminanceSH;
-        IndirectChroma[pixel] = signal.chroma;
-    }
 }
 
 float powerHeuristic(float firstPdf, float secondPdf)
@@ -3271,19 +3134,13 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
     float3 resolvedRadiance = includeVisibleEmission ?
         primarySegment.additiveRadiance : 0.0;
     IndirectSignal resolvedIndirectSignal = emptyIndirectSignal();
-    float3 primaryGeometricNormal = 0.0;
-    float primaryDepth = 0.0;
     uint indirectSampleCount = 0u;
-    bool indirectHistoryOnly = false;
     if (primaryPayload.hit == 0u) {
         writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
     } else {
         SurfaceData surface = loadSurface(primaryPayload, direction);
         writeSurfaceGuides(pixel, primaryPayload, surface, dimensions,
                            -direction);
-        primaryGeometricNormal = surface.geometricNormal;
-        primaryDepth = LinearDepth[pixel];
-
         /* Base colour is a reconstruction/material guide, not self-emission.
          * Visible source radiance is deterministic. Primary local-light NEE
          * evaluates material-dependent diffuse and GGX together; the accepted
@@ -3326,8 +3183,6 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                     }
                 }
             }
-            indirectHistoryOnly = MaximumDepth >= 2u &&
-                indirectSampleCount == 0u;
             uint pathSampleCount = max(
                 directSampleCount,
                 deferBurstContinuation ? 0u : indirectSampleCount);
@@ -3471,28 +3326,6 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
     IndirectRadiance[pixel] = resolvedIndirectSignal.luminanceSH;
     IndirectChroma[pixel] = resolvedIndirectSignal.chroma;
-    uint historyIndex = pixel.y * dimensions.x + pixel.x;
-    uint currentHistorySlot = SampleIndex & 1u;
-    IndirectHistoryPixel currentIndirect = (IndirectHistoryPixel)0;
-    if (primaryPayload.hit != 0u) {
-        currentIndirect.luminanceSH = resolvedIndirectSignal.luminanceSH;
-        currentIndirect.chroma = resolvedIndirectSignal.chroma;
-        currentIndirect.depth = primaryDepth;
-        currentIndirect.normal = packOctahedralNormal(
-            primaryGeometricNormal);
-        /* The signal above is the mean of this many independent GI paths.
-         * Preserve that effective sample count instead of advancing history by
-         * one regardless of the work completed this frame. */
-        if (!indirectHistoryOnly && indirectSampleCount > 0u) {
-            float currentSampleCount = indirectSampleCount > 0u ?
-                float(indirectSampleCount) : 1.0;
-            currentIndirect.historyLength = ReservoirSampleLimit > 0u ?
-                min(currentSampleCount, float(ReservoirSampleLimit)) :
-                currentSampleCount;
-        }
-    }
-    storeIndirectHistory(
-        currentHistorySlot, historyIndex, currentIndirect);
     if (ValidationEnabled != 0u) {
         if (primaryPrimitive == ViewWeaponPrimitive) {
             uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
@@ -3706,17 +3539,6 @@ void BurstContinuation()
         signalSum, rcp(float(sampleCount)));
     IndirectRadiance[pixel] = signal.luminanceSH;
     IndirectChroma[pixel] = signal.chroma;
-    uint currentHistorySlot = SampleIndex & 1u;
-    IndirectHistoryPixel current = (IndirectHistoryPixel)0;
-    current.luminanceSH = signal.luminanceSH;
-    current.chroma = signal.chroma;
-    current.depth = LinearDepth[pixel];
-    current.normal = packOctahedralNormal(surface.geometricNormal);
-    current.historyLength = ReservoirSampleLimit > 0u ?
-        min(float(sampleCount), float(ReservoirSampleLimit)) :
-        float(sampleCount);
-    storeIndirectHistory(
-        currentHistorySlot, pixelIndex, current);
 }
 
 
@@ -3779,10 +3601,9 @@ float3 reconstructRoughSpecular(
     return incidentColor * brdf * blendWeight * compensation;
 }
 
-/* Sparse indirect diffuse lighting remains in a dedicated low-frequency
- * channel before final composition. This project-owned pass remodulates the
- * filtered incident signal at the primary receiver and leaves direct lighting
- * and visible emission untouched. DLSS-RR still owns final reconstruction. */
+/* Fresh indirect diffuse lighting remains in a dedicated current-frame channel
+ * until final composition. This pass remodulates the raw incident estimate at
+ * the primary receiver; DLSS-RR owns all temporal/spatial reconstruction. */
 [shader("raygeneration")]
 void ReconstructIndirect()
 {
@@ -3805,22 +3626,13 @@ void ReconstructIndirect()
         IndirectFiltered[pixel] = 0.0;
         return;
     }
-    uint currentSlot = SampleIndex & 1u;
-    uint centerIndex = pixel.y * dimensions.x + pixel.x;
-    IndirectHistoryPixel centerHistory =
-        loadIndirectHistory(currentSlot, centerIndex);
-    if (!(centerHistory.historyLength > 0.0)) {
-        IndirectFiltered[pixel] = 0.0;
-        return;
-    }
     /* Publish only the current frame's genuine estimator. Directional SH is
      * a compact per-pixel storage format here, not a temporal or spatial
      * reconstruction stage. */
     IndirectSignal rawSignal;
-    rawSignal.luminanceSH = centerHistory.luminanceSH;
-    rawSignal.chroma = centerHistory.chroma;
+    rawSignal.luminanceSH = IndirectRadiance[pixel];
+    rawSignal.chroma = IndirectChroma[pixel];
     float3 filteredIncident = decodeIndirectSignalColor(rawSignal);
-    float3 centerNormal = unpackOctahedralNormal(centerHistory.normal);
     IndirectSignal specularSignal = rawSignal;
     bool hasSpecularSignal = true;
     if (any(isnan(filteredIncident)) || any(isinf(filteredIncident))) {
@@ -3839,7 +3651,7 @@ void ReconstructIndirect()
     if (hasSpecularSignal && includeRoughSpecular) {
         float4 packedShadingNormal = ShadingNormal[pixel];
         float3 primaryPosition = giPrimaryWorldPosition(
-            pixel, dimensions, centerHistory.depth);
+            pixel, dimensions, LinearDepth[pixel]);
         roughSpecular = reconstructRoughSpecular(
             specularSignal, primaryPosition,
             normalize(packedShadingNormal.xyz),

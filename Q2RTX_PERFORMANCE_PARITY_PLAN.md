@@ -1,9 +1,9 @@
 # Q2RTX Performance Parity Execution Plan
 
 Status: execution plan, 2026-08-29. The accepted lighting result remains the
-quality oracle. S0-S3 is the production scheduler; active Ray Reconstruction
-now owns indirect denoising and consumes full-density raw GI. Performance
-parity is open.
+quality oracle. DLSS Ray Reconstruction is the sole GI reconstructor and
+consumes four fresh, stratified paths per internal pixel. Performance parity is
+open; native GI history/filter and ReSTIR-GI work have been removed.
 
 This document is the performance companion to
 `Q2RTX_LIGHTING_PARITY_PLAN.md`. It replaces a sequence of isolated
@@ -90,10 +90,10 @@ The following comparison is source-observed, not inferred from preset names.
 | direct local light | default 16 textured candidates split into two RIS groups, followed by two selected visibility rays | the polygonal proposal examines at most `MAX_BRUTEFORCE_SAMPLING == 8` entries in one selected list partition; polygonal and dynamic proposals are combined before one selected local shadow ray in `path_tracer_rgen.h::get_direct_illumination` |
 | first continuation | independent diffuse and GGX estimators can both run | default `pt_num_bounce_rays=1` selects one diffuse or GGX continuation with its selection probability in `indirect_lighting.rgen::indirect_lighting` |
 | path depth | default maximum depth three: primary plus as many as two diffuse continuation surfaces | default one continuation; the optional high setting invokes a second diffuse continuation |
-| stable indirect schedule | active RR uses one raw diffuse path at every internal pixel; RR-off native reconstruction rotates one path through a mature 2x2 phase and can burst to 16 at missing/disoccluded/changing pixels | one first continuation per pixel at medium; low uses a dense half-height dispatch and remaps it to alternating rows |
+| stable indirect schedule | four fresh stratified diffuse paths at every internal pixel; no renderer-owned radiance history | one first continuation per pixel at medium; low uses a dense half-height dispatch and remaps it to alternating rows |
 | specular RR guide | a deterministic mirror-distance trace is executed while RR guides are active | no corresponding DLSS-RR guide trace in this Q2RTX checkout |
 | material textures | a packed software mip atlas performs explicit four-tap bilinear loads, optional second mip, and up to eight anisotropic line samples per channel | bindless sampled textures use hardware `texture`, `textureLod`, and `textureGrad` in `shader/global_textures.h` |
-| low-frequency filter | DLSS RR is the sole denoiser when active; the native temporal/regional/deflicker/wavelet chain is retained for RR-off and exact diagnostics | ASVGF temporally folds LF into one-third resolution and filters LF there; this checkout has no DLSS RR stage |
+| low-frequency filter | DLSS RR is the sole denoiser/reconstructor; no native GI filter is compiled | ASVGF temporally folds LF into one-third resolution and filters LF there; this checkout has no DLSS RR stage |
 | fixed resolution | current preliminary capture traced the full `2568x1471` extent | `viewsize=100`, DRS off, and FSR off are documented defaults; exact runtime values still must be captured rather than assumed |
 
 This does not prove that any single Q2RTX decision will preserve the accepted
@@ -832,38 +832,34 @@ depth three or greater. `AB3D2_DXR_INTERLEAVED_DEEP_DIFFUSE=0|1` remains a
 reported A/B override. Diagnostic configurations outside that scheduler retain
 their control automatically.
 
-Ray-Reconstruction ownership and projected-light checkpoint, 2026-08-29:
+Ray-Reconstruction ownership and stratified-input checkpoint, 2026-08-29:
 
-- Saved-corridor stage captures established that native
-  `regional -> deflicker -> wavelet` processing was not helping DLSS RR. It
-  converted isolated raw indirect outliers into broad blurred blotches, then RR
-  denoised the already-filtered result a second time. Q2RTX uses the comparable
-  ASVGF sequence as its denoiser; the audited checkout has no DLSS RR stage.
-- In ordinary active-RR `full` mode, the scheduler now appends exactly one raw
-  diffuse path for every internal pixel, bypasses the native temporal, regional,
-  deflicker, and wavelet dispatches, and sends the final noisy lighting sum to
-  DLSS RR once. RR-off `full` and explicitly named diagnostic stage boundaries
-  retain the native path. The profiler reports
-  `ray_reconstruction_raw_indirect=true` and the effective one-path count.
-- Indirect polygon NEE now ranks candidates by receiver-space spherical area
-  and a conservative emission proxy, samples the survivor uniformly in
-  projected solid angle, and reads exact authored emission only for that
-  survivor. This follows the observable estimator structure in Q2RTX
-  `shader/light_lists.h` while using a project-owned HLSL implementation of the
-  published Eriksson/Arvo mathematics and the existing unbiased RIS proposal.
-  It removes the former distance-squared/grazing-cosine firefly mechanism and
-  replaces sixteen exact candidate texture reads with one survivor read.
-- The saved-corridor blot is absent in both RR Quality raw output and RR-off
-  native-full output. A short hidden RR Quality run at default depth three
-  measures `6.2724/13.3398/25.1787 ms` frame median/p95/p99, primary median
-  `1.3358 ms`, burst median/p95 `1.2652/3.4236 ms`, and RR median
-  `2.4141 ms`. These figures are validation evidence, not the required five
-  alternating 600-frame Q2RTX parity baseline.
-- The projected-sampling ceiling-16 recovery oracle passes at `0.4482`, with
-  fourth response `0.4889`. Ceilings 8/4/2/1 reach only
-  `45.03%/51.20%/4.42%/0%` of its early response and remain below the 90%
-  native RR-off acceptance gate. Earlier `0.4725/0.4288` entries in this plan
-  are explicitly pre-projected-sampling checkpoints.
+- Native temporal/regional/deflicker/wavelet and ReSTIR-GI ray-generation
+  exports, dispatches, shader bodies, and scratch allocations were removed.
+  `full` is only a compatibility spelling for fresh `raw` input; all former
+  diagnostic stage names are rejected.
+- The final raw path also removes both obsolete 24-byte-per-pixel GI history
+  buffers. At the measured 853x480 tracing extent this saves 18.74 MiB of
+  allocation and 18.74 MiB/frame of redundant packed write/read traffic, plus
+  the corresponding transitions and UAV barriers; this is a structural saving,
+  not yet a separately timed speedup claim.
+- RR now receives the configured number of genuine current-frame diffuse
+  paths. The default is four rather than the accidentally forced one or the
+  historical native-filter ceiling of sixteen.
+- Each pixel's radial and azimuthal cosine-hemisphere dimensions are stratified
+  with a frame/pixel permutation. This reduces low-frequency clustering without
+  interpolating radiance, reusing neighbors, or adding a second denoiser.
+- Production indirect NEE is the clean standard estimator: uniform-area
+  authored-triangle sampling, exact authored emission, unbiased fresh RIS, and
+  ordinary cosine-weighted Lambertian continuation. The temporary
+  projected-solid-angle and broad-continuation experiments were removed.
+- The saved Level A RR Quality sweep measured frame medians
+  `5.7920/5.9823/7.9022/11.6293 ms` for 1/2/4/8 spp. The accepted stratified
+  four-spp rerun measured `8.0234/9.1955/17.7795 ms` median/p95/p99, burst
+  `3.3736/4.0934 ms` median/p95, and RR `1.7582 ms` median at 853x480 tracing
+  and 1280x720 output. It retained zero frozen saturated/outlier pixels.
+- These figures establish the local quality/performance choice; they do not
+  replace the five-run matched-work Q2RTX benchmark required to close parity.
 
 ### Milestone 1 gate
 
@@ -939,16 +935,14 @@ smoke must remain unchanged.
 Do this only after the ray path is no longer overwhelmingly dominant.
 
 - Keep exactly one production denoiser. Active DLSS RR consumes raw indirect;
-  the accepted native LF temporal/regional/deflicker/wavelet result remains the
-  RR-off oracle and exact diagnostic route. Q2RTX's one-third-resolution LF
-  filter is evidence for its ASVGF denoiser, not authority to run two denoisers
-  in series here.
-- Profile every reconstruction substage and its bandwidth. Fuse passes only
-  when lifetime/barrier analysis proves it reduces traffic and preserves the
-  selected intermediate diagnostics.
-- Avoid repeatedly reading/writing full-resolution copies of data consumed only
-  at one-third resolution. Keep full-resolution depth/normal validation at the
-  reconstruction boundary.
+  RR-off shows that same fresh estimator. Q2RTX's one-third-resolution LF filter
+  is evidence about its own ASVGF denoiser, not authority for a second denoiser
+  or radiance interpolator here.
+- Profile current-frame GI generation, raw composition, RR, and their bandwidth
+  separately. Remove redundant intermediate writes when lifetime/barrier
+  analysis proves they do not alter RR inputs or diagnostics.
+- Keep the genuine per-pixel samples at tracing resolution and pass the
+  full-resolution depth/normal/material guides directly to RR.
 - Report proprietary RR evaluation separately. Optimize its inputs and adjacent
   transitions; do not relabel a different RR mode or smaller input as a shader
   optimization.

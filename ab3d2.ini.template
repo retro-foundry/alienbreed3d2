@@ -52,8 +52,8 @@ world_light_tessellation=4
 #rtx_indirect_samples=4
 
 # Secondary diffuse-light transfer, 0 through 1. Default 0.75. Zero disables
-# diffuse GI and its ReGIR/temporal/spatial work; direct light and visible
-# emission remain active. Use rtx_indirect_samples separately to change ray cost.
+# diffuse continuation work; direct light and visible emission remain active.
+# Use rtx_indirect_samples separately to change ray cost.
 #rtx_diffuse_gi=0.75
 
 # Path length counting the primary hit, 1 through 8. 1 is direct lighting only.
@@ -64,9 +64,9 @@ world_light_tessellation=4
 
 # DLSS Ray Reconstruction mode: quality, balanced, performance,
 # ultra-performance, or off. This also sets the resolution the path tracer
-# renders at before reconstruction. Enabled modes own indirect denoising and
-# therefore bypass the native low-frequency filter in normal full mode. Ultra
-# Performance is explicitly speed-first:
+# renders at before reconstruction. Enabled modes own all indirect denoising;
+# the renderer always supplies fresh, unfiltered path samples. Ultra Performance
+# is explicitly speed-first:
 # at a 1280x720 window it traces 285x160, reconstructs to 854x480, then uses the
 # final linear presentation upscale. The other enabled modes reconstruct
 # directly to the window extent. Default quality.
@@ -87,10 +87,10 @@ world_light_tessellation=4
 
 # Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
 # primary vertex uses the complete alias table; the indirect vertex uses a
-# quantized world-stable local ReGIR proposal and projected-solid-angle triangle
-# sampling. The retained limit caps validated temporal history only in the native
-# RR-off diffuse-indirect reconstruction. Defaults 16 candidates and 32 effective
-# history samples; zero disables native accumulation.
+# quantized world-stable local ReGIR proposal and samples authored triangles
+# uniformly in area. The reservoir limit is retained only for configuration
+# compatibility and does not accumulate or filter RR-only diffuse radiance.
+# Defaults 16 candidates and a compatibility limit of 32.
 #rtx_light_candidates=16
 #rtx_reservoir_limit=32
 

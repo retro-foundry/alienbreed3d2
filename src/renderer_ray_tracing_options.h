@@ -11,9 +11,9 @@
  * Zero on a quality/nit field normally means "keep the renderer's own default".
  * Output mode zero is the explicit automatic-monitor policy, although the
  * desktop application's shipped default is SDR to match Q2RTX's opt-in HDR.
- * The radiance clamp uses zero as its explicit off value. The reservoir history
- * limit likewise accepts zero; reservoir_sample_limit_set distinguishes that
- * value from an absent setting. Diffuse-GI transfer, exposure bias, and HDR
+ * The radiance clamp uses zero as its explicit off value. The retained reservoir
+ * compatibility setting accepts zero; reservoir_sample_limit_set distinguishes
+ * that value from an absent setting. Diffuse-GI transfer, exposure bias, and HDR
  * saturation also accept zero, so their accompanying set flags distinguish it
  * from an absent setting.
  * The tuned defaults and measurements live with the code that uses them, in
@@ -72,11 +72,7 @@ typedef struct {
     uint8_t maximum_bounces;
     /* Emitter candidates the direct-lighting reservoir draws per pixel. */
     uint16_t light_candidates;
-    /*
-     * Maximum historical sample count accepted from each reused previous-frame
-     * reservoir. Zero explicitly disables spatiotemporal reuse when the
-     * accompanying set flag is nonzero.
-     */
+    /* Retained configuration field; RR-only GI does not consume this limit. */
     uint32_t reservoir_sample_limit;
     uint8_t reservoir_sample_limit_set;
     /* Zero disables the diagnostic per-sample firefly clamp. */

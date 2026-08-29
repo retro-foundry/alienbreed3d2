@@ -2,6 +2,15 @@
 
 ## Handoff status
 
+Current superseding decision, 2026-08-29: DLSS Ray Reconstruction is the sole
+indirect denoiser/reconstructor. The current shader library supplies four fresh,
+per-pixel stratified cosine-weighted diffuse paths by default and contains no
+native temporal/regional/deflicker/wavelet or ReSTIR-GI exports. The broad
+continuation and projected-solid-angle sampler were removed in favor of
+standard cosine continuation and uniform-area authored-triangle NEE. Later
+sections that describe those stages are retained only as historical experiment
+records unless explicitly marked current.
+
 This document is the implementation authority for a new Windows RTX renderer for Alien Breed 3D II. It is intended to be sufficient for a fresh context to start at the current clean baseline and implement the renderer without consulting any removed renderer code.
 
 The repository baseline for this work is commit `86241dd` (`Replace GPL RTX renderer with clean-room scaffold`). At that commit:

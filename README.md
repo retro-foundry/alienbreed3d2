@@ -45,8 +45,9 @@ session. Supported keys are:
   Fresnel-partitioned Lambert/GGX polygon-light NEE at the primary surface,
   diffuse polygon-light NEE at every configured diffuse continuation, and one
   companion smooth GGX continuation. Rough specular is reconstructed from the
-  directional GI at the selected raw or native-filtered boundary. Sampling
-  uses traced shadow rays and a pinned
+  current directional GI sample. Four fresh stratified diffuse paths feed DLSS
+  Ray Reconstruction, the sole indirect reconstructor. Sampling uses traced
+  shadow rays and a pinned
   dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player
   1's
   companion weapon is source-scale camera-relative PBR geometry in the same
@@ -78,38 +79,19 @@ The ray-traced backend takes its own presentation-only quality settings from the
 same file. Every one is optional, and an absent key keeps the renderer's tuned
 default, so the shipped template lists them commented out with their defaults:
 
-- `rtx_samples_per_pixel=1` through `8` sets the independent primary
-  direct-light samples per pixel. `rtx_indirect_samples=1` through `32`
-  sets the native diffuse-indirect burst ceiling and defaults to `16`. With
-  DLSS Ray Reconstruction active in the ordinary `full` mode, RR is the sole
-  production denoiser: every internal pixel instead receives one fresh raw
-  diffuse path, and the native temporal/regional/deflicker/wavelet chain is
-  bypassed. With RR off, production reconstruction spends the configured
-  ceiling on missing, disoccluded, immature, or confirmed-changing history,
-  then rotates one fresh path through each 2-by-2 block of stable pixels while
-  the other three reproject validated history. Explicit diagnostic modes keep
-  their selected stage boundary and configured path count. None of these paths
-  repeats primary shadow rays, and the primary ray remains pixel-centred.
-  A fixed-receiver indirect-light recovery oracle with a 25%-lit,
-  75%-black sparse emitter also pins the native ceiling at 16: after projected-
-  solid-angle sampling, ceilings 8, 4, 2, and 1 recover approximately 45%, 51%,
-  4%, and 0% of the control's early response when a real emitter turns on.
-  Every lower ceiling remains below the 90% acceptance gate and is an RR-off
-  quality/performance experiment rather than a silent shortcut.
-  `rtx_diffuse_gi=0` through `1` independently scales only the reconstructed
-  secondary diffuse transfer and defaults to `0.75`; exact zero bypasses its
-  continuation rays and reconstruction stages without changing direct light or
-  visible emission. `rtx_max_bounces=1` evaluates directly
-  visible emission and primary-hit Fresnel-partitioned Lambert plus GGX
-  polygon NEE. Each value from `2` through `8` adds one real diffuse
-  continuation and polygon-light evaluation; the default `3` therefore shades
-  two successive indirect surfaces. The first diffuse continuation is always
-  traced. In the production adaptive scheduler, the lower-energy suffix after
-  that first reached surface uses blue-noise, throughput-adaptive Russian
-  roulette with exact inverse-probability weighting. Dark suffixes therefore
-  cost fewer rays without deleting their expected energy, while bright suffixes
-  survive more often. A value of at least `2` also enables the independent
-  first-bounce GGX continuation;
+- `rtx_samples_per_pixel=1` through `8` sets independent primary direct-light
+  samples. `rtx_indirect_samples=1` through `32` sets genuine current-frame
+  diffuse paths per internal pixel and defaults to `4`. The radial and
+  azimuthal cosine-hemisphere dimensions are stratified across those paths;
+  no radiance is interpolated between pixels. Use `2` as a faster mode or `8`
+  for an expensive quality check.
+- `rtx_diffuse_gi=0` through `1` scales only secondary diffuse transfer and
+  defaults to `0.75`. Exact zero skips diffuse continuation work without
+  changing direct light or visible emission.
+- `rtx_max_bounces=1` evaluates visible emission and primary direct Lambert/GGX
+  lighting. Values `2` through `8` add real continuations. Every diffuse
+  continuation uses the standard cosine-weighted Lambertian estimator and
+  standard uniform-area authored-triangle NEE.
 - `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
   path tracer renders at before reconstruction upscales it. Quality, Balanced,
@@ -136,17 +118,11 @@ default, so the shipped template lists them commented out with their defaults:
   estimator. Indirect diffuse
   vertices retain their accepted diffuse-only estimator. The primary vertex
   uses the complete emitter alias table. Indirect vertices use a quantized
-  world-stable ReGIR cell proposal and rank emitter candidates by receiver-space
-  spherical-triangle area. The survivor is sampled uniformly in projected
-  solid angle and only that survivor reads exact authored emission, avoiding
-  the distance-squared/grazing-cosine spikes of uniform-area sampling while
-  retaining unbiased fresh-RIS normalization.
-  `rtx_reservoir_limit=0` through `65536` caps the effective path-sample history
-  of the native RR-off low-frequency indirect channel and defaults to `32`.
-  Sixteen default indirect paths therefore fill it in two presented frames
-  after disocclusion. Zero keeps only the current frame while the native
-  depth/normal-guided spatial filter remains active. The limit is inactive in
-  the ordinary raw-RR route; and
+  world-stable ReGIR proposal, sample authored triangles uniformly in area,
+  evaluate exact authored emission, and retain unbiased fresh-RIS
+  normalization. `rtx_reservoir_limit` remains accepted for configuration
+  compatibility but does not accumulate or filter diffuse radiance in the
+  RR-only path; and
 - `rtx_radiance_clamp=0..100000` is a diagnostic per-sample firefly ceiling.
   Its Q2RTX-matching default is `0`, disabled, because the comparator has no
   path-radiance clamp control. `rtx_ndf_trim=0.9` trims the active sampled GGX
@@ -657,33 +633,25 @@ group traces its survivor, applies its own unbiased normalization to both
 lobes, and the shader averages those estimates. This replaces one high-variance
 binary shadow decision without introducing screen-space reservoir history. It
 runs at every primary pixel rather than alternating a half-rate checkerboard.
-The first indirect
-continuation uses the broad low-frequency geometric-normal distribution; each
-later continuation uses an ordinary cosine distribution. The first is always
-traced; one throughput-adaptive blue-noise decision interleaves the complete
-deeper suffix and divides each survivor by its exact probability. Every reached
+Every indirect continuation uses an ordinary cosine-weighted geometric-normal
+distribution. The configured per-pixel set is stratified radially and
+azimuthally before tracing. The first is always traced; one throughput-adaptive
+blue-noise decision may interleave the complete deeper suffix and divides each
+survivor by its exact probability. Every reached
 surface evaluates fresh polygon RIS from its quantized world-stable light-grid cell,
 so Level A's starting-room emitters remain in local proposals instead of being
 diluted among every emissive triangle in the level. Indirect vertices retain
 metal-free diffuse reflectance and unbiased fresh-RIS normalization. Candidate
-emitters are ranked by their receiver-space solid angle and conservative
-authored-emission bound; the selected triangle is then sampled uniformly in
-projected solid angle and evaluated with its exact texture. This removes the
-large distance-squared/light-cosine ratios that made rare samples become
-fireflies. Primary direct SPP and indirect path count are independent. In the
-native RR-off reconstruction, the indirect average carries its actual path
-count into temporal history rather than advancing history once per presented
-frame.
+emitters use the existing unbiased proposal and standard uniform-area triangle
+sampling with exact authored emission. Primary direct SPP and indirect path
+count are independent.
 There is no environment lighting or authored zone ambient. Smooth materials
 receive a real first-bounce GGX continuation; rough materials blend to a
-Q2RTX-style reconstruction from the directional GI. When DLSS Ray
-Reconstruction is active, one fresh raw directional/RGB estimate per internal
-pixel enters the combined noisy HDR image and RR performs the only temporal and
-spatial denoising. With RR off, the incident radiance is demodulated from
-primary albedo, reprojected and accumulated up to `rtx_reservoir_limit`, then
-reconstructed by the native one-third-resolution regional pipeline before
-primary albedo is restored. This is a dedicated low-frequency diffuse channel
-rather than ReSTIR GI. ReGIR entries persist only as corrected light proposals:
+Q2RTX-style reconstruction from the current directional GI sample. Four fresh
+raw directional/RGB estimates per internal pixel enter the combined noisy HDR
+image by default, and DLSS RR performs the only temporal and spatial
+reconstruction. RR-off displays the same unfiltered current-frame estimate.
+ReGIR entries persist only as corrected light proposals:
 radiance, visibility, and path samples remain current-frame values. Misses are
 black unless a traced
 segment crosses a non-occluding authored additive layer. A full-screen pass tone maps the HDR
@@ -708,7 +676,7 @@ Streamline's explicit current-color-bias hint at one, and a pose hash plus
 ping-ponged coverage writes the dedicated disocclusion mask over the current and
 prior silhouettes for four presentations. This rejects weapon history through
 the inputs NGX consumes rather than encoding rejection as fake motion; it neither
-flushes global RR history nor changes the private indirect history.
+flushes global RR history nor changes the current-frame GI estimator.
 
 A renderer-neutral history epoch resets camera and
 geometry history across level/quickload discontinuities; topology-stable world
@@ -847,34 +815,21 @@ p99/maximum GPU-stage times, and the corresponding CPU phase distributions.
 The profiler is off by default and never adds a same-frame wait. Profiles state
 `validation_enabled`: hidden smoke reports `true` because its acceptance
 counters and image readback are active, while ordinary visible performance
-reports `false`. The normal adaptive-temporal renderer reports primary work as
-separate `primary_visibility` and `primary_shading` stages. Its accepted S0-S3
-scheduler stores full-precision primary triangle/barycentrics plus crossed
-additive layers, shares one RIS survivor and visibility ray between direct
-diffuse and GGX, selects one first diffuse or smooth-GGX continuation with
-inverse-probability weighting, launches the rotating mature 2-by-2 phase as one
-dense quarter-pixel dispatch, and executes new/disoccluded/changing burst pixels
-through a bounded GPU-written indirect dispatch. The burst list is sized to the
-exact internal pixel count; hidden validation treats any capacity breach as a
-failure and the overflowing pixel is still processed inline. The profiler
-reports `primary_visibility`, `primary_shading`,
-`dense_mature_continuation`, and `burst_continuation` separately.
+reports `false`. The production scheduler reports `primary_visibility`,
+`primary_shading`, and `burst_continuation` separately. Its bounded GPU-written
+list carries the configured number of fresh diffuse paths for every eligible
+internal pixel; there is no mature-history checkerboard or renderer-owned
+radiance reuse.
 
 `AB3D2_DXR_SPLIT_PRIMARY`, `AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR`,
 `AB3D2_DXR_SINGLE_CONTINUATION_LOBE`,
 `AB3D2_DXR_DENSE_MATURE_CONTINUATIONS`,
 `AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS`, and
-`AB3D2_DXR_INTERLEAVED_DEEP_DIFFUSE` are startup A/B overrides: absent uses
-the complete production scheduler, `0` disables that stage and automatic
-dependent stages, and `1` explicitly requests it. Raw/ReSTIR reconstruction,
-zero indirect history, and a nonzero diagnostic radiance clamp retain the
-monolithic control automatically because S3's adaptive-history contract does
-not apply to them. S2 may still be requested explicitly with raw reconstruction
-but is rejected with ReSTIR-GI, whose reservoir weights do not encode its lobe
-selection measure. Invalid explicit combinations fail renderer initialization;
-the profiler records every effective feature bit. Deep-diffuse interleaving
-requires a path depth of at least three; it leaves all first continuations and
-the configured 16-path recovery ceiling intact.
+`AB3D2_DXR_INTERLEAVED_DEEP_DIFFUSE` are startup A/B overrides. Split primary,
+one primary survivor, and the bounded burst are production defaults. Dense
+mature continuations are rejected because RR-only input has no renderer-owned
+radiance history. Single-lobe and deep-diffuse interleaving remain explicit
+experiments and are off by default.
 `AB3D2_DXR_COMPACT_LOCAL_PRIMARY=1` is the next opt-in 1C diagnostic and
 requires the complete S3 stack. It bounds only primary direct RIS to eight
 exact evaluations: six draws retain the complete global emitter alias
@@ -933,79 +888,21 @@ and runs at every primary pixel. At a diffuse continuation hit, the renderer
 performs the same local polygon-light proposal and stores demodulated incident
 radiance in a separate low-frequency channel.
 
-`rtx_diffuse_gi=0..1` controls how much of that reconstructed secondary diffuse
-channel is remodulated into the final image and defaults to `0.75`. The scale is
-applied only at final composition, after the selected reconstruction boundary,
-so it does not affect primary direct lighting or visible emission.
-`rtx_indirect_samples` remains the native RR-off/diagnostic burst control; the
-ordinary active-RR route intentionally uses one fresh path at every internal
-pixel. Exact zero reduces the traced path to direct-only depth and skips ReGIR
-refresh plus all temporal, regional, deflicker, wavelet, and ReSTIR GI work; the
-final lightweight resolve still writes an explicitly black indirect surface
-for diagnostics and indirect-only output.
+`rtx_diffuse_gi=0..1` controls secondary diffuse transfer and defaults to
+`0.75`. `rtx_indirect_samples` controls fresh per-pixel diffuse paths and
+defaults to four. Each path is current-frame data; the renderer neither
+reprojects nor filters diffuse radiance before the single DLSS RR evaluation.
 
-`AB3D2_DXR_RESERVOIR_LIMIT` retains its public name for configuration
-compatibility and caps the number of validated temporal samples in the native
-RR-off indirect channel. In the diagnostic ReSTIR GI path described below,
-it instead caps the published reservoir's effective candidate count. It
-defaults to `32` effective path samples. The default sixteen-path burst reaches
-that cap in two presented frames; mature pixels still rotate one fresh path
-through each 2-by-2 block. Zero disables temporal
-accumulation while retaining the
-native spatial reconstruction; in `restir` it disables both cross-frame
-and neighboring-pixel reservoir reuse. Incident luminance in the native RR-off
-path uses a 24-byte packed history pixel: six directional/chroma coefficients
-and confidence use binary16, effective history is limit-relative UNORM16, and
-depth plus the packed geometric normal retain their original precision. The
-dormant direct-reservoir shader export and production-disabled ReSTIR GI
-bindings use single-element allocations; full GI reservoirs exist only in the
-explicit `restir` diagnostic. Incident luminance is stored as
-four first-order directional coefficients with two opponent-chroma channels.
-Temporal reprojection gathers four bilinear, depth/geometric-normal-validated
-history taps rather than rounding motion to one previous pixel. A separate
-one-third-resolution current/history luminance pair is blurred through seven
-wavelet stages over a broad screen region. A persistent signed lighting change
-shortens history and raises the current-frame weight; alternating sparse-path
-noise does not. Each guide-compatible 3-by-3 full-resolution region is then
-integrated into one anchored low-resolution value. A regional
-deflicker bound is followed by three depth/geometric-normal-guided 3-by-3
-wavelet passes at low-resolution steps `1`, `2`, and `4`, then four-tap
-bilateral reconstruction returns the signal to the original pixel grid. The
-directional field is projected onto the primary geometric normal and remodulated
-by primary diffuse albedo only when recombined with direct lighting.
-Screen-space direct-light temporal/spatial reservoirs and `SpatialShade` remain
-dormant. Section 11 of `DXR_RAY_RECONSTRUCTION_PLAN.md` preserves the former
-reservoir experiments as historical evidence rather than a description of the
-active path.
+`AB3D2_DXR_RESERVOIR_LIMIT` remains accepted for configuration compatibility
+but does not cap an indirect radiance history in the RR-only path.
 
-`AB3D2_DXR_INDIRECT_RECONSTRUCTION` selects a diagnostic LF stage boundary at
-startup. `full` is the production default: with active DLSS Ray Reconstruction
-it automatically resolves as `raw`, because RR owns denoising; with RR off it
-uses the complete native chain below. `temporal` retains only four-tap history
-and gradient anti-lag. An explicitly selected `raw` mode disables temporal
-accumulation and decodes the exact current-frame RGB indirect estimate without
-directional SH projection before it enters the combined noisy HDR input.
-`regional`, `deflicker`, `wavelet1`, and `wavelet2` stop after the named
-one-third-resolution stage; RR does not automatically bypass these explicit
-diagnostic requests. RR-off `full` includes all three guided wavelet passes.
-`restir` replaces every LF reconstruction stage with a complete
-project-owned ReSTIR GI experiment: `rtx_indirect_samples` broad `0.4`-radial
-secondary-surface candidates are streamed into one area-measure reservoir without repeating
-primary direct lighting, combined with one motion-reprojected
-reservoir, then combined with four nearby spatial reservoirs. A neighboring
-primary normal or depth is deliberately not a rejection condition: every
-secondary sample is reconstructed in current geometry, retargeted at the
-center primary, freshly visibility tested, and only then remodulated at
-the primary receiver. Its 32-byte reservoir retains triangle/barycentric
-identity so moving geometry is reconstructed from current vertices. The
-independently derived solid-angle density and its ratio to the cosine density
-make the Q2RTX-style broad continuation a directional kernel with unit response
-to constant incident radiance, not a brightness multiplier. It uses
-the published basic (biased) normalization deliberately and does not claim
-unbiased reuse. Every mode sends the same combined noisy HDR frame through the
-one final DLSS-RR evaluation. This is an A/B facility, not a second Ray
-Reconstruction invocation; `full` remains the default because the recorded
-saved-corridor ReSTIR result is currently noisier.
+The RR-only path has no GI history allocation: the final composition pass reads
+the genuine current-frame directional/chroma estimate directly.
+
+`AB3D2_DXR_INDIRECT_RECONSTRUCTION` accepts `raw`; `full` is a compatibility
+alias for the same fresh input. Former `temporal`, `regional`, `deflicker`,
+`wavelet1`, `wavelet2`, and `restir` values fail initialization because those
+shader exports, dispatches, and scratch allocations have been removed.
 
 `AB3D2_DXR_RADIANCE_CHANNEL` accepts `emission`, `direct-diffuse`,
 `direct-specular`, `indirect`, `smooth-specular`, or `rough-specular` to

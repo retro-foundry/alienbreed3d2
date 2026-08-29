@@ -139,7 +139,7 @@ int main(void)
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL != 4 ||
         RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT != 32 ||
         RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE != 0.75f) {
-        fprintf(stderr, "fresh-light/LF-history production defaults changed\n");
+        fprintf(stderr, "fresh-light production defaults changed\n");
         return 1;
     }
     desktop_settings_default(&settings);

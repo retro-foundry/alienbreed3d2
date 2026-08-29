@@ -8,14 +8,46 @@ acceptance pass. Direct reservoirs remain dormant because every measured
 temporal/spatial ReSTIR DI variant was less stable than fresh RIS. Performance
 parity was reopened on 2026-08-29: the accepted lighting result is now the
 quality oracle, while Q2RTX's measured frame cost and work scheduling are the
-performance comparator. The 2026-08-29 firefly audit additionally made the
-native ASVGF-style indirect filter and DLSS Ray Reconstruction mutually
-exclusive: active RR consumes full-density raw indirect, while RR-off and named
-diagnostics retain the native filter.
+performance comparator. The final 2026-08-29 clean-room correction makes DLSS
+Ray Reconstruction the sole indirect denoiser/reconstructor. Four fresh,
+stratified cosine-weighted diffuse paths per internal pixel replace the former
+native filter, ReSTIR-GI experiment, broad continuation, and projected-triangle
+sampler.
 
 Date: 2026-08-27
 
 Last updated: 2026-08-29
+
+## RR-only diffuse input correction (2026-08-29)
+
+- The production signal contains only current-frame path samples. There is no
+  renderer-owned temporal radiance accumulation, regional integration,
+  deflicker, wavelet pass, ReSTIR-GI reuse, or spatial radiance interpolation
+  before DLSS Ray Reconstruction. `AB3D2_DXR_INDIRECT_RECONSTRUCTION=full`
+  remains only as a compatibility alias for `raw`; the removed stage names are
+  rejected at startup.
+- The final cleanup also removed the two obsolete 24-byte-per-pixel GI history
+  buffers. `ReconstructIndirect` reads the raw directional/chroma textures
+  directly, avoiding one packed write/read and its UAV barriers every frame.
+- Increasing RR input from the accidentally forced one path to 1/2/4/8 genuine
+  paths measured `5.7920/5.9823/7.9022/11.6293 ms` frame median in the saved
+  Level A RR Quality sweep at 853x480 tracing and 1280x720 output. Four paths
+  retained the useful quality of eight without its additional cost and became
+  the default.
+- Those four paths use ordinary cosine-weighted Lambertian continuation and
+  uniform-area authored-triangle NEE. Their radial and azimuthal random values
+  are stratified per pixel, continuation, and frame. This interpolates sample
+  locations across the integration domain; it never fabricates or filters a
+  radiance value for RR.
+- The final stratified saved-game validation measured `8.0234 ms` frame median,
+  `9.1955 ms` p95, `3.3736 ms` burst median, and `1.7582 ms` RR median on the
+  RTX 3090. Frozen indirect-only delta/reprojected delta was
+  `0.5182/0.5225`; Shotgun was `2.8855/0.6593`, with zero frozen saturated or
+  >=16-code outlier pixels. This is a short hidden-validation checkpoint, not
+  the still-open repeated Q2RTX matched-work benchmark.
+- Historical projected-solid-angle, broad-continuation, native-filter, and
+  ReSTIR-GI measurements below are retained only as rejected experiment
+  evidence. They no longer describe selectable or compiled production paths.
 
 ## Performance parity reopening (2026-08-29)
 
@@ -169,45 +201,18 @@ Last updated: 2026-08-29
   recovery was `0.4725` with fourth response `0.4288`, because all first
   diffuse paths were then unchanged.
 
-### Ray Reconstruction ownership and firefly correction (2026-08-29)
+### Firefly diagnosis (historical)
 
-- The reported bright blot was reproduced from the Streamline executable's
-  saved Level A corridor, in the indirect-only RR-off capture. Stage captures
-  showed isolated high-energy samples at `regional`; `deflicker` retained them,
-  and the three guided wavelet passes expanded them into the broad blurred mark
-  visible in the report. Strengthening deflicker would hide energy rather than
-  correct the estimator.
-- Q2RTX's `main.c` dispatches its ASVGF filter only when its own denoiser is
-  enabled. This audited checkout contains no DLSS Ray Reconstruction stage.
-  Therefore Q2RTX's `regional -> deflicker -> wavelet` sequence is evidence for
-  the native RR-off denoiser, not evidence that it should run before DLSS RR.
-- Normal active-RR `full` mode now publishes one fresh raw diffuse path at every
-  internal pixel, skips native temporal accumulation, regional integration,
-  deflicker, and all three wavelet passes, and invokes DLSS RR once on the final
-  noisy lighting sum. Explicit diagnostic stage names remain exact, and RR-off
-  `full` retains the complete native filter.
-- The remaining sample variance was addressed at its source. The observable
-  behavior in Q2RTX `shader/light_lists.h::spherical_tri_area`,
-  `::sample_projected_triangle`, and `::sample_polygonal_lights` ranks local
-  polygon lights in receiver-space spherical measure and samples the survivor
-  uniformly in solid angle. The project independently implements the published
-  Eriksson/Arvo mathematics with its existing ReGIR proposal and unbiased RIS
-  normalization. Only the selected survivor reads exact authored emission.
-  This removes the uniform-area estimator's distance-squared/grazing-cosine
-  spikes without a biased radiance clamp.
-- Saved-corridor indirect-only captures are clean in both active RR raw mode and
-  RR-off native `full`; the reported left-wall blot is absent. A short hidden
-  saved-corridor RR Quality validation at default depth three reports
-  `6.2724/13.3398/25.1787 ms` frame median/p95/p99 and
-  `1.2652/3.4236 ms` burst median/p95. These short figures establish that the
-  corrected path remains comfortably inside 60 FPS at p95; they do not replace
-  the repeated fixed-work Q2RTX parity protocol.
-- The projected-sampling fixed-receiver oracle passes with ceiling-16 recovery
-  `0.4482` and fourth response `0.4889`. Ceilings 8/4/2/1 reach
-  `45.03%/51.20%/4.42%/0%` of the control's early recovery, so every lower
-  native RR-off ceiling still fails the existing 90% gate. The earlier
-  `0.4725/0.4288` figures above remain the pre-projected-sampling checkpoint,
-  not the current oracle.
+- The reported bright blot was traced to a rare raw indirect sample being
+  widened by the now-removed native regional and wavelet stages. The audit was
+  useful evidence that a second denoiser must not precede DLSS RR.
+- A projected-solid-angle emitter sampler was briefly tested as an estimator
+  fix, then removed under the clean-room requirement. Production now uses
+  standard uniform-area triangle sampling, standard cosine-weighted diffuse
+  continuation, four per-pixel strata, and RR as the only reconstructor.
+- The current accepted result and timings are recorded in the RR-only
+  correction section above; all stage-boundary and ceiling-16 figures formerly
+  in this section are rejected historical checkpoints.
 
 ## Implementation progress (2026-08-28)
 
@@ -437,7 +442,7 @@ Last updated: 2026-08-29
   and reconstructed rough specular, not in direct reservoirs or additional
   primary shadow rays.
 
-### Adaptive indirect burst follow-up (2026-08-28)
+### Adaptive indirect burst follow-up (historical, superseded 2026-08-29)
 
 - A stage-boundary sweep measured the indirect channel at `0.6676` raw,
   `0.7128` temporal-only, `0.6888` regional, `0.6533` deflickered, `0.6206`
@@ -480,12 +485,10 @@ The target pipeline is:
 1. Primary visibility, material reconstruction, visible authored emission, and
    non-occluding additive layers.
 2. Direct diffuse plus GGX specular lighting from authored local emitters.
-3. Diffuse indirect GI with projected-solid-angle polygon sampling: raw and
-   full-density when DLSS RR is active, or reconstructed by the accepted native
-   low-frequency filter when RR is off.
+3. Four fresh, stratified cosine-weighted diffuse paths per internal pixel,
+   using uniform-area authored-triangle NEE and no renderer-side reconstruction.
 4. Real first-bounce GGX specular transport for smooth materials.
-5. Q2RTX-style reconstructed rough specular from the directional GI at the
-   selected raw or native-filtered reconstruction boundary.
+5. Q2RTX-style rough specular derived from the current directional GI sample.
 6. One combined noisy-HDR input with correct diffuse/specular guides for DLSS
    Ray Reconstruction, followed by the already accepted bloom, adaptive tone
    curve, exposure bias, and SDR/HDR presentation.
@@ -568,8 +571,8 @@ Pre-implementation AB3D2 lighting evidence retained for this handoff:
   reservoir experiments. `dxr_pipeline.cpp::record` deliberately does not
   dispatch `SpatialShade`; do not revive it for this milestone.
 - `ReconstructIndirect` owns the directional diffuse-GI composition point. It
-  derives rough specular from the selected raw or native-filtered incident
-  field before the combined signal reaches its one denoiser.
+  derives rough specular from the current raw incident field before the combined
+  signal reaches RR, the sole denoiser/reconstructor.
 - `environmentRadiance` is a hard-coded analytic gradient with no AB3D2 scene
   authority. It is dormant and must not be activated. The real backdrop is in
   `SceneEnvironment` and the packaged `environment_backdrop` material is
@@ -587,9 +590,8 @@ revert or overwrite unrelated user changes.
 
 - Preserve diffuse transport energy, the ReGIR proposal's complete emitter
   coverage, directional representation, and final diffuse-GI remodulation.
-  Native indirect history, deflicker, and wavelet stages remain the accepted
-  RR-off path and exact named diagnostics; they must be bypassed in ordinary
-  active-RR `full` mode so the image is not denoised twice.
+  The renderer must not accumulate, interpolate, or spatially filter diffuse
+  radiance before RR. RR-off displays the same current raw estimator.
 - Keep `rtx_radiance_clamp=0` as the production default. A nonzero diagnostic
   clamp must operate on completed finite path samples; it is not a brightness
   control.
@@ -740,10 +742,9 @@ precedence over reproducing Q2RTX's noisier lobe lottery.
 
 ### 5. Reconstruct Q2RTX-style rough specular from accepted GI
 
-At the selected indirect reconstruction boundary, extend `ReconstructIndirect`
-while its first-order directional signal is available. RR-off `full` supplies
-the native temporal/regional/wavelet result; active-RR `full` supplies the raw
-current-frame signal:
+At the current-frame indirect composition boundary, extend
+`ReconstructIndirect` while its first-order directional signal is available.
+Both `raw` and its `full` compatibility alias supply only the fresh estimator:
 
 1. Read the packed primary F0, actual roughness, shading normal, and primary
    view direction.
@@ -759,10 +760,9 @@ current-frame signal:
 5. Add this reconstructed rough-specular radiance to the specular contribution,
    not to the diffuse incident field. Do not remodulate it with diffuse albedo.
 
-Raw/diagnostic indirect modes must preserve their named stage boundaries.
-RR-off `full` performs rough-specular reconstruction from the fully filtered
-directional signal. Active-RR `full` performs it from the raw signal and must
-not silently run the native filters before RR.
+Radiance-channel diagnostics isolate final contributions without changing this
+boundary. RR-off and active-RR modes both derive rough specular from the raw
+directional sample; no renderer-owned filter is available to run before RR.
 
 ### 6. Compose once and retain dormant experiments as dormant
 
@@ -829,11 +829,10 @@ do not replace the five alternating 600-frame shipping/Q2RTX baselines below.
   obtain a profile.
 - Mirror the useful Q2RTX categories while retaining project ownership:
   complete GPU frame, scene upload/instance work, static and dynamic BLAS,
-  TLAS, ReGIR refresh, primary/radiance tracing, indirect gradient, temporal
-  reconstruction, regional/deflicker/wavelet filtering, final indirect
-  reconstruction/composition, DLSS Ray Reconstruction, bloom, histogram/tone
-  curve, and presentation draw. Nested totals must reconcile with the complete
-  frame within timestamp resolution.
+  TLAS, ReGIR refresh, primary/radiance tracing, bounded diffuse continuation,
+  current-frame indirect composition, DLSS Ray Reconstruction, bloom,
+  histogram/tone curve, and presentation draw. Nested totals must reconcile
+  with the complete frame within timestamp resolution.
 - Record CPU frame-latency wait, scene compilation, command recording, queue
   submission, and `Present` separately. The existing `renderer_present`
   elapsed time remains an end-to-end latency observation, not a GPU-stage

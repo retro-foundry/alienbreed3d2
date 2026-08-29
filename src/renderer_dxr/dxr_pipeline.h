@@ -230,7 +230,6 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> tone_map_state_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 6> bloom_targets_;
     Microsoft::WRL::ComPtr<ID3D12Resource> post_hdr_output_;
-    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2> indirect_histories_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> descriptor_heap_;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> diagnostic_cpu_heap_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
