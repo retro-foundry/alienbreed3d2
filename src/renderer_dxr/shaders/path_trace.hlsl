@@ -297,6 +297,7 @@ cbuffer FrameConstants : register(b0)
     uint SingleContinuationLobe;
     uint DenseMatureContinuations;
     uint BoundedBurstContinuations;
+    uint CompactLocalPrimary;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -453,6 +454,8 @@ static const uint LightGridCellCount =
 static const uint LightGridLightsPerCell = 512u;
 static const uint LightGridBuildSamples = 8u;
 static const uint LightGridRefreshPhaseCount = 16u;
+static const uint CompactPrimaryCandidateLimit = 8u;
+static const uint CompactPrimaryGlobalCandidates = 6u;
 static const uint LightGridEntryCount =
     LightGridCellCount * LightGridLightsPerCell;
 static const float LightGridCellSize = 512.0;
@@ -2001,10 +2004,17 @@ DirectLightingSample samplePrimaryPolygonLight(
     if (EmitterCount == 0u) {
         return result;
     }
-    uint candidateCount = max(CandidateCount, 1u);
+    uint candidateCount = CompactLocalPrimary != 0u ?
+        min(max(CandidateCount, 1u), CompactPrimaryCandidateLimit) :
+        max(CandidateCount, 1u);
     uint visibilitySampleLimit = SinglePrimaryDirectSurvivor != 0u ?
         1u : PrimaryDirectVisibilitySampleLimit;
     uint visibilitySampleCount = min(candidateCount, visibilitySampleLimit);
+    int lightGridCell = CompactLocalPrimary != 0u ?
+        lightGridCellForSurface(pixel, sampleIndex, surface.position) : -1;
+    uint localCandidateCount = candidateCount >
+            CompactPrimaryGlobalCandidates ?
+        candidateCount - CompactPrimaryGlobalCandidates : 0u;
     for (uint visibilitySample = 0u;
          visibilitySample < visibilitySampleCount; ++visibilitySample) {
         EmitterSample selected = (EmitterSample)0;
@@ -2025,14 +2035,38 @@ DirectLightingSample samplePrimaryPolygonLight(
                 sampleStream(
                     pixel, sampleIndex,
                     DiffusePrimaryPolygonStream + candidate);
+            LightSelection lightSelection;
+            if (CompactLocalPrimary != 0u &&
+                candidate >= CompactPrimaryGlobalCandidates) {
+                uint localOrdinal =
+                    candidate - CompactPrimaryGlobalCandidates;
+                float localSelection =
+                    (random.x + float(localOrdinal)) /
+                    float(localCandidateCount);
+                lightSelection = selectEmitterForCell(
+                    localSelection, lightGridCell);
+            } else {
+                lightSelection.emitterIndex = selectEmitter(random.x);
+                lightSelection.inverseProbability = 1.0 / Emitters[
+                    lightSelection.emitterIndex].selectionProbability;
+            }
             EmitterSample lightSample;
-            lightSample.emitterIndex = selectEmitter(random.x);
+            lightSample.emitterIndex = lightSelection.emitterIndex;
             lightSample.positionSample = packPositionSample(random.yz);
             lightSample.valid = true;
             EmitterEvaluation evaluation = evaluateEmitterSampleForFrame(
                 surface, viewDirection, lightSample, false);
-            float weight = evaluation.sourcePdf > 0.0 ?
-                evaluation.targetPdf / evaluation.sourcePdf : 0.0;
+            float globalProbability = Emitters[
+                lightSample.emitterIndex].selectionProbability;
+            float conditionalAreaPdf = evaluation.valid &&
+                    globalProbability > 0.0 ?
+                evaluation.sourcePdf / globalProbability : 0.0;
+            float proposalPdf = conditionalAreaPdf > 0.0 &&
+                    lightSelection.inverseProbability > 0.0 ?
+                conditionalAreaPdf /
+                    lightSelection.inverseProbability : 0.0;
+            float weight = proposalPdf > 0.0 ?
+                evaluation.targetPdf / proposalPdf : 0.0;
             weightSum += weight;
             groupCandidateCount += 1u;
             if (weight > 0.0 && random.w * weightSum < weight) {

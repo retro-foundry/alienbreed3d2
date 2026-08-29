@@ -235,6 +235,7 @@ struct FrameConstants {
     uint32_t single_continuation_lobe;
     uint32_t dense_mature_continuations;
     uint32_t bounded_burst_continuations;
+    uint32_t compact_local_primary;
 };
 
 /*
@@ -243,7 +244,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 61u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 62u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -942,6 +943,28 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             return false;
         }
     }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_COMPACT_LOCAL_PRIMARY", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = "AB3D2_DXR_COMPACT_LOCAL_PRIMARY exceeds 63 bytes";
+            return false;
+        }
+        if (length != 0u && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "1") != 0) {
+            error = "AB3D2_DXR_COMPACT_LOCAL_PRIMARY must be 0 or 1";
+            return false;
+        }
+        compact_local_primary_ =
+            length != 0u && std::strcmp(value, "1") == 0;
+        if (compact_local_primary_ && !bounded_burst_continuations_) {
+            error = "AB3D2_DXR_COMPACT_LOCAL_PRIMARY=1 requires "
+                "AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS=1";
+            return false;
+        }
+    }
     debug_output("DXR ray tracing: direct samples per pixel=" +
                  std::to_string(spp_) + " indirect sample ceiling=" +
                  std::to_string(indirect_spp_) + " diffuse GI=" +
@@ -960,7 +983,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  " dense mature continuations=" +
                  (dense_mature_continuations_ ? "on" : "off") +
                  " bounded burst continuations=" +
-                 (bounded_burst_continuations_ ? "on" : "off"));
+                 (bounded_burst_continuations_ ? "on" : "off") +
+                 " compact local primary=" +
+                 (compact_local_primary_ ? "on" : "off"));
     return true;
 }
 
@@ -2809,7 +2834,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         indirect_spp_ : 0u;
     const bool diffuse_gi_active = maximum_depth_ >= 2u &&
         effective_indirect_spp > 0u;
-    const bool light_grid_active = maximum_depth_ >= 2u &&
+    const bool light_grid_active =
+        (maximum_depth_ >= 2u || compact_local_primary_) &&
         scene_.emitter_count() > 0u;
     const bool rebuild_light_grid = light_grid_active &&
         light_grid::cache_needs_rebuild(
@@ -2834,6 +2860,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.indirect_samples_per_pixel = effective_indirect_spp;
     performance_metadata.maximum_depth = maximum_depth_;
     performance_metadata.light_candidates = candidate_count_;
+    performance_metadata.primary_light_candidates = compact_local_primary_ ?
+        light_grid::compact_primary_candidate_count(candidate_count_) :
+        candidate_count_;
     performance_metadata.reservoir_sample_limit = reservoir_sample_limit_;
     performance_metadata.scene_rebuild_count = scene_.rebuild_count();
     performance_metadata.history_valid = history_valid;
@@ -2847,6 +2876,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         dense_mature_continuations_;
     performance_metadata.bounded_burst_continuations =
         bounded_burst_continuations_;
+    performance_metadata.compact_local_primary = compact_local_primary_;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     performance_metadata.reconstruction_mode = streamline_active && streamline ?
         streamline->active_mode() : RENDERER_RAY_RECONSTRUCTION_OFF;
@@ -2933,6 +2963,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         dense_mature_continuations_ ? 1u : 0u;
     constants.bounded_burst_continuations =
         bounded_burst_continuations_ ? 1u : 0u;
+    constants.compact_local_primary = compact_local_primary_ ? 1u : 0u;
     const UINT64 frame_constant_offset = frame_constant_stride * frame_slot;
     void *mapped_frame_constants = nullptr;
     const D3D12_RANGE no_read = {0, 0};
@@ -3067,8 +3098,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             uav_barrier(light_grid_.Get());
         command_list->ResourceBarrier(1, &light_grid_ready);
     }
-    /* Primary polygon NEE keeps the complete global proposal. Diffuse and
-     * smooth-specular reached surfaces draw from the grid built above.
+    /* The control primary polygon NEE keeps the complete global proposal. The
+     * compact candidate combines explicit global draws with receiver-local
+     * grid draws. Reached surfaces use the same complete grid construction.
      * SpatialShade remains dormant: no temporal or neighboring screen-space
      * direct reservoir is shaded. */
     dispatch.Width = render_width;

@@ -25,6 +25,10 @@ inline constexpr uint32_t cell_count =
 inline constexpr uint32_t lights_per_cell = 512u;
 inline constexpr uint32_t build_samples = 8u;
 inline constexpr uint32_t refresh_phase_count = 16u;
+/* The compact primary proposal keeps most draws on the complete global alias
+ * distribution and spends the remaining pair on the receiver-local grid. */
+inline constexpr uint32_t compact_primary_candidate_limit = 8u;
+inline constexpr uint32_t compact_primary_global_candidates = 6u;
 inline constexpr float cell_size = 512.0f;
 inline constexpr float grid_extent = cell_size * cells_per_axis;
 inline constexpr uint32_t entry_count = cell_count * lights_per_cell;
@@ -37,6 +41,12 @@ struct Entry {
 static_assert(sizeof(Entry) == 8u);
 static_assert(entry_count == 2097152u);
 static_assert(lights_per_cell % refresh_phase_count == 0u);
+
+inline uint32_t compact_primary_candidate_count(uint32_t configured_count)
+{
+    return std::min(std::max(configured_count, 1u),
+                    compact_primary_candidate_limit);
+}
 
 struct Position {
     float x;

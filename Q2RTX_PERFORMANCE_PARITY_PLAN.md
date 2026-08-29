@@ -492,6 +492,39 @@ proposal:
   retaining the full global emitter distribution as its mathematically explicit
   mixture, not as a silent out-of-cell fallback.
 
+First 1C compact-primary checkpoint, 2026-08-29:
+
+- `AB3D2_DXR_COMPACT_LOCAL_PRIMARY=1` requires S3 and is off by default. It
+  caps only primary RIS at eight exact candidates: six explicit draws from the
+  complete global alias distribution plus two receiver-cell ReGIR draws with
+  their stored inverse proposal probabilities. Continuation surfaces retain
+  the configured 16 candidates. The profiler now reports both
+  `light_candidates` and `primary_light_candidates`, plus the feature bit.
+- The first one-global/seven-local mix was immediately rejected: frozen-camera
+  late delta rose from the S3 control's `14.3629` to `16.4831`. Four/four
+  improved it to `15.2457`. The retained six/two diagnostic measured
+  `13.6388/13.9874` frozen early/late and `25.4353` moving delta in its
+  unprofiled Level A run, with the complete route passing and no unexpected
+  rebuild or overflow.
+- One alternating 120-frame hidden-validation pair measured S3 control at
+  `7.2655/20.0179/78.4800 ms` frame median/p95/p99 and the six/two diagnostic
+  at `7.1340/17.8295/79.1992 ms`. Primary shading improved from
+  `3.3802/4.4259 ms` median/p95 to `3.0116/4.1290 ms`; this is useful but not
+  sufficient for the 60 FPS tail gate.
+- The locked saved yaw/Shotgun route rejects the candidate for production.
+  Versus the 16-global S3 control, frozen delta/reprojected delta rose from
+  `6.8747/6.7689` to `7.8570/7.6407`, and Shotgun delta/reprojected delta rose
+  from `7.4076/7.1724` to `8.2993/8.0966`. It is better than the rejected
+  eight-global shortcut, but it still spends image stability for timing.
+
+Keep this path only as attribution evidence. The next 1C candidate must retain
+16 proposal points while making non-survivors cheap: use a conservative,
+strictly positive emitter/geometry proxy for streaming, then perform exact
+textured emission, normalization, and visibility only for the survivor. The
+proxy must be proved nonzero wherever authored emission can be nonzero, and
+sparse/black texel captures must pass before it can replace exact per-candidate
+evaluation.
+
 ### 1D. Make the RR guide ray conditional and reusable
 
 The deterministic mirror-distance ray is one full-rate trace that Q2RTX does

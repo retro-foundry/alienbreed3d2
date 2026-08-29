@@ -836,6 +836,14 @@ as a failure and the overflowing pixel is still processed inline. The profiler
 reports `burst_continuation` separately. These controls are off by default until
 the combined scheduling slice clears the performance and image gates in
 `Q2RTX_PERFORMANCE_PARITY_PLAN.md`.
+`AB3D2_DXR_COMPACT_LOCAL_PRIMARY=1` is the next opt-in 1C diagnostic and
+requires the complete S3 stack. It bounds only primary direct RIS to eight
+exact evaluations: six draws retain the complete global emitter alias
+distribution and two use the receiver's ReGIR cell with its stored inverse
+proposal probability. The selected exact textured sample and one shared
+visibility ray are unchanged. The profiler records both configured and
+effective primary candidate counts. This diagnostic remains off by default;
+its saved-motion variance has not passed the production image gate.
 
 Ordinary visible frames no longer clear, update, or copy the hidden-smoke
 diagnostic buffer. Its shader atomics and finite-guide scan remain enabled for

@@ -83,6 +83,12 @@ Last updated: 2026-08-29
   corridor visibly darker/less warm and raised saved-motion temporal outliers.
   Both shortcuts remain rejected pending the isolated indirect change oracle
   and complete-emitter local proposal required by the performance plan.
+- The first complete-emitter local proposal is also diagnostic only. A
+  six-global/two-ReGIR primary mix improves primary-shading median by about
+  `10.9%` and frame p95 by about `10.9%` in one alternating pair, but saved
+  frozen and Shotgun temporal deltas remain `9-14%` above the 16-candidate S3
+  control. Production still retains 16 exact candidates while 1C moves to a
+  16-point cheap proxy with exact textured evaluation only for the survivor.
 
 ## Implementation progress (2026-08-28)
 

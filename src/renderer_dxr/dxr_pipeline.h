@@ -273,6 +273,7 @@ private:
     bool single_continuation_lobe_ = false;
     bool dense_mature_continuations_ = false;
     bool bounded_burst_continuations_ = false;
+    bool compact_local_primary_ = false;
     size_t last_view_weapon_coverage_ = 0u;
     uint64_t last_view_weapon_rgb_checksum_ = 0u;
     size_t last_world_bitmap_coverage_ = 0u;

@@ -60,6 +60,7 @@ struct DxrPerformanceMetadata {
     uint32_t indirect_samples_per_pixel = 0u;
     uint32_t maximum_depth = 0u;
     uint32_t light_candidates = 0u;
+    uint32_t primary_light_candidates = 0u;
     uint32_t reservoir_sample_limit = 0u;
     RendererRayReconstructionMode reconstruction_mode =
         RENDERER_RAY_RECONSTRUCTION_OFF;
@@ -71,6 +72,7 @@ struct DxrPerformanceMetadata {
     bool single_continuation_lobe = false;
     bool dense_mature_continuations = false;
     bool bounded_burst_continuations = false;
+    bool compact_local_primary = false;
 };
 
 class DxrGpuProfiler final {

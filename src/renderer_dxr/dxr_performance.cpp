@@ -153,6 +153,7 @@ bool same_configuration(const DxrPerformanceMetadata &left,
         left.indirect_samples_per_pixel == right.indirect_samples_per_pixel &&
         left.maximum_depth == right.maximum_depth &&
         left.light_candidates == right.light_candidates &&
+        left.primary_light_candidates == right.primary_light_candidates &&
         left.reservoir_sample_limit == right.reservoir_sample_limit &&
         left.reconstruction_mode == right.reconstruction_mode &&
         left.validation_enabled == right.validation_enabled &&
@@ -163,7 +164,8 @@ bool same_configuration(const DxrPerformanceMetadata &left,
         left.dense_mature_continuations ==
             right.dense_mature_continuations &&
         left.bounded_burst_continuations ==
-            right.bounded_burst_continuations;
+            right.bounded_burst_continuations &&
+        left.compact_local_primary == right.compact_local_primary;
 }
 
 const char *reconstruction_name(RendererRayReconstructionMode mode)
@@ -521,6 +523,8 @@ void DxrGpuProfiler::report()
            << metadata.indirect_samples_per_pixel
            << ",\"maximum_depth\":" << metadata.maximum_depth
            << ",\"light_candidates\":" << metadata.light_candidates
+           << ",\"primary_light_candidates\":"
+           << metadata.primary_light_candidates
            << ",\"reservoir_limit\":"
            << metadata.reservoir_sample_limit
            << ",\"rr_mode\":"
@@ -537,6 +541,8 @@ void DxrGpuProfiler::report()
            << (metadata.dense_mature_continuations ? "true" : "false")
            << ",\"bounded_burst_continuations\":"
            << (metadata.bounded_burst_continuations ? "true" : "false")
+           << ",\"compact_local_primary\":"
+           << (metadata.compact_local_primary ? "true" : "false")
            << ",\"history_valid_frames\":" << history_valid_frames
            << ",\"scene_rebuilds_start\":"
            << samples_.front().metadata.scene_rebuild_count
