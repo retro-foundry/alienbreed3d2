@@ -23,6 +23,21 @@ namespace {
 constexpr float camera_near_plane = reconstruction::scene_near_plane;
 constexpr float camera_far_plane = reconstruction::scene_far_plane;
 const sl::ViewportHandle rr_viewport{1u};
+constexpr std::array<const wchar_t *, 4> runtime_module_names = {
+    L"sl.interposer.dll", L"sl.common.dll", L"sl.dlss_d.dll",
+    L"nvngx_dlssd.dll",
+};
+std::array<HMODULE, runtime_module_names.size()> trusted_runtime_modules{};
+
+void remember_trusted_runtime_modules()
+{
+    for (size_t index = 0u; index < runtime_module_names.size(); ++index) {
+        HMODULE module = GetModuleHandleW(runtime_module_names[index]);
+        if (module != nullptr) {
+            trusted_runtime_modules[index] = module;
+        }
+    }
+}
 
 std::string result_error(const char *operation, sl::Result result)
 {
@@ -414,14 +429,16 @@ bool DxrStreamline::initialize(RendererRayReconstructionMode mode,
         error = "Streamline was initialized more than once";
         return false;
     }
-    static constexpr std::array<const wchar_t *, 4> runtime_modules = {
-        L"sl.interposer.dll", L"sl.common.dll", L"sl.dlss_d.dll",
-        L"nvngx_dlssd.dll",
-    };
-    for (const wchar_t *module : runtime_modules) {
-        if (GetModuleHandleW(module) != nullptr) {
+    for (size_t index = 0u; index < runtime_module_names.size(); ++index) {
+        HMODULE module = GetModuleHandleW(runtime_module_names[index]);
+        /* slShutdown does not necessarily unload every production module.
+         * A later renderer in this process may reuse only the exact handles
+         * created by a prior verified initialization. An unknown preloaded
+         * module still fails before the first Streamline call. */
+        if (module != nullptr && module != trusted_runtime_modules[index]) {
             error = "Streamline/NGX runtime was loaded before signature "
-                    "verification: " + wide_to_utf8(module);
+                    "verification: " +
+                wide_to_utf8(runtime_module_names[index]);
             return false;
         }
     }
@@ -456,6 +473,7 @@ bool DxrStreamline::initialize(RendererRayReconstructionMode mode,
         return false;
     }
     initialized_ = true;
+    remember_trusted_runtime_modules();
 
     sl::FeatureRequirements requirements{};
     const sl::Result requirements_result =
@@ -543,6 +561,9 @@ bool DxrStreamline::set_device(ID3D12Device5 *device, const LUID &luid,
         return false;
     }
     device_set_ = true;
+    /* NGX can be loaded lazily while the verified feature is bound. Record
+     * that handle before a later renderer performs the preload audit. */
+    remember_trusted_runtime_modules();
     std::string support_reason;
     if (!adapter_supported(luid, support_reason)) {
         error = "selected adapter lost DLSS-RR support after device creation: " +
