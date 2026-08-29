@@ -738,6 +738,34 @@ This first material slice is accepted. Full hardware-native surface filtering
 and bindless/per-material representation remain open; Milestone 2 is not
 complete.
 
+Second hardware-material checkpoint, 2026-08-29:
+
+- The gutter-safe hardware primitive now services all five reached-surface PBR
+  channels. The accepted directional footprint, software mip selection,
+  explicit trilinear blend, and bounded anisotropic tap positions are unchanged;
+  only each four-`Load` bilinear operation becomes one hardware sample. The
+  unused manual-bilinear shader route was removed rather than retained as a
+  machine-dependent filtering path.
+- Against the two emitter-only runs above (`6.7410/16.5655 ms` average frame
+  median/p95), two 120-frame RR-off runs measure `6.5201/15.2803` and
+  `6.3301/15.4095 ms`, averaging `6.4251/15.3449 ms`: another `4.7%` median and
+  `7.4%` p95 reduction. Primary-shading median falls from `2.6947` to
+  `2.2027 ms` (`18.3%`). Burst p95 falls from `11.2337` to `10.3935 ms`
+  (`7.5%`), and burst p99 from `64.2946` to `53.9103 ms` (`16.2%`).
+- Streamline RR Quality improves from the emitter-only checkpoint's
+  `6.6777/13.3097/37.6417 ms` frame median/p95/p99 to
+  `6.1148/10.8312/36.5381 ms`. Primary shading is `1.2385 ms` median, burst is
+  `5.9148 ms` p95, and RR itself remains stable at `1.7280 ms` median.
+- The sparse-emitter response is bit-for-bit unchanged from the first hardware
+  checkpoint (`0.4725` recovery, `0.4288` fourth response frame). RR-off
+  saved-state frozen/Shotgun metrics are `6.8729/6.7701` and
+  `7.4038/7.1706` delta/reprojected. RR Quality saved metrics are likewise
+  stable at `0.5053/0.5083` and `4.6986/0.6773`; both saved routes pass.
+
+This extension is accepted. A real hardware-mip or bindless/per-material
+representation may still reduce address arithmetic and explicit tap count, but
+it must beat this now-hardware-filtered packed-atlas baseline.
+
 ### Milestone 1 gate
 
 The combined primary/direct/indirect/guide stages must reach `22 ms` or less at
@@ -758,10 +786,11 @@ The current software atlas can require four loads per bilinear mip, two mips per
 trilinear sample, up to eight anisotropic samples, and as many as five material
 channels. This is a likely multiplier on primary and continuation cost.
 
-The accepted first slice replaces the repeated level-zero emissive candidate
-lookup with a gutter-safe hardware sample. The work below now refers to the
-remaining reached-surface base-color, normal, metalness, roughness, emissive,
-mip, and anisotropic accesses.
+The accepted first slice replaced repeated level-zero emissive candidate
+lookups; the second moved every reached-surface bilinear operation to the same
+hardware primitive. The work below now refers to a real hardware-mip or
+bindless/per-material representation and any separately proven channel
+specialization, not the removed four-`Load` bilinear path.
 
 - Prototype one bindless SRV per authored texture/channel with real mip chains
   and hardware anisotropic sampling, or another single D3D12 representation

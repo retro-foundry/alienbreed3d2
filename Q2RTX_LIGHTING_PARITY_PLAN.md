@@ -134,6 +134,13 @@ Last updated: 2026-08-29
   software sampler's `0.4926`, and its fourth response frame is `0.4288` versus
   `0.4247`. All 16 proposals and the exact textured RIS target remain present;
   this is an accepted cost reduction rather than the rejected proxy estimator.
+- Reached-surface base colour, normal, metalness, roughness, and emission now
+  use the same gutter-safe hardware bilinear primitive while retaining the
+  accepted directional footprint, software mip selection, explicit trilinear
+  blend, and bounded anisotropic tap positions. Sparse recovery is unchanged,
+  and RR-off saved-state frozen/Shotgun metrics remain
+  `6.8729/6.7701` and `7.4038/7.1706` delta/reprojected versus the emitter-only
+  checkpoint's `6.8752/6.7721` and `7.4052/7.1713`.
 
 ## Implementation progress (2026-08-28)
 

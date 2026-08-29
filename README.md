@@ -622,8 +622,10 @@ Each software mip in the renderer-local atlas has a one-texel repeat-wrapped
 gutter. Exact primary and continuation emitter proposals use that gutter for
 one hardware-bilinear emissive lookup instead of four explicit atlas loads;
 all configured candidates, textured target values, PDFs, and selected-only
-visibility rays remain intact. The directional surface-material filter still
-uses the existing bounded software mip/anisotropic path.
+visibility rays remain intact. Reached surfaces retain the existing
+directional footprint, software mip choice, trilinear blend, and bounded
+anisotropic tap positions, but each bilinear tap across all five PBR channels
+is likewise one hardware sample rather than four explicit loads.
 
 The current staged renderer keeps one pixel-centred camera ray with zero
 frame-varying subpixel jitter. Base colour is written as a reconstruction guide,

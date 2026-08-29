@@ -893,28 +893,6 @@ uint2 materialTexel(SceneMaterial material, float2 textureCoordinate,
         min(uint2(wrapped * float2(window.extent)), window.extent - 1u);
 }
 
-struct MaterialSampleFootprint
-{
-    uint2 texel00;
-    uint2 texel10;
-    uint2 texel01;
-    uint2 texel11;
-    float2 blend;
-};
-
-MaterialSampleFootprint materialSampleFootprintLevel(
-    SceneMaterial material, float2 textureCoordinate,
-    uint packedWindowOrigin, uint packedWindowExtent, uint level);
-
-MaterialSampleFootprint materialSampleFootprint(
-    SceneMaterial material, float2 textureCoordinate,
-    uint packedWindowOrigin, uint packedWindowExtent)
-{
-    return materialSampleFootprintLevel(
-        material, textureCoordinate, packedWindowOrigin,
-        packedWindowExtent, 0u);
-}
-
 uint materialMipYOffset(uint baseHeight, uint level)
 {
     uint offset = 0u;
@@ -924,105 +902,46 @@ uint materialMipYOffset(uint baseHeight, uint level)
     return offset;
 }
 
-MaterialSampleFootprint materialSampleFootprintLevel(
-    SceneMaterial material, float2 textureCoordinate,
-    uint packedWindowOrigin, uint packedWindowExtent, uint level)
-{
-    MaterialTextureWindow window = materialTextureWindow(
-        material, packedWindowOrigin, packedWindowExtent);
-    uint2 levelExtent = max(uint2(1u, 1u), window.extent >> level);
-    float2 dimensions = float2(levelExtent);
-    float2 position = frac(textureCoordinate) * dimensions - 0.5;
-    int2 lower = int2(floor(position));
-    int2 size = int2(levelExtent);
-    int2 lowerWrapped = (lower + size) % size;
-    int2 upperWrapped = (lower + 1 + size) % size;
-    uint2 origin = uint2(material.atlasX, material.atlasY) +
-        uint2(window.origin.x >> level,
-              materialMipYOffset(material.height, level) +
-                  (window.origin.y >> level));
-    MaterialSampleFootprint footprint;
-    footprint.texel00 = origin + uint2(lowerWrapped.x, lowerWrapped.y);
-    footprint.texel10 = origin + uint2(upperWrapped.x, lowerWrapped.y);
-    footprint.texel01 = origin + uint2(lowerWrapped.x, upperWrapped.y);
-    footprint.texel11 = origin + uint2(upperWrapped.x, upperWrapped.y);
-    footprint.blend = frac(position);
-    return footprint;
-}
-
-struct MaterialMipSampleFootprint
-{
-    MaterialSampleFootprint lower;
-    MaterialSampleFootprint upper;
-    float blend;
-};
-
-MaterialMipSampleFootprint materialMipSampleFootprint(
-    SceneMaterial material, float2 textureCoordinate,
-    uint packedWindowOrigin, uint packedWindowExtent, float mipLevel)
-{
-    uint mipCount = max(material.mipCount, 1u);
-    float boundedLevel = clamp(mipLevel, 0.0, float(mipCount - 1u));
-    uint lowerLevel = uint(floor(boundedLevel));
-    uint upperLevel = min(lowerLevel + 1u, mipCount - 1u);
-    MaterialMipSampleFootprint footprint;
-    footprint.lower = materialSampleFootprintLevel(
-        material, textureCoordinate, packedWindowOrigin,
-        packedWindowExtent, lowerLevel);
-    footprint.upper = materialSampleFootprintLevel(
-        material, textureCoordinate, packedWindowOrigin,
-        packedWindowExtent, upperLevel);
-    footprint.blend = frac(boundedLevel);
-    return footprint;
-}
-
-float4 sampleMaterialAtlas(Texture2D<float4> atlas,
-                           MaterialSampleFootprint footprint)
-{
-    float4 upper = lerp(atlas.Load(int3(footprint.texel00, 0)),
-                        atlas.Load(int3(footprint.texel10, 0)),
-                        footprint.blend.x);
-    float4 lower = lerp(atlas.Load(int3(footprint.texel01, 0)),
-                        atlas.Load(int3(footprint.texel11, 0)),
-                        footprint.blend.x);
-    return lerp(upper, lower, footprint.blend.y);
-}
-
 /* Scene compilation wraps every material level in a one-texel repeat gutter.
  * All source subwindows are isolated into complete material tiles before this
  * point, so hardware bilinear filtering is both exact at repeat seams and one
  * texture operation instead of four explicit loads. */
+float2 materialAtlasInverseDimensions(Texture2D<float4> atlas)
+{
+    uint atlasWidth;
+    uint atlasHeight;
+    atlas.GetDimensions(atlasWidth, atlasHeight);
+    return rcp(float2(atlasWidth, atlasHeight));
+}
+
+float4 sampleMaterialAtlasLevelHardware(
+    Texture2D<float4> atlas, SceneMaterial material,
+    float2 textureCoordinate, uint packedWindowOrigin,
+    uint packedWindowExtent, uint level, float2 inverseAtlasDimensions)
+{
+    MaterialTextureWindow window = materialTextureWindow(
+        material, packedWindowOrigin, packedWindowExtent);
+    uint2 levelExtent = max(uint2(1u, 1u), window.extent >> level);
+    uint2 origin = uint2(material.atlasX, material.atlasY) +
+        uint2(window.origin.x >> level,
+              materialMipYOffset(material.height, level) +
+                  (window.origin.y >> level));
+    float2 atlasPosition = float2(origin) +
+        frac(textureCoordinate) * float2(levelExtent);
+    return atlas.SampleLevel(MaterialBilinearSampler,
+                             atlasPosition * inverseAtlasDimensions,
+                             0.0);
+}
+
 float4 sampleMaterialAtlasHardware(Texture2D<float4> atlas,
                                    SceneMaterial material,
                                    float2 textureCoordinate,
                                    uint packedWindowOrigin,
                                    uint packedWindowExtent)
 {
-    MaterialTextureWindow window = materialTextureWindow(
-        material, packedWindowOrigin, packedWindowExtent);
-    uint atlasWidth;
-    uint atlasHeight;
-    atlas.GetDimensions(atlasWidth, atlasHeight);
-    float2 atlasPosition = float2(material.atlasX, material.atlasY) +
-        float2(window.origin) +
-        frac(textureCoordinate) * float2(window.extent);
-    return atlas.SampleLevel(MaterialBilinearSampler,
-                             atlasPosition /
-                                 float2(atlasWidth, atlasHeight),
-                             0.0);
-}
-
-float4 sampleMaterialAtlasTrilinear(
-    Texture2D<float4> atlas, MaterialMipSampleFootprint footprint)
-{
-    float4 lower = sampleMaterialAtlas(atlas, footprint.lower);
-    /* Preserve the one four-tap lookup used by every level-zero-only material,
-     * and by a wall landing exactly on an integer LOD. */
-    if (footprint.blend <= 0.0) {
-        return lower;
-    }
-    return lerp(lower, sampleMaterialAtlas(atlas, footprint.upper),
-                footprint.blend);
+    return sampleMaterialAtlasLevelHardware(
+        atlas, material, textureCoordinate, packedWindowOrigin,
+        packedWindowExtent, 0u, materialAtlasInverseDimensions(atlas));
 }
 
 struct MaterialFilterFootprint
@@ -1032,10 +951,36 @@ struct MaterialFilterFootprint
     uint sampleCount;
 };
 
-float4 sampleMaterialAtlasFiltered(
+float4 sampleMaterialAtlasTrilinearHardware(
     Texture2D<float4> atlas, SceneMaterial material,
     float2 textureCoordinate, uint packedWindowOrigin,
-    uint packedWindowExtent, MaterialFilterFootprint filter)
+    uint packedWindowExtent, float mipLevel,
+    float2 inverseAtlasDimensions)
+{
+    uint mipCount = max(material.mipCount, 1u);
+    float boundedLevel = clamp(mipLevel, 0.0, float(mipCount - 1u));
+    uint lowerLevel = uint(floor(boundedLevel));
+    uint upperLevel = min(lowerLevel + 1u, mipCount - 1u);
+    float4 lower = sampleMaterialAtlasLevelHardware(
+        atlas, material, textureCoordinate, packedWindowOrigin,
+        packedWindowExtent, lowerLevel, inverseAtlasDimensions);
+    float blend = frac(boundedLevel);
+    if (blend <= 0.0) {
+        return lower;
+    }
+    return lerp(
+        lower,
+        sampleMaterialAtlasLevelHardware(
+            atlas, material, textureCoordinate, packedWindowOrigin,
+            packedWindowExtent, upperLevel, inverseAtlasDimensions),
+        blend);
+}
+
+float4 sampleMaterialAtlasFilteredHardware(
+    Texture2D<float4> atlas, SceneMaterial material,
+    float2 textureCoordinate, uint packedWindowOrigin,
+    uint packedWindowExtent, MaterialFilterFootprint filter,
+    float2 inverseAtlasDimensions)
 {
     float4 value = 0.0;
     float inverseCount = rcp(float(filter.sampleCount));
@@ -1043,11 +988,11 @@ float4 sampleMaterialAtlasFiltered(
     for (uint sampleIndex = 0u; sampleIndex < filter.sampleCount;
          ++sampleIndex) {
         float position = (float(sampleIndex) + 0.5) * inverseCount - 0.5;
-        MaterialMipSampleFootprint sampleFootprint =
-            materialMipSampleFootprint(
-                material, textureCoordinate + filter.majorAxis * position,
-                packedWindowOrigin, packedWindowExtent, filter.mipLevel);
-        value += sampleMaterialAtlasTrilinear(atlas, sampleFootprint);
+        value += sampleMaterialAtlasTrilinearHardware(
+            atlas, material,
+            textureCoordinate + filter.majorAxis * position,
+            packedWindowOrigin, packedWindowExtent, filter.mipLevel,
+            inverseAtlasDimensions);
     }
     return value * inverseCount;
 }
@@ -1090,8 +1035,9 @@ void triangleFrame(uint firstVertex, float3 incomingDirection,
 /* Ray shaders have no screen-space derivatives. Differentiate the camera ray's
  * intersection with the hit plane along both screen axes, transform those
  * axes into authored texel space, and retain the resulting ellipse. The
- * packed software mip atlas cannot use hardware SampleGrad, so a bounded line
- * filter covers the long axis while trilinear samples cover the short axis.
+ * packed software mip atlas does not expose those levels to SampleGrad, so a
+ * bounded line filter covers the long axis while explicit trilinear samples
+ * cover the short axis.
  * Walls, floors, and ceilings have mip chains; other primitives stay exactly
  * level zero. */
 MaterialFilterFootprint worldMaterialFilterFootprint(
@@ -1216,16 +1162,18 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     MaterialFilterFootprint filter = worldMaterialFilterFootprint(
         material, first, second, third, surface.position,
         surface.geometricNormal);
+    float2 inverseAtlasDimensions =
+        materialAtlasInverseDimensions(BaseColorAtlas);
     surface.baseColor = saturate(
-        sampleMaterialAtlasFiltered(
+        sampleMaterialAtlasFilteredHardware(
             BaseColorAtlas, material, surface.textureCoordinate,
             surface.textureWindowOrigin, surface.textureWindowExtent,
-            filter).rgb);
+            filter, inverseAtlasDimensions).rgb);
     float3 tangentNormal =
-        sampleMaterialAtlasFiltered(
+        sampleMaterialAtlasFilteredHardware(
             NormalAtlas, material, surface.textureCoordinate,
             surface.textureWindowOrigin, surface.textureWindowExtent,
-            filter).xyz * 2.0 - 1.0;
+            filter, inverseAtlasDimensions).xyz * 2.0 - 1.0;
     tangentNormal.xy *= material.normalStrength;
     tangentNormal = normalize(float3(tangentNormal.xy,
                                      max(tangentNormal.z, 1.0e-4)));
@@ -1235,25 +1183,25 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
         surface.shadingNormal = surface.geometricNormal;
     }
     surface.metalness = saturate(
-        sampleMaterialAtlasFiltered(
+        sampleMaterialAtlasFilteredHardware(
             MetalnessAtlas, material, surface.textureCoordinate,
             surface.textureWindowOrigin, surface.textureWindowExtent,
-            filter).r);
+            filter, inverseAtlasDimensions).r);
     surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
-        sampleMaterialAtlasFiltered(
+        sampleMaterialAtlasFilteredHardware(
             RoughnessAtlas, material, surface.textureCoordinate,
             surface.textureWindowOrigin, surface.textureWindowExtent,
-            filter).r,
+            filter, inverseAtlasDimensions).r,
         0.045, 1.0);
     float emissionScale = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
     surface.emission =
-        sampleMaterialAtlasFiltered(
+        sampleMaterialAtlasFilteredHardware(
             EmissiveAtlas, material, surface.textureCoordinate,
             surface.textureWindowOrigin, surface.textureWindowExtent,
-            filter).rgb *
+            filter, inverseAtlasDimensions).rgb *
         material.emissiveFactor * emissionScale;
     return surface;
 }
@@ -3079,17 +3027,24 @@ SurfaceData reservoirSurface(PackedLightReservoir reservoir)
     surface.textureWindowOrigin = reservoir.surfaceTextureWindowOrigin;
     surface.textureWindowExtent = reservoir.surfaceTextureWindowExtent;
     SceneMaterial material = Materials[surface.materialIndex];
-    MaterialSampleFootprint footprint =
-        materialSampleFootprint(material, surface.textureCoordinate,
-                                surface.textureWindowOrigin,
-                                surface.textureWindowExtent);
+    float2 inverseAtlasDimensions =
+        materialAtlasInverseDimensions(BaseColorAtlas);
     surface.baseColor = saturate(
-        sampleMaterialAtlas(BaseColorAtlas, footprint).rgb);
+        sampleMaterialAtlasLevelHardware(
+            BaseColorAtlas, material, surface.textureCoordinate,
+            surface.textureWindowOrigin, surface.textureWindowExtent,
+            0u, inverseAtlasDimensions).rgb);
     surface.metalness = saturate(
-        sampleMaterialAtlas(MetalnessAtlas, footprint).r);
+        sampleMaterialAtlasLevelHardware(
+            MetalnessAtlas, material, surface.textureCoordinate,
+            surface.textureWindowOrigin, surface.textureWindowExtent,
+            0u, inverseAtlasDimensions).r);
     surface.specularFactor = saturate(material.specularFactor);
     surface.roughness = clamp(
-        sampleMaterialAtlas(RoughnessAtlas, footprint).r, 0.045, 1.0);
+        sampleMaterialAtlasLevelHardware(
+            RoughnessAtlas, material, surface.textureCoordinate,
+            surface.textureWindowOrigin, surface.textureWindowExtent,
+            0u, inverseAtlasDimensions).r, 0.045, 1.0);
     surface.emitterIndex = InvalidIndex;
     return surface;
 }
