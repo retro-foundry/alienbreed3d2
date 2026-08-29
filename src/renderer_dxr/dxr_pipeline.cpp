@@ -236,6 +236,7 @@ struct FrameConstants {
     uint32_t dense_mature_continuations;
     uint32_t bounded_burst_continuations;
     uint32_t compact_local_primary;
+    uint32_t proxy_primary_candidates;
 };
 
 /*
@@ -244,7 +245,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 62u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 63u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -965,6 +966,34 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             return false;
         }
     }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_PROXY_PRIMARY_CANDIDATES", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length >= sizeof(value)) {
+            error = "AB3D2_DXR_PROXY_PRIMARY_CANDIDATES exceeds 63 bytes";
+            return false;
+        }
+        if (length != 0u && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "1") != 0) {
+            error = "AB3D2_DXR_PROXY_PRIMARY_CANDIDATES must be 0 or 1";
+            return false;
+        }
+        proxy_primary_candidates_ =
+            length != 0u && std::strcmp(value, "1") == 0;
+        if (proxy_primary_candidates_ &&
+            !single_primary_direct_survivor_) {
+            error = "AB3D2_DXR_PROXY_PRIMARY_CANDIDATES=1 requires "
+                "AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR=1";
+            return false;
+        }
+        if (proxy_primary_candidates_ && compact_local_primary_) {
+            error = "AB3D2_DXR_PROXY_PRIMARY_CANDIDATES=1 cannot be combined "
+                "with AB3D2_DXR_COMPACT_LOCAL_PRIMARY=1";
+            return false;
+        }
+    }
     debug_output("DXR ray tracing: direct samples per pixel=" +
                  std::to_string(spp_) + " indirect sample ceiling=" +
                  std::to_string(indirect_spp_) + " diffuse GI=" +
@@ -985,7 +1014,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  " bounded burst continuations=" +
                  (bounded_burst_continuations_ ? "on" : "off") +
                  " compact local primary=" +
-                 (compact_local_primary_ ? "on" : "off"));
+                 (compact_local_primary_ ? "on" : "off") +
+                 " proxy primary candidates=" +
+                 (proxy_primary_candidates_ ? "on" : "off"));
     return true;
 }
 
@@ -2877,6 +2908,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.bounded_burst_continuations =
         bounded_burst_continuations_;
     performance_metadata.compact_local_primary = compact_local_primary_;
+    performance_metadata.proxy_primary_candidates =
+        proxy_primary_candidates_;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     performance_metadata.reconstruction_mode = streamline_active && streamline ?
         streamline->active_mode() : RENDERER_RAY_RECONSTRUCTION_OFF;
@@ -2964,6 +2997,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.bounded_burst_continuations =
         bounded_burst_continuations_ ? 1u : 0u;
     constants.compact_local_primary = compact_local_primary_ ? 1u : 0u;
+    constants.proxy_primary_candidates =
+        proxy_primary_candidates_ ? 1u : 0u;
     const UINT64 frame_constant_offset = frame_constant_stride * frame_slot;
     void *mapped_frame_constants = nullptr;
     const D3D12_RANGE no_read = {0, 0};

@@ -48,6 +48,18 @@ inline uint32_t compact_primary_candidate_count(uint32_t configured_count)
                     compact_primary_candidate_limit);
 }
 
+/* Emitter selection is proportional to area times the material's maximum
+ * authored emissive luminance. Removing area recovers a conservative,
+ * positive radiance proxy up to the common alias-table normalization. */
+inline float emitter_luminance_proxy(float selection_probability,
+                                     float inverse_area,
+                                     float emissive_scale)
+{
+    return selection_probability > 0.0f && inverse_area > 0.0f &&
+            emissive_scale > 0.0f ?
+        selection_probability * inverse_area * emissive_scale : 0.0f;
+}
+
 struct Position {
     float x;
     float y;

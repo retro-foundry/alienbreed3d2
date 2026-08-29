@@ -73,6 +73,7 @@ struct DxrPerformanceMetadata {
     bool dense_mature_continuations = false;
     bool bounded_burst_continuations = false;
     bool compact_local_primary = false;
+    bool proxy_primary_candidates = false;
 };
 
 class DxrGpuProfiler final {

@@ -525,6 +525,40 @@ proxy must be proved nonzero wherever authored emission can be nonzero, and
 sparse/black texel captures must pass before it can replace exact per-candidate
 evaluation.
 
+Second 1C proxy-primary checkpoint, 2026-08-29:
+
+- `AB3D2_DXR_PROXY_PRIMARY_CANDIDATES=1` implements that experiment behind an
+  S1-dependent, startup-validated switch that cannot be combined with the
+  compact local candidate. Performance measurements combine it with S3; the
+  narrower real dependency lets raw/zero-history lighting oracles exercise the
+  primary estimator directly. It retains all 16 global proposal points. Candidate
+  streaming uses geometry, the receiver BSDF, interpolated authored emission
+  scale, and `selectionProbability * inverseArea`; the latter is proportional
+  to the material's maximum authored emissive luminance and is therefore
+  positive everywhere a compiled emitter can emit. Only the RIS survivor
+  samples the exact emissive texture and spends a visibility ray. Its exact
+  contribution is divided by the selected proxy target, so black texels remain
+  valid zero-contribution samples rather than disappearing from the estimator.
+  The forced isolated lighting reference and six-channel sum both pass with
+  S1 plus the proxy active, including sparse/black texel and occlusion cases.
+- The complete Level A route passes with no rebuild/overflow regression and
+  reports `14.1436/14.1233` frozen early/late delta and `25.6527` moving delta.
+  Those broad metrics do not accept it: the stricter saved oracle raises
+  frozen delta/reprojected delta from the S3 control's `6.8747/6.7689` to
+  `7.7411/7.6643`, and Shotgun delta/reprojected delta from
+  `7.4076/7.1724` to `8.2095/7.7475`.
+- One 120-frame hidden-validation profile measured
+  `7.6938/18.5366/79.4825 ms` frame median/p95/p99 and
+  `3.3398/4.6120 ms` primary-shading median/p95. Against the nearby S3 control
+  (`7.2655/20.0179/78.4800 ms` frame and `3.3802/4.4259 ms` primary), median
+  primary cost improves only `1.2%` while primary p95 regresses `4.2%`.
+
+The proxy is rejected for production and does not justify more 1C tuning: on
+this workload the emissive-atlas fetch avoided for non-survivors is not a large
+enough share of candidate cost. Preserve both 1C diagnostics off by default
+for attribution, keep the 16-exact-candidate S3 control as the quality path,
+and move to 1D's full-rate deterministic RR guide ray.
+
 ### 1D. Make the RR guide ray conditional and reusable
 
 The deterministic mirror-distance ray is one full-rate trace that Q2RTX does

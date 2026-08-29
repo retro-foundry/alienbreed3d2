@@ -541,6 +541,12 @@ int main()
         grid::compact_primary_global_candidates != 6u) {
         return fail("compact primary proposal work bound changed");
     }
+    if (!near(grid::emitter_luminance_proxy(0.25f, 0.5f, 0.8f), 0.1f) ||
+        grid::emitter_luminance_proxy(0.0f, 0.5f, 1.0f) != 0.0f ||
+        grid::emitter_luminance_proxy(0.25f, 0.0f, 1.0f) != 0.0f ||
+        grid::emitter_luminance_proxy(0.25f, 0.5f, 0.0f) != 0.0f) {
+        return fail("primary emitter proxy support changed");
+    }
     if (!near(grid::local_solid_angle_pdf(0.25f, 0.125f, 2.0f), 1.0f) ||
         !near(grid::local_solid_angle_pdf(0.25f, 0.125f, 8.0f), 0.25f) ||
         grid::local_solid_angle_pdf(0.25f, 0.0f, 2.0f) != 0.0f ||

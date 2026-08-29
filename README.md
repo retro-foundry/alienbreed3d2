@@ -844,6 +844,14 @@ proposal probability. The selected exact textured sample and one shared
 visibility ray are unchanged. The profiler records both configured and
 effective primary candidate counts. This diagnostic remains off by default;
 its saved-motion variance has not passed the production image gate.
+`AB3D2_DXR_PROXY_PRIMARY_CANDIDATES=1` is a mutually exclusive 1C diagnostic
+that requires S1. It keeps all configured primary proposal points but
+streams them with a geometry/BSDF target derived from the emitter's maximum
+authored luminance, then samples exact textured emission and traces visibility
+only for the survivor. The selected proxy target supplies the RIS
+normalization, so a sampled black texel contributes zero without bias. This
+path is off by default: measured primary timing was effectively neutral and
+the saved-motion variance gate failed.
 
 Ordinary visible frames no longer clear, update, or copy the hidden-smoke
 diagnostic buffer. Its shader atomics and finite-guide scan remain enabled for

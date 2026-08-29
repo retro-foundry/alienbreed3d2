@@ -298,6 +298,7 @@ cbuffer FrameConstants : register(b0)
     uint DenseMatureContinuations;
     uint BoundedBurstContinuations;
     uint CompactLocalPrimary;
+    uint ProxyPrimaryCandidates;
 };
 
 static const uint RadianceChannelCombined = 0u;
@@ -1847,6 +1848,80 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
     return evaluation;
 }
 
+/* Candidate streaming needs geometry, the receiving BSDF, and a proposal
+ * target, but it need not sample the emitter texture. The global alias weight
+ * is area times the maximum authored emissive luminance, so multiplying its
+ * categorical probability by inverse area yields a positive radiance proxy
+ * up to one common normalization. RIS later divides by the selected proxy
+ * target and applies the exact textured contribution, preserving the integral
+ * while sparse/black texels correctly contribute zero. */
+EmitterEvaluation evaluateEmitterProxy(SurfaceData surface,
+                                       float3 viewDirection,
+                                       EmitterSample lightSample)
+{
+    EmitterEvaluation evaluation = (EmitterEvaluation)0;
+    evaluation.valid = false;
+    if (!lightSample.valid || lightSample.emitterIndex >= EmitterCount) {
+        return evaluation;
+    }
+    EmissiveTriangle emitter = Emitters[lightSample.emitterIndex];
+    SceneVertex first = Vertices[emitter.firstVertex + 0u];
+    SceneVertex second = Vertices[emitter.firstVertex + 1u];
+    SceneVertex third = Vertices[emitter.firstVertex + 2u];
+    float2 positionSample = unpackPositionSample(lightSample.positionSample);
+    float root = sqrt(positionSample.x);
+    float3 barycentrics = float3(
+        1.0 - root,
+        root * (1.0 - positionSample.y),
+        root * positionSample.y);
+    float3 lightPosition = first.position * barycentrics.x +
+        second.position * barycentrics.y + third.position * barycentrics.z;
+    float3 toLight = lightPosition - surface.position;
+    float distanceSquared = dot(toLight, toLight);
+    if (distanceSquared <= RayEpsilon * RayEpsilon) {
+        return evaluation;
+    }
+    float distance = sqrt(distanceSquared);
+    float3 lightDirection = toLight / distance;
+    float normalLight = saturate(dot(surface.shadingNormal, lightDirection));
+    if (normalLight <= 0.0 ||
+        dot(surface.geometricNormal, lightDirection) <= 0.0) {
+        return evaluation;
+    }
+    float3 lightNormal = normalize(cross(second.position - first.position,
+                                         third.position - first.position));
+    float lightCosine = abs(dot(lightNormal, -lightDirection));
+    if (lightCosine <= 1.0e-6) {
+        return evaluation;
+    }
+    float sourcePdf = emitter.selectionProbability * emitter.inverseArea *
+        distanceSquared / lightCosine;
+    float emissiveScale = first.emissiveScale * barycentrics.x +
+        second.emissiveScale * barycentrics.y +
+        third.emissiveScale * barycentrics.z;
+    float emittedProxy = emitter.selectionProbability *
+        emitter.inverseArea * max(emissiveScale, 0.0);
+    if (!(sourcePdf > 0.0) || !(emittedProxy > 0.0)) {
+        return evaluation;
+    }
+    BsdfEvaluation bsdf = evaluateBsdf(
+        surface, viewDirection, lightDirection);
+    evaluation.diffuseContribution =
+        bsdf.diffuse * emittedProxy * normalLight;
+    evaluation.specularContribution =
+        bsdf.specular * emittedProxy * normalLight *
+        directSpecularWeight(surface.roughness);
+    evaluation.contribution = evaluation.diffuseContribution +
+        evaluation.specularContribution;
+    evaluation.targetPdf = luminance(evaluation.contribution);
+    evaluation.sourcePdf = sourcePdf;
+    evaluation.brdfPdf = bsdf.pdf;
+    evaluation.lightDirection = lightDirection;
+    evaluation.lightDistance = distance;
+    evaluation.valid = evaluation.targetPdf > 0.0;
+    return evaluation;
+}
+
 /* Plain authored-polygon NEE for one diffuse receiver. The primary receiver
  * supplies the directly lit baseline; evaluating the same estimator at every
  * reached continuation supplies the indirect-polygon-light path suffix.
@@ -2020,6 +2095,7 @@ DirectLightingSample samplePrimaryPolygonLight(
         EmitterSample selected = (EmitterSample)0;
         selected.emitterIndex = InvalidIndex;
         selected.valid = false;
+        float selectedStreamingTarget = 0.0;
         float weightSum = 0.0;
         uint groupCandidateCount = 0u;
         for (uint candidate = visibilitySample; candidate < candidateCount;
@@ -2054,8 +2130,14 @@ DirectLightingSample samplePrimaryPolygonLight(
             lightSample.emitterIndex = lightSelection.emitterIndex;
             lightSample.positionSample = packPositionSample(random.yz);
             lightSample.valid = true;
-            EmitterEvaluation evaluation = evaluateEmitterSampleForFrame(
-                surface, viewDirection, lightSample, false);
+            EmitterEvaluation evaluation;
+            if (ProxyPrimaryCandidates != 0u) {
+                evaluation = evaluateEmitterProxy(
+                    surface, viewDirection, lightSample);
+            } else {
+                evaluation = evaluateEmitterSampleForFrame(
+                    surface, viewDirection, lightSample, false);
+            }
             float globalProbability = Emitters[
                 lightSample.emitterIndex].selectionProbability;
             float conditionalAreaPdf = evaluation.valid &&
@@ -2071,6 +2153,7 @@ DirectLightingSample samplePrimaryPolygonLight(
             groupCandidateCount += 1u;
             if (weight > 0.0 && random.w * weightSum < weight) {
                 selected = lightSample;
+                selectedStreamingTarget = evaluation.targetPdf;
             }
         }
         if (!selected.valid || !(weightSum > 0.0)) {
@@ -2079,6 +2162,7 @@ DirectLightingSample samplePrimaryPolygonLight(
         EmitterEvaluation selectedEvaluation = evaluateEmitterSampleForFrame(
             surface, viewDirection, selected, false);
         if (!selectedEvaluation.valid ||
+            !any(selectedEvaluation.contribution > 0.0) ||
             !traceVisibility(
                 surface.position + surface.geometricNormal * RayEpsilon,
                 selectedEvaluation.lightDirection,
@@ -2086,8 +2170,10 @@ DirectLightingSample samplePrimaryPolygonLight(
                 SceneInstanceMask)) {
             continue;
         }
-        float inversePdf = weightSum /
-            (float(groupCandidateCount) * selectedEvaluation.targetPdf);
+        float normalizationTarget = ProxyPrimaryCandidates != 0u ?
+            selectedStreamingTarget : selectedEvaluation.targetPdf;
+        float inversePdf = normalizationTarget > 0.0 ? weightSum /
+            (float(groupCandidateCount) * normalizationTarget) : 0.0;
         result.diffuse += selectedEvaluation.diffuseContribution * inversePdf;
         result.specular += selectedEvaluation.specularContribution * inversePdf;
     }

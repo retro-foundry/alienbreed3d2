@@ -89,6 +89,13 @@ Last updated: 2026-08-29
   frozen and Shotgun temporal deltas remain `9-14%` above the 16-candidate S3
   control. Production still retains 16 exact candidates while 1C moves to a
   16-point cheap proxy with exact textured evaluation only for the survivor.
+- That 16-point proxy has now also been measured and rejected. It is unbiased
+  and keeps exact selected textured emission, but primary-shading median moves
+  only `1.2%`, p95 regresses `4.2%`, and the saved yaw/Shotgun deltas remain
+  `8-13%` above S3. Its forced isolated lighting and six-channel tests pass,
+  so rejection is based on variance and low leverage rather than broken energy
+  accounting. The accepted lighting contract therefore still uses 16 exact
+  global candidates; performance work moves to the conditional RR guide.
 
 ## Implementation progress (2026-08-28)
 
