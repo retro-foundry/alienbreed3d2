@@ -18,6 +18,46 @@ Date: 2026-08-27
 
 Last updated: 2026-08-29
 
+## New-context handoff (2026-08-29)
+
+- Continue on branch `new`. The implemented RR-only checkpoint spans commits
+  `26df784` through `9c0af3c`; `origin/new` was synchronized and the working
+  tree was clean when this handoff was prepared.
+- The user's standing direction is to continue performance work, commit coherent
+  slices as they land, and push accepted work. Use the Streamline Release save
+  at `build/streamline/Release/savegame.bin` for captures and motion oracles;
+  the Level A starting room is not the accepted comparison pose.
+- DLSS Ray Reconstruction must remain the only indirect
+  denoiser/reconstructor. Do not reintroduce native temporal, regional,
+  deflicker, wavelet, ReSTIR-GI, neighbor-radiance interpolation, broad
+  continuation, or projected-solid-angle triangle sampling. Do not copy or
+  adapt GPL Q2RTX implementation techniques. Q2RTX is limited to observable
+  workload/performance comparison; production uses standard clean estimators.
+- Current production GI is four genuine fresh cosine-weighted diffuse paths per
+  internal pixel, stratified radially and azimuthally, with standard
+  uniform-area authored-triangle NEE. `full` is only an alias for `raw`.
+  `ReconstructIndirect` reads the current directional/chroma textures directly;
+  the former GI filter passes, ReSTIR-GI code, and two packed history buffers
+  are physically absent.
+- The accepted saved RR Quality checkpoint at 853x480 tracing to 1280x720 is
+  `8.0234/9.1955/17.7795 ms` frame median/p95/p99, `3.3736/4.0934 ms` burst
+  median/p95, and `1.7582 ms` RR median. Indirect-only frozen
+  delta/reprojected delta is `0.5182/0.5224`; Shotgun is `2.8855/0.6593`.
+- Validation at handoff: the complete Streamline Release build succeeded, all
+  32 CTest cases passed, ordinary saved-state RTX smoke passed, and saved-state
+  indirect-only smoke passed with
+  `AB3D2_DXR_INDIRECT_RECONSTRUCTION=full`.
+- Next, measure the post-history-removal production build rather than claiming
+  its structural bandwidth saving as frame-time improvement. If the saved and
+  Level A profiles still identify traced continuation/material work as the hot
+  path, continue `Q2RTX_PERFORMANCE_PARITY_PLAN.md` Milestone 2 with a combined
+  hardware-native material-sampling slice. Preserve all authored crop, wrap,
+  animation, alpha, normal, metalness, roughness, emissive, mip, and anisotropic
+  behavior and keep four genuine RR input paths fixed during the A/B.
+- Final parity remains open: the required five alternating matched-work Q2RTX
+  and native trials, actual workload manifests, and the completion checklist in
+  `Q2RTX_PERFORMANCE_PARITY_PLAN.md` have not been completed.
+
 ## RR-only diffuse input correction (2026-08-29)
 
 - The production signal contains only current-frame path samples. There is no
@@ -49,7 +89,11 @@ Last updated: 2026-08-29
   ReSTIR-GI measurements below are retained only as rejected experiment
   evidence. They no longer describe selectable or compiled production paths.
 
-## Performance parity reopening (2026-08-29)
+## Performance parity reopening (historical baseline, superseded 2026-08-29)
+
+The measurements and adaptive-history schedule in this section record the
+state that initiated performance work. The new-context handoff and RR-only
+diffuse input correction above describe current production behavior.
 
 - The renderer does not yet have a valid current GPU-performance baseline.
   The earlier approximately `8.1 ms` Ultra Performance measurements predate
