@@ -1592,11 +1592,15 @@ static int game_app_run_gpu_smoke(GameApp *app)
         }
         fprintf(stdout,
                 "[RENDER] saved-state Level %c frozen frames=%u checksum=%016llx "
-                "delta=%.4f reprojected=%.4f saturated=%llu outliers16=%llu "
+                "delta=%.4f reprojected=%.4f nonzero=%llu mean=%.4f "
+                "saturated=%llu outliers16=%llu "
                 "reprojected_outliers16=%llu reprojected_samples=%llu\n",
                 (char)('A' + app->game.active_level_index),
                 (unsigned)GAME_APP_SAVED_GPU_SMOKE_FRAMES,
                 (unsigned long long)checksum, delta, reprojected_delta,
+                (unsigned long long)renderer_last_frame_nonzero_pixels(
+                    app->renderer),
+                renderer_last_frame_mean_luminance(app->renderer),
                 (unsigned long long)renderer_last_frame_saturated_pixels(
                     app->renderer),
                 (unsigned long long)renderer_last_frame_temporal_outlier_pixels(

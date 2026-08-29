@@ -1032,6 +1032,9 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
     D3D12_RANGE no_write = {0, 0};
     scene_readback_->Unmap(0, &no_write);
     last_scene_rgb_checksum_ = nonzero_pixels == 0u ? 0u : checksum;
+    last_scene_nonzero_pixels_ = nonzero_pixels;
+    last_scene_mean_luminance_ = pixel_count != 0u ?
+        luminance_sum / static_cast<double>(pixel_count) : 0.0;
     last_scene_saturated_pixels_ = saturated_pixels;
     last_scene_temporal_outlier_pixels_ = temporal_outlier_pixels;
     last_scene_frame_delta_ = comparable && pixel_count != 0u ?
@@ -1411,6 +1414,8 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
         last_scene_rgb_checksum_ = 0;
         last_scene_frame_delta_ = -1.0;
         last_scene_reprojected_frame_delta_ = -1.0;
+        last_scene_nonzero_pixels_ = 0;
+        last_scene_mean_luminance_ = 0.0;
         last_scene_saturated_pixels_ = 0;
         last_scene_temporal_outlier_pixels_ = 0;
         last_scene_reprojected_temporal_outlier_pixels_ = 0;
@@ -1645,6 +1650,8 @@ void DxrDevice::shutdown(bool flush_queue)
     last_scene_rgb_checksum_ = 0;
     last_scene_frame_delta_ = -1.0;
     last_scene_reprojected_frame_delta_ = -1.0;
+    last_scene_nonzero_pixels_ = 0;
+    last_scene_mean_luminance_ = 0.0;
     last_scene_saturated_pixels_ = 0;
     last_scene_temporal_outlier_pixels_ = 0;
     last_scene_reprojected_temporal_outlier_pixels_ = 0;

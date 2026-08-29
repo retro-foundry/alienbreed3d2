@@ -61,6 +61,21 @@ int main()
                   indirect::direction_dimension_x == 6u &&
                   indirect::direction_dimension_y == 7u &&
                   indirect::polygon_bounce_stream_stride == 1024u &&
+                  indirect::temporal_window_default == 4u &&
+                  indirect::temporal_window_maximum == 4u &&
+                  indirect::history_motion_limit == 0.5f &&
+                  indirect::temporal_window_mask == 0xffu &&
+                  indirect::temporal_configuration(4u, false) == 4u &&
+                  indirect::temporal_configuration(4u, true) == 0x80000004u &&
+                  indirect::temporal_window_valid(1u) &&
+                  indirect::temporal_window_valid(2u) &&
+                  !indirect::temporal_window_valid(3u) &&
+                  indirect::temporal_window_valid(4u) &&
+                  indirect::retained_history_count(4u, 1u) == 0u &&
+                  indirect::retained_history_count(1u, 4u) == 1u &&
+                  indirect::retained_history_count(4u, 4u) == 3u &&
+                  indirect::current_frame_weight(1u, 2u) == 0.5f &&
+                  indirect::current_frame_weight(4u, 4u) == 0.25f &&
                   indirect::continuation_count(0u) == 0u &&
                   indirect::continuation_count(2u) == 1u &&
                   indirect::continuation_count(8u) == 7u &&
@@ -69,6 +84,20 @@ int main()
                   grid::lights_per_cell == 512u &&
                   grid::entry_count == 2097152u &&
                   grid::lights_per_cell / grid::refresh_phase_count == 32u);
+    uint32_t history_metadata = 0u;
+    if (!indirect::pack_history_metadata(
+            indirect::history_primitive_mask, 4u, history_metadata) ||
+        indirect::history_primitive_index(history_metadata) !=
+            indirect::history_primitive_mask ||
+        indirect::history_effective_count(history_metadata) != 4u ||
+        indirect::pack_history_metadata(
+            indirect::history_primitive_mask + 1u, 1u, history_metadata) ||
+        indirect::pack_history_metadata(0u, 5u, history_metadata) ||
+        !indirect::pack_history_metadata(
+            std::numeric_limits<uint32_t>::max(), 0u, history_metadata) ||
+        history_metadata != 0u) {
+        return fail("short GI history metadata contract changed");
+    }
     if (!near(temporal::decode_half(0x3c00u), 1.0f) ||
         !near(temporal::decode_half(0xbc00u), -1.0f) ||
         !near(temporal::decode_half(0x0001u),

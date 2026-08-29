@@ -69,6 +69,20 @@ int main(int argc, char **argv)
         }
         observed[quantized] = true;
     }
+    std::array<bool, 256> temporal_window_values = {};
+    for (uint32_t frame = 0u; frame < 4u; ++frame) {
+        for (uint32_t ordinal = 0u; ordinal < 4u; ++ordinal) {
+            const uint32_t sample_index = frame * 4u + ordinal;
+            const float value = sample(
+                package, 23u, 19u, sample_index, 6u);
+            const uint32_t quantized = static_cast<uint32_t>(value * 256.0f);
+            if (quantized >= temporal_window_values.size() ||
+                temporal_window_values[quantized]) {
+                return fail("four-frame GI window repeats a direction sample");
+            }
+            temporal_window_values[quantized] = true;
+        }
+    }
 
     std::vector<double> path_samples;
     std::vector<double> guide_samples;

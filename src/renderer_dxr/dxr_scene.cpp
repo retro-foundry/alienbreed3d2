@@ -169,6 +169,30 @@ uint64_t compute_light_grid_layout_hash(
     return hash;
 }
 
+uint64_t compute_emitter_state_hash(
+    const std::vector<DxrEmissiveTriangle> &emitters,
+    const std::vector<DxrSceneVertex> &vertices)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    const size_t emitter_count = emitters.size();
+    hash = hash_bytes(hash, &emitter_count, sizeof(emitter_count));
+    for (const DxrEmissiveTriangle &emitter : emitters) {
+        hash = hash_bytes(hash, &emitter, sizeof(emitter));
+        if (emitter.first_vertex > vertices.size() ||
+            3u > vertices.size() - emitter.first_vertex) {
+            continue;
+        }
+        for (size_t vertex_index = 0u; vertex_index < 3u; ++vertex_index) {
+            const DxrSceneVertex &vertex =
+                vertices[emitter.first_vertex + vertex_index];
+            hash = hash_bytes(hash, vertex.position, sizeof(vertex.position));
+            hash = hash_bytes(
+                hash, &vertex.emissive_scale, sizeof(vertex.emissive_scale));
+        }
+    }
+    return hash;
+}
+
 struct MaterialKey {
     SceneMaterialSource source;
     uint32_t source_asset_id;
@@ -1811,6 +1835,8 @@ bool DxrScene::compile(const SceneFrame &frame,
     emissive_triangles_ = std::move(compiled_emitters);
     light_grid_layout_hash_ =
         compute_light_grid_layout_hash(emissive_triangles_);
+    emitter_state_hash_ =
+        compute_emitter_state_hash(emissive_triangles_, vertices_);
     surface_material_indices_ =
         std::move(compiled_surface_material_indices);
     material_emissive_bound_ =
@@ -2125,6 +2151,8 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
     vertices_ = std::move(compiled_vertices);
     instances_ = std::move(compiled_instances);
     emissive_triangles_ = std::move(compiled_emitters);
+    emitter_state_hash_ =
+        compute_emitter_state_hash(emissive_triangles_, vertices_);
     blas_update_pending_ = std::move(compiled_updates);
     return true;
 }

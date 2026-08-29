@@ -36,6 +36,8 @@ public:
     uint64_t last_scene_rgb_checksum() const;
     double last_scene_frame_delta() const;
     double last_scene_reprojected_frame_delta() const;
+    uint64_t last_scene_nonzero_pixels() const;
+    double last_scene_mean_luminance() const;
     uint64_t last_scene_saturated_pixels() const;
     uint64_t last_scene_temporal_outlier_pixels() const;
     uint64_t last_scene_reprojected_temporal_outlier_pixels() const;

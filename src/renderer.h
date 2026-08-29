@@ -78,6 +78,10 @@ double renderer_last_frame_delta(const Renderer *renderer);
  * current-to-previous scene motion. Moving validation should use this value. */
 double renderer_last_frame_reprojected_delta(const Renderer *renderer);
 
+/* Hidden GPU-smoke presented non-black coverage and display-code luminance. */
+uint64_t renderer_last_frame_nonzero_pixels(const Renderer *renderer);
+double renderer_last_frame_mean_luminance(const Renderer *renderer);
+
 /* Hidden GPU-smoke count of presented pixels with any component at or above
  * 250, a proxy for radiance outliers that survive tone mapping. */
 uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer);

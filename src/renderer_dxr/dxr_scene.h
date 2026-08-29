@@ -127,6 +127,7 @@ public:
     uint64_t light_grid_layout_hash() const {
         return light_grid_layout_hash_;
     }
+    uint64_t emitter_state_hash() const { return emitter_state_hash_; }
     uint64_t rebuild_count() const { return rebuild_count_; }
     bool history_reset_pending() const { return history_reset_pending_; }
     void mark_history_promoted() { history_reset_pending_ = false; }
@@ -182,6 +183,7 @@ private:
     std::vector<DxrSceneMaterial> materials_;
     std::vector<DxrEmissiveTriangle> emissive_triangles_;
     uint64_t light_grid_layout_hash_ = 0u;
+    uint64_t emitter_state_hash_ = 0u;
     std::vector<uint32_t> surface_material_indices_;
     std::vector<float> material_emissive_bound_;
     uint32_t view_weapon_first_material_ = 0u;

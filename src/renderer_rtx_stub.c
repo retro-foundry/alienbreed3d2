@@ -119,6 +119,18 @@ double renderer_rtx_last_frame_reprojected_delta(const RendererRtx *renderer)
     return -1.0;
 }
 
+uint64_t renderer_rtx_last_frame_nonzero_pixels(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return UINT64_C(0);
+}
+
+double renderer_rtx_last_frame_mean_luminance(const RendererRtx *renderer)
+{
+    (void)renderer;
+    return 0.0;
+}
+
 uint64_t renderer_rtx_last_frame_saturated_pixels(const RendererRtx *renderer)
 {
     (void)renderer;

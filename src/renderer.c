@@ -276,6 +276,28 @@ double renderer_last_frame_reprojected_delta(const Renderer *renderer)
     }
 }
 
+uint64_t renderer_last_frame_nonzero_pixels(const Renderer *renderer)
+{
+    if (!renderer) return UINT64_C(0);
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_RTX:
+        return renderer_rtx_last_frame_nonzero_pixels(renderer->rtx);
+    default:
+        return UINT64_C(0);
+    }
+}
+
+double renderer_last_frame_mean_luminance(const Renderer *renderer)
+{
+    if (!renderer) return 0.0;
+    switch (renderer->backend) {
+    case RENDERER_BACKEND_RTX:
+        return renderer_rtx_last_frame_mean_luminance(renderer->rtx);
+    default:
+        return 0.0;
+    }
+}
+
 uint64_t renderer_last_frame_saturated_pixels(const Renderer *renderer)
 {
     if (!renderer) return UINT64_C(0);

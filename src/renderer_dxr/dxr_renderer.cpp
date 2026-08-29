@@ -252,6 +252,16 @@ double DxrRenderer::last_scene_reprojected_frame_delta() const
     return device_ ? device_->last_scene_reprojected_frame_delta() : -1.0;
 }
 
+uint64_t DxrRenderer::last_scene_nonzero_pixels() const
+{
+    return device_ ? device_->last_scene_nonzero_pixels() : UINT64_C(0);
+}
+
+double DxrRenderer::last_scene_mean_luminance() const
+{
+    return device_ ? device_->last_scene_mean_luminance() : 0.0;
+}
+
 uint64_t DxrRenderer::last_scene_saturated_pixels() const
 {
     return device_ ? device_->last_scene_saturated_pixels() : UINT64_C(0);

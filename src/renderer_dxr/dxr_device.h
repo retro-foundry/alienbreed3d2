@@ -66,6 +66,14 @@ public:
     {
         return last_scene_saturated_pixels_;
     }
+    uint64_t last_scene_nonzero_pixels() const
+    {
+        return last_scene_nonzero_pixels_;
+    }
+    double last_scene_mean_luminance() const
+    {
+        return last_scene_mean_luminance_;
+    }
     uint64_t last_scene_temporal_outlier_pixels() const
     {
         return last_scene_temporal_outlier_pixels_;
@@ -147,6 +155,8 @@ private:
     uint64_t last_scene_rgb_checksum_ = 0;
     double last_scene_frame_delta_ = -1.0;
     double last_scene_reprojected_frame_delta_ = -1.0;
+    uint64_t last_scene_nonzero_pixels_ = 0;
+    double last_scene_mean_luminance_ = 0.0;
     uint64_t last_scene_saturated_pixels_ = 0;
     uint64_t last_scene_temporal_outlier_pixels_ = 0;
     uint64_t last_scene_reprojected_temporal_outlier_pixels_ = 0;

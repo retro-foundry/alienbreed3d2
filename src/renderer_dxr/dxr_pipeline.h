@@ -13,6 +13,7 @@
 #include "renderer_ray_tracing_options.h"
 #include "scene_frame.h"
 #include "dxr_reconstruction_math.h"
+#include "dxr_indirect_reconstruction.h"
 #include "dxr_light_grid.h"
 #include "dxr_output.h"
 #include "dxr_scene.h"
@@ -199,9 +200,15 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> light_grid_;
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_;
     Microsoft::WRL::ComPtr<ID3D12Resource> diagnostics_readback_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> indirect_radiance_;
+    /* Current raw directional GI is written into one slot and replaced in-place
+     * by the short accumulated result. The other slot retains the prior frame. */
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2>
+        indirect_radiance_histories_;
     Microsoft::WRL::ComPtr<ID3D12Resource> indirect_filtered_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> indirect_chroma_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2>
+        indirect_chroma_histories_;
+    std::array<Microsoft::WRL::ComPtr<ID3D12Resource>, 2>
+        indirect_history_metadata_;
     /* Streamline cannot use the renderer-private FP16 invalid-motion sentinel
      * when camera motion is already included. Keep a sanitized copy for RR. */
     Microsoft::WRL::ComPtr<ID3D12Resource> streamline_scene_motion_;
@@ -252,6 +259,8 @@ private:
     uint32_t spp_ = 1u;
     uint32_t indirect_spp_ =
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL;
+    uint32_t indirect_temporal_window_ =
+        indirect_reconstruction::temporal_window_default;
     float diffuse_gi_scale_ =
         RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
@@ -279,6 +288,9 @@ private:
     size_t last_invalid_lighting_or_guide_pixels_ = 0u;
     size_t last_smooth_specular_coverage_ = 0u;
     size_t last_burst_work_overflow_ = 0u;
+    size_t last_indirect_history_accepts_ = 0u;
+    size_t last_indirect_history_rejects_ = 0u;
+    std::array<size_t, 4> last_indirect_history_counts_ = {};
     float last_target_exposure_ = 1.0f;
     float last_automatic_exposure_ = 1.0f;
     float last_metered_average_luminance_ = 0.0f;
@@ -297,6 +309,8 @@ private:
         reconstruction::PixelJitter pending_jitter = {};
         uint64_t history_epoch = 0;
         uint64_t pending_history_epoch = 0;
+        uint64_t emitter_state_hash = 0;
+        uint64_t pending_emitter_state_hash = 0;
         uint32_t sample_index = 0;
         uint32_t pending_sample_index = 0;
         UINT input_width = 0;

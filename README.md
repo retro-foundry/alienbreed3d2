@@ -45,9 +45,11 @@ session. Supported keys are:
   Fresnel-partitioned Lambert/GGX polygon-light NEE at the primary surface,
   diffuse polygon-light NEE at every configured diffuse continuation, and one
   companion smooth GGX continuation. Rough specular is reconstructed from the
-  current directional GI sample. Four fresh stratified diffuse paths feed DLSS
-  Ray Reconstruction, the sole indirect reconstructor. Sampling uses traced
-  shadow rays and a pinned
+  same directional GI signal as diffuse. Four fresh stratified diffuse paths
+  are combined with a bounded same-primitive temporal history before DLSS Ray
+  Reconstruction; RR remains the sole spatial denoiser and upscaler. A stable
+  four-frame history represents up to 16 genuinely traced paths without adding
+  a current-frame ray or dispatch. Sampling uses traced shadow rays and a pinned
   dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player
   1's
   companion weapon is source-scale camera-relative PBR geometry in the same
@@ -82,9 +84,10 @@ default, so the shipped template lists them commented out with their defaults:
 - `rtx_samples_per_pixel=1` through `8` sets independent primary direct-light
   samples. `rtx_indirect_samples=1` through `32` sets genuine current-frame
   diffuse paths per internal pixel and defaults to `4`. The radial and
-  azimuthal cosine-hemisphere dimensions are stratified across those paths;
-  no radiance is interpolated between pixels. Use `2` as a faster mode or `8`
-  for an expensive quality check.
+  azimuthal cosine-hemisphere dimensions are stratified across those paths.
+  A short motion-reprojected mean reuses only the same global primary triangle;
+  there is no current-frame spatial radiance interpolation. Use `2` as a faster
+  mode or `8` for an expensive quality check.
 - `rtx_diffuse_gi=0` through `1` scales only secondary diffuse transfer and
   defaults to `0.75`. Exact zero skips diffuse continuation work without
   changing direct light or visible emission.
@@ -121,8 +124,7 @@ default, so the shipped template lists them commented out with their defaults:
   world-stable ReGIR proposal, sample authored triangles uniformly in area,
   evaluate exact authored emission, and retain unbiased fresh-RIS
   normalization. `rtx_reservoir_limit` remains accepted for configuration
-  compatibility but does not accumulate or filter diffuse radiance in the
-  RR-only path; and
+  compatibility but does not control the short diffuse history; and
 - `rtx_radiance_clamp=0..100000` is a diagnostic per-sample firefly ceiling.
   Its Q2RTX-matching default is `0`, disabled, because the comparator has no
   path-radiance clamp control. `rtx_ndf_trim=0.9` trims the active sampled GGX
@@ -132,7 +134,8 @@ default, so the shipped template lists them commented out with their defaults:
 `AB3D2_DXR_SPP`, `AB3D2_DXR_INDIRECT_SPP`, `AB3D2_DXR_DIFFUSE_GI`,
 `AB3D2_DXR_MAX_BOUNCES`,
 `AB3D2_DXR_CANDIDATES`,
-`AB3D2_DXR_RESERVOIR_LIMIT`, `AB3D2_DXR_RADIANCE_CLAMP`,
+`AB3D2_DXR_RESERVOIR_LIMIT`, `AB3D2_DXR_GI_TEMPORAL_FRAMES`,
+`AB3D2_DXR_RADIANCE_CLAMP`,
 `AB3D2_DXR_EXPOSURE_BIAS`, `AB3D2_DXR_NDF_TRIM`, `AB3D2_DXR_RR_MODE`,
 `AB3D2_DXR_OUTPUT`, `AB3D2_DXR_HDR_PEAK_NITS`, and
 `AB3D2_DXR_HDR_SATURATION` still
@@ -647,13 +650,14 @@ sampling with exact authored emission. Primary direct SPP and indirect path
 count are independent.
 There is no environment lighting or authored zone ambient. Smooth materials
 receive a real first-bounce GGX continuation; rough materials blend to a
-Q2RTX-style reconstruction from the current directional GI sample. Four fresh
-raw directional/RGB estimates per internal pixel enter the combined noisy HDR
-image by default, and DLSS RR performs the only temporal and spatial
-reconstruction. RR-off displays the same unfiltered current-frame estimate.
-ReGIR entries persist only as corrected light proposals:
-radiance, visibility, and path samples remain current-frame values. Misses are
-black unless a traced
+Q2RTX-style reconstruction from the same directional GI signal. Four fresh
+directional/RGB estimates per internal pixel are averaged with a bounded
+same-primitive motion-reprojected history by default, then DLSS RR performs the
+only spatial reconstruction. RR-off displays that same linear temporal mean.
+The temporal stage does not synthesize samples: a mature four-frame pixel
+represents 16 genuine current and prior paths. ReGIR entries persist only as
+corrected light proposals; visibility and newly traced path samples remain
+current-frame values. Misses are black unless a traced
 segment crosses a non-occluding authored additive layer. A full-screen pass tone maps the HDR
 result using percentile histogram automatic exposure before writing the
 three-frame flip-discard swap chain. Histogram weights accumulate in 16-by-16
@@ -818,8 +822,8 @@ counters and image readback are active, while ordinary visible performance
 reports `false`. The production scheduler reports `primary_visibility`,
 `primary_shading`, and `burst_continuation` separately. Its bounded GPU-written
 list carries the configured number of fresh diffuse paths for every eligible
-internal pixel; there is no mature-history checkerboard or renderer-owned
-radiance reuse.
+internal pixel. The bounded temporal mean changes neither this work list nor
+its ray count.
 
 `AB3D2_DXR_SPLIT_PRIMARY`, `AB3D2_DXR_SINGLE_PRIMARY_SURVIVOR`,
 `AB3D2_DXR_SINGLE_CONTINUATION_LOBE`,
@@ -827,8 +831,9 @@ radiance reuse.
 `AB3D2_DXR_BOUNDED_BURST_CONTINUATIONS`, and
 `AB3D2_DXR_INTERLEAVED_DEEP_DIFFUSE` are startup A/B overrides. Split primary,
 one primary survivor, and the bounded burst are production defaults. Dense
-mature continuations are rejected because RR-only input has no renderer-owned
-radiance history. Single-lobe and deep-diffuse interleaving remain explicit
+mature continuations remain rejected; the short history integrates complete
+four-path current estimates and does not authorize a checkerboard or reduced
+fresh-ray schedule. Single-lobe and deep-diffuse interleaving remain explicit
 experiments and are off by default.
 `AB3D2_DXR_COMPACT_LOCAL_PRIMARY=1` is the next opt-in 1C diagnostic and
 requires the complete S3 stack. It bounds only primary direct RIS to eight
@@ -890,17 +895,32 @@ radiance in a separate low-frequency channel.
 
 `rtx_diffuse_gi=0..1` controls secondary diffuse transfer and defaults to
 `0.75`. `rtx_indirect_samples` controls fresh per-pixel diffuse paths and
-defaults to four. Each path is current-frame data; the renderer neither
-reprojects nor filters diffuse radiance before the single DLSS RR evaluation.
+defaults to four. Each newly traced path is current-frame data. Before the
+single DLSS RR evaluation, the existing composition dispatch reprojects the
+prior directional/chroma mean and accepts only finite bilinear taps with the
+same exact global primary-triangle identity. Invalid motion, history resets,
+primitive changes, weapon disocclusion, and motion beyond half a pixel publish
+the current estimate alone. The strict motion gate was selected because the
+compact identity-only history cannot validate a changing lighting point across
+a large moving triangle without adding a deeper geometry history. A change to
+any authored emitter record, triangle position, or emissive scale likewise
+rejects only the GI history for that frame, so a moved or switched light does
+not leave the capped exponential tail behind.
 
 `AB3D2_DXR_RESERVOIR_LIMIT` remains accepted for configuration compatibility
-but does not cap an indirect radiance history in the RR-only path.
+but does not cap this indirect history.
 
-The RR-only path has no GI history allocation: the final composition pass reads
-the genuine current-frame directional/chroma estimate directly.
+`AB3D2_DXR_GI_TEMPORAL_FRAMES=1|2|4` selects the bounded effective history
+count and defaults to `4`. `1` is the exact fresh-frame control. The ping-pong
+SH/chroma signal plus packed identity/count metadata adds 20 bytes per internal
+pixel over that control. The capped count gives a mature four-frame history a
+current-frame weight of `1/4`; it is an exponential tail, not a literal ring.
+No neighborhood clamp, stochastic history tap, current-frame spatial filter,
+extra ray, or extra dispatch is used.
 
-`AB3D2_DXR_INDIRECT_RECONSTRUCTION` accepts `raw`; `full` is a compatibility
-alias for the same fresh input. Former `temporal`, `regional`, `deflicker`,
+`AB3D2_DXR_INDIRECT_RECONSTRUCTION=raw` is a compatibility spelling for a
+one-frame temporal window; `full` selects the bounded default unless the
+explicit temporal-frame override is present. Former `temporal`, `regional`, `deflicker`,
 `wavelet1`, `wavelet2`, and `restir` values fail initialization because those
 shader exports, dispatches, and scratch allocations have been removed.
 

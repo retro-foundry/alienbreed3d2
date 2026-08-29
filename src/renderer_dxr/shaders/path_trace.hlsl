@@ -196,12 +196,17 @@ RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
  * none is used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
-/* Current-frame demodulated diffuse-suffix lighting. RayGeneration or the
- * bounded continuation burst writes one genuine per-pixel path estimate. */
-RWTexture2D<float4> IndirectRadiance : register(u14);
+/* Demodulated diffuse-suffix lighting. Primary/burst shading writes the fresh
+ * estimate into the current slot; ReconstructIndirect replaces it in-place
+ * with the bounded temporal mean while the other slot remains prior history. */
+RWTexture2D<float4> IndirectRadianceA : register(u14);
+RWTexture2D<float4> IndirectRadianceB : register(u15);
+RWTexture2D<uint> IndirectHistoryMetadataA : register(u16);
 RWTexture2D<float4> IndirectFiltered : register(u17);
 RWStructuredBuffer<float> AutomaticExposure : register(u18);
-RWTexture2D<float2> IndirectChroma : register(u19);
+RWTexture2D<float2> IndirectChromaA : register(u19);
+RWTexture2D<float2> IndirectChromaB : register(u20);
+RWTexture2D<uint> IndirectHistoryMetadataB : register(u21);
 RWTexture2D<float2> StreamlineSceneMotion : register(u26);
 RWTexture2D<uint> ViewWeaponHistories[2] : register(u27);
 RWTexture2D<float> RayReconstructionDisocclusion : register(u29);
@@ -244,7 +249,7 @@ cbuffer FrameConstants : register(b0)
     float NdfTrim;
     uint SamplesPerPixel;
     float ExposureDeltaSeconds;
-    uint ReservedIndirectReconstruction;
+    uint IndirectTemporalWindow;
     uint RadianceChannel;
     uint RayReconstructionWeaponPoseTransition;
     uint IndirectSamplesPerPixel;
@@ -336,6 +341,15 @@ static const float ReservoirDepthTolerance = 0.1;
 static const float ReservoirNormalTolerance = 0.5;
 static const float IndirectShBasisL0 = 0.282095;
 static const float IndirectShBasisL1 = 0.488603;
+static const uint IndirectHistoryPrimitiveMask = 0x00ffffffu;
+static const uint IndirectHistoryCountShift = 24u;
+static const uint IndirectTemporalWindowMask = 0xffu;
+static const uint IndirectLightingChangedFlag = 0x80000000u;
+/* The compact identity-only history cannot prove that a moving subpixel
+ * footprint still represents the same lighting point on a large triangle.
+ * Keep reuse to stationary/subpixel receivers; measured larger-motion reuse
+ * produced visible Shotgun trails even with exact primitive matching. */
+static const float IndirectHistoryMotionLimit = 0.5;
 static const uint ExposureSampleColumns = 32u;
 static const uint ExposureSampleRows = 18u;
 static const uint ExposureHistogramBinCount = 64u;
@@ -594,6 +608,82 @@ IndirectSignal scaleIndirectSignal(IndirectSignal signal, float scale)
     signal.luminanceSH *= scale;
     signal.chroma *= scale;
     return signal;
+}
+
+uint currentIndirectHistorySlot()
+{
+    return (IndirectTemporalWindow & IndirectTemporalWindowMask) > 1u ?
+        SampleIndex & 1u : 0u;
+}
+
+IndirectSignal loadIndirectSignal(uint slot, int2 pixel)
+{
+    IndirectSignal signal;
+    signal.luminanceSH = slot == 0u ?
+        IndirectRadianceA[pixel] : IndirectRadianceB[pixel];
+    signal.chroma = slot == 0u ?
+        IndirectChromaA[pixel] : IndirectChromaB[pixel];
+    return signal;
+}
+
+void storeCurrentIndirectSignal(uint2 pixel, IndirectSignal signal)
+{
+    if (currentIndirectHistorySlot() == 0u) {
+        IndirectRadianceA[pixel] = signal.luminanceSH;
+        IndirectChromaA[pixel] = signal.chroma;
+    } else {
+        IndirectRadianceB[pixel] = signal.luminanceSH;
+        IndirectChromaB[pixel] = signal.chroma;
+    }
+}
+
+uint loadIndirectHistoryMetadata(uint slot, int2 pixel)
+{
+    return slot == 0u ?
+        IndirectHistoryMetadataA[pixel] : IndirectHistoryMetadataB[pixel];
+}
+
+void storeCurrentIndirectHistoryMetadata(uint2 pixel, uint metadata)
+{
+    if (currentIndirectHistorySlot() == 0u) {
+        IndirectHistoryMetadataA[pixel] = metadata;
+    } else {
+        IndirectHistoryMetadataB[pixel] = metadata;
+    }
+}
+
+uint packIndirectHistoryMetadata(uint primitiveIndex, uint effectiveCount)
+{
+    return (primitiveIndex & IndirectHistoryPrimitiveMask) |
+        (min(effectiveCount, 255u) << IndirectHistoryCountShift);
+}
+
+uint indirectHistoryPrimitive(uint metadata)
+{
+    return metadata & IndirectHistoryPrimitiveMask;
+}
+
+uint indirectHistoryEffectiveCount(uint metadata)
+{
+    return metadata >> IndirectHistoryCountShift;
+}
+
+bool finiteIndirectSignal(IndirectSignal signal)
+{
+    return !any(isnan(signal.luminanceSH)) &&
+        !any(isinf(signal.luminanceSH)) &&
+        !any(isnan(signal.chroma)) && !any(isinf(signal.chroma));
+}
+
+void recordIndirectTemporalDiagnostic(bool accepted, uint effectiveCount)
+{
+    if (ValidationEnabled == 0u ||
+        (IndirectTemporalWindow & IndirectTemporalWindowMask) <= 1u) {
+        return;
+    }
+    InterlockedAdd(Diagnostics[accepted ? 16u : 17u], 1u);
+    uint bucket = clamp(effectiveCount, 1u, 4u) - 1u;
+    InterlockedAdd(Diagnostics[18u + bucket], 1u);
 }
 
 /* The opponent-color portion of IndirectSignal is linear and reversible.
@@ -3324,8 +3414,14 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
         }
     }
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
-    IndirectRadiance[pixel] = resolvedIndirectSignal.luminanceSH;
-    IndirectChroma[pixel] = resolvedIndirectSignal.chroma;
+    storeCurrentIndirectSignal(pixel, resolvedIndirectSignal);
+    if ((IndirectTemporalWindow & IndirectTemporalWindowMask) > 1u) {
+        uint historyMetadata = primaryPayload.hit != 0u &&
+                indirectSampleCount > 0u ?
+            packIndirectHistoryMetadata(
+                primaryPayload.primitiveIndex, 1u) : 0u;
+        storeCurrentIndirectHistoryMetadata(pixel, historyMetadata);
+    }
     if (ValidationEnabled != 0u) {
         if (primaryPrimitive == ViewWeaponPrimitive) {
             uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
@@ -3537,8 +3633,7 @@ void BurstContinuation()
 
     IndirectSignal signal = scaleIndirectSignal(
         signalSum, rcp(float(sampleCount)));
-    IndirectRadiance[pixel] = signal.luminanceSH;
-    IndirectChroma[pixel] = signal.chroma;
+    storeCurrentIndirectSignal(pixel, signal);
 }
 
 
@@ -3601,9 +3696,124 @@ float3 reconstructRoughSpecular(
     return incidentColor * brdf * blendWeight * compensation;
 }
 
-/* Fresh indirect diffuse lighting remains in a dedicated current-frame channel
- * until final composition. This pass remodulates the raw incident estimate at
- * the primary receiver; DLSS-RR owns all temporal/spatial reconstruction. */
+/* Reproject only the same global primary primitive through the exact motion and
+ * jitter convention already consumed by the dormant direct-reservoir path. The
+ * four taps are the subpixel footprint; invalid taps are discarded and the
+ * survivors are renormalized, with no outward search or current-frame neighbor
+ * reuse. Every stored value remains a linear mean of genuine path estimates. */
+IndirectSignal accumulateTemporalIndirect(
+    uint2 pixel, uint2 dimensions, IndirectSignal current)
+{
+    uint temporalWindow =
+        IndirectTemporalWindow & IndirectTemporalWindowMask;
+    if (temporalWindow <= 1u) {
+        return current;
+    }
+
+    uint currentSlot = currentIndirectHistorySlot();
+    uint currentMetadata = loadIndirectHistoryMetadata(
+        currentSlot, int2(pixel));
+    uint currentCount = indirectHistoryEffectiveCount(currentMetadata);
+    if (currentCount == 0u || !finiteIndirectSignal(current)) {
+        storeCurrentIndirectHistoryMetadata(pixel, 0u);
+        return current;
+    }
+    uint currentPrimitive = indirectHistoryPrimitive(currentMetadata);
+    float2 motion = SceneMotion[pixel];
+    bool rejectHistory = HistoryValid == 0u ||
+        (IndirectTemporalWindow & IndirectLightingChangedFlag) != 0u ||
+        RayReconstructionDisocclusion[pixel] > 0.0 ||
+        any(isnan(motion)) || any(isinf(motion)) ||
+        any(abs(motion) >= InvalidMotion) ||
+        any(abs(motion) > IndirectHistoryMotionLimit);
+    if (rejectHistory) {
+        storeCurrentIndirectHistoryMetadata(
+            pixel, packIndirectHistoryMetadata(currentPrimitive, 1u));
+        recordIndirectTemporalDiagnostic(false, 1u);
+        return current;
+    }
+
+    float2 historyGrid = reprojectHistoryPixel(pixel, motion) - 0.5;
+    int2 historyBase = int2(floor(historyGrid));
+    float2 historyFraction = frac(historyGrid);
+    float bilinearWeights[4] = {
+        (1.0 - historyFraction.x) * (1.0 - historyFraction.y),
+        historyFraction.x * (1.0 - historyFraction.y),
+        (1.0 - historyFraction.x) * historyFraction.y,
+        historyFraction.x * historyFraction.y,
+    };
+    int2 offsets[4] = {
+        int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
+    uint previousSlot = 1u - currentSlot;
+    IndirectSignal weightedHistory = emptyIndirectSignal();
+    float weightedHistoryCount = 0.0;
+    float validBilinearWeight = 0.0;
+    [unroll]
+    for (uint tap = 0u; tap < 4u; ++tap) {
+        float bilinearWeight = bilinearWeights[tap];
+        int2 historyPixel = historyBase + offsets[tap];
+        if (!(bilinearWeight > 0.0) || any(historyPixel < 0) ||
+            any(historyPixel >= int2(dimensions))) {
+            continue;
+        }
+        uint metadata = loadIndirectHistoryMetadata(
+            previousSlot, historyPixel);
+        uint previousCount = min(
+            indirectHistoryEffectiveCount(metadata),
+            temporalWindow - 1u);
+        if (previousCount == 0u ||
+            indirectHistoryPrimitive(metadata) != currentPrimitive) {
+            continue;
+        }
+        IndirectSignal previous = loadIndirectSignal(
+            previousSlot, historyPixel);
+        if (!finiteIndirectSignal(previous)) {
+            continue;
+        }
+        float representedWeight = bilinearWeight * float(previousCount);
+        weightedHistory.luminanceSH +=
+            previous.luminanceSH * representedWeight;
+        weightedHistory.chroma += previous.chroma * representedWeight;
+        weightedHistoryCount += representedWeight;
+        validBilinearWeight += bilinearWeight;
+    }
+
+    if (!(weightedHistoryCount > 0.0) ||
+        !(validBilinearWeight > 0.0)) {
+        storeCurrentIndirectHistoryMetadata(
+            pixel, packIndirectHistoryMetadata(currentPrimitive, 1u));
+        recordIndirectTemporalDiagnostic(false, 1u);
+        return current;
+    }
+    IndirectSignal historyMean = scaleIndirectSignal(
+        weightedHistory, rcp(weightedHistoryCount));
+    float retainedCount = min(
+        weightedHistoryCount / validBilinearWeight,
+        float(temporalWindow - 1u));
+    IndirectSignal accumulated;
+    accumulated.luminanceSH =
+        (historyMean.luminanceSH * retainedCount + current.luminanceSH) /
+        (retainedCount + 1.0);
+    accumulated.chroma =
+        (historyMean.chroma * retainedCount + current.chroma) /
+        (retainedCount + 1.0);
+    if (!finiteIndirectSignal(accumulated)) {
+        storeCurrentIndirectHistoryMetadata(
+            pixel, packIndirectHistoryMetadata(currentPrimitive, 1u));
+        recordIndirectTemporalDiagnostic(false, 1u);
+        return current;
+    }
+    uint accumulatedCount = min(
+        uint(round(retainedCount)) + 1u, temporalWindow);
+    storeCurrentIndirectHistoryMetadata(
+        pixel, packIndirectHistoryMetadata(currentPrimitive, accumulatedCount));
+    recordIndirectTemporalDiagnostic(true, accumulatedCount);
+    return accumulated;
+}
+
+/* The current four-path estimate remains a dedicated linear directional signal
+ * until this existing composition dispatch optionally folds in its short
+ * history. Diffuse and rough specular consume the same result before DLSS-RR. */
 [shader("raygeneration")]
 void ReconstructIndirect()
 {
@@ -3626,14 +3836,13 @@ void ReconstructIndirect()
         IndirectFiltered[pixel] = 0.0;
         return;
     }
-    /* Publish only the current frame's genuine estimator. Directional SH is
-     * a compact per-pixel storage format here, not a temporal or spatial
-     * reconstruction stage. */
-    IndirectSignal rawSignal;
-    rawSignal.luminanceSH = IndirectRadiance[pixel];
-    rawSignal.chroma = IndirectChroma[pixel];
-    float3 filteredIncident = decodeIndirectSignalColor(rawSignal);
-    IndirectSignal specularSignal = rawSignal;
+    IndirectSignal rawSignal = loadIndirectSignal(
+        currentIndirectHistorySlot(), int2(pixel));
+    IndirectSignal integratedSignal = accumulateTemporalIndirect(
+        pixel, dimensions, rawSignal);
+    storeCurrentIndirectSignal(pixel, integratedSignal);
+    float3 filteredIncident = decodeIndirectSignalColor(integratedSignal);
+    IndirectSignal specularSignal = integratedSignal;
     bool hasSpecularSignal = true;
     if (any(isnan(filteredIncident)) || any(isinf(filteredIncident))) {
         filteredIncident = 0.0;

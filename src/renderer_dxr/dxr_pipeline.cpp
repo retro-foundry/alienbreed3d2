@@ -48,10 +48,12 @@ enum DescriptorIndex : UINT {
     tone_map_state_srv = 27,
     diagnostics_uav = 28,
     light_grid_uav = 29,
-    indirect_radiance_uav = 30,
+    indirect_radiance_uav_start = 30,
+    indirect_history_metadata_a_uav = 32,
     indirect_filtered_uav = 33,
     automatic_exposure_uav = 34,
-    indirect_chroma_uav = 35,
+    indirect_chroma_uav_start = 35,
+    indirect_history_metadata_b_uav = 37,
     streamline_scene_motion_uav = 42,
     view_weapon_history_uav_start = 43,
     rr_disocclusion_mask_uav = 45,
@@ -129,7 +131,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 16u;
+constexpr UINT diagnostic_value_count = 22u;
 constexpr UINT burst_dispatch_width_offset = 88u;
 static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
               burst_dispatch_width_offset);
@@ -189,7 +191,7 @@ struct FrameConstants {
     float ndf_trim;
     uint32_t samples_per_pixel;
     float exposure_delta_seconds;
-    uint32_t reserved_indirect_reconstruction;
+    uint32_t indirect_temporal_window;
     uint32_t radiance_channel;
     uint32_t rr_weapon_pose_transition;
     uint32_t indirect_samples_per_pixel;
@@ -554,9 +556,9 @@ bool DxrPipeline::configure_debug_view(std::string &error)
                      names[debug_view_]);
     }
 
-    /* DLSS Ray Reconstruction owns indirect denoising. Keep `full` as a
-     * transition alias for existing launch configurations, but never select a
-     * renderer-owned temporal, regional, wavelet, or ReSTIR-GI path. */
+    /* Keep the former reconstruction selector as a transition spelling. Raw is
+     * the exact one-frame control; full selects the new bounded temporal mean.
+     * The explicit GI-temporal override parsed below can still win. */
     char reconstruction_value[64] = {};
     const DWORD reconstruction_length = GetEnvironmentVariableA(
         "AB3D2_DXR_INDIRECT_RECONSTRUCTION", reconstruction_value,
@@ -573,7 +575,12 @@ bool DxrPipeline::configure_debug_view(std::string &error)
                     "Reconstruction owns indirect denoising";
             return false;
         }
-        debug_output("DXR indirect reconstruction: fresh raw RR input");
+        if (std::strcmp(reconstruction_value, "raw") == 0) {
+            indirect_temporal_window_ = 1u;
+        }
+        debug_output(std::strcmp(reconstruction_value, "raw") == 0 ?
+            "DXR indirect reconstruction: fresh raw RR input" :
+            "DXR indirect reconstruction: bounded temporal RR input");
     }
 
     constexpr std::array<const char *, 7> radiance_channel_names = {
@@ -682,15 +689,18 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         uint32_t *target;
     };
     /* Keep the former reservoir-limit spelling range-compatible for existing
-     * launch configurations. RR-only GI does not consume it. */
-    const std::array<Override, 4> overrides = {
+     * launch configurations. It does not control GI history. */
+    const std::array<Override, 5> overrides = {
         Override{"AB3D2_DXR_MAX_BOUNCES", 1u,
                  indirect_reconstruction::maximum_path_depth,
                  &maximum_depth_},
         Override{"AB3D2_DXR_INDIRECT_SPP", 1u, 32u, &indirect_spp_},
         Override{"AB3D2_DXR_CANDIDATES", 1u, 1024u, &candidate_count_},
         Override{"AB3D2_DXR_RESERVOIR_LIMIT", 0u, 65536u,
-                 &reservoir_sample_limit_},
+                  &reservoir_sample_limit_},
+        Override{"AB3D2_DXR_GI_TEMPORAL_FRAMES", 1u,
+                 indirect_reconstruction::temporal_window_maximum,
+                 &indirect_temporal_window_},
     };
     {
         char value[64] = {};
@@ -812,6 +822,11 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             return false;
         }
         *entry.target = static_cast<uint32_t>(parsed);
+    }
+    if (!indirect_reconstruction::temporal_window_valid(
+            indirect_temporal_window_)) {
+        error = "AB3D2_DXR_GI_TEMPORAL_FRAMES must be 1, 2, or 4";
+        return false;
     }
     EnvironmentToggle split_primary_override = EnvironmentToggle::automatic;
     EnvironmentToggle primary_survivor_override =
@@ -960,8 +975,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             length != 0u && std::strcmp(value, "1") == 0;
     }
     debug_output("DXR ray tracing: direct samples per pixel=" +
-                 std::to_string(spp_) + " indirect sample ceiling=" +
-                 std::to_string(indirect_spp_) + " diffuse GI=" +
+                  std::to_string(spp_) + " indirect sample ceiling=" +
+                  std::to_string(indirect_spp_) + " GI temporal frames=" +
+                  std::to_string(indirect_temporal_window_) + " diffuse GI=" +
                  std::to_string(diffuse_gi_scale_) + " bounces=" +
                  std::to_string(maximum_depth_) + " candidates=" +
                  std::to_string(candidate_count_) + " reservoir limit=" +
@@ -1215,7 +1231,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     if (!load_shader(L"path_trace.dxil", library, error)) {
         return false;
     }
-    std::array<D3D12_DESCRIPTOR_RANGE, 6> ranges = {};
+    std::array<D3D12_DESCRIPTOR_RANGE, 5> ranges = {};
     ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     ranges[0].NumDescriptors =
         static_cast<UINT>(DxrReconstructionBuffer::count);
@@ -1227,19 +1243,16 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[2].NumDescriptors = 5;
     ranges[2].BaseShaderRegister = 3;
     /* The high UAV table follows the descriptor heap's stable register-index
-     * layout, but explicitly skips the deleted GI history/filter slots. */
+     * layout. Registers u14-u21 contain the folded directional history while
+     * u22-u25 remain unbound deleted-filter slots. */
     ranges[3].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[3].NumDescriptors = 2;
+    ranges[3].NumDescriptors = 9;
     ranges[3].BaseShaderRegister = 13;
     ranges[3].OffsetInDescriptorsFromTableStart = 0;
     ranges[4].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[4].NumDescriptors = 3;
-    ranges[4].BaseShaderRegister = 17;
-    ranges[4].OffsetInDescriptorsFromTableStart = 4;
-    ranges[5].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[5].NumDescriptors = 7;
-    ranges[5].BaseShaderRegister = 26;
-    ranges[5].OffsetInDescriptorsFromTableStart = 13;
+    ranges[4].NumDescriptors = 7;
+    ranges[4].BaseShaderRegister = 26;
+    ranges[4].OffsetInDescriptorsFromTableStart = 13;
     std::array<D3D12_ROOT_PARAMETER, 16> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
@@ -1268,7 +1281,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[11].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[11].Descriptor.ShaderRegister = 12;
     parameters[12].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    parameters[12].DescriptorTable.NumDescriptorRanges = 3;
+    parameters[12].DescriptorTable.NumDescriptorRanges = 2;
     parameters[12].DescriptorTable.pDescriptorRanges = &ranges[3];
     parameters[13].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[13].Descriptor.ShaderRegister = 33;
@@ -1760,6 +1773,12 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     last_invalid_lighting_or_guide_pixels_ = values[13];
     last_smooth_specular_coverage_ = values[14];
     last_burst_work_overflow_ = values[15];
+    last_indirect_history_accepts_ = values[16];
+    last_indirect_history_rejects_ = values[17];
+    for (UINT bucket = 0u; bucket < last_indirect_history_counts_.size();
+         ++bucket) {
+        last_indirect_history_counts_[bucket] = values[18u + bucket];
+    }
     const D3D12_RANGE no_write = {0, 0};
     diagnostics_readback_->Unmap(0, &no_write);
     debug_output(
@@ -1783,7 +1802,19 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
         " smooth_specular=" +
         std::to_string(last_smooth_specular_coverage_) +
         " burst_work_overflow=" +
-        std::to_string(last_burst_work_overflow_));
+        std::to_string(last_burst_work_overflow_) +
+        " indirect_history_accepts=" +
+        std::to_string(last_indirect_history_accepts_) +
+        " indirect_history_rejects=" +
+        std::to_string(last_indirect_history_rejects_) +
+        " indirect_history_count_1=" +
+        std::to_string(last_indirect_history_counts_[0]) +
+        " indirect_history_count_2=" +
+        std::to_string(last_indirect_history_counts_[1]) +
+        " indirect_history_count_3=" +
+        std::to_string(last_indirect_history_counts_[2]) +
+        " indirect_history_count_4=" +
+        std::to_string(last_indirect_history_counts_[3]));
     if (last_burst_work_overflow_ != 0u) {
         error = "DXR burst continuation work capacity was exceeded by " +
             std::to_string(last_burst_work_overflow_) + " pixels";
@@ -1840,8 +1871,20 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             burst_dispatch_arguments_.begin(),
             burst_dispatch_arguments_.end(),
             [](const auto &resource) { return resource.Get() != nullptr; });
-    if (reconstruction_targets_[0] && indirect_radiance_ &&
-        indirect_filtered_ && indirect_chroma_ && automatic_exposure_ &&
+    const bool indirect_history_ready = std::all_of(
+        indirect_radiance_histories_.begin(),
+        indirect_radiance_histories_.end(),
+        [](const auto &resource) { return resource.Get() != nullptr; }) &&
+        std::all_of(
+            indirect_chroma_histories_.begin(),
+            indirect_chroma_histories_.end(),
+            [](const auto &resource) { return resource.Get() != nullptr; }) &&
+        std::all_of(
+            indirect_history_metadata_.begin(),
+            indirect_history_metadata_.end(),
+            [](const auto &resource) { return resource.Get() != nullptr; });
+    if (reconstruction_targets_[0] && indirect_history_ready &&
+        indirect_filtered_ && automatic_exposure_ &&
         tone_map_histogram_ && tone_map_state_ &&
         bloom_targets_[0] && bloom_targets_[1] && bloom_targets_[2] &&
         bloom_targets_[3] && bloom_targets_[4] && bloom_targets_[5] &&
@@ -1875,9 +1918,16 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     for (auto &arguments : burst_dispatch_arguments_) {
         arguments.Reset();
     }
-    indirect_radiance_.Reset();
+    for (auto &history : indirect_radiance_histories_) {
+        history.Reset();
+    }
     indirect_filtered_.Reset();
-    indirect_chroma_.Reset();
+    for (auto &history : indirect_chroma_histories_) {
+        history.Reset();
+    }
+    for (auto &metadata : indirect_history_metadata_) {
+        metadata.Reset();
+    }
     automatic_exposure_.Reset();
     tone_map_histogram_.Reset();
     tone_map_state_.Reset();
@@ -2134,25 +2184,31 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         }
     }
     description.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-    {
+    for (UINT index = 0u; index < indirect_radiance_histories_.size(); ++index) {
+        D3D12_RESOURCE_DESC history_description = description;
+        if (indirect_temporal_window_ == 1u && index != 0u) {
+            history_description.Width = 1u;
+            history_description.Height = 1u;
+        }
         const HRESULT result = device->CreateCommittedResource(
-            &default_heap, D3D12_HEAP_FLAG_NONE, &description,
+            &default_heap, D3D12_HEAP_FLAG_NONE, &history_description,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-            IID_PPV_ARGS(&indirect_radiance_));
+            IID_PPV_ARGS(&indirect_radiance_histories_[index]));
         if (FAILED(result)) {
             error = hresult_error(
-                "ID3D12Device::CreateCommittedResource(indirect radiance)",
+                "ID3D12Device::CreateCommittedResource(indirect radiance history)",
                 result);
             return false;
         }
-        indirect_radiance_->SetName(
-            L"AB3D2 Low-Frequency Directional Luminance A");
+        indirect_radiance_histories_[index]->SetName(index == 0u ?
+            L"AB3D2 Low-Frequency Directional Luminance A" :
+            L"AB3D2 Low-Frequency Directional Luminance B");
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-        uav.Format = description.Format;
+        uav.Format = history_description.Format;
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         device->CreateUnorderedAccessView(
-            indirect_radiance_.Get(), nullptr, &uav,
-            cpu_descriptor(indirect_radiance_uav));
+            indirect_radiance_histories_[index].Get(), nullptr, &uav,
+            cpu_descriptor(indirect_radiance_uav_start + index));
     }
     {
         const HRESULT result = device->CreateCommittedResource(
@@ -2166,7 +2222,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             return false;
         }
         indirect_filtered_->SetName(
-            L"AB3D2 Low-Frequency Directional Luminance B / RGB Output");
+            L"AB3D2 Low-Frequency Indirect RGB Output");
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
         uav.Format = description.Format;
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
@@ -2179,25 +2235,61 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             cpu_descriptor(indirect_radiance_srv));
     }
     description.Format = DXGI_FORMAT_R16G16_FLOAT;
-    {
+    for (UINT index = 0u; index < indirect_chroma_histories_.size(); ++index) {
+        D3D12_RESOURCE_DESC history_description = description;
+        if (indirect_temporal_window_ == 1u && index != 0u) {
+            history_description.Width = 1u;
+            history_description.Height = 1u;
+        }
         const HRESULT result = device->CreateCommittedResource(
-            &default_heap, D3D12_HEAP_FLAG_NONE, &description,
+            &default_heap, D3D12_HEAP_FLAG_NONE, &history_description,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
-            IID_PPV_ARGS(&indirect_chroma_));
+            IID_PPV_ARGS(&indirect_chroma_histories_[index]));
         if (FAILED(result)) {
             error = hresult_error(
-                "ID3D12Device::CreateCommittedResource(indirect chroma)",
+                "ID3D12Device::CreateCommittedResource(indirect chroma history)",
                 result);
             return false;
         }
-        indirect_chroma_->SetName(
-            L"AB3D2 Low-Frequency Indirect Chroma A");
+        indirect_chroma_histories_[index]->SetName(index == 0u ?
+            L"AB3D2 Low-Frequency Indirect Chroma A" :
+            L"AB3D2 Low-Frequency Indirect Chroma B");
         D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
-        uav.Format = description.Format;
+        uav.Format = history_description.Format;
         uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
         device->CreateUnorderedAccessView(
-            indirect_chroma_.Get(), nullptr, &uav,
-            cpu_descriptor(indirect_chroma_uav));
+            indirect_chroma_histories_[index].Get(), nullptr, &uav,
+            cpu_descriptor(indirect_chroma_uav_start + index));
+    }
+    description.Format = DXGI_FORMAT_R32_UINT;
+    for (UINT index = 0u; index < indirect_history_metadata_.size(); ++index) {
+        D3D12_RESOURCE_DESC history_description = description;
+        if (indirect_temporal_window_ == 1u) {
+            history_description.Width = 1u;
+            history_description.Height = 1u;
+        }
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &history_description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&indirect_history_metadata_[index]));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(indirect history metadata)",
+                result);
+            return false;
+        }
+        indirect_history_metadata_[index]->SetName(index == 0u ?
+            L"AB3D2 Short GI History Metadata A" :
+            L"AB3D2 Short GI History Metadata B");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = history_description.Format;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        const UINT descriptor = index == 0u ?
+            indirect_history_metadata_a_uav :
+            indirect_history_metadata_b_uav;
+        device->CreateUnorderedAccessView(
+            indirect_history_metadata_[index].Get(), nullptr, &uav,
+            cpu_descriptor(descriptor));
     }
     {
         D3D12_RESOURCE_DESC exposure_description = buffer_description(
@@ -2606,10 +2698,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
 #else
     (void)streamline;
 #endif
-    /* DLSS Ray Reconstruction is the sole production denoiser. The S0/S1
-     * split and bounded work list publish fresh, unbiased indirect paths at
-     * every internal pixel; no renderer-owned radiance history or spatial
-     * reconstruction is selected. */
+    /* The S0/S1 split and bounded work list publish four fresh, unbiased
+     * indirect paths at every internal pixel. ReconstructIndirect folds the
+     * configured short temporal mean into its existing dispatch; no spatial
+     * reconstruction or extra ray is selected. */
     const bool ray_reconstruction_raw_indirect =
         streamline_active && !debug_view_requested_;
     const bool effective_single_continuation_lobe =
@@ -2629,6 +2721,13 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         error = "DXR SceneFrame has geometry but no camera command";
         return false;
     }
+    if (indirect_temporal_window_ > 1u &&
+        scene_.triangle_count() >
+            indirect_reconstruction::history_primitive_mask + 1u) {
+        error = "DXR short GI history cannot represent the scene's global "
+            "primary primitive identities";
+        return false;
+    }
     bool targets_recreated = false;
     if (!ensure_reconstruction_targets(device, render_width, render_height,
                                        reconstruction_output_width,
@@ -2646,6 +2745,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             current_camera.position.z});
     const uint64_t current_light_grid_layout_hash =
         scene_.light_grid_layout_hash();
+    const uint64_t current_emitter_state_hash = scene_.emitter_state_hash();
     const uint32_t effective_indirect_spp = diffuse_gi_scale_ > 0.0f ?
         indirect_spp_ : 0u;
     const bool light_grid_active =
@@ -2663,6 +2763,16 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         history_.input_height == render_height;
     const uint32_t sample_index =
         history_valid ? history_.sample_index + 1u : 0u;
+    const bool indirect_lighting_changed = history_valid &&
+        history_.emitter_state_hash != current_emitter_state_hash;
+    const uint32_t indirect_history_slot = indirect_temporal_window_ > 1u ?
+        sample_index & 1u : 0u;
+    ID3D12Resource *current_indirect_radiance =
+        indirect_radiance_histories_[indirect_history_slot].Get();
+    ID3D12Resource *current_indirect_chroma =
+        indirect_chroma_histories_[indirect_history_slot].Get();
+    ID3D12Resource *current_indirect_metadata =
+        indirect_history_metadata_[indirect_history_slot].Get();
     const bool specular_guide_active = force_specular_guide_ ||
         (streamline_active && !debug_view_requested_) ||
         debug_view_ == static_cast<uint32_t>(
@@ -2676,6 +2786,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.reconstruction_height = reconstruction_output_height;
     performance_metadata.samples_per_pixel = spp_;
     performance_metadata.indirect_samples_per_pixel = effective_indirect_spp;
+    performance_metadata.indirect_temporal_frames = indirect_temporal_window_;
     performance_metadata.maximum_depth = maximum_depth_;
     performance_metadata.light_candidates = candidate_count_;
     performance_metadata.primary_light_candidates = compact_local_primary_ ?
@@ -2753,7 +2864,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.exposure_delta_seconds =
         std::isfinite(exposure_delta_seconds) && exposure_delta_seconds > 0.0f ?
         exposure_delta_seconds : 0.0f;
-    constants.reserved_indirect_reconstruction = 0u;
+    constants.indirect_temporal_window =
+        indirect_reconstruction::temporal_configuration(
+            indirect_temporal_window_, indirect_lighting_changed);
     constants.radiance_channel = radiance_channel_;
     uint64_t current_weapon_pose_hash = 0u;
     const bool current_weapon_pose_hash_valid =
@@ -2961,8 +3074,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             uav_barrier(burst_work_items),
             uav_barrier(burst_dispatch_arguments),
             uav_barrier(primary_visibility_.Get()),
-            uav_barrier(indirect_radiance_.Get()),
-            uav_barrier(indirect_chroma_.Get()),
+            uav_barrier(current_indirect_radiance),
+            uav_barrier(current_indirect_chroma),
+            uav_barrier(current_indirect_metadata),
         };
         command_list->ResourceBarrier(
             static_cast<UINT>(std::size(burst_inputs_ready)),
@@ -2979,8 +3093,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             burst_dispatch_arguments, 0u, nullptr, 0u);
     }
     const D3D12_RESOURCE_BARRIER fresh_indirect_ready[] = {
-        uav_barrier(indirect_radiance_.Get()),
-        uav_barrier(indirect_chroma_.Get()),
+        uav_barrier(current_indirect_radiance),
+        uav_barrier(current_indirect_chroma),
+        uav_barrier(current_indirect_metadata),
         uav_barrier(reconstruction_resource(
             DxrReconstructionBuffer::diffuse_albedo)),
         uav_barrier(reconstruction_resource(
@@ -3005,6 +3120,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             uav_barrier(reconstruction_resource(
                 DxrReconstructionBuffer::noisy_radiance)),
             uav_barrier(indirect_filtered_.Get()),
+            uav_barrier(current_indirect_radiance),
+            uav_barrier(current_indirect_chroma),
+            uav_barrier(current_indirect_metadata),
         };
         command_list->ResourceBarrier(
             static_cast<UINT>(std::size(indirect_output_ready)),
@@ -3373,6 +3491,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     history_.pending_camera = current_camera;
     history_.pending_jitter = current_jitter;
     history_.pending_history_epoch = frame.history_epoch;
+    history_.pending_emitter_state_hash = current_emitter_state_hash;
     history_.pending_sample_index = sample_index;
     history_.pending_input_width = render_width;
     history_.pending_input_height = render_height;
@@ -3399,6 +3518,7 @@ void DxrPipeline::commit_presented_frame()
     history_.previous_camera = history_.pending_camera;
     history_.previous_jitter = history_.pending_jitter;
     history_.history_epoch = history_.pending_history_epoch;
+    history_.emitter_state_hash = history_.pending_emitter_state_hash;
     history_.sample_index = history_.pending_sample_index;
     history_.input_width = history_.pending_input_width;
     history_.input_height = history_.pending_input_height;

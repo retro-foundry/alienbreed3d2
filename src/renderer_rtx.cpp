@@ -268,6 +268,20 @@ extern "C" double renderer_rtx_last_frame_reprojected_delta(
         renderer->implementation->last_scene_reprojected_frame_delta() : -1.0;
 }
 
+extern "C" uint64_t renderer_rtx_last_frame_nonzero_pixels(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_nonzero_pixels() : UINT64_C(0);
+}
+
+extern "C" double renderer_rtx_last_frame_mean_luminance(
+    const RendererRtx *renderer)
+{
+    return renderer && renderer->implementation ?
+        renderer->implementation->last_scene_mean_luminance() : 0.0;
+}
+
 extern "C" uint64_t renderer_rtx_last_frame_saturated_pixels(
     const RendererRtx *renderer)
 {
