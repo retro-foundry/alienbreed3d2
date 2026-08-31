@@ -58,6 +58,7 @@ struct DxrPerformanceMetadata {
     UINT reconstruction_height = 0u;
     uint32_t samples_per_pixel = 0u;
     uint32_t indirect_samples_per_pixel = 0u;
+    uint32_t indirect_light_samples = 0u;
     uint32_t indirect_temporal_frames = 0u;
     uint32_t maximum_depth = 0u;
     uint32_t light_candidates = 0u;

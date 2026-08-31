@@ -121,6 +121,8 @@ public:
         options.samples_per_pixel = static_cast<uint8_t>(spp_);
         options.indirect_samples_per_pixel =
             static_cast<uint8_t>(indirect_spp_);
+        options.indirect_light_samples =
+            static_cast<uint8_t>(indirect_light_samples_);
         options.indirect_temporal_frames =
             static_cast<uint8_t>(indirect_temporal_window_);
         options.diffuse_gi_scale = diffuse_gi_scale_;
@@ -261,6 +263,8 @@ private:
     uint32_t spp_ = 1u;
     uint32_t indirect_spp_ =
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL;
+    uint32_t indirect_light_samples_ =
+        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES;
     uint32_t indirect_temporal_window_ =
         indirect_reconstruction::temporal_window_default;
     float diffuse_gi_scale_ =

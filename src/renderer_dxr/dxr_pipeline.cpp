@@ -203,7 +203,7 @@ struct FrameConstants {
     uint32_t validation_enabled;
     uint32_t single_primary_direct_survivor;
     uint32_t single_continuation_lobe;
-    uint32_t reserved_dense_mature_continuations;
+    uint32_t indirect_light_samples;
     uint32_t bounded_burst_continuations;
     uint32_t compact_local_primary;
     uint32_t proxy_primary_candidates;
@@ -615,7 +615,7 @@ bool DxrPipeline::configure_debug_view(std::string &error)
 /*
  * Applies ab3d2.ini's ray-tracing settings over the tuned defaults, then lets
  * the environment override either, so bounce depth, sample count, candidate
- * count, and diagnostic GI history can be swept against `--gpu-smoke` without
+ * count, and secondary-light sample count can be swept against `--gpu-smoke` without
  * editing a file. The former reservoir-limit spelling remains range-checked for
  * configuration compatibility but does not control GI history.
  *
@@ -623,7 +623,7 @@ bool DxrPipeline::configure_debug_view(std::string &error)
  * disables the radiance clamp or diffuse-GI transfer when their setting is
  * present. Flags distinguish explicit zero from absence for GI transfer, the
  * compatibility limit, and post-curve exposure bias. A zero temporal-frame
- * field means absent; the renderer then keeps the one-frame production default.
+ * field means absent; the renderer then keeps the fresh-only production mode.
  */
 bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                                        std::string &error)
@@ -636,10 +636,14 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         error = "DXR indirect samples per pixel must be 1-32 when specified";
         return false;
     }
+    if (options.indirect_light_samples > 2u) {
+        error = "DXR indirect light samples must be 1-2 when specified";
+        return false;
+    }
     if (options.indirect_temporal_frames != 0u &&
         !indirect_reconstruction::temporal_window_valid(
             options.indirect_temporal_frames)) {
-        error = "DXR GI temporal frames must be 1-64 when specified";
+        error = "DXR GI temporal frames must be 1; final-radiance history is disabled";
         return false;
     }
     candidate_count_ = options.light_candidates != 0u ?
@@ -655,6 +659,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     indirect_spp_ = options.indirect_samples_per_pixel != 0u ?
         options.indirect_samples_per_pixel :
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL;
+    indirect_light_samples_ = options.indirect_light_samples != 0u ?
+        options.indirect_light_samples :
+        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES;
     indirect_temporal_window_ = options.indirect_temporal_frames != 0u ?
         options.indirect_temporal_frames :
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_TEMPORAL_FRAMES;
@@ -696,11 +703,13 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     };
     /* Keep the former reservoir-limit spelling range-compatible for existing
      * launch configurations. It does not control GI history. */
-    const std::array<Override, 5> overrides = {
+    const std::array<Override, 6> overrides = {
         Override{"AB3D2_DXR_MAX_BOUNCES", 1u,
                  indirect_reconstruction::maximum_path_depth,
                  &maximum_depth_},
         Override{"AB3D2_DXR_INDIRECT_SPP", 1u, 32u, &indirect_spp_},
+        Override{"AB3D2_DXR_INDIRECT_LIGHT_SAMPLES", 1u, 2u,
+                 &indirect_light_samples_},
         Override{"AB3D2_DXR_CANDIDATES", 1u, 1024u, &candidate_count_},
         Override{"AB3D2_DXR_RESERVOIR_LIMIT", 0u, 65536u,
                   &reservoir_sample_limit_},
@@ -831,7 +840,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     }
     if (!indirect_reconstruction::temporal_window_valid(
             indirect_temporal_window_)) {
-        error = "AB3D2_DXR_GI_TEMPORAL_FRAMES must be 1-64";
+        error = "AB3D2_DXR_GI_TEMPORAL_FRAMES must be 1; final-radiance history is disabled";
         return false;
     }
     EnvironmentToggle split_primary_override = EnvironmentToggle::automatic;
@@ -982,7 +991,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     }
     debug_output("DXR ray tracing: direct samples per pixel=" +
                   std::to_string(spp_) + " indirect sample ceiling=" +
-                  std::to_string(indirect_spp_) + " GI temporal frames=" +
+                  std::to_string(indirect_spp_) + " indirect light samples=" +
+                  std::to_string(indirect_light_samples_) +
+                  " GI temporal frames=" +
                   std::to_string(indirect_temporal_window_) + " diffuse GI=" +
                  std::to_string(diffuse_gi_scale_) + " bounces=" +
                  std::to_string(maximum_depth_) + " candidates=" +
@@ -2705,9 +2716,9 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     (void)streamline;
 #endif
     /* The S0/S1 split and bounded work list publish four fresh, unbiased
-     * indirect paths at every internal pixel. ReconstructIndirect folds the
-     * configured short temporal mean into its existing dispatch; no spatial
-     * reconstruction or extra ray is selected. */
+     * indirect paths at every internal pixel. Secondary-light samples are
+     * averaged before composition, so active RR keeps that full-rate current
+     * estimator without renderer-owned final-radiance feedback. */
     const bool ray_reconstruction_raw_indirect =
         streamline_active && !debug_view_requested_;
     const bool effective_single_continuation_lobe =
@@ -2792,6 +2803,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.reconstruction_height = reconstruction_output_height;
     performance_metadata.samples_per_pixel = spp_;
     performance_metadata.indirect_samples_per_pixel = effective_indirect_spp;
+    performance_metadata.indirect_light_samples = indirect_light_samples_;
     performance_metadata.indirect_temporal_frames = indirect_temporal_window_;
     performance_metadata.maximum_depth = maximum_depth_;
     performance_metadata.light_candidates = candidate_count_;
@@ -2905,7 +2917,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         single_primary_direct_survivor_ ? 1u : 0u;
     constants.single_continuation_lobe =
         effective_single_continuation_lobe ? 1u : 0u;
-    constants.reserved_dense_mature_continuations = 0u;
+    constants.indirect_light_samples = indirect_light_samples_;
     constants.bounded_burst_continuations =
         effective_bounded_burst_continuations ? 1u : 0u;
     constants.compact_local_primary = compact_local_primary_ ? 1u : 0u;

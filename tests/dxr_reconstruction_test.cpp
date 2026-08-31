@@ -60,16 +60,19 @@ int main()
                   indirect::path_dimensions_per_continuation == 8u &&
                   indirect::direction_dimension_x == 6u &&
                   indirect::direction_dimension_y == 7u &&
+                  indirect::polygon_candidate_stream_count == 1024u &&
+                  indirect::polygon_survivor_limit == 2u &&
                   indirect::polygon_bounce_stream_stride == 1024u &&
                   indirect::temporal_window_default == 1u &&
-                  indirect::temporal_window_maximum == 64u &&
+                  indirect::temporal_window_maximum == 1u &&
+                  indirect::history_count_maximum == 64u &&
                   indirect::history_motion_limit == 0.5f &&
                   indirect::temporal_window_mask == 0xffu &&
-                  indirect::temporal_configuration(4u, false) == 4u &&
-                  indirect::temporal_configuration(4u, true) == 0x80000004u &&
+                  indirect::temporal_configuration(1u, false) == 1u &&
+                  indirect::temporal_configuration(1u, true) == 0x80000001u &&
                   indirect::temporal_window_valid(1u) &&
-                  indirect::temporal_window_valid(2u) &&
-                  indirect::temporal_window_valid(64u) &&
+                  !indirect::temporal_window_valid(2u) &&
+                  !indirect::temporal_window_valid(64u) &&
                   !indirect::temporal_window_valid(0u) &&
                   !indirect::temporal_window_valid(65u) &&
                   indirect::retained_history_count(4u, 1u) == 0u &&
@@ -80,7 +83,12 @@ int main()
                   indirect::continuation_count(0u) == 0u &&
                   indirect::continuation_count(2u) == 1u &&
                   indirect::continuation_count(8u) == 7u &&
-                  indirect::continuation_count(9u) == 7u);
+                  indirect::continuation_count(9u) == 7u &&
+                  indirect::extra_light_candidate(1u, 3u, 4u) &&
+                  indirect::extra_light_candidate(2u, 6u, 4u) &&
+                  !indirect::extra_light_candidate(1u, 4u, 4u) &&
+                  !indirect::extra_light_candidate(2u, 3u, 4u) &&
+                  !indirect::extra_light_candidate(0u, 0u, 0u));
     static_assert(grid::refresh_phase_count == 16u &&
                   grid::lights_per_cell == 512u &&
                   grid::entry_count == 2097152u &&

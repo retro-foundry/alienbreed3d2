@@ -151,6 +151,7 @@ bool same_configuration(const DxrPerformanceMetadata &left,
         left.reconstruction_height == right.reconstruction_height &&
         left.samples_per_pixel == right.samples_per_pixel &&
         left.indirect_samples_per_pixel == right.indirect_samples_per_pixel &&
+        left.indirect_light_samples == right.indirect_light_samples &&
         left.indirect_temporal_frames == right.indirect_temporal_frames &&
         left.maximum_depth == right.maximum_depth &&
         left.light_candidates == right.light_candidates &&
@@ -528,6 +529,8 @@ void DxrGpuProfiler::report()
            << "\"spp\":" << metadata.samples_per_pixel
            << ",\"indirect_spp\":"
            << metadata.indirect_samples_per_pixel
+           << ",\"indirect_light_samples\":"
+           << metadata.indirect_light_samples
            << ",\"indirect_temporal_frames\":"
            << metadata.indirect_temporal_frames
            << ",\"maximum_depth\":" << metadata.maximum_depth

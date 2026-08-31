@@ -27,14 +27,27 @@ inline constexpr uint32_t maximum_path_depth = 8u;
 inline constexpr uint32_t path_dimensions_per_continuation = 8u;
 inline constexpr uint32_t direction_dimension_x = 6u;
 inline constexpr uint32_t direction_dimension_y = 7u;
-inline constexpr uint32_t polygon_bounce_stream_stride = 1024u;
+inline constexpr uint32_t polygon_candidate_stream_count = 1024u;
+inline constexpr uint32_t polygon_survivor_limit = 2u;
+inline constexpr uint32_t polygon_bounce_stream_stride =
+    polygon_candidate_stream_count;
 
-/* Renderer-owned GI history is an explicit diagnostic. One is the fresh-only
- * production default; larger effective counts let the user compare how the
- * sparse secondary estimator behaves before DLSS-RR. The eight-bit metadata
- * count can represent this bounded 64-frame range exactly. */
+inline constexpr bool extra_light_candidate(uint32_t path_ordinal,
+                                            uint32_t frame_index,
+                                            uint32_t path_count)
+{
+    return path_count > 0u && frame_index % 3u == 0u &&
+        path_ordinal == (frame_index / 3u) % path_count;
+}
+
+/* Final-radiance accumulation is deliberately disabled. Rare, high-weight
+ * secondary estimates were retained and spread into persistent bright dots in
+ * the exact gameplay pose even when identity and motion rejection succeeded.
+ * Keep the metadata packing helpers below for file/descriptor compatibility,
+ * but accept only the truthful fresh-current-frame mode. */
 inline constexpr uint32_t temporal_window_default = 1u;
-inline constexpr uint32_t temporal_window_maximum = 64u;
+inline constexpr uint32_t temporal_window_maximum = 1u;
+inline constexpr uint32_t history_count_maximum = 64u;
 inline constexpr float history_motion_limit = 0.5f;
 inline constexpr uint32_t temporal_window_mask = 0xffu;
 inline constexpr uint32_t temporal_lighting_changed_flag = 0x80000000u;
@@ -45,7 +58,7 @@ inline constexpr uint32_t history_count_shift = history_primitive_bits;
 
 inline constexpr bool temporal_window_valid(uint32_t frames)
 {
-    return frames >= 1u && frames <= temporal_window_maximum;
+    return frames == temporal_window_default;
 }
 
 inline constexpr uint32_t temporal_configuration(uint32_t frames,
@@ -63,7 +76,7 @@ inline constexpr bool pack_history_metadata(uint32_t primitive_index,
         return true;
     }
     if (primitive_index > history_primitive_mask ||
-        effective_count > temporal_window_maximum) {
+        effective_count > history_count_maximum) {
         packed = 0u;
         return false;
     }

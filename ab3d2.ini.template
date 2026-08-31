@@ -51,19 +51,18 @@ world_light_tessellation=4
 # an expensive quality check. These paths do not repeat primary direct shadows.
 #rtx_indirect_samples=4
 
-# Optional renderer-owned diffuse-GI history, 1 through 64 effective frames.
-# Default 1 is the fresh-only path that currently looks best. Values above 1
-# enable the rejected temporal experiment for A/B testing; they allocate
-# full-resolution ping-pong history and can progressively retain bright dots.
-# The blue-noise sequence continues advancing, so history never repeats a path.
-# Uncomment exactly one suggested value, or enter any integer from 1 through 64.
+# Maximum polygon-light RIS estimates for one rotating diffuse path stratum.
+# Default 2 applies that extra estimate coherently every third frame, partitions
+# the stratum's candidate budget into two disjoint groups, and averages their
+# fresh visibility results. This averages one third of an extra secondary shadow per
+# pixel/reached bounce, not one per path, and does not trace another diffuse
+# continuation ray. Use 1 as the lower-cost control.
+#rtx_indirect_light_samples=2
+
+# Renderer-owned final-radiance history is disabled after exact-pose testing
+# showed rare secondary estimates becoming persistent bright dots. This retained
+# compatibility setting must be 1 (fresh current frame).
 #rtx_gi_temporal_frames=1
-#rtx_gi_temporal_frames=2
-#rtx_gi_temporal_frames=4
-#rtx_gi_temporal_frames=8
-#rtx_gi_temporal_frames=16
-#rtx_gi_temporal_frames=32
-#rtx_gi_temporal_frames=64
 
 # Secondary diffuse-light transfer, 0 through 1. Default 0.75. Zero disables
 # diffuse continuation work; direct light and visible emission remain active.
@@ -78,8 +77,8 @@ world_light_tessellation=4
 
 # DLSS Ray Reconstruction mode: quality, balanced, performance,
 # ultra-performance, or off. This also sets the resolution the path tracer
-# renders at before reconstruction. Enabled modes own all indirect denoising;
-# the default one-frame GI setting supplies fresh, unfiltered path samples.
+# renders at before reconstruction. Enabled modes own all temporal/spatial
+# image reconstruction; the renderer supplies a fresh current-frame GI signal.
 # Ultra Performance is explicitly speed-first:
 # at a 1280x720 window it traces 285x160, reconstructs to 854x480, then uses the
 # final linear presentation upscale. The other enabled modes reconstruct

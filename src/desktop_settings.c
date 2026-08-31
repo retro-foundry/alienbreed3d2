@@ -265,10 +265,20 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.indirect_samples_per_pixel = (uint8_t)number;
         return 1;
     }
-    if (desktop_settings_equals_ci(key, "rtx_gi_temporal_frames")) {
-        if (!desktop_settings_parse_unsigned(value, 64u, &number) || number == 0u) {
+    if (desktop_settings_equals_ci(key, "rtx_indirect_light_samples")) {
+        if (!desktop_settings_parse_unsigned(value, 2u, &number) || number == 0u) {
             (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_gi_temporal_frames must be 1 through 64",
+                           "ab3d2.ini line %zu: rtx_indirect_light_samples must be 1 or 2",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.indirect_light_samples = (uint8_t)number;
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_gi_temporal_frames")) {
+        if (!desktop_settings_parse_unsigned(value, 1u, &number) || number == 0u) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_gi_temporal_frames must be 1; final-radiance history is disabled",
                            line_number);
             return 0;
         }

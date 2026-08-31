@@ -45,9 +45,10 @@ session. Supported keys are:
   Fresnel-partitioned Lambert/GGX polygon-light NEE at the primary surface,
   diffuse polygon-light NEE at every configured diffuse continuation, and one
   companion smooth GGX continuation. Rough specular is reconstructed from the
-  current directional GI sample. At the default one-frame setting, four fresh
-  stratified diffuse paths feed DLSS Ray Reconstruction as the sole indirect
-  reconstructor. Sampling uses traced
+  same directional GI signal as diffuse. Four fresh stratified paths coherently
+  interleave an additional secondary-light estimate every third presentation
+  before DLSS Ray Reconstruction.
+  Sampling uses traced
   shadow rays and a pinned
   dimension-addressed blue-noise/Owen-scrambled Sobol sequence. Player
   1's
@@ -85,12 +86,16 @@ default, so the shipped template lists them commented out with their defaults:
   diffuse paths per internal pixel and defaults to `4`. The radial and
   azimuthal cosine-hemisphere dimensions are stratified across those paths.
   Use `2` as a faster mode or `8` for an expensive quality check;
-- `rtx_gi_temporal_frames=1` through `64` selects the effective length of the
-  optional motion-reprojected GI mean. The default `1` is the accepted
-  fresh-only path. Larger values are explicit diagnostics: they reuse only the
-  same global primary triangle, allocate full-resolution ping-pong history, and
-  can reproduce the progressively persistent bright-dot failure. The template
-  lists `1/2/4/8/16/32/64` for convenient A/B testing;
+- `rtx_indirect_light_samples=1|2` controls a bounded extra, visibility-tested
+  RIS estimate and defaults to `2`. Mode `2` coherently runs every third frame,
+  rotates through the diffuse path strata on active phases, partitions that
+  stratum's `rtx_light_candidates` into two disjoint groups, and averages their
+  results. All four base paths remain every frame; the added work averages one
+  third of a secondary shadow per pixel/reached bounce and adds no continuation ray. Use
+  `1` as the lower-cost A/B control;
+- `rtx_gi_temporal_frames=1` is a retained compatibility setting. Values above
+  one fail initialization because exact-pose testing showed final-radiance
+  history converting rare secondary estimates into persistent bright dots;
 - `rtx_diffuse_gi=0` through `1` scales only secondary diffuse transfer and
   defaults to `0.75`. Exact zero skips diffuse continuation work without
   changing direct light or visible emission.
@@ -135,7 +140,8 @@ default, so the shipped template lists them commented out with their defaults:
   visible-normal distribution, while `rtx_exposure_bias=-5..0` is applied
   after the tone curve in log2 stops and defaults to Q2RTX's `-1` EV.
 
-`AB3D2_DXR_SPP`, `AB3D2_DXR_INDIRECT_SPP`, `AB3D2_DXR_DIFFUSE_GI`,
+`AB3D2_DXR_SPP`, `AB3D2_DXR_INDIRECT_SPP`,
+`AB3D2_DXR_INDIRECT_LIGHT_SAMPLES`, `AB3D2_DXR_DIFFUSE_GI`,
 `AB3D2_DXR_MAX_BOUNCES`,
 `AB3D2_DXR_CANDIDATES`,
 `AB3D2_DXR_RESERVOIR_LIMIT`, `AB3D2_DXR_GI_TEMPORAL_FRAMES`,
@@ -650,16 +656,17 @@ so Level A's starting-room emitters remain in local proposals instead of being
 diluted among every emissive triangle in the level. Indirect vertices retain
 metal-free diffuse reflectance and unbiased fresh-RIS normalization. Candidate
 emitters use the existing unbiased proposal and standard uniform-area triangle
-sampling with exact authored emission. Primary direct SPP and indirect path
-count are independent.
+sampling with exact authored emission. Every third frame, one rotating diffuse
+path stratum can partition that candidate budget into two disjoint groups with
+a fresh visibility ray per group; the fixed-count mean
+treats an occluded estimate as zero. Primary
+direct SPP, indirect path count, and secondary-light sample count are independent.
 There is no environment lighting or authored zone ambient. Smooth materials
 receive a real first-bounce GGX continuation; rough materials blend to a
-Q2RTX-style reconstruction from the current directional GI sample. Four fresh
-raw directional/RGB estimates per internal pixel enter the combined noisy HDR
-image by default, and DLSS RR performs the only temporal and spatial
-reconstruction at the production one-frame setting. RR-off displays the same
-unfiltered current-frame estimate unless the explicit GI-history diagnostic is
-enabled.
+Q2RTX-style reconstruction from the same directional GI signal. Four fresh raw
+directional/RGB estimates per internal pixel go directly to composition, then
+DLSS RR performs final image reconstruction. Renderer-owned final-radiance
+history and spatial radiance gathering are disabled.
 ReGIR entries persist only as corrected light proposals: radiance, visibility,
 and path samples remain current-frame values. Misses are black unless a traced
 segment crosses a non-occluding authored additive layer. A full-screen pass tone maps the HDR
@@ -898,25 +905,22 @@ radiance in a separate low-frequency channel.
 
 `rtx_diffuse_gi=0..1` controls secondary diffuse transfer and defaults to
 `0.75`. `rtx_indirect_samples` controls fresh per-pixel diffuse paths and
-defaults to four. Each newly traced path is current-frame data. The production
-default `rtx_gi_temporal_frames=1` sends that fresh estimate directly to the
-single DLSS RR evaluation.
+defaults to four. `rtx_indirect_light_samples=2` adds a second independent RIS
+estimate to one rotating path stratum every third frame. Each newly traced path
+and visibility result is
+current-frame data.
 
 `AB3D2_DXR_RESERVOIR_LIMIT` remains accepted for configuration compatibility
 but does not cap an indirect radiance history in the RR-only path.
 
-`rtx_gi_temporal_frames=1..64` opt-in enables the rejected same-primitive
-temporal candidate for comparison. `1` keeps its compatibility history bindings
-at one texel. Values above `1` allocate full-resolution directional/chroma and
-metadata ping-pong buffers. The capped count is an exponential history after it
-matures, not a literal ring: at value `N`, the current estimate has weight
-`1/N`. Blue-noise path indices continue advancing normally. The matching
-`AB3D2_DXR_GI_TEMPORAL_FRAMES` environment variable overrides the INI for one
-run.
+`rtx_gi_temporal_frames` and `AB3D2_DXR_GI_TEMPORAL_FRAMES` accept only `1`.
+The compatibility history bindings remain one texel and no temporal dispatch is
+compiled. Secondary emitter candidates use independent PCG hash-stream blocks;
+the cosine continuation and deeper-path roulette retain the dimension-addressed
+blue-noise sequence, whose global sample index advances every frame.
 
 `AB3D2_DXR_INDIRECT_RECONSTRUCTION` accepts `raw` or `full` as compatibility
-aliases; the temporal length is controlled only by the INI/environment setting
-above. Former `temporal`, `regional`, `deflicker`,
+aliases for the same fresh path. Former `temporal`, `regional`, `deflicker`,
 `wavelet1`, `wavelet2`, and `restir` values fail initialization because those
 shader exports, dispatches, and scratch allocations have been removed.
 

@@ -197,9 +197,8 @@ RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
 /* Demodulated diffuse-suffix lighting. Primary/burst shading writes a fresh
- * estimate into the current slot. At the production one-frame setting slot B
- * and metadata are one texel; an explicit diagnostic length above one enables
- * the full-resolution ping-pong history. */
+ * current-frame estimate into slot A. The retained history bindings stay at
+ * one texel because final-radiance accumulation is no longer an active path. */
 RWTexture2D<float4> IndirectRadianceA : register(u14);
 RWTexture2D<float4> IndirectRadianceB : register(u15);
 RWTexture2D<uint> IndirectHistoryMetadataA : register(u16);
@@ -262,7 +261,7 @@ cbuffer FrameConstants : register(b0)
     uint ValidationEnabled;
     uint SinglePrimaryDirectSurvivor;
     uint SingleContinuationLobe;
-    uint ReservedDenseMatureContinuations;
+    uint IndirectLightSamples;
     uint BoundedBurstContinuations;
     uint CompactLocalPrimary;
     uint ProxyPrimaryCandidates;
@@ -373,9 +372,12 @@ static const uint ReservoirEnvironmentStream = 0x10400u;
 static const uint ReservoirBrdfStream = 0x10500u;
 static const uint SecondaryDirectStream = 0x10600u;
 static const uint DiffusePrimaryPolygonStream = 0x10700u;
-static const uint DiffuseIndirectPolygonStream = 0x10800u;
+/* Secondary polygon-light candidates need one nonoverlapping 1024-candidate
+ * block per bounce. Keep them outside the compact control streams;
+ * sampleStream hashes the full sequence index and advances with SampleIndex. */
+static const uint DiffuseIndirectPolygonStream = 0x30000u;
 static const uint SmoothSpecularDirectionStream = 0x10900u;
-static const uint SmoothSpecularPolygonStream = 0x10a00u;
+static const uint SmoothSpecularPolygonStream = 0x34000u;
 static const uint ContinuationLobeSelectionStream = 0x10b00u;
 static const uint DiffuseStratificationStream = 0x10c00u;
 /* Keep primary light selection in the sampler's unused dimension range. The
@@ -390,10 +392,13 @@ static const uint PrimaryDirectBlueNoiseCandidateLimit =
  * group to find sparse emissive texels while averaging two visibility results.
  * One candidate still reduces exactly to the single-survivor estimator. */
 static const uint PrimaryDirectVisibilitySampleLimit = 2u;
-/* `rtx_light_candidates` is capped at 1024. Give every indirect surface a
- * disjoint candidate stream so changing path depth adds samples instead of
- * replaying the first secondary vertex's light choices. */
-static const uint DiffusePolygonBounceStreamStride = 1024u;
+/* `rtx_light_candidates` is capped at 1024. Two secondary-light survivors
+ * partition that block into disjoint interleaved groups, while each bounce owns
+ * a complete new block. */
+static const uint IndirectPolygonCandidateStreamCount = 1024u;
+static const uint IndirectPolygonLightSampleLimit = 2u;
+static const uint DiffusePolygonBounceStreamStride =
+    IndirectPolygonCandidateStreamCount;
 static const uint SecondaryLocalSampleCount = 2u;
 static const uint SecondaryEnvironmentSampleCount = 1u;
 /*
@@ -589,7 +594,7 @@ IndirectSignal emptyIndirectSignal()
 /* First-order directional luminance plus unprojected opponent chroma. These
  * are standard real spherical-harmonic basis constants. The representation
  * retains the current sample's incident direction for rough-specular shading;
- * the optional temporal diagnostic accumulates this same representation. */
+ * temporal GI accumulates this same representation. */
 IndirectSignal indirectSignalFromRadiance(float3 color, float3 direction)
 {
     IndirectSignal signal = emptyIndirectSignal();
@@ -1870,24 +1875,22 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
     return evaluation;
 }
 
-float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
-                                 uint stream, bool localProposal,
-                                 SurfaceData surface)
+float3 sampleDiffusePolygonLightSurvivor(
+    uint2 pixel, uint sampleIndex, uint stream, int lightGridCell,
+    uint candidateStart, uint candidateStride, uint candidateCount,
+    SurfaceData surface)
 {
-    if (EmitterCount == 0u) {
-        return 0.0;
-    }
     /* Fresh RIS rejects black texels and poor geometric connections before the
      * one survivor spends a visibility ray. There is no temporal/spatial reuse
      * here: CandidateCount changes current-frame proposal quality only. */
-    uint candidateCount = max(CandidateCount, 1u);
     EmitterSample selected = (EmitterSample)0;
     selected.emitterIndex = InvalidIndex;
     selected.valid = false;
     float weightSum = 0.0;
-    int lightGridCell = localProposal ? lightGridCellForSurface(
-        pixel, sampleIndex, surface.position) : -1;
-    for (uint candidate = 0u; candidate < candidateCount; ++candidate) {
+    uint groupCandidateCount = 0u;
+    for (uint candidate = candidateStart; candidate < candidateCount;
+         candidate += candidateStride) {
+        ++groupCandidateCount;
         float4 random = sampleStream(
             pixel, sampleIndex, stream + candidate);
         LightSelection lightSelection = selectEmitterForCell(
@@ -1927,8 +1930,39 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
         return 0.0;
     }
     float inversePdf = weightSum /
-        (float(candidateCount) * selectedEvaluation.targetPdf);
+        (float(groupCandidateCount) * selectedEvaluation.targetPdf);
     return selectedEvaluation.contribution * inversePdf;
+}
+
+float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
+                                 uint stream, bool localProposal,
+                                 SurfaceData surface,
+                                 uint requestedLightSampleCount)
+{
+    if (EmitterCount == 0u) {
+        return 0.0;
+    }
+    uint candidateCount = max(CandidateCount, 1u);
+    uint lightSampleCount = min(candidateCount, clamp(
+        requestedLightSampleCount, 1u, IndirectPolygonLightSampleLimit));
+    int lightGridCell = localProposal ? lightGridCellForSurface(
+        pixel, sampleIndex, surface.position) : -1;
+    float3 sum = 0.0;
+    /* Partition the existing candidate budget into disjoint RIS groups. Each
+     * group performs its own selection and fresh visibility test without
+     * doubling material/geometry candidate evaluation. A fixed-count average
+     * is required: an occluded or empty survivor is zero, not a reason to
+     * renormalize the remaining samples. Across frames the sequence advances
+     * with SampleIndex, while diffuse continuation and roulette decisions
+     * retain their screen-space blue-noise dimensions. */
+    [loop]
+    for (uint lightSample = 0u; lightSample < lightSampleCount;
+         ++lightSample) {
+        sum += sampleDiffusePolygonLightSurvivor(
+            pixel, sampleIndex, stream, lightGridCell, lightSample,
+            lightSampleCount, candidateCount, surface);
+    }
+    return sum / float(lightSampleCount);
 }
 
 /* Full material-dependent local-light NEE for the primary receiver. Diffuse
@@ -2076,6 +2110,17 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
     float3 suffixThroughput = 1.0;
     SurfaceData departureSurface = primarySurface;
     uint pathDepth = min(MaximumDepth, MaximumDiffusePathDepth);
+    uint indirectPathCount = max(IndirectSamplesPerPixel, 1u);
+    uint pathOrdinal = sampleIndex % indirectPathCount;
+    /* Spend the optional second visibility result coherently every third frame
+     * and rotate the chosen path stratum on each active phase. All base strata
+     * still trace every frame. Coherent dispatch avoids the DXR lane divergence
+     * measured with a per-pixel mask, while the underlying blue-noise direction
+     * and hash-stream candidate indices continue advancing normally. */
+    uint diffuseLightSampleCount = IndirectLightSamples > 1u &&
+            SampleIndex % 3u == 0u &&
+            pathOrdinal == (SampleIndex / 3u) % indirectPathCount ?
+        2u : 1u;
 
     [loop]
     for (uint continuationIndex = 0u;
@@ -2128,7 +2173,8 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
         uint lightStream = DiffuseIndirectPolygonStream +
             continuationIndex * DiffusePolygonBounceStreamStride;
         float3 directAtSurface = sampleDiffusePolygonLight(
-            pixel, sampleIndex, lightStream, true, reachedSurface);
+            pixel, sampleIndex, lightStream, true, reachedSurface,
+            diffuseLightSampleCount);
         result.radiance += suffixThroughput * directAtSurface;
 
         if (continuationIndex + 2u >= pathDepth) {
@@ -2274,7 +2320,7 @@ float3 sampleSmoothSpecularPath(uint2 pixel, uint sampleIndex,
     if (EmitterCount > 0u) {
         reachedRadiance += sampleDiffusePolygonLight(
             pixel, sampleIndex, SmoothSpecularPolygonStream, true,
-            reachedSurface);
+            reachedSurface, 1u);
     }
     result += throughput * reachedRadiance * hitAttenuation;
     return result;
@@ -3696,125 +3742,9 @@ float3 reconstructRoughSpecular(
     return incidentColor * brdf * blendWeight * compensation;
 }
 
-/* Reproject only the same global primary primitive through the exact motion and
- * jitter convention already consumed by the dormant direct-reservoir path. The
- * four taps are the subpixel footprint; invalid taps are discarded and the
- * survivors are renormalized, with no outward search or current-frame neighbor
- * reuse. Every stored value remains a linear mean of genuine path estimates. */
-IndirectSignal accumulateTemporalIndirect(
-    uint2 pixel, uint2 dimensions, IndirectSignal current)
-{
-    uint temporalWindow =
-        IndirectTemporalWindow & IndirectTemporalWindowMask;
-    if (temporalWindow <= 1u) {
-        return current;
-    }
-
-    uint currentSlot = currentIndirectHistorySlot();
-    uint currentMetadata = loadIndirectHistoryMetadata(
-        currentSlot, int2(pixel));
-    uint currentCount = indirectHistoryEffectiveCount(currentMetadata);
-    if (currentCount == 0u || !finiteIndirectSignal(current)) {
-        storeCurrentIndirectHistoryMetadata(pixel, 0u);
-        return current;
-    }
-    uint currentPrimitive = indirectHistoryPrimitive(currentMetadata);
-    float2 motion = SceneMotion[pixel];
-    bool rejectHistory = HistoryValid == 0u ||
-        (IndirectTemporalWindow & IndirectLightingChangedFlag) != 0u ||
-        RayReconstructionDisocclusion[pixel] > 0.0 ||
-        any(isnan(motion)) || any(isinf(motion)) ||
-        any(abs(motion) >= InvalidMotion) ||
-        any(abs(motion) > IndirectHistoryMotionLimit);
-    if (rejectHistory) {
-        storeCurrentIndirectHistoryMetadata(
-            pixel, packIndirectHistoryMetadata(currentPrimitive, 1u));
-        recordIndirectTemporalDiagnostic(false, 1u);
-        return current;
-    }
-
-    float2 historyGrid = reprojectHistoryPixel(pixel, motion) - 0.5;
-    int2 historyBase = int2(floor(historyGrid));
-    float2 historyFraction = frac(historyGrid);
-    float bilinearWeights[4] = {
-        (1.0 - historyFraction.x) * (1.0 - historyFraction.y),
-        historyFraction.x * (1.0 - historyFraction.y),
-        (1.0 - historyFraction.x) * historyFraction.y,
-        historyFraction.x * historyFraction.y,
-    };
-    int2 offsets[4] = {
-        int2(0, 0), int2(1, 0), int2(0, 1), int2(1, 1)};
-    uint previousSlot = 1u - currentSlot;
-    IndirectSignal weightedHistory = emptyIndirectSignal();
-    float weightedHistoryCount = 0.0;
-    float validBilinearWeight = 0.0;
-    [unroll]
-    for (uint tap = 0u; tap < 4u; ++tap) {
-        float bilinearWeight = bilinearWeights[tap];
-        int2 historyPixel = historyBase + offsets[tap];
-        if (!(bilinearWeight > 0.0) || any(historyPixel < 0) ||
-            any(historyPixel >= int2(dimensions))) {
-            continue;
-        }
-        uint metadata = loadIndirectHistoryMetadata(
-            previousSlot, historyPixel);
-        uint previousCount = min(
-            indirectHistoryEffectiveCount(metadata),
-            temporalWindow - 1u);
-        if (previousCount == 0u ||
-            indirectHistoryPrimitive(metadata) != currentPrimitive) {
-            continue;
-        }
-        IndirectSignal previous = loadIndirectSignal(
-            previousSlot, historyPixel);
-        if (!finiteIndirectSignal(previous)) {
-            continue;
-        }
-        float representedWeight = bilinearWeight * float(previousCount);
-        weightedHistory.luminanceSH +=
-            previous.luminanceSH * representedWeight;
-        weightedHistory.chroma += previous.chroma * representedWeight;
-        weightedHistoryCount += representedWeight;
-        validBilinearWeight += bilinearWeight;
-    }
-
-    if (!(weightedHistoryCount > 0.0) ||
-        !(validBilinearWeight > 0.0)) {
-        storeCurrentIndirectHistoryMetadata(
-            pixel, packIndirectHistoryMetadata(currentPrimitive, 1u));
-        recordIndirectTemporalDiagnostic(false, 1u);
-        return current;
-    }
-    IndirectSignal historyMean = scaleIndirectSignal(
-        weightedHistory, rcp(weightedHistoryCount));
-    float retainedCount = min(
-        weightedHistoryCount / validBilinearWeight,
-        float(temporalWindow - 1u));
-    IndirectSignal accumulated;
-    accumulated.luminanceSH =
-        (historyMean.luminanceSH * retainedCount + current.luminanceSH) /
-        (retainedCount + 1.0);
-    accumulated.chroma =
-        (historyMean.chroma * retainedCount + current.chroma) /
-        (retainedCount + 1.0);
-    if (!finiteIndirectSignal(accumulated)) {
-        storeCurrentIndirectHistoryMetadata(
-            pixel, packIndirectHistoryMetadata(currentPrimitive, 1u));
-        recordIndirectTemporalDiagnostic(false, 1u);
-        return current;
-    }
-    uint accumulatedCount = min(
-        uint(round(retainedCount)) + 1u, temporalWindow);
-    storeCurrentIndirectHistoryMetadata(
-        pixel, packIndirectHistoryMetadata(currentPrimitive, accumulatedCount));
-    recordIndirectTemporalDiagnostic(true, accumulatedCount);
-    return accumulated;
-}
-
-
-/* The current four-path estimate remains a dedicated linear directional signal
- * until this composition dispatch optionally folds in the user-selected
- * diagnostic history. A one-frame setting is the fresh-only production path. */
+/* The current-frame estimate remains a dedicated linear directional signal
+ * until composition. Sampling variance is reduced at each reached surface;
+ * final radiance is never fed back into later frames. */
 [shader("raygeneration")]
 void ReconstructIndirect()
 {
@@ -3837,14 +3767,8 @@ void ReconstructIndirect()
         IndirectFiltered[pixel] = 0.0;
         return;
     }
-    IndirectSignal rawSignal = loadIndirectSignal(
+    IndirectSignal integratedSignal = loadIndirectSignal(
         currentIndirectHistorySlot(), int2(pixel));
-    IndirectSignal integratedSignal = rawSignal;
-    if ((IndirectTemporalWindow & IndirectTemporalWindowMask) > 1u) {
-        integratedSignal = accumulateTemporalIndirect(
-            pixel, dimensions, rawSignal);
-        storeCurrentIndirectSignal(pixel, integratedSignal);
-    }
     float3 filteredIncident = decodeIndirectSignalColor(integratedSignal);
     IndirectSignal specularSignal = integratedSignal;
     bool hasSpecularSignal = true;
