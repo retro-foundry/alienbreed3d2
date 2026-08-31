@@ -113,6 +113,7 @@ int main(void)
     RendererRayTracingOptions applied = {0};
     requested.samples_per_pixel = 3u;
     requested.indirect_samples_per_pixel = 7u;
+    requested.indirect_temporal_frames = 8u;
     requested.diffuse_gi_scale = 0.6f;
     requested.diffuse_gi_scale_set = UINT8_MAX;
     requested.maximum_bounces = 2u;
@@ -157,6 +158,8 @@ int main(void)
         applied.samples_per_pixel != requested.samples_per_pixel ||
         applied.indirect_samples_per_pixel !=
             requested.indirect_samples_per_pixel ||
+        applied.indirect_temporal_frames !=
+            requested.indirect_temporal_frames ||
         applied.diffuse_gi_scale != requested.diffuse_gi_scale ||
         applied.diffuse_gi_scale_set == 0u ||
         applied.maximum_bounces != requested.maximum_bounces ||
@@ -172,9 +175,10 @@ int main(void)
         applied.hdr_saturation_percent_set != 0u) {
         fprintf(stderr,
                 "DXR ray-tracing settings did not reach the renderer "
-                "(direct spp %u indirect spp %u bounces %u candidates %u limit %u)\n",
+                "(direct spp %u indirect spp %u GI frames %u bounces %u candidates %u limit %u)\n",
                 (unsigned)applied.samples_per_pixel,
                 (unsigned)applied.indirect_samples_per_pixel,
+                (unsigned)applied.indirect_temporal_frames,
                 (unsigned)applied.maximum_bounces,
                 (unsigned)applied.light_candidates,
                 (unsigned)applied.reservoir_sample_limit);

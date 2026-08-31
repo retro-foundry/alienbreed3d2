@@ -29,13 +29,12 @@ inline constexpr uint32_t direction_dimension_x = 6u;
 inline constexpr uint32_t direction_dimension_y = 7u;
 inline constexpr uint32_t polygon_bounce_stream_stride = 1024u;
 
-/* The short GI history stores one exact global primitive identity and a capped
- * effective frame count in a single R32_UINT texel. Sixteen million global
- * triangles are far beyond the current scene, but the runtime still fails
- * explicitly instead of allowing the packed identity to alias. Mirrored by
- * shaders/path_trace.hlsl. */
-inline constexpr uint32_t temporal_window_default = 4u;
-inline constexpr uint32_t temporal_window_maximum = 4u;
+/* Renderer-owned GI history is an explicit diagnostic. One is the fresh-only
+ * production default; larger effective counts let the user compare how the
+ * sparse secondary estimator behaves before DLSS-RR. The eight-bit metadata
+ * count can represent this bounded 64-frame range exactly. */
+inline constexpr uint32_t temporal_window_default = 1u;
+inline constexpr uint32_t temporal_window_maximum = 64u;
 inline constexpr float history_motion_limit = 0.5f;
 inline constexpr uint32_t temporal_window_mask = 0xffu;
 inline constexpr uint32_t temporal_lighting_changed_flag = 0x80000000u;
@@ -46,7 +45,7 @@ inline constexpr uint32_t history_count_shift = history_primitive_bits;
 
 inline constexpr bool temporal_window_valid(uint32_t frames)
 {
-    return frames == 1u || frames == 2u || frames == 4u;
+    return frames >= 1u && frames <= temporal_window_maximum;
 }
 
 inline constexpr uint32_t temporal_configuration(uint32_t frames,

@@ -9,18 +9,92 @@ every measured temporal/spatial ReSTIR DI variant was less stable than fresh
 RIS. Performance parity was reopened on 2026-08-29. The later 2026-08-29
 clean-room correction established the current RR-only diffuse baseline: four
 fresh, stratified cosine-weighted paths per internal pixel and no native GI
-filter. Diffuse-energy parity is now reopened. A single short,
-motion-reprojected temporal integration is now implemented at the existing
-indirect composition boundary, retaining four fresh paths per presentation
-while giving stationary surfaces up to sixteen genuine path samples before
-DLSS Ray Reconstruction. The four-frame default passed the bounded cost and
-saved-motion gates after reuse was restricted to sub-half-pixel receivers and
-unchanged authored-emitter state. The separate linear-energy/Q2RTX comparison
-and `DiffuseGiScale=0.75` versus `1.0` decision remain open.
+filter. Diffuse-energy parity is now reopened. Project-owned temporal
+integration was evaluated at four and 64 presentations, then rejected as a
+production default by two full-resolution user runs on 2026-08-31. Both
+progressively retained rare, large indirect estimates until the initially clean
+image filled with a stable bright-dot field. Production remains four fresh
+current-frame paths and DLSS Ray Reconstruction as the sole temporal/spatial
+reconstructor. After accepting that fresh result visually, the user requested
+explicit INI choices to compare history lengths. The default remains one frame;
+values `2..64` opt into the rejected experiment and are not parity acceptance.
+The next production candidate must reduce variance in the genuine secondary
+estimator; history length, radiance clamping, ambient fill, or another pre-RR
+spatial filter may not conceal it. The linear-energy/Q2RTX comparison and
+`DiffuseGiScale=0.75` versus `1.0` decision remain open.
 
 Date: 2026-08-27
 
-Last updated: 2026-08-29
+Last updated: 2026-08-31
+
+## Temporal accumulation rejection (2026-08-31)
+
+- Four-frame history first converged to the reported salt-and-pepper image. A
+  64-frame/full-256-sample-block retry reproduced the same failure after one to
+  two seconds: the image began clean, then dots appeared progressively and
+  remained.
+- Primary visibility jitter is exactly zero in production, and the frozen
+  history diagnostics showed exact same-pixel acceptance. The failure is not a
+  bilinear reprojection leak. Each pixel eventually receives a rare, large
+  unbiased secondary-light estimate; feedback makes that outlier persistent,
+  so DLSS-RR interprets it as stable image detail rather than current noise.
+- A temporal mean cannot solve this raw-estimator distribution. Making the
+  history longer increases the number of contaminated pixels before enough
+  independent hits exist to converge them, while shortening it merely raises
+  the permanent variance floor. Neighborhood clipping or a radiance ceiling
+  would remove the very rare positive energy this task is trying to recover.
+- Production therefore defaults to a one-frame window. At that value, slot-B
+  and metadata compatibility resources are one texel and there is no
+  full-resolution renderer-owned GI history allocation. The user-requested
+  `rtx_gi_temporal_frames=1..64` diagnostic can explicitly allocate and enable
+  the rejected history for A/B testing; `1` restores the accepted fresh image.
+- Blue noise continues to advance normally through
+  `SampleIndex * IndirectSamplesPerPixel + sampleOrdinal`. DLSS-RR receives four
+  new stratified estimates on every presentation instead of a stable recycled
+  dot field. The next measured candidate must improve the fresh secondary
+  proposal or distribute additional genuine current samples more cheaply.
+- Post-removal validation passed the warnings-as-errors Streamline Release
+  shader/renderer build, all `32/32` Release CTest cases, combined and
+  indirect-only saved-state smoke, and a 256-presentation indirect-only frozen
+  run. The user then accepted the exact full-resolution fresh-only pose as
+  looking good. The subsequent configuration slice restores the same rejected
+  accumulator only when the INI or matching environment override is above one.
+- The configuration slice passes the complete `32/32` Release suite and
+  indirect-only saved-state GPU smoke at effective lengths `1`, `2`, `8`, and
+  `64`. Parser tests accept `1..64`, reject `0/65`, and the renderer reports the
+  applied INI value through its active-options boundary. These are execution
+  checks, not visual acceptance of history values above one.
+
+## Next low-cost fresh-estimator slice
+
+Do not choose the next sampler by looking only at a tone-mapped screenshot.
+First add hidden-validation counters/moments that separate:
+
+- first diffuse rays that miss geometry;
+- reached surfaces whose RIS candidate set contains no positive emitter sample;
+- selected secondary-light samples rejected by visibility; and
+- finite secondary contributions' mean, second moment, and upper percentiles.
+
+Run those counters at four and 32 fresh paths with RR off. The 32-path result is
+the oracle; it identifies whether the sparse dots originate in the first
+cosine direction or in the reached-surface light proposal. In parallel, finish
+the linear-HDR `DiffuseGiScale=0.75` versus `1.0` comparison so a mean-scale
+error is not mistaken for sample loss.
+
+If reached-surface light selection dominates, test proposal work before more
+continuation rays: increase the unshadowed polygon RIS candidates, then test two
+independent RIS survivors formed from disjoint candidate streams and average
+their two visibility-tested estimates. The latter adds secondary shadow rays
+but not primary-to-secondary continuation rays, so it is the most plausible
+way to buy two genuine current light samples below the cost of doubling diffuse
+SPP. It must remain unbiased and stay inside the five-percent frame-time gate.
+
+If first-direction misses dominate, proposal work cannot help; measure a
+fresh-path increase directly and reject any checkerboard/interleaved variant
+that presents zero or stale radiance as a sample. Extra paths must use new
+global sample ordinals. Preserve the four-sample radial/azimuthal strata and
+independent polygon-light streams; never rewind a disoccluded pixel or reuse a
+blue-noise value as temporal history.
 
 ## New-context handoff (2026-08-29)
 
@@ -31,20 +105,23 @@ Last updated: 2026-08-29
   slices as they land, and push accepted work. Use the Streamline Release save
   at `build/streamline/Release/savegame.bin` for captures and motion oracles;
   the Level A starting room is not the accepted comparison pose.
-- The user's latest direction supersedes the earlier ban on all renderer-owned
-  GI history. Evaluate one project-owned, four-presentation temporal sample
-  integration before RR. Do not reintroduce regional, deflicker, wavelet,
+- The user's direction superseded the earlier ban on all renderer-owned GI
+  history long enough to evaluate it. Four- and 64-presentation candidates both
+  failed the 2026-08-31 production gate, so the rejection above remains
+  authoritative for defaults. The later explicit request permits lengths
+  `2..64` only as user-controlled diagnostics; `1` remains production.
+  Do not reintroduce regional, deflicker, wavelet,
   ReSTIR-GI, current-frame spatial reuse, broad continuation, or
   projected-solid-angle triangle sampling. Do not copy or adapt GPL Q2RTX
   implementation details; its observable low-frequency temporal accumulation
   establishes the missing workload class, not this implementation.
 - Current production GI traces four genuine fresh cosine-weighted diffuse paths
   per internal pixel, stratified radially and azimuthally, with standard
-  uniform-area authored-triangle NEE. `ReconstructIndirect` now folds in the
-  compact primitive-validated directional/chroma history before diffuse and
-  rough-specular composition. `raw` selects the exact one-frame control;
-  `full` selects the bounded default. The former broad GI filter passes and
-  ReSTIR-GI code remain absent.
+  uniform-area authored-triangle NEE. With `rtx_gi_temporal_frames=1`,
+  `ReconstructIndirect` remodulates only that fresh directional/chroma signal
+  before diffuse and rough-specular composition. `raw` and legacy `full` are
+  compatibility aliases; the INI/environment value owns the diagnostic. The
+  former broad GI filter passes and ReSTIR-GI code remain absent.
 - The accepted saved RR Quality checkpoint at 853x480 tracing to 1280x720 is
   `8.0234/9.1955/17.7795 ms` frame median/p95/p99, `3.3736/4.0934 ms` burst
   median/p95, and `1.7582 ms` RR median. Indirect-only frozen
@@ -54,14 +131,15 @@ Last updated: 2026-08-29
   indirect-only smoke passed with
   `AB3D2_DXR_INDIRECT_RECONSTRUCTION=full`.
 - Next, complete the linear-HDR mean-energy oracle and matched Q2RTX receiver
-  comparison at `DiffuseGiScale=0.75` and `1.0`. Keep four fresh paths and the
-  accepted four-frame default fixed during that audit. Do not use the temporal
-  window to conceal a transport-scale mismatch.
+  comparison at `DiffuseGiScale=0.75` and `1.0`, then attribute variance between
+  the first diffuse direction and the reached-surface light proposal. Keep the
+  four-fresh-path RR-only baseline fixed during that audit. Do not use history
+  to conceal a transport-scale mismatch.
 - Final parity remains open: the required five alternating matched-work Q2RTX
   and native trials, actual workload manifests, and the completion checklist in
   `Q2RTX_PERFORMANCE_PARITY_PLAN.md` have not been completed.
 
-## Short temporal diffuse sample integration (implemented, 2026-08-29)
+## Bounded temporal diffuse sample integration (rejected, 2026-08-31)
 
 Q2RTX's displayed diffuse GI has passed through motion-reprojected
 low-frequency history in
@@ -92,112 +170,27 @@ twenty-five-percent attenuation. Before judging the temporal candidate:
   history length, exposure, ambient fill, or a fitted energy multiplier to hide
   a mean-transport mismatch.
 
-### Candidate contract
+### Rejected candidate record
 
-- Keep four fresh `sampleDiffusePath` paths per internal pixel per
-  presentation. A mature four-presentation history therefore represents up to
-  sixteen genuinely traced paths without tracing an additional ray in the
-  current frame. Effective windows `1`, `2`, and `4` remain selectable; `1` is
-  the exact current RR-only control and `4` is the accepted production default.
-- Integrate at `ReconstructIndirect`, before diffuse-albedo remodulation,
-  `DiffuseGiScale`, rough-specular reconstruction, and the single RR call. Fold
-  the work into the existing full-rate dispatch; do not add a temporal dispatch
-  or any current-frame neighbor pass.
-- Ping-pong the existing linear directional representation: four half-float SH
-  components plus two half-float opponent-chroma components. Primary/burst
-  shading writes the fresh signal to the current slot; reconstruction replaces
-  that slot with the accumulated signal while the other slot remains the prior
-  presentation. Rough specular must consume the same accumulated directional
-  signal as diffuse GI so the two correlated channels do not diverge.
-- Add one packed 32-bit metadata value per pixel per slot. It records the global
-  primary primitive identity and the bounded effective frame count; fail
-  resource creation or scene validation if the identity cannot be represented
-  rather than silently aliasing it. Two 16-byte signal/metadata slots replace
-  the current single 12-byte raw slot, for an incremental
-  `20 bytes * internal pixel count`, less than half the deleted
-  `48 bytes * internal pixel count` native-history allocation.
-- Reproject with the existing `SceneMotion` convention and the exact current-
-  jitter/previous-jitter correction already implemented by
-  `reprojectHistoryPixel`. Inspect the four bilinear taps around the subpixel
-  result, accept only finite in-bounds taps whose stored global primary
-  primitive matches the current receiver, discard invalid taps, and renormalize
-  the remaining weights. This two-by-two footprint exists only for subpixel
-  temporal reprojection; it must not grow into a spatial filter.
-- Reject history on a renderer history reset, missing motion, a miss/hit
-  transition, primitive mismatch, invalid signal, weapon disocclusion/pose
-  rejection, motion beyond half an internal pixel, an authored emitter state
-  change, or a recreated internal extent. The motion limit was added after
-  exact-primitive window two and four
-  still produced severe Shotgun trails: the compact metadata cannot prove that
-  a moving footprint is the same lighting point on a large triangle. A
-  rejection publishes the current four-path estimate with effective count one.
-  Do not search outward for a replacement pixel and do not borrow a neighbor
-  with merely similar depth, normal, or material.
-- Blend linear directional/chroma values by their represented frame counts.
-  Cap the retained previous count to `window - 1`, add the current count of one,
-  and store at most `window`. At the four-presentation cap the current frame has
-  weight `1/4`. This is a capped-count exponential history, not a literal
-  four-frame ring: contributions older than four presentations decay by `3/4`
-  on each further valid frame and disappear immediately only on rejection.
-  Report that distinction and use the motion/light-toggle gates to decide
-  whether window four is short enough; prefer window two if it is not.
-- Do not neighborhood-clip, luminance-clamp, or discard a valid bright history
-  sample merely because the current four paths missed it. Those rare positive
-  samples are the diffuse energy this slice is intended to retain. The existing
-  optional completed-sample diagnostic clamp remains the only clamp and stays
-  disabled by default.
+The experiment kept four fresh `sampleDiffusePath` paths per internal pixel and
+accumulated their directional/chroma signal at `ReconstructIndirect`. It used
+exact primary-primitive validation, sub-half-pixel motion rejection, authored
+emitter invalidation, and the existing motion/jitter convention. Four-frame and
+64-frame caps were evaluated; neither is selectable now.
 
-### Blue-noise sequence contract
+The sampler itself behaved as intended. The global index remained
+`SampleIndex * IndirectSamplesPerPixel + sampleOrdinal`, every presentation
+retained all four radial/azimuthal strata, and 64 presentations consumed a full
+256-sample blue-noise/Sobol block without repetition. History rejection resumed
+at the current global phase rather than rewinding the sequence.
 
-- Preserve the current index
-  `SampleIndex * IndirectSamplesPerPixel + sampleOrdinal`. With four paths, four
-  consecutive presentations consume sixteen distinct blue-noise/Sobol sample
-  indices; no frame reuses or rewinds a direction or reached-surface light
-  proposal.
-- Preserve `stratifiedDiffuseDirectionSample`'s complete four-sample radial and
-  azimuthal strata inside every presentation. Do not spread one sixteen-stratum
-  estimator across four frames: a newly revealed or rejected pixel still needs
-  an unbiased four-path current estimate before history is available.
-- The temporal result is therefore the mean of four independently jittered
-  four-stratum estimates. Direction dimensions `6/7`, the per-bounce dimension
-  groups, the frame/pixel circular permutation, and the independent hashed
-  polygon-light candidate streams all continue advancing from the same global
-  sample index. A four-presentation window is far shorter than the sampler's
-  256-sample block.
-- Keep reprojection and blend weights deterministic. Do not spend a blue-noise
-  dimension choosing a history tap, accepting history, or perturbing its
-  weight; doing so would add variance without tracing a new path.
-- A pixel that loses history resumes at the current global sample phase rather
-  than resetting its sampler to zero. This avoids coherent disocclusion bands
-  and preserves the current stateless sequence contract.
-
-### Acceptance and performance gates
-
-- Compare the four-path/window-four result against the frozen 32-spp/window-one
-  reference after both have settled. Temporal integration must approach the
-  reference's diffuse-region luminance and coverage while leaving the long-run
-  mean inside repeat-run error. A brighter temporal mean than the high-sample
-  reference is a rejection, not recovered energy.
-- Re-run indirect-only and combined frozen captures, all four accepted Shotgun
-  motion poses, the fixed-receiver sparse-emitter light-toggle oracle, and a
-  deliberate camera cut/disocclusion sequence. Inspect rough specular together
-  with diffuse because both consume the accumulated directional field.
-- The light-toggle response must reach the new high-sample energy target without
-  a visible four-frame trail after the emitter moves or switches. Exact-black
-  regions must remain exact black; a previously lit primitive must not stay lit
-  after history rejection.
-- Record traced diffuse paths to prove they remain exactly four per internal
-  pixel, history accept/reject counts, achieved effective-count buckets, and the
-  incremental allocation. Window one must reproduce the current RR-only hashes
-  or their established one-code tolerance.
-- Profile the folded `indirect_reconstruct` work separately. Acceptance requires
-  no additional dispatch or ray and an overhead materially smaller than the
-  measured `4 -> 8` fresh-path cost (`3.7271 ms` in the saved RR Quality sweep).
-  Run the normal five alternating trials and reject the candidate if total-frame
-  median or p95 moves outside a five-percent envelope after control-run
-  dispersion is included.
-
-### Implemented result and measured decision
+That sequence diversity did not make temporal feedback suitable for this
+estimator. Rare positive samples remained at their pixel long enough to become
+a progressively denser stable dot field. The exact-pixel frozen-camera result
+rules out bilinear propagation as the primary cause. Because clipping those
+positive samples would bias away the missing diffuse energy, the candidate
+failed the visual gate and was removed regardless of its low measured GPU cost.
+### Initial four-frame result and rejected decision
 
 - The implementation uses two `RGBA16_FLOAT` directional-SH textures, two
   `RG16_FLOAT` opponent-chroma textures, and two `R32_UINT` identity/count
@@ -213,8 +206,8 @@ twenty-five-percent attenuation. Before judging the temporal candidate:
   With unrestricted motion, window two measured `7.6111/1.3973` and window four
   `8.2886/1.4963` Shotgun delta/reprojected delta versus the one-frame control's
   `4.5457/0.7478`. Exact triangle identity alone cannot prove that a moving
-  footprint is the same lighting point on a large triangle. Production now
-  rejects history beyond half an internal pixel. Window four then measured
+  footprint is the same lighting point on a large triangle. The experiment then
+  rejected history beyond half an internal pixel. Window four measured
   `4.5561/0.7509`, while its frozen combined delta improved from `0.5204` to
   `0.5156`.
 - The same gated indirect-only A/B improved frozen delta/reprojected delta from
@@ -245,11 +238,13 @@ twenty-five-percent attenuation. Before judging the temporal candidate:
   they are a conservative production-cost bound.
 - Shader warnings-as-errors, the complete Streamline Release build, all `32/32`
   CTest cases, the sparse-emitter recovery test, combined saved-state smoke,
-  and isolated-indirect saved-state smoke pass. Focused CPU tests lock metadata,
-  window/count weights, and the half-pixel motion gate; the blue-noise test
-  proves four frames of four paths consume 16 distinct direction samples.
+  and isolated-indirect saved-state smoke passed at the time. Those former
+  temporal metadata/window tests have now been removed. The general blue-noise
+  test still proves a complete 256-value permutation at a fixed pixel and
+  dimension. The performance numbers in this subsection describe a rejected
+  candidate and must not be presented as acceptance of its converged image.
 
-## RR-only diffuse input baseline (historical control, 2026-08-29)
+## RR-only diffuse input baseline (restored production, 2026-08-31)
 
 - At this checkpoint the production signal contained only current-frame path samples. There was no
   renderer-owned temporal radiance accumulation, regional integration,
@@ -283,8 +278,8 @@ twenty-five-percent attenuation. Before judging the temporal candidate:
 ## Performance parity reopening (historical baseline, superseded 2026-08-29)
 
 The measurements and adaptive-history schedule in this section record the
-state that initiated performance work. The new-context handoff and implemented
-short-history section above describe current production behavior.
+state that initiated performance work. The new-context handoff and restored
+RR-only section above describe current production behavior.
 
 - The renderer does not yet have a valid current GPU-performance baseline.
   The earlier approximately `8.1 ms` Ultra Performance measurements predate
@@ -712,10 +707,10 @@ short-history section above describe current production behavior.
 Match the useful indoor lighting structure, diffuse-GI energy, and steady-state
 performance envelope of Q2RTX while preserving authored response. Direct and
 specular transport are complete; the active lighting work is to distinguish a
-real mean-energy mismatch from four-path undersampling, then give stable
-receivers a short reprojected window of genuine samples without materially
-increasing traced work. This is not an exposure change, ambient/shadow lift, or
-unmeasured quality cut.
+real mean-energy mismatch from four-path undersampling, then reduce the fresh
+secondary estimator's variance without materially increasing traced work. This
+is not an exposure change, ambient/shadow lift, temporal feedback, or unmeasured
+quality cut.
 
 The target pipeline is:
 
@@ -723,8 +718,8 @@ The target pipeline is:
    non-occluding additive layers.
 2. Direct diffuse plus GGX specular lighting from authored local emitters.
 3. Four fresh, stratified cosine-weighted diffuse paths per internal pixel,
-   using uniform-area authored-triangle NEE, followed by at most one bounded
-   four-presentation motion-reprojected integration of the directional signal.
+   using uniform-area authored-triangle NEE and no renderer-owned temporal or
+   spatial radiance reconstruction before RR.
 4. Real first-bounce GGX specular transport for smooth materials.
 5. Q2RTX-style rough specular derived from the current directional GI sample.
 6. One combined noisy-HDR input with correct diffuse/specular guides for DLSS
@@ -767,8 +762,9 @@ Q2RTX evidence under `<Q2RTX-root>/src/refresh/vkpt/`:
 - `shader/asvgf_temporal.comp` demonstrates the observable workload difference
   relevant to the reopened energy task: Q2RTX motion-reprojects and temporally
   accumulates its low-frequency directional lighting before final display. Its
-  long history, gradient logic, filter constants, and spatial stages are not an
-  implementation source for the native four-presentation candidate.
+  long history, gradient logic, filter constants, and spatial stages establish
+  a workload difference, but the rejected native temporal experiment proves
+  they are not directly transplantable to this estimator/RR boundary.
 - `shader/global_ubo.h` and
   `shader/indirect_lighting.rgen::indirect_lighting` expose switches for local
   polygon/dynamic bounce lights but no general `0.75` multiplier corresponding
@@ -819,8 +815,9 @@ Pre-implementation AB3D2 lighting evidence retained for this handoff:
   reservoir experiments. `dxr_pipeline.cpp::record` deliberately does not
   dispatch `SpatialShade`; do not revive it for this milestone.
 - `ReconstructIndirect` owns the directional diffuse-GI composition point. It
-  derives rough specular from the same bounded directional mean as diffuse
-  before the combined signal reaches RR, the sole spatial denoiser/upscaler.
+  derives rough specular from the same fresh directional estimate as diffuse
+  before the combined signal reaches RR, the sole temporal/spatial
+  reconstructor.
 - `environmentRadiance` is a hard-coded analytic gradient with no AB3D2 scene
   authority. It is dormant and must not be activated. The real backdrop is in
   `SceneEnvironment` and the packaged `environment_backdrop` material is
@@ -838,11 +835,9 @@ revert or overwrite unrelated user changes.
 
 - Preserve diffuse transport energy, the ReGIR proposal's complete emitter
   coverage, directional representation, and final diffuse-GI remodulation. The
-  only permitted pre-RR radiance reuse is the accepted short temporal candidate:
-  motion-reproject the same primitive's directional signal through a two-by-two
-  subpixel footprint, with no spatial search or current-frame neighbor filter.
-  The window-one control displays the same current raw estimator as the existing
-  RR-only path.
+  production one-frame mode must not reuse renderer-owned radiance before RR.
+  Every presentation still traces the complete four-path current estimate when
+  an explicit temporal diagnostic is selected.
 - Keep `rtx_radiance_clamp=0` as the production default. A nonzero diagnostic
   clamp must operate on completed finite path samples; it is not a brightness
   control.
@@ -860,9 +855,9 @@ revert or overwrite unrelated user changes.
   motion, BLAS/TLAS, alpha-test, weapon, billboard, vector, and projectile
   behavior.
 - Send the final lighting sum through Ray Reconstruction once. Do not denoise
-  diffuse and specular with separate RR invocations. The bounded directional
-  temporal sample mean is the sole renderer-owned pre-RR history;
-  do not add the former regional, deflicker, wavelet, or ReSTIR-GI stages.
+  diffuse and specular with separate RR invocations. Apart from the explicit
+  same-primitive temporal diagnostic, do not add regional, deflicker, wavelet,
+  or ReSTIR-GI stages.
 - Treat the 2026-08-28 lighting captures, isolated-channel sums, exact-black
   tests, and motion-compensated metrics as the performance phase's quality
   oracle. A faster candidate is rejected if it changes transport energy,
@@ -995,9 +990,7 @@ precedence over reproducing Q2RTX's noisier lobe lottery.
 ### 5. Reconstruct Q2RTX-style rough specular from accepted GI
 
 At the indirect composition boundary, extend `ReconstructIndirect` while its
-first-order directional signal is available. The window-one/raw control supplies
-only the fresh estimator; the temporal candidate supplies the bounded
-motion-reprojected mean of that same representation:
+fresh first-order directional signal is available:
 
 1. Read the packed primary F0, actual roughness, shading normal, and primary
    view direction.
@@ -1015,20 +1008,20 @@ motion-reprojected mean of that same representation:
 
 Radiance-channel diagnostics isolate final contributions without changing this
 boundary. RR-off and active-RR modes must derive rough specular from the same
-directional input: raw at window one, or the bounded accumulated signal when
-the temporal candidate is active.
+directional input as diffuse: fresh at the production one-frame setting, or the
+same accumulated signal during an explicit temporal diagnostic.
 
-### 5a. Integrate the short diffuse history without another pass (complete)
+### 5a. Default native diffuse history off; retain user diagnostic
 
-The candidate contract above is implemented: ping-pong
-the directional/chroma signal and primitive/effective-count metadata, reproject through the
-existing motion/jitter convention, validate only the matching primitive's
-two-by-two footprint, and blend at most four presentations in
-`ReconstructIndirect`. Preserve four fresh paths, their global blue-noise sample
-indices, and the exact window-one result. This stage is complete only after the
-mean-energy audit proves whether `DiffuseGiScale=0.75` or `1.0` is the parity
-transport scale. The code portion is complete; that parity acceptance remains
-open.
+`rtx_gi_temporal_frames` accepts `1..64` and defaults to one. At one,
+`ReconstructIndirect` returns slot A's fresh directional/chroma signal, while
+slot B and metadata remain one-texel compatibility bindings. Values above one
+explicitly allocate the ping-pong signal/metadata and run the rejected
+same-primitive reprojection/count-weighted accumulator for user A/B testing.
+`AB3D2_DXR_GI_TEMPORAL_FRAMES` overrides the INI for one run. `raw` and legacy
+`full` are compatibility aliases and do not override the length. Four fresh
+paths and their global blue-noise indices remain unchanged in every mode. The
+mean-energy and raw-estimator variance audits are still open.
 
 ### 6. Compose once and retain dormant experiments as dormant
 
@@ -1044,15 +1037,14 @@ The final noisy HDR value is the sum of:
 
 Validate the sum for finite values, apply a nonzero diagnostic radiance clamp
 only at the completed-sample boundary, and then invoke the existing single RR
-evaluation. Window-one RR-off remains the unbiased/noisy reference path; the
-production candidate is a linear mean of genuine samples and must not add an
-unrelated blur to imitate Q2RTX's ASVGF.
+evaluation. RR-off remains the unbiased/noisy reference path; production must
+not add an unrelated blur or feedback loop to imitate Q2RTX's ASVGF.
 
 Do not dispatch `resampleDirectTemporal`/`SpatialShade`. Their screen-space
 reservoir history, neighbor reuse, and hard-coded environment candidates are
 not required for the Q2RTX indoor lighting decomposition and previously made
-the active path harder to reason about. They are unrelated to the bounded
-directional-history candidate.
+the active path harder to reason about. They are unrelated to the fresh
+secondary-estimator work.
 
 ### 7. Add a non-blocking frame and stage profiler
 
@@ -1305,17 +1297,12 @@ indoor corridor and must remain absent until their AB3D2 inputs are explicit.
 - Packed primary F0 round-trips within the chosen quantization tolerance.
 - Specular hit distance distinguishes background, geometry hit, and surface
   mirror miss exactly.
-- Temporal metadata round-trips the maximum supported primitive identity and
-  effective counts `1/2/4`, and rejects an identity that cannot be packed.
-- Reprojection applies current and previous jitter exactly once, rejects
-  out-of-bounds/mismatched primitive taps, renormalizes the remaining bilinear
-  weights, and returns the current signal when none survive.
-- Window-one accumulation is bit-identical to the fresh signal. Windows two and
-  four give the current estimate weights `1/2` and `1/4` at maturity and retain
-  finite signed SH/chroma values.
-- Four spp over four consecutive presentations consume sixteen distinct
-  `sampleBlueNoise` indices while each individual presentation still covers all
-  four radial/azimuthal strata.
+- Native indirect temporal configuration accepts only the one-frame value, and
+  the obsolete temporal-frame environment variable cannot enable history.
+- The 256-sample blue-noise/Sobol table remains a complete permutation at a
+  fixed pixel and dimension. Four spp advance from the presentation's global
+  sample index while each presentation still covers all four radial/azimuthal
+  strata.
 
 ### GPU reference scenes
 
@@ -1331,10 +1318,9 @@ Create small deterministic scenes containing:
   specular miss;
 - a completely unlit surface that must remain exact black;
 - a static diffuse receiver whose four-path estimates alternately hit and miss
-  a sparse emitter, proving the four-frame mean retains real positive samples;
-  and
+  a sparse emitter, exposing raw-estimator hit rate, energy, and variance; and
 - a moving foreground primitive, a disocclusion, and an emitter toggle, proving
-  primitive-validated history resets without a trail.
+  RR guides and current-frame radiance remain finite without a native trail.
 
 The combined image must equal the sum of the isolated radiance channels within
 the storage format's tolerance. All radiance and guides must remain finite.
@@ -1350,10 +1336,9 @@ ctest --test-dir build -C Debug --output-on-failure
 ```
 
 Also capture the locked Level A corridor with combined, indirect-diffuse,
-direct-specular, and indirect-specular selections. Retain the window-one
-RR-only capture as the structural control, compare the settled window-four
-result with the 32-spp mean-energy oracle, and compare both against matched
-Q2RTX diffuse-receiver regions. Report `DiffuseGiScale` in every capture.
+direct-specular, and indirect-specular selections. Compare the four-spp RR-only
+result with the 32-spp RR-off mean-energy oracle and matched Q2RTX
+diffuse-receiver regions. Report `DiffuseGiScale` in every capture.
 
 Acceptance requires:
 
@@ -1362,12 +1347,11 @@ Acceptance requires:
 - metalness removes diffuse response and colors specular response;
 - rough materials transition smoothly from real to reconstructed specular;
 - directly unlit black remains black;
-- settled window-four diffuse GI approaches the high-sample coverage/variance
-  without changing its long-run mean; any remaining scale mismatch is resolved
-  by the separate `0.75` versus `1.0` transport audit;
-- temporal history remains attached to the same global primitive through camera
-  motion and is rejected at disocclusions, cuts, weapon transitions, and extent
-  recreation without bright or dark trails;
+- the accepted fresh-estimator candidate approaches the high-sample
+  coverage/variance without changing its long-run mean; any remaining scale
+  mismatch is resolved by the separate `0.75` versus `1.0` transport audit;
+- a frozen camera does not progressively fill with persistent bright dots, and
+  motion/disocclusion/weapon transitions do not create bright or dark trails;
 - no new scene rebuilds or history resets occur during moving weapon,
   door/lift/water, billboard, vector, or projectile updates;
 - RR guides remain stable during camera motion and do not create specular
@@ -1382,10 +1366,9 @@ Acceptance requires:
 - The profiler's complete-frame GPU interval reconciles with its non-overlapping
   top-level stage intervals, and a disabled profiler changes neither output nor
   frame time outside measured run-to-run variation.
-- The short-history candidate adds no ray or dispatch, reports exactly four
-  diffuse paths per internal pixel, and keeps total-frame median/p95 inside the
-  five-percent gate after control dispersion. Report its `20 bytes * internal
-  pixel count` incremental allocation and the `indirect_reconstruct` delta.
+- Any fresh-estimator candidate reports its actual diffuse paths, shadow rays,
+  and proposal work per internal pixel and keeps total-frame median/p95 inside
+  the five-percent gate after control dispersion.
 - Performance reports contain the exact hardware/software manifest, settings,
   presentation/tracing/reconstruction extents, ray counts, warm-up/sample
   counts, median/p95/p99/maximum, and scene rebuild/refit counts. Reject any
@@ -1416,9 +1399,10 @@ Acceptance requires:
 - No physical sky or sun without scene data.
 - No environment gradient or missed-ray fill.
 - No direct screen-space temporal/spatial ReSTIR activation.
-- No temporal window longer than four presentations, outward history search,
-  current-frame spatial radiance reuse, neighborhood clipping, regional pass,
-  deflicker, or wavelet stage in the short-history slice.
+- No renderer-owned temporal radiance history in the production one-frame
+  setting. The explicit `2..64` diagnostic may use only same-primitive
+  reprojection: no outward history search, current-frame spatial radiance reuse,
+  neighborhood clipping, regional pass, deflicker, or wavelet stage.
 - No recursive reflections, water/glass refraction, caustics, or volumetrics in
   the indoor-core implementation.
 - No new exposure, HDR, radiance-clamp, paper-white, or shadow controls.
@@ -1437,13 +1421,13 @@ Acceptance requires:
 
 The indoor-core work is complete only when direct GGX, real smooth specular,
 rough reconstructed specular, and active RR specular guides are all present;
-the diffuse mean-energy audit selects a justified transport scale; and the
-four-presentation candidate reaches the high-sample diffuse coverage without a
-mean shift, trail, extra ray, or extra dispatch. Isolated-stage captures must
+the diffuse mean-energy audit selects a justified transport scale; and an
+accepted low-cost fresh estimator reaches the high-sample diffuse coverage
+without a mean shift or persistent-dot failure. Isolated-stage captures must
 sum to the combined result and the CPU, GPU-reference, and all-level validation
 above must pass. Performance parity is complete only when the non-blocking
 profiler and reproducible Q2RTX/native benchmark report exist, matched-work and
 shipping-default median/p95 GPU results enter Q2RTX's measured envelope, the
 moving native p95/p99 path has no new hitch, and every lighting oracle still
-passes. A brighter but biased history, a partial direct highlight, or a faster
+passes. A biased variance workaround, a partial direct highlight, or a faster
 low-resolution preset without those paired results is not completion.

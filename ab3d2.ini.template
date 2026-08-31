@@ -51,6 +51,20 @@ world_light_tessellation=4
 # an expensive quality check. These paths do not repeat primary direct shadows.
 #rtx_indirect_samples=4
 
+# Optional renderer-owned diffuse-GI history, 1 through 64 effective frames.
+# Default 1 is the fresh-only path that currently looks best. Values above 1
+# enable the rejected temporal experiment for A/B testing; they allocate
+# full-resolution ping-pong history and can progressively retain bright dots.
+# The blue-noise sequence continues advancing, so history never repeats a path.
+# Uncomment exactly one suggested value, or enter any integer from 1 through 64.
+#rtx_gi_temporal_frames=1
+#rtx_gi_temporal_frames=2
+#rtx_gi_temporal_frames=4
+#rtx_gi_temporal_frames=8
+#rtx_gi_temporal_frames=16
+#rtx_gi_temporal_frames=32
+#rtx_gi_temporal_frames=64
+
 # Secondary diffuse-light transfer, 0 through 1. Default 0.75. Zero disables
 # diffuse continuation work; direct light and visible emission remain active.
 # Use rtx_indirect_samples separately to change ray cost.
@@ -65,8 +79,8 @@ world_light_tessellation=4
 # DLSS Ray Reconstruction mode: quality, balanced, performance,
 # ultra-performance, or off. This also sets the resolution the path tracer
 # renders at before reconstruction. Enabled modes own all indirect denoising;
-# the renderer always supplies fresh, unfiltered path samples. Ultra Performance
-# is explicitly speed-first:
+# the default one-frame GI setting supplies fresh, unfiltered path samples.
+# Ultra Performance is explicitly speed-first:
 # at a 1280x720 window it traces 285x160, reconstructs to 854x480, then uses the
 # final linear presentation upscale. The other enabled modes reconstruct
 # directly to the window extent. Default quality.

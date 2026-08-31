@@ -121,6 +121,8 @@ public:
         options.samples_per_pixel = static_cast<uint8_t>(spp_);
         options.indirect_samples_per_pixel =
             static_cast<uint8_t>(indirect_spp_);
+        options.indirect_temporal_frames =
+            static_cast<uint8_t>(indirect_temporal_window_);
         options.diffuse_gi_scale = diffuse_gi_scale_;
         options.diffuse_gi_scale_set = UINT8_MAX;
         options.maximum_bounces = static_cast<uint8_t>(maximum_depth_);

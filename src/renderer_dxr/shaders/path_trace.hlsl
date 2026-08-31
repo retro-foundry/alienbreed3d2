@@ -196,9 +196,10 @@ RWStructuredBuffer<PackedLightReservoir> PreviousReservoirs : register(u11);
  * none is used to shade the image. */
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
-/* Demodulated diffuse-suffix lighting. Primary/burst shading writes the fresh
- * estimate into the current slot; ReconstructIndirect replaces it in-place
- * with the bounded temporal mean while the other slot remains prior history. */
+/* Demodulated diffuse-suffix lighting. Primary/burst shading writes a fresh
+ * estimate into the current slot. At the production one-frame setting slot B
+ * and metadata are one texel; an explicit diagnostic length above one enables
+ * the full-resolution ping-pong history. */
 RWTexture2D<float4> IndirectRadianceA : register(u14);
 RWTexture2D<float4> IndirectRadianceB : register(u15);
 RWTexture2D<uint> IndirectHistoryMetadataA : register(u16);
@@ -588,7 +589,7 @@ IndirectSignal emptyIndirectSignal()
 /* First-order directional luminance plus unprojected opponent chroma. These
  * are standard real spherical-harmonic basis constants. The representation
  * retains the current sample's incident direction for rough-specular shading;
- * no temporal or spatial filter consumes it. */
+ * the optional temporal diagnostic accumulates this same representation. */
 IndirectSignal indirectSignalFromRadiance(float3 color, float3 direction)
 {
     IndirectSignal signal = emptyIndirectSignal();
@@ -739,7 +740,7 @@ float3 cosineHemisphere(float3 normal, float2 sampleValue)
  * band once. A frame/pixel-dependent circular permutation decorrelates the
  * azimuthal strata, followed by a common rotation that prevents fixed seams.
  * A complete per-pixel set remains a standard cosine-hemisphere estimator;
- * DLSS Ray Reconstruction stays the only spatial/temporal reconstructor. */
+ * changing diagnostic history length never changes or rewinds these samples. */
 float2 stratifiedDiffuseDirectionSample(uint2 pixel, uint sampleIndex,
                                         uint continuationIndex,
                                         float2 jitter)
@@ -3544,7 +3545,6 @@ void ShadePrimary()
 }
 
 
-
 /* One compact entry represents one burst pixel and its exact configured path
  * count. The argument Width starts at one for a sentinel thread, then primary
  * shading appends at most one entry per internal pixel. This bounds storage by
@@ -3811,9 +3811,10 @@ IndirectSignal accumulateTemporalIndirect(
     return accumulated;
 }
 
+
 /* The current four-path estimate remains a dedicated linear directional signal
- * until this existing composition dispatch optionally folds in its short
- * history. Diffuse and rough specular consume the same result before DLSS-RR. */
+ * until this composition dispatch optionally folds in the user-selected
+ * diagnostic history. A one-frame setting is the fresh-only production path. */
 [shader("raygeneration")]
 void ReconstructIndirect()
 {
@@ -3838,9 +3839,12 @@ void ReconstructIndirect()
     }
     IndirectSignal rawSignal = loadIndirectSignal(
         currentIndirectHistorySlot(), int2(pixel));
-    IndirectSignal integratedSignal = accumulateTemporalIndirect(
-        pixel, dimensions, rawSignal);
-    storeCurrentIndirectSignal(pixel, integratedSignal);
+    IndirectSignal integratedSignal = rawSignal;
+    if ((IndirectTemporalWindow & IndirectTemporalWindowMask) > 1u) {
+        integratedSignal = accumulateTemporalIndirect(
+            pixel, dimensions, rawSignal);
+        storeCurrentIndirectSignal(pixel, integratedSignal);
+    }
     float3 filteredIncident = decodeIndirectSignalColor(integratedSignal);
     IndirectSignal specularSignal = integratedSignal;
     bool hasSpecularSignal = true;

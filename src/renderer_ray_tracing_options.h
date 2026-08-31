@@ -40,11 +40,12 @@ typedef enum {
 } RendererOutputMode;
 
 /* Fresh current-frame path-sampling defaults. Four stratified diffuse paths
- * give DLSS Ray Reconstruction useful low-frequency coverage without feeding
- * it renderer-owned temporal or spatial radiance reconstruction. */
+ * give DLSS Ray Reconstruction useful low-frequency coverage. Temporal GI is
+ * an explicit diagnostic and defaults to one frame (disabled). */
 enum {
     RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES = 16,
     RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL = 4,
+    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_TEMPORAL_FRAMES = 1,
     RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT = 32
 };
 
@@ -61,6 +62,8 @@ typedef struct {
     uint8_t samples_per_pixel;
     /* Fresh diffuse-indirect paths per pixel per frame, one through 32. */
     uint8_t indirect_samples_per_pixel;
+    /* Effective GI history length, one (fresh only) through 64. */
+    uint8_t indirect_temporal_frames;
     /* Secondary diffuse transfer multiplier, zero through one. */
     float diffuse_gi_scale;
     uint8_t diffuse_gi_scale_set;

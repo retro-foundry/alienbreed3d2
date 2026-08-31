@@ -137,6 +137,7 @@ int main(void)
      * explicitly SDR because Q2RTX makes HDR opt-in. */
     if (RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES != 16 ||
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL != 4 ||
+        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_TEMPORAL_FRAMES != 1 ||
         RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT != 32 ||
         RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE != 0.75f) {
         fprintf(stderr, "fresh-light production defaults changed\n");
@@ -145,6 +146,7 @@ int main(void)
     desktop_settings_default(&settings);
     if (settings.ray_tracing.samples_per_pixel != 0u ||
         settings.ray_tracing.indirect_samples_per_pixel != 0u ||
+        settings.ray_tracing.indirect_temporal_frames != 0u ||
         settings.ray_tracing.diffuse_gi_scale != 0.0f ||
         settings.ray_tracing.diffuse_gi_scale_set != 0u ||
         settings.ray_tracing.maximum_bounces != 0u ||
@@ -168,6 +170,7 @@ int main(void)
         static const char text[] =
             "rtx_samples_per_pixel=4\n"
             "rtx_indirect_samples=12\n"
+            "rtx_gi_temporal_frames=8\n"
             "rtx_diffuse_gi=0.625\n"
             "rtx_max_bounces=2\n"
             "rtx_light_candidates=16\n"
@@ -185,6 +188,7 @@ int main(void)
                                     error, sizeof(error)) ||
             settings.ray_tracing.samples_per_pixel != 4u ||
             settings.ray_tracing.indirect_samples_per_pixel != 12u ||
+            settings.ray_tracing.indirect_temporal_frames != 8u ||
             settings.ray_tracing.diffuse_gi_scale != 0.625f ||
             settings.ray_tracing.diffuse_gi_scale_set == 0u ||
             settings.ray_tracing.maximum_bounces != 2u ||
@@ -238,6 +242,8 @@ int main(void)
             "rtx_samples_per_pixel=9\n",
             "rtx_indirect_samples=0\n",
             "rtx_indirect_samples=33\n",
+            "rtx_gi_temporal_frames=0\n",
+            "rtx_gi_temporal_frames=65\n",
             "rtx_diffuse_gi=-0.01\n",
             "rtx_diffuse_gi=1.01\n",
             "rtx_max_bounces=0\n",

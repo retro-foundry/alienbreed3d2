@@ -556,9 +556,9 @@ bool DxrPipeline::configure_debug_view(std::string &error)
                      names[debug_view_]);
     }
 
-    /* Keep the former reconstruction selector as a transition spelling. Raw is
-     * the exact one-frame control; full selects the new bounded temporal mean.
-     * The explicit GI-temporal override parsed below can still win. */
+    /* Keep raw/full as transition aliases for existing launch configurations.
+     * The explicit GI-temporal setting below owns history length; removed
+     * regional, wavelet, and ReSTIR-GI selectors remain invalid. */
     char reconstruction_value[64] = {};
     const DWORD reconstruction_length = GetEnvironmentVariableA(
         "AB3D2_DXR_INDIRECT_RECONSTRUCTION", reconstruction_value,
@@ -571,16 +571,12 @@ bool DxrPipeline::configure_debug_view(std::string &error)
         if (std::strcmp(reconstruction_value, "raw") != 0 &&
             std::strcmp(reconstruction_value, "full") != 0) {
             error = "AB3D2_DXR_INDIRECT_RECONSTRUCTION supports only raw "
-                    "(`full` is a compatibility alias); DLSS Ray "
-                    "Reconstruction owns indirect denoising";
+                    "or full (compatibility aliases); use "
+                    "AB3D2_DXR_GI_TEMPORAL_FRAMES for GI history";
             return false;
         }
-        if (std::strcmp(reconstruction_value, "raw") == 0) {
-            indirect_temporal_window_ = 1u;
-        }
-        debug_output(std::strcmp(reconstruction_value, "raw") == 0 ?
-            "DXR indirect reconstruction: fresh raw RR input" :
-            "DXR indirect reconstruction: bounded temporal RR input");
+        debug_output("DXR indirect reconstruction compatibility selector: " +
+                     std::string(reconstruction_value));
     }
 
     constexpr std::array<const char *, 7> radiance_channel_names = {
@@ -618,15 +614,16 @@ bool DxrPipeline::configure_debug_view(std::string &error)
 
 /*
  * Applies ab3d2.ini's ray-tracing settings over the tuned defaults, then lets
- * the environment override either, so bounce depth, sample count, and candidate
- * count can be swept against `--gpu-smoke` without editing a file. The former
- * reservoir-limit spelling remains range-checked for configuration compatibility
- * but does not alter the RR-only GI path.
+ * the environment override either, so bounce depth, sample count, candidate
+ * count, and diagnostic GI history can be swept against `--gpu-smoke` without
+ * editing a file. The former reservoir-limit spelling remains range-checked for
+ * configuration compatibility but does not control GI history.
  *
  * Zero keeps the renderer default for ordinary quality fields. It explicitly
  * disables the radiance clamp or diffuse-GI transfer when their setting is
  * present. Flags distinguish explicit zero from absence for GI transfer, the
- * compatibility limit, and post-curve exposure bias.
+ * compatibility limit, and post-curve exposure bias. A zero temporal-frame
+ * field means absent; the renderer then keeps the one-frame production default.
  */
 bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                                        std::string &error)
@@ -637,6 +634,12 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     }
     if (options.indirect_samples_per_pixel > 32u) {
         error = "DXR indirect samples per pixel must be 1-32 when specified";
+        return false;
+    }
+    if (options.indirect_temporal_frames != 0u &&
+        !indirect_reconstruction::temporal_window_valid(
+            options.indirect_temporal_frames)) {
+        error = "DXR GI temporal frames must be 1-64 when specified";
         return false;
     }
     candidate_count_ = options.light_candidates != 0u ?
@@ -652,6 +655,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     indirect_spp_ = options.indirect_samples_per_pixel != 0u ?
         options.indirect_samples_per_pixel :
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL;
+    indirect_temporal_window_ = options.indirect_temporal_frames != 0u ?
+        options.indirect_temporal_frames :
+        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_TEMPORAL_FRAMES;
     if (options.diffuse_gi_scale_set != 0u) {
         if (!std::isfinite(options.diffuse_gi_scale) ||
             options.diffuse_gi_scale < 0.0f ||
@@ -825,7 +831,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     }
     if (!indirect_reconstruction::temporal_window_valid(
             indirect_temporal_window_)) {
-        error = "AB3D2_DXR_GI_TEMPORAL_FRAMES must be 1, 2, or 4";
+        error = "AB3D2_DXR_GI_TEMPORAL_FRAMES must be 1-64";
         return false;
     }
     EnvironmentToggle split_primary_override = EnvironmentToggle::automatic;
@@ -1813,7 +1819,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
         std::to_string(last_indirect_history_counts_[1]) +
         " indirect_history_count_3=" +
         std::to_string(last_indirect_history_counts_[2]) +
-        " indirect_history_count_4=" +
+        " indirect_history_count_4_plus=" +
         std::to_string(last_indirect_history_counts_[3]));
     if (last_burst_work_overflow_ != 0u) {
         error = "DXR burst continuation work capacity was exceeded by " +

@@ -265,6 +265,16 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.indirect_samples_per_pixel = (uint8_t)number;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_gi_temporal_frames")) {
+        if (!desktop_settings_parse_unsigned(value, 64u, &number) || number == 0u) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_gi_temporal_frames must be 1 through 64",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.indirect_temporal_frames = (uint8_t)number;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_diffuse_gi")) {
         if (!desktop_settings_parse_float_range(
                 value, 0.0, 1.0,
