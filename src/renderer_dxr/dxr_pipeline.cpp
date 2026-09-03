@@ -2174,7 +2174,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         for (size_t index = 0u; index < burst_work_items_.size(); ++index) {
             HRESULT result = device->CreateCommittedResource(
                 &default_heap, D3D12_HEAP_FLAG_NONE, &work_description,
-                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                D3D12_RESOURCE_STATE_COMMON, nullptr,
                 IID_PPV_ARGS(&burst_work_items_[index]));
             if (FAILED(result)) {
                 error = hresult_error(
@@ -2187,7 +2187,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
                 L"AB3D2 DXR Burst Work Items B");
             result = device->CreateCommittedResource(
                 &default_heap, D3D12_HEAP_FLAG_NONE, &argument_description,
-                D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT, nullptr,
+                D3D12_RESOURCE_STATE_COMMON, nullptr,
                 IID_PPV_ARGS(&burst_dispatch_arguments_[index]));
             if (FAILED(result)) {
                 error = hresult_error(
@@ -2948,7 +2948,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         command_list->ResourceBarrier(1, &light_grid_state);
     }
     if (targets_recreated) {
-        const std::array<D3D12_RESOURCE_BARRIER, 4> initial_states = {
+        const std::array<D3D12_RESOURCE_BARRIER, 8> initial_states = {
             transition(direct_reservoir_binding_.Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
@@ -2961,6 +2961,18 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             transition(tone_map_state_.Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition(burst_work_items_[0].Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition(burst_work_items_[1].Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+            transition(burst_dispatch_arguments_[0].Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
+            transition(burst_dispatch_arguments_[1].Get(),
+                       D3D12_RESOURCE_STATE_COMMON,
+                       D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT),
         };
         command_list->ResourceBarrier(
             static_cast<UINT>(initial_states.size()),

@@ -22,7 +22,7 @@ comparison, and the `DiffuseGiScale=0.75` versus `1.0` decision remain open.
 
 Date: 2026-08-27
 
-Last updated: 2026-08-31
+Last updated: 2026-09-03
 
 ## Active two-survivor fresh GI candidate (2026-08-31)
 
@@ -67,6 +67,11 @@ Last updated: 2026-08-31
   close the visible-dot failure.
 
 ## Final-radiance accumulation rejection (2026-08-31)
+
+- On 2026-09-03 the later uncommitted stable-base temporal retry was removed at
+  the user's direction. Its manual diffuse signal store, surface-history data,
+  admission filter, and reprojection path are absent. Production is again the
+  fresh-only RR input described below while a different approach is selected.
 
 - Four- and 64-frame exact user-pose runs began plausibly, then converged to a
   dense field of persistent bright dots. A later separate-dispatch temporal
