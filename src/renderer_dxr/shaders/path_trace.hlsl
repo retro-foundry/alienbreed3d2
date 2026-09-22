@@ -320,6 +320,18 @@ cbuffer RayRootConstants : register(b1)
     uint InterleavedDeepDiffuse;
 };
 
+/*
+ * ReSTIR reuse counters. Whether reuse is succeeding is not visible in the
+ * image -- a rejected shift and an accepted one that contributes little look
+ * identical -- so it is counted instead of inferred.
+ */
+static const uint DiagnosticTemporalConsidered = 22u;
+static const uint DiagnosticTemporalSurfaceRejected = 23u;
+static const uint DiagnosticTemporalShiftFailed = 24u;
+static const uint DiagnosticTemporalAccepted = 25u;
+static const uint DiagnosticSpatialConsidered = 26u;
+static const uint DiagnosticSpatialAccepted = 27u;
+
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
 /*
  * Surface-compatibility tolerances. Temporal reuse is looking for the same
@@ -3779,7 +3791,6 @@ void BurstContinuation()
                 ReservoirCanonicalStream).x;
             combineReservoir(reservoir, candidate, acceptance,
                              canonicalTarget);
-            continue;
         }
         IndirectSignal sampleSignal = indirectSignalFromRadiance(
             incident, pathSample.firstDirection);
@@ -3804,7 +3815,6 @@ void BurstContinuation()
                            reservoirLuminance(reservoir.targetFunction) *
                                reservoir.m);
         CurrentReservoirs[reservoirIndex(pixel, dimensions)] = reservoir;
-        return;
     }
 
     IndirectSignal signal = scaleIndirectSignal(
@@ -3959,6 +3969,16 @@ void ResampleTemporal()
                 all(previousCoordinate < int2(dimensions))) {
                 PathReservoir history = PreviousReservoirs[
                     reservoirIndex(uint2(previousCoordinate), dimensions)];
+                InterlockedAdd(
+                    Diagnostics[DiagnosticTemporalConsidered], 1u);
+                if (!reservoirSurfaceCompatible(
+                        history, surface, depth,
+                        ReservoirTemporalDepthTolerance,
+                        ReservoirTemporalNormalTolerance,
+                        ReservoirTemporalSeparation * depth)) {
+                    InterlockedAdd(
+                        Diagnostics[DiagnosticTemporalSurfaceRejected], 1u);
+                }
                 if (reservoirSurfaceCompatible(
                         history, surface, depth,
                         ReservoirTemporalDepthTolerance,
@@ -3983,9 +4003,14 @@ void ResampleTemporal()
                     if (historyM > 0.0) {
                         float3 shiftedTarget;
                         float jacobian;
-                        if (shiftReservoir(history, surface,
-                                           SceneInstanceMask, shiftedTarget,
-                                           jacobian)) {
+                        bool shifted = shiftReservoir(
+                            history, surface, SceneInstanceMask,
+                            shiftedTarget, jacobian);
+                        InterlockedAdd(
+                            Diagnostics[shifted ?
+                                DiagnosticTemporalAccepted :
+                                DiagnosticTemporalShiftFailed], 1u);
+                        if (shifted) {
                             float acceptance = sampleStream(
                                 pixel, SampleIndex,
                                 ReservoirTemporalStream).x;
@@ -4074,6 +4099,14 @@ void ResampleSpatial()
     uint acceptedCount = 0u;
     uint acceptedIndex[8];
     float acceptedM[8];
+    /*
+     * Which domain the surviving sample came from, and what it was worth
+     * there. The sample demonstrably exists in its own source domain -- it was
+     * found there -- so that domain's term in the denominator must never
+     * depend on a reverse shift happening to succeed.
+     */
+    int selectedEntry = -1;
+    float3 selectedSourceTarget = 0.0;
 
     for (uint tap = 0u; tap < ReservoirSpatialSamples && tap < 8u; ++tap) {
         float2 offset = reservoirNeighborOffset(
@@ -4090,6 +4123,7 @@ void ResampleSpatial()
         uint neighborIndex =
             reservoirIndex(uint2(neighborPixel), dimensions);
         PathReservoir neighbor = ResampleReservoirs[neighborIndex];
+        InterlockedAdd(Diagnostics[DiagnosticSpatialConsidered], 1u);
         if (!reservoirSurfaceCompatible(neighbor, surface, depth,
                                         ReservoirSpatialDepthTolerance,
                                         ReservoirSpatialNormalTolerance,
@@ -4102,12 +4136,15 @@ void ResampleSpatial()
                             shiftedTarget, jacobian)) {
             continue;
         }
+        InterlockedAdd(Diagnostics[DiagnosticSpatialAccepted], 1u);
         float acceptance = sampleStream(pixel, SampleIndex + tap,
                                         ReservoirSpatialStream).x;
         if (resampleReservoir(current, neighbor, acceptance, shiftedTarget,
                               neighbor.weightSum * neighbor.m * jacobian,
                               neighbor.m)) {
             selectedTarget = shiftedTarget;
+            selectedEntry = int(acceptedCount);
+            selectedSourceTarget = neighbor.targetFunction;
         }
         acceptedIndex[acceptedCount] = neighborIndex;
         acceptedM[acceptedCount] = neighbor.m;
@@ -4122,6 +4159,19 @@ void ResampleSpatial()
      */
     float piSum = reservoirLuminance(selectedTarget) * ownM;
     for (uint entry = 0u; entry < acceptedCount; ++entry) {
+        /*
+         * The domain the sample came from is counted from what the sample was
+         * worth there, not from a reverse shift. A reverse shift that fails
+         * numerically would otherwise drop its own source out of the
+         * denominator, and since every accepted neighbour has already added to
+         * the numerator the weight inflates once per failure -- which is why
+         * instability grew with neighbour count rather than falling.
+         */
+        if (int(entry) == selectedEntry) {
+            piSum += reservoirLuminance(selectedSourceTarget) *
+                acceptedM[entry];
+            continue;
+        }
         PathReservoir neighbor = ResampleReservoirs[acceptedIndex[entry]];
         SurfaceData neighborSurface;
         float neighborDepth;
@@ -4216,18 +4266,22 @@ void ReconstructIndirect()
         currentIndirectHistorySlot(), int2(pixel));
     float3 filteredIncident = decodeIndirectSignalColor(integratedSignal);
     if (IndirectMode == IndirectModeRestirPt) {
-        /* The reservoir is the estimate. Dividing the target function back out
-         * by the receiver cosine recovers the incoming radiance the rest of the
-         * composite expects, in the same units the averaging path produced. */
+        /*
+         * ReSTIR decides which single path the DIFFUSE estimate resolves to.
+         * It must not also become the directional signal: that signal is a
+         * spherical-harmonic irradiance field which rough specular is
+         * reconstructed from, and encoding one path's direction into it turns a
+         * smooth field into a delta spike. Reconstructing specular off a spike
+         * is how a surface acquires a blown-out patch that the averaged signal
+         * never had. The traced paths are still accumulated for that field, so
+         * only the diffuse term is replaced here.
+         */
         PathReservoir resolved =
             CurrentReservoirs[reservoirIndex(pixel, dimensions)];
-        float3 toReconnection = resolved.rcVertexLength == 0u ?
-            normalize(resolved.worldNormal) :
-            normalize(resolved.translatedWorldPosition -
-                      resolved.primaryPosition);
         filteredIncident = resolvedRadiance(resolved);
-        integratedSignal = indirectSignalFromRadiance(filteredIncident,
-                                                      toReconnection);
+        if (any(isnan(filteredIncident)) || any(isinf(filteredIncident))) {
+            filteredIncident = 0.0;
+        }
     }
     IndirectSignal specularSignal = integratedSignal;
     bool hasSpecularSignal = true;

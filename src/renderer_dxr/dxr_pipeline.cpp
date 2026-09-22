@@ -134,7 +134,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 22u;
+constexpr UINT diagnostic_value_count = 28u;
 constexpr UINT burst_dispatch_width_offset = 88u;
 static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
               burst_dispatch_width_offset);
@@ -1885,6 +1885,27 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
     last_direct_specular_coverage_ = values[12];
     last_invalid_lighting_or_guide_pixels_ = values[13];
     last_smooth_specular_coverage_ = values[14];
+    /*
+     * Whether reuse is actually succeeding. A rejected shift and an accepted
+     * one that contributes little produce the same image, so the rates are
+     * reported rather than inferred from how the frame looks.
+     */
+    if (indirect_mode_ == RENDERER_INDIRECT_RESTIR_PT &&
+        (values[22] != 0u || values[26] != 0u)) {
+        const auto percent = [](uint32_t part, uint32_t whole) {
+            return whole == 0u ? 0.0 :
+                100.0 * static_cast<double>(part) /
+                    static_cast<double>(whole);
+        };
+        std::fprintf(stderr,
+                     "[RESTIR] temporal considered=%u surface-rejected=%.1f%% "
+                     "shift-failed=%.1f%% accepted=%.1f%% | spatial "
+                     "considered=%u accepted=%.1f%%\n",
+                     values[22], percent(values[23], values[22]),
+                     percent(values[24], values[22]),
+                     percent(values[25], values[22]), values[26],
+                     percent(values[27], values[26]));
+    }
     last_burst_work_overflow_ = values[15];
     last_indirect_history_accepts_ = values[16];
     last_indirect_history_rejects_ = values[17];
