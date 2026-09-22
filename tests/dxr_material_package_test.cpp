@@ -73,12 +73,6 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "technolights does not contain an explicit light mask\n");
         return 1;
     }
-    /*
-     * The floor's emissive mask covers 90% of its texels where the wall
-     * fixture's covers 12%, so an equal factor makes the floor emit 56x as
-     * much per unit area. 3.5 is the factor that matches the two materials'
-     * mean radiance instead of their peak.
-     */
     const ab3d2::dxr::DxrMaterialDefinition *floor_light = nullptr;
     const ab3d2::dxr::DxrMaterialDefinition *floor_pbr = nullptr;
     if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0101u, 0u,
@@ -86,7 +80,7 @@ int main(int argc, char **argv)
         !library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0201u, 0u,
                          floor_pbr, error) ||
         !floor_light || !floor_pbr ||
-        std::fabs(floor_light->emissive_factor[0] - 3.5f) > 0.0001f ||
+        std::fabs(floor_light->emissive_factor[0] - 200.0f) > 0.0001f ||
         floor_pbr->emissive_factor[0] != 0.0f) {
         std::fprintf(stderr, "source floor material bindings are incomplete\n");
         return 1;
