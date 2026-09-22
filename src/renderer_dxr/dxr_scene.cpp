@@ -242,6 +242,15 @@ struct MaterialKey {
     bool operator<(const MaterialKey &other) const { return tie() < other.tie(); }
 };
 
+/* The texture region one compiled vector face names. */
+DxrVectorMaterialKey vector_material_key(
+    uint32_t source_asset_id, const SourceVectorSceneMaterial &source)
+{
+    return {source_asset_id, source.source_map_offset,
+            source.minimum_u, source.maximum_u,
+            source.minimum_v, source.maximum_v, source.glare};
+}
+
 struct MaterialImage {
     MaterialKey key = {};
     std::array<std::vector<uint8_t>,
@@ -1674,9 +1683,7 @@ bool DxrScene::compile(const SceneFrame &frame,
     std::map<MaterialKey, uint32_t> material_indices;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t>
         compiled_bitmap_material_indices;
-    std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
-                        uint8_t, uint8_t, uint8_t>, uint32_t>
-        compiled_vector_material_indices;
+    std::map<DxrVectorMaterialKey, uint32_t> compiled_vector_material_indices;
     std::vector<uint32_t> compiled_surface_material_indices;
     std::vector<CompiledInstance> compiled_instances;
 
@@ -1971,10 +1978,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             if (!binding.definition) {
                 continue;
             }
-            const auto key = std::make_tuple(
-                asset, binding.source_map_offset,
-                binding.minimum_u, binding.maximum_u,
-                binding.minimum_v, binding.maximum_v, binding.glare);
+            const DxrVectorMaterialKey key = binding.key();
             if (compiled_vector_material_indices.find(key) !=
                 compiled_vector_material_indices.end()) {
                 continue;
@@ -2054,20 +2058,13 @@ bool DxrScene::compile(const SceneFrame &frame,
              ++material_index) {
             const SourceVectorSceneMaterial &source =
                 vector.source.materials[material_index];
-            const auto key = std::make_tuple(
-                sprite.source_asset_id, source.source_map_offset,
-                source.minimum_u, source.maximum_u,
-                source.minimum_v, source.maximum_v, source.glare);
+            const auto key = vector_material_key(sprite.source_asset_id, source);
             if (compiled_vector_material_indices.find(key) !=
                 compiled_vector_material_indices.end()) {
                 continue;
             }
             const DxrMaterialDefinition *pbr = nullptr;
-            if (!material_library_.resolve_vector(
-                    sprite.source_asset_id, source.source_map_offset,
-                    source.minimum_u, source.maximum_u,
-                    source.minimum_v, source.maximum_v, source.glare,
-                    pbr, error)) {
+            if (!material_library_.resolve_vector(key, pbr, error)) {
                 return false;
             }
             if (!pbr || pbr->width != source.width ||
@@ -2094,10 +2091,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             }
             const SourceVectorSceneMaterial &source =
                 vector.source.materials[vertex.material_index];
-            const auto key = std::make_tuple(
-                sprite.source_asset_id, source.source_map_offset,
-                source.minimum_u, source.maximum_u,
-                source.minimum_v, source.maximum_v, source.glare);
+            const auto key = vector_material_key(sprite.source_asset_id, source);
             const auto material = compiled_vector_material_indices.find(key);
             if (material == compiled_vector_material_indices.end()) {
                 error = "DXR world-vector PBR material was not packed";
@@ -2145,21 +2139,13 @@ bool DxrScene::compile(const SceneFrame &frame,
              ++material_index) {
             const SourceVectorSceneMaterial &source =
                 view_weapon.source.materials[material_index];
-            const auto key = std::make_tuple(
-                view_weapon.sprite->source_asset_id, source.source_map_offset,
-                source.minimum_u, source.maximum_u,
-                source.minimum_v, source.maximum_v, source.glare);
+            const auto key = vector_material_key(view_weapon.sprite->source_asset_id, source);
             if (compiled_vector_material_indices.find(key) !=
                 compiled_vector_material_indices.end()) {
                 continue;
             }
             const DxrMaterialDefinition *pbr = nullptr;
-            if (!material_library_.resolve_vector(
-                    view_weapon.sprite->source_asset_id,
-                    source.source_map_offset,
-                    source.minimum_u, source.maximum_u,
-                    source.minimum_v, source.maximum_v, source.glare,
-                    pbr, error)) {
+            if (!material_library_.resolve_vector(key, pbr, error)) {
                 return false;
             }
             if (pbr->width != source.width || pbr->height != source.height) {
@@ -2187,10 +2173,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             }
             const SourceVectorSceneMaterial &source =
                 view_weapon.source.materials[vertex.material_index];
-            const auto key = std::make_tuple(
-                view_weapon.sprite->source_asset_id, source.source_map_offset,
-                source.minimum_u, source.maximum_u,
-                source.minimum_v, source.maximum_v, source.glare);
+            const auto key = vector_material_key(view_weapon.sprite->source_asset_id, source);
             const auto material = compiled_vector_material_indices.find(key);
             if (material == compiled_vector_material_indices.end()) {
                 error = "DXR view-weapon PBR material was not packed";
@@ -2601,10 +2584,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                 }
                 const SourceVectorSceneMaterial &source =
                     vector.source.materials[vertex.material_index];
-                const auto key = std::make_tuple(
-                    sprite.source_asset_id, source.source_map_offset,
-                    source.minimum_u, source.maximum_u,
-                    source.minimum_v, source.maximum_v, source.glare);
+                const auto key = vector_material_key(sprite.source_asset_id, source);
                 const auto material = vector_material_indices_.find(key);
                 if (material == vector_material_indices_.end()) {
                     /*
@@ -2672,10 +2652,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                 }
                 const SourceVectorSceneMaterial &source =
                     view_weapon.source.materials[vertex.material_index];
-                const auto key = std::make_tuple(
-                    weapon_asset, source.source_map_offset,
-                    source.minimum_u, source.maximum_u,
-                    source.minimum_v, source.maximum_v, source.glare);
+                const auto key = vector_material_key(weapon_asset, source);
                 const auto material = vector_material_indices_.find(key);
                 if (material == vector_material_indices_.end()) {
                     /* As above: pack the region, once, by rebuilding. */

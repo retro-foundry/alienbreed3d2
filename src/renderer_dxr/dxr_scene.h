@@ -262,9 +262,7 @@ private:
      */
     std::vector<float> reserved_emitter_slots_;
     uint64_t bitmap_modes_world_layout_ = 0;
-    std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
-                        uint8_t, uint8_t, uint8_t>, uint32_t>
-        vector_material_indices_;
+    std::map<DxrVectorMaterialKey, uint32_t> vector_material_indices_;
     std::vector<CompiledInstance> instances_;
     std::vector<bool> blas_update_pending_;
     std::array<std::vector<uint8_t>,

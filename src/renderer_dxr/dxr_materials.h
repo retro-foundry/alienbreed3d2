@@ -37,6 +37,31 @@ struct DxrMaterialDefinition {
                static_cast<size_t>(DxrMaterialChannel::count)> pixels;
 };
 
+/*
+ * objdrawhires.s:doapoly's exact texture-region identity for one vector face.
+ * A vector model's animation frame selects a different region, so this is what
+ * distinguishes the materials a single asset can reach. Spelled out as a type
+ * rather than a seven-element tuple at each call site, which is how the two
+ * spellings of it drifted apart.
+ */
+struct DxrVectorMaterialKey {
+    uint32_t source_asset_id = 0;
+    uint32_t source_map_offset = 0;
+    uint8_t minimum_u = 0;
+    uint8_t maximum_u = 0;
+    uint8_t minimum_v = 0;
+    uint8_t maximum_v = 0;
+    uint8_t glare = 0;
+
+    auto tie() const {
+        return std::tie(source_asset_id, source_map_offset, minimum_u,
+                        maximum_u, minimum_v, maximum_v, glare);
+    }
+    bool operator<(const DxrVectorMaterialKey &other) const {
+        return tie() < other.tie();
+    }
+};
+
 struct DxrVectorMaterialBinding {
     uint32_t source_asset_id = 0;
     uint32_t source_map_offset = 0;
@@ -46,6 +71,11 @@ struct DxrVectorMaterialBinding {
     uint8_t maximum_v = 0;
     uint8_t glare = 0;
     const DxrMaterialDefinition *definition = nullptr;
+
+    DxrVectorMaterialKey key() const {
+        return {source_asset_id, source_map_offset, minimum_u, maximum_u,
+                minimum_v, maximum_v, glare};
+    }
 };
 
 struct DxrBitmapMaterialBinding {
@@ -64,11 +94,9 @@ public:
                  uint32_t texture_v_period,
                  const DxrMaterialDefinition *&definition,
                  std::string &error);
-    bool resolve_vector(
-        uint32_t source_asset_id, uint32_t source_map_offset,
-        uint8_t minimum_u, uint8_t maximum_u,
-        uint8_t minimum_v, uint8_t maximum_v, uint8_t glare,
-        const DxrMaterialDefinition *&definition, std::string &error);
+    bool resolve_vector(const DxrVectorMaterialKey &key,
+                        const DxrMaterialDefinition *&definition,
+                        std::string &error);
     bool resolve_bitmap(
         uint32_t source_asset_id, uint32_t frame_index,
         uint32_t source_mode, const DxrMaterialDefinition *&definition,
@@ -122,8 +150,7 @@ private:
         payloads_;
     std::map<std::tuple<SceneMaterialSource, uint32_t, uint32_t>, size_t>
         bindings_;
-    std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
-                        uint8_t, uint8_t, uint8_t>, size_t> vector_bindings_;
+    std::map<DxrVectorMaterialKey, size_t> vector_bindings_;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, size_t>
         bitmap_bindings_;
 };

@@ -96,7 +96,7 @@ int main(int argc, char **argv)
         }
     }
     const ab3d2::dxr::DxrMaterialDefinition *weapon = nullptr;
-    if (!library.resolve_vector(3u, 0u, 0u, 2u, 0u, 63u, 0u,
+    if (!library.resolve_vector({3u, 0u, 0u, 2u, 0u, 63u, 0u},
                                 weapon, error) ||
         !weapon || weapon->name != "weapon_03_blaster_material_000" ||
         weapon->width != 3u || weapon->height != 64u ||
@@ -105,7 +105,7 @@ int main(int argc, char **argv)
         return 1;
     }
     const ab3d2::dxr::DxrMaterialDefinition *vector_glare = nullptr;
-    if (!library.resolve_vector(0u, 65536u, 0u, 22u, 0u, 0u, 1u,
+    if (!library.resolve_vector({0u, 65536u, 0u, 22u, 0u, 0u, 1u},
                                 vector_glare, error) ||
         !vector_glare ||
         vector_glare->name != "vector_model_00_generator_material_008") {
@@ -114,7 +114,7 @@ int main(int argc, char **argv)
     }
     const ab3d2::dxr::DxrMaterialDefinition *non_glare = nullptr;
     error.clear();
-    if (library.resolve_vector(0u, 65536u, 0u, 22u, 0u, 0u, 0u,
+    if (library.resolve_vector({0u, 65536u, 0u, 22u, 0u, 0u, 0u},
                                non_glare, error) ||
         non_glare) {
         std::fprintf(stderr, "vector glare accepted a non-glare binding\n");

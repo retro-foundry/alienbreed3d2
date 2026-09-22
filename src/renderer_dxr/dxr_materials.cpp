@@ -345,9 +345,9 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
                  material_class != runtime_class_vector_model) ||
                 minimum_u > maximum_u || minimum_v > maximum_v ||
                 !vector_bindings_.emplace(
-                    std::make_tuple(source_asset_id, detail0,
-                                    minimum_u, maximum_u,
-                                    minimum_v, maximum_v, glare),
+                    DxrVectorMaterialKey{source_asset_id, detail0,
+                                         minimum_u, maximum_u,
+                                         minimum_v, maximum_v, glare},
                     definition_index).second) {
                 error = "DXR PBR material catalog contains an invalid/duplicate vector binding";
                 return false;
@@ -495,24 +495,19 @@ bool DxrMaterialLibrary::resolve(
 }
 
 bool DxrMaterialLibrary::resolve_vector(
-    uint32_t source_asset_id, uint32_t source_map_offset,
-    uint8_t minimum_u, uint8_t maximum_u,
-    uint8_t minimum_v, uint8_t maximum_v, uint8_t glare,
+    const DxrVectorMaterialKey &key,
     const DxrMaterialDefinition *&definition, std::string &error)
 {
-    const auto key = std::make_tuple(
-        source_asset_id, source_map_offset, minimum_u, maximum_u,
-        minimum_v, maximum_v, glare);
     const auto found = vector_bindings_.find(key);
     if (found == vector_bindings_.end()) {
         std::ostringstream message;
         message << "DXR PBR binding is missing for vector material: asset="
-                << source_asset_id << " map=" << source_map_offset
-                << " u=" << static_cast<unsigned>(minimum_u)
-                << ".." << static_cast<unsigned>(maximum_u)
-                << " v=" << static_cast<unsigned>(minimum_v)
-                << ".." << static_cast<unsigned>(maximum_v)
-                << " glare=" << static_cast<unsigned>(glare);
+                << key.source_asset_id << " map=" << key.source_map_offset
+                << " u=" << static_cast<unsigned>(key.minimum_u)
+                << ".." << static_cast<unsigned>(key.maximum_u)
+                << " v=" << static_cast<unsigned>(key.minimum_v)
+                << ".." << static_cast<unsigned>(key.maximum_v)
+                << " glare=" << static_cast<unsigned>(key.glare);
         error = message.str();
         definition = nullptr;
         return false;
@@ -550,23 +545,22 @@ bool DxrMaterialLibrary::resolve_vector_asset(
         return false;
     }
     auto entry = vector_bindings_.lower_bound(
-        std::make_tuple(source_asset_id, 0u, uint8_t(0), uint8_t(0),
-                        uint8_t(0), uint8_t(0), uint8_t(0)));
+        DxrVectorMaterialKey{source_asset_id});
     while (entry != vector_bindings_.end() &&
-           std::get<0>(entry->first) == source_asset_id) {
+           entry->first.source_asset_id == source_asset_id) {
         const DxrMaterialDefinition *definition = nullptr;
         if (!resolve_index(entry->second, definition, error)) {
             bindings.clear();
             return false;
         }
         DxrVectorMaterialBinding binding;
-        binding.source_asset_id = source_asset_id;
-        binding.source_map_offset = std::get<1>(entry->first);
-        binding.minimum_u = std::get<2>(entry->first);
-        binding.maximum_u = std::get<3>(entry->first);
-        binding.minimum_v = std::get<4>(entry->first);
-        binding.maximum_v = std::get<5>(entry->first);
-        binding.glare = std::get<6>(entry->first);
+        binding.source_asset_id = entry->first.source_asset_id;
+        binding.source_map_offset = entry->first.source_map_offset;
+        binding.minimum_u = entry->first.minimum_u;
+        binding.maximum_u = entry->first.maximum_u;
+        binding.minimum_v = entry->first.minimum_v;
+        binding.maximum_v = entry->first.maximum_v;
+        binding.glare = entry->first.glare;
         binding.definition = definition;
         bindings.push_back(binding);
         ++entry;
