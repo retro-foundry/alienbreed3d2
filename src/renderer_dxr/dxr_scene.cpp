@@ -263,8 +263,24 @@ DxrVectorMaterialKey vector_material_key(
 
 struct MaterialImage {
     MaterialKey key = {};
+    /*
+     * Owned only when this image derives its pixels, which is the wall/floor
+     * path cropping a source to its texture window - that buffer has no
+     * equivalent in the library. An image taken verbatim borrows instead:
+     * DxrMaterialLibrary::resolve_index caches every decoded definition for the
+     * process lifetime, so copying one duplicated something already resident,
+     * and the mip chain then cleared the duplicate to get the memory back.
+     */
     std::array<std::vector<uint8_t>,
-               static_cast<size_t>(DxrMaterialChannel::count)> pixels;
+               static_cast<size_t>(DxrMaterialChannel::count)> owned_pixels;
+    const std::array<std::vector<uint8_t>,
+                     static_cast<size_t>(DxrMaterialChannel::count)>
+        *borrowed_pixels = nullptr;
+
+    const std::vector<uint8_t> &channel(size_t index) const {
+        return borrowed_pixels ? (*borrowed_pixels)[index] :
+                                 owned_pixels[index];
+    }
     uint32_t width = 0;
     uint32_t height = 0;
     uint32_t x = 0;
@@ -875,8 +891,8 @@ float maximum_emissive_luminance(const MaterialImage &image)
         image.emissive_factor[2] == 0.0f) {
         return 0.0f;
     }
-    const std::vector<uint8_t> &emissive = image.pixels[
-        static_cast<size_t>(DxrMaterialChannel::emissive)];
+    const std::vector<uint8_t> &emissive = image.channel(
+        static_cast<size_t>(DxrMaterialChannel::emissive));
     double maximum_luminance = 0.0;
     for (size_t offset = 0; offset < emissive.size(); offset += 4u) {
         const double red = srgb_to_linear(emissive[offset + 0u]) *
@@ -899,7 +915,7 @@ MaterialImage material_image_from_definition(const DxrMaterialDefinition &pbr)
     MaterialImage image;
     image.width = pbr.width;
     image.height = pbr.height;
-    image.pixels = pbr.pixels;
+    image.borrowed_pixels = &pbr.pixels;
     image.normal_strength = pbr.normal_strength;
     image.specular_factor = pbr.specular_factor;
     std::memcpy(image.emissive_factor, pbr.emissive_factor,
@@ -937,14 +953,12 @@ bool build_material_mip_chain(MaterialImage &image, const char *kind,
     image.material_mips = true;
     for (size_t channel = 0u; channel < semantics.size(); ++channel) {
         if (!material_mip::generate(
-                semantics[channel], image.pixels[channel], image.width,
+                semantics[channel], image.channel(channel), image.width,
                 image.height, image.mip_pixels[channel], error)) {
             error = "DXR " + std::string(kind) +
                 " PBR mip generation failed: " + error;
             return false;
         }
-        image.pixels[channel].clear();
-        image.pixels[channel].shrink_to_fit();
     }
     return true;
 }
@@ -999,7 +1013,7 @@ bool build_wall_material_image(const SceneGeometry &geometry,
             error = "DXR wall PBR channel does not match its declared image";
             return false;
         }
-        std::vector<uint8_t> &destination = image.pixels[channel];
+        std::vector<uint8_t> &destination = image.owned_pixels[channel];
         destination.resize(destination_bytes);
         for (uint32_t row = 0u; row < extent_y; ++row) {
             std::memcpy(
@@ -1761,7 +1775,7 @@ bool DxrScene::compile(const SceneFrame &frame,
                 } else {
                     image.width = pbr->width;
                     image.height = pbr->height;
-                    image.pixels = pbr->pixels;
+                    image.borrowed_pixels = &pbr->pixels;
                     if (floor_material) {
                         if (!build_material_mip_chain(image, "floor", error)) {
                             return false;
@@ -2315,7 +2329,7 @@ bool DxrScene::compile(const SceneFrame &frame,
                     const std::vector<uint8_t> &level_pixels =
                         image.material_mips ?
                             image.mip_pixels[channel][level] :
-                            image.pixels[channel];
+                            image.channel(channel);
                     copy_wrapped_material_level(
                         compiled_atlases[channel], atlas_width,
                         image.x, level_y, level_pixels,
