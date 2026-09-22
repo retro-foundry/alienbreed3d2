@@ -501,12 +501,34 @@ multiplayer flow is intentionally not ported.
 Requirements: CMake 3.16+, a C11/C++ compiler, Python 3 with Pillow, Git, and
 network access the first time CMake fetches SDL2.
 
+The two supported build configurations are defined as CMake presets, and each
+configures into its own tree in the root of `build/`:
+
+| Configure preset | Build tree | Renderer |
+| --- | --- | --- |
+| `opengl` | `build/opengl` | stock OpenGL; no D3D12/DXR, no Streamline |
+| `streamline` | `build/streamline` | D3D12/DXR plus NVIDIA Streamline (DLSS-RR) |
+
+```powershell
+cmake --preset opengl                 # or: cmake --preset streamline
+cmake --build --preset opengl-release # ...-debug also available
+ctest --preset opengl-release
+```
+
+The `streamline` preset takes the SDK location from the
+`AB3D2_STREAMLINE_ROOT` environment variable; override it per configure with
+`-DAB3D2_STREAMLINE_ROOT=<path>`. The equivalent explicit commands are kept in
+the renderer sections below.
+
+The `opengl` preset pins the Visual Studio generator. On other platforms, or
+for a different generator, configure the same default (DXR off) directly:
+
 ```sh
-cmake -S . -B build/pc
-cmake --build build/pc --config Debug
-ctest --test-dir build/pc --output-on-failure
+cmake -S . -B build/opengl
+cmake --build build/opengl --config Debug
+ctest --test-dir build/opengl --output-on-failure
 # Opt-in real OpenGL context validation (hidden window, Levels A-P)
-cmake --build build/pc --config Debug --target ab3d2_gpu_smoke
+cmake --build build/opengl --config Debug --target ab3d2_gpu_smoke
 ```
 
 ### Windows D3D12/DXR renderer and Ray Reconstruction
@@ -518,11 +540,21 @@ clear fail-fast stub. On native Windows, opt into the experimental renderer
 with:
 
 ```powershell
-cmake -S . -B build/dxr -A x64 `
+cmake --preset streamline
+cmake --build --preset streamline-debug
+ctest --test-dir build/streamline -C Debug -R "dxr|rtx" --output-on-failure
+```
+
+`AB3D2_ENABLE_DXR` is the renderer gate and `AB3D2_ENABLE_STREAMLINE` is a
+second, independent one, so a DXR build without Streamline is still valid; it
+just is not one of the two trees kept in `build/`. Configure it into a tree of
+its own if you need it:
+
+```powershell
+cmake -S . -B build/dxr-only -A x64 `
   -DAB3D2_ENABLE_DXR=ON `
+  -DAB3D2_ENABLE_STREAMLINE=OFF `
   -DAB3D2_DXC_EXECUTABLE="<path-to-dxc.exe>"
-cmake --build build/dxr --config Debug
-ctest --test-dir build/dxr -C Debug -R "dxr|rtx" --output-on-failure
 ```
 
 For Visual Studio generators, the DXR-enabled solution selects `ab3d2` as its

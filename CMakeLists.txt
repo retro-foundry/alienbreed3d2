@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 
 project(alienbreed3d2_pc VERSION 0.1.0 LANGUAGES C CXX)
 
+# Group generated targets into solution folders. Without this, IDE generators
+# list every test, tool, and third-party target flat beside the game.
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
@@ -160,7 +164,10 @@ if(NOT EMSCRIPTEN)
     GIT_TAG release-2.30.11
     GIT_SHALLOW TRUE
   )
+  # SDL2 contributes SDL2-static, SDL2main, sdl_headers_copy, and uninstall.
+  set(CMAKE_FOLDER "Third Party")
   FetchContent_MakeAvailable(SDL2)
+  unset(CMAKE_FOLDER)
   find_package(OpenGL REQUIRED)
 endif()
 
@@ -624,7 +631,13 @@ endif()
 # first port's logging-integrated runtime module.
 target_compile_definitions(ab3d2_core PRIVATE AB3D_STANDALONE_TOOL)
 
-include(CTest)
+# enable_testing() rather than include(CTest): the CTest module additionally
+# generates the Continuous, Experimental, Nightly, and NightlyMemoryCheck
+# CDash submission targets, which this project never submits to.
+option(BUILD_TESTING "Build the testing tree" ON)
+if(BUILD_TESTING)
+  enable_testing()
+endif()
 if(BUILD_TESTING AND NOT EMSCRIPTEN)
   add_test(NAME ab3d2_dxr_configuration_test
     COMMAND ${CMAKE_COMMAND}
@@ -1003,3 +1016,21 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
   )
   set_tests_properties(ab3d2_audio_sdl_test PROPERTIES ENVIRONMENT "SDL_AUDIODRIVER=dummy")
 endif()
+
+# Sort this directory's targets into solution folders. Done as a sweep at the
+# end rather than per-target so new tests and tools are grouped automatically.
+# ab3d2 and ab3d2_core are deliberately left at the top level; the CMake-
+# generated ALL_BUILD/ZERO_CHECK/RUN_TESTS targets go to CMakePredefinedTargets.
+get_property(ab3d2_all_targets DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+             PROPERTY BUILDSYSTEM_TARGETS)
+foreach(ab3d2_target IN LISTS ab3d2_all_targets)
+  get_target_property(ab3d2_target_folder ${ab3d2_target} FOLDER)
+  if(ab3d2_target_folder)
+    continue()
+  endif()
+  if(ab3d2_target MATCHES "_test$" OR ab3d2_target STREQUAL "ab3d2_gpu_smoke")
+    set_target_properties(${ab3d2_target} PROPERTIES FOLDER "Tests")
+  elseif(ab3d2_target MATCHES "^ab3d2_(audio_export|dxr_shaders|dxr_materials|dxr_lighting_reference_materials)$")
+    set_target_properties(${ab3d2_target} PROPERTIES FOLDER "Tools")
+  endif()
+endforeach()

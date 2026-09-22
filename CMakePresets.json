@@ -1,0 +1,67 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-base",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "opengl",
+      "inherits": "windows-base",
+      "displayName": "OpenGL (plain)",
+      "description": "Stock OpenGL renderer. No D3D12/DXR, no Streamline, no external SDK required.",
+      "binaryDir": "${sourceDir}/build/opengl",
+      "cacheVariables": {
+        "AB3D2_ENABLE_DXR": "OFF",
+        "AB3D2_ENABLE_STREAMLINE": "OFF"
+      }
+    },
+    {
+      "name": "streamline",
+      "inherits": "windows-base",
+      "displayName": "D3D12/DXR + Streamline (DLSS-RR)",
+      "description": "D3D12/DXR renderer with the gated NVIDIA Streamline 2.12.0 integration. Requires the extracted production SDK; AB3D2_STREAMLINE_ROOT defaults to the AB3D2_STREAMLINE_ROOT environment variable.",
+      "binaryDir": "${sourceDir}/build/streamline",
+      "cacheVariables": {
+        "AB3D2_ENABLE_DXR": "ON",
+        "AB3D2_ENABLE_STREAMLINE": "ON",
+        "AB3D2_STREAMLINE_ROOT": {
+          "type": "PATH",
+          "value": "$env{AB3D2_STREAMLINE_ROOT}"
+        }
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "opengl-debug", "configurePreset": "opengl", "configuration": "Debug" },
+    { "name": "opengl-release", "configurePreset": "opengl", "configuration": "Release" },
+    { "name": "streamline-debug", "configurePreset": "streamline", "configuration": "Debug" },
+    { "name": "streamline-release", "configurePreset": "streamline", "configuration": "Release" }
+  ],
+  "testPresets": [
+    {
+      "name": "opengl-release",
+      "configurePreset": "opengl",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "streamline-release",
+      "configurePreset": "streamline",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
