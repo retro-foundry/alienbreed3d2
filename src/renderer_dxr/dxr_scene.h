@@ -218,6 +218,21 @@ private:
     uint64_t emitter_state_hash_ = 0u;
     std::vector<uint32_t> surface_material_indices_;
     std::vector<float> material_emissive_bound_;
+
+public:
+    /* The brightest emissive material in the compiled scene. A diffuse surface
+     * cannot leave more radiance than arrives at it, so this bounds any single
+     * next-event estimate and is a physical limit rather than a tuned one. */
+    float maximum_emitter_radiance() const
+    {
+        float maximum = 0.0f;
+        for (const float bound : material_emissive_bound_) {
+            maximum = maximum > bound ? maximum : bound;
+        }
+        return maximum;
+    }
+
+private:
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t>
         bitmap_material_indices_;
     /*

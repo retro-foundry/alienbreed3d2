@@ -219,13 +219,14 @@ struct FrameConstants {
     uint32_t indirect_mode;
     /* Probability that final shading falls back to the preserved sample. */
     float restir_decorrelation;
+    float maximum_emitter_radiance;
     uint32_t restir_temporal_history;
     uint32_t restir_spatial_samples;
     float restir_spatial_radius;
     float restir_history_reduction;
     /* Keeps the structure a whole number of 16-byte constant registers, so the
      * C++ and HLSL layouts cannot disagree about trailing padding. */
-    uint32_t frame_constant_padding[2];
+    uint32_t frame_constant_padding[1];
 };
 
 /*
@@ -3212,6 +3213,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
      * changes and let canonical sampling re-establish it.
      */
     constants.restir_decorrelation = restir_decorrelation_;
+    constants.maximum_emitter_radiance = scene_.maximum_emitter_radiance();
     constants.restir_temporal_history =
         indirect_lighting_changed ? 1u : restir_temporal_history_;
     constants.restir_spatial_samples = restir_spatial_samples_;

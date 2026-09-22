@@ -313,6 +313,8 @@ cbuffer FrameConstants : register(b0)
     uint IndirectMode;
     /* Probability that final shading discards the resampled reservoir. */
     float ReservoirDecorrelation;
+    /* Brightest emitter in the scene; see MaximumEmitterRadiance use below. */
+    float MaximumEmitterRadiance;
     /* Cap on a reservoir's represented sample count. */
     uint ReservoirTemporalHistory;
     /* Spatial neighbours resampled per pixel. */
@@ -2424,8 +2426,27 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
     if (!any(emittedRadiance > 0.0)) {
         return evaluation;
     }
+    /*
+     * Bound the estimate by the brightest emitter in the scene.
+     *
+     * The solid-angle density carries distanceSquared, so the estimator goes as
+     * area times cosine over distance squared and is unbounded as the shading
+     * point approaches an emitter -- the only guard being that the two are not
+     * literally coincident. Standing near or looking at a large bright panel
+     * therefore produces single samples far above anything in the scene:
+     * measured, indirect bounces reached 4096 where no emitter exceeds 200.
+     *
+     * A diffuse surface cannot leave more radiance than arrives at it, so
+     * clamping to the brightest emitter removes those and nothing else. This is
+     * the singularity itself, not the resampling on top of it, which is why the
+     * noise appears with ReSTIR disabled as well.
+     */
     evaluation.contribution = (diffuseReflectance(surface) / Pi) *
         emittedRadiance * receiverCosine;
+    if (MaximumEmitterRadiance > 0.0) {
+        evaluation.contribution =
+            min(evaluation.contribution, MaximumEmitterRadiance);
+    }
     evaluation.diffuseContribution = evaluation.contribution;
     evaluation.targetPdf = luminance(evaluation.contribution);
     evaluation.sourcePdf = sourcePdf;
