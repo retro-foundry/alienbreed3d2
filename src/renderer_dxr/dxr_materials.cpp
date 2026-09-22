@@ -172,6 +172,8 @@ bool DxrMaterialLibrary::load(const std::filesystem::path &path,
     bitmap_bindings_.clear();
     payloads_.clear();
     package_path_.clear();
+    package_stream_.close();
+    package_stream_.clear();
     resident_size_ = 0u;
     loaded_ = false;
 
@@ -429,15 +431,28 @@ bool DxrMaterialLibrary::resolve_index(
     }
     const size_t encoded_size = static_cast<size_t>(encoded_size64);
     std::vector<uint8_t> encoded(encoded_size);
-    std::ifstream stream(package_path_, std::ios::binary);
-    if (!stream) {
+    /*
+     * One handle for the package's lifetime. Resolution is per material and
+     * preparing a level resolves every one of them, so opening and closing the
+     * same file ~940 times was a measurable share of the load cost.
+     */
+    if (!package_stream_.is_open()) {
+        package_stream_.open(package_path_, std::ios::binary);
+    }
+    if (!package_stream_) {
+        package_stream_.close();
+        package_stream_.clear();
         error = "DXR PBR material package is unavailable while resolving " +
             material.name + ": " + path_text(package_path_);
         return false;
     }
-    stream.seekg(static_cast<std::streamoff>(first_offset), std::ios::beg);
-    if (!stream || !stream.read(reinterpret_cast<char *>(encoded.data()),
-                                static_cast<std::streamsize>(encoded.size()))) {
+    package_stream_.seekg(static_cast<std::streamoff>(first_offset),
+                          std::ios::beg);
+    if (!package_stream_ ||
+        !package_stream_.read(reinterpret_cast<char *>(encoded.data()),
+                              static_cast<std::streamsize>(encoded.size()))) {
+        /* Leave no sticky failure bits behind for the next resolve. */
+        package_stream_.clear();
         error = "DXR PBR material PNG payload could not be read for " +
             material.name + " from " + path_text(package_path_);
         return false;

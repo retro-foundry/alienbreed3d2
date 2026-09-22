@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <map>
 #include <string>
 #include <tuple>
@@ -144,6 +145,9 @@ private:
     bool loaded_ = false;
     size_t resident_size_ = 0;
     std::filesystem::path package_path_;
+    /* Held open across resolves; see resolve_index. Mutable so a resolve from
+     * a const context still reads through it. */
+    std::ifstream package_stream_;
     std::vector<DxrMaterialDefinition> definitions_;
     std::vector<std::array<ChannelPayload,
                            static_cast<size_t>(DxrMaterialChannel::count)>>
