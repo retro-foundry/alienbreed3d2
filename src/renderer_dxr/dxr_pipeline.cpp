@@ -134,7 +134,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 28u;
+constexpr UINT diagnostic_value_count = 38u;
 constexpr UINT burst_dispatch_width_offset = 88u;
 static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
               burst_dispatch_width_offset);
@@ -1905,6 +1905,33 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
                      percent(values[24], values[22]),
                      percent(values[25], values[22]), values[26],
                      percent(values[27], values[26]));
+        std::fprintf(stderr,
+                     "[RESTIR] temporal energy before=%u after=%u ratio=%.3f\n",
+                     values[28], values[29],
+                     values[28] == 0u ? 0.0 :
+                         static_cast<double>(values[29]) /
+                             static_cast<double>(values[28]));
+        std::fprintf(stderr, "[RESTIR] temporal mean jacobian=%.4f over %u\n",
+                     values[31] == 0u ? 0.0 :
+                         static_cast<double>(values[30]) /
+                             (1024.0 * static_cast<double>(values[31])),
+                     values[31]);
+        std::fprintf(stderr,
+                     "[RESTIR] mean canonical M=%.2f history M=%.2f\n",
+                     values[31] == 0u ? 0.0 :
+                         static_cast<double>(values[32]) /
+                             (16.0 * static_cast<double>(values[31])),
+                     values[31] == 0u ? 0.0 :
+                         static_cast<double>(values[33]) /
+                             (16.0 * static_cast<double>(values[31])));
+        const auto ratio = [](uint32_t a, uint32_t b) {
+            return a == 0u ? 0.0 :
+                static_cast<double>(b) / static_cast<double>(a);
+        };
+        std::fprintf(stderr,
+                     "[RESTIR] weight x%.3f target x%.3f\n",
+                     ratio(values[34], values[35]),
+                     ratio(values[36], values[37]));
     }
     last_burst_work_overflow_ = values[15];
     last_indirect_history_accepts_ = values[16];

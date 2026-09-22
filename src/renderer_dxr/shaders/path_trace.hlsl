@@ -331,6 +331,30 @@ static const uint DiagnosticTemporalShiftFailed = 24u;
 static const uint DiagnosticTemporalAccepted = 25u;
 static const uint DiagnosticSpatialConsidered = 26u;
 static const uint DiagnosticSpatialAccepted = 27u;
+/*
+ * Energy either side of temporal reuse. Reuse must not change what a pixel is
+ * worth on average, only how noisy that estimate is, so the two sums are
+ * accumulated over the same pixels in the same frame and their ratio states
+ * directly whether the estimator is biased or merely noisy.
+ */
+static const uint DiagnosticTemporalEnergyBefore = 28u;
+static const uint DiagnosticTemporalEnergyAfter = 29u;
+/* Mean shift Jacobian and the count behind it. For temporal reuse under a
+ * near-static camera this should sit at one; anything else is the shift
+ * changing the sample's density when the geometry says it should not. */
+static const uint DiagnosticTemporalJacobianSum = 30u;
+static const uint DiagnosticTemporalJacobianCount = 31u;
+/* The confidence counts the weight is divided by. */
+static const uint DiagnosticCanonicalM = 32u;
+static const uint DiagnosticHistoryM = 33u;
+/* Resolved radiance is target x weight. Splitting the ratio into those two
+ * factors says whether reuse is inflating the weight or selecting brighter
+ * samples without the weight falling to compensate. */
+static const uint DiagnosticWeightBefore = 34u;
+static const uint DiagnosticWeightAfter = 35u;
+static const uint DiagnosticTargetBefore = 36u;
+static const uint DiagnosticTargetAfter = 37u;
+
 
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
 /*
@@ -342,6 +366,10 @@ static const uint DiagnosticSpatialAccepted = 27u;
 /* How far a reprojected surface may sit from where the motion vector says it
  * is, as a fraction of view depth. This is the ghosting control: too loose and
  * a disoccluded pixel inherits whatever was in front of it. */
+/* How far a reconnection may change the sample's density before it is refused.
+ * Near-degenerate geometry produces unbounded Jacobians, and an unbounded
+ * resampling weight is a white pixel. */
+static const float ReservoirMaximumJacobian = 8.0;
 static const float ReservoirTemporalSeparation = 0.01;
 static const float ReservoirTemporalDepthTolerance = 0.02;
 static const float ReservoirTemporalNormalTolerance = 0.9;
@@ -1655,6 +1683,17 @@ void finalizeResampling(inout PathReservoir reservoir, float numerator,
 }
 
 /* The radiance this reservoir contributes once resampling has finished. */
+/* Bounded so a single outlier cannot saturate the accumulator and hide the
+ * ratio it is there to report. */
+uint quantizeEnergy(float3 radiance)
+{
+    float value = reservoirLuminance(max(radiance, 0.0));
+    if (isnan(value) || isinf(value)) {
+        return 0u;
+    }
+    return uint(min(value, 64.0) * 16.0);
+}
+
 float3 resolvedRadiance(PathReservoir reservoir)
 {
     if (!reservoirValid(reservoir) || isnan(reservoir.weightSum) ||
@@ -1950,6 +1989,24 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
         jacobian = (emissionCosine * sourceLengthSquared) /
             (sourceCosine * lengthSquared);
         if (isnan(jacobian) || isinf(jacobian) || jacobian <= 0.0) {
+            return false;
+        }
+        /*
+         * A reconnection that is nearly degenerate -- the receiver almost in
+         * the reconnection vertex's plane, or almost on top of it -- has an
+         * unbounded Jacobian. The guards above only keep it finite: with a
+         * grazing cosine and a short segment it can still reach many orders of
+         * magnitude, and it enters the resampling weight with nothing to
+         * balance it, so that candidate wins with certainty and the pixel
+         * resolves to an enormous radiance. Adding neighbours adds chances to
+         * draw such a pair, which is why instability grew with neighbour count.
+         *
+         * Reject rather than clamp. A clamped weight is still a sample the
+         * estimator cannot justify; refusing it lets the remaining candidates
+         * carry the pixel, exactly as a failed shift already does.
+         */
+        if (jacobian > ReservoirMaximumJacobian ||
+            jacobian < 1.0 / ReservoirMaximumJacobian) {
             return false;
         }
     }
@@ -4011,6 +4068,12 @@ void ResampleTemporal()
                                 DiagnosticTemporalAccepted :
                                 DiagnosticTemporalShiftFailed], 1u);
                         if (shifted) {
+                            InterlockedAdd(
+                                Diagnostics[DiagnosticTemporalJacobianSum],
+                                uint(min(jacobian, 64.0) * 1024.0));
+                            InterlockedAdd(
+                                Diagnostics[DiagnosticTemporalJacobianCount],
+                                1u);
                             float acceptance = sampleStream(
                                 pixel, SampleIndex,
                                 ReservoirTemporalStream).x;
@@ -4039,6 +4102,31 @@ void ResampleTemporal()
     float piSum = reservoirLuminance(selectedTarget) * current.m;
     finalizeResampling(current, reservoirLuminance(selectedTarget),
                        piSum * reservoirLuminance(selectedTarget));
+    /*
+     * Only pixels that actually produced a canonical sample can say anything
+     * about bias. Indirect paths come from a work list, so a skipped pixel has
+     * no "before" value at all, and counting its zero would measure temporal
+     * reuse filling in coverage rather than inflating energy.
+     */
+    if (reused && reservoirValid(canonical)) {
+        InterlockedAdd(Diagnostics[DiagnosticCanonicalM],
+                       uint(min(canonical.m, 255.0) * 16.0));
+        InterlockedAdd(Diagnostics[DiagnosticHistoryM],
+                       uint(min(max(current.m - canonical.m, 0.0), 255.0) *
+                            16.0));
+        InterlockedAdd(Diagnostics[DiagnosticWeightBefore],
+                       uint(min(max(canonical.weightSum, 0.0), 64.0) * 1024.0));
+        InterlockedAdd(Diagnostics[DiagnosticWeightAfter],
+                       uint(min(max(current.weightSum, 0.0), 64.0) * 1024.0));
+        InterlockedAdd(Diagnostics[DiagnosticTargetBefore],
+                       quantizeEnergy(canonical.targetFunction));
+        InterlockedAdd(Diagnostics[DiagnosticTargetAfter],
+                       quantizeEnergy(current.targetFunction));
+        InterlockedAdd(Diagnostics[DiagnosticTemporalEnergyBefore],
+                       quantizeEnergy(resolvedRadiance(canonical)));
+        InterlockedAdd(Diagnostics[DiagnosticTemporalEnergyAfter],
+                       quantizeEnergy(resolvedRadiance(current)));
+    }
     current.age = reused ? min(current.age + 1u, 0xffffu) : 0u;
     /* Cap the confidence on the way out, not merely where history is read. An
      * uncapped M inflates the normalization a later pass multiplies back in,
