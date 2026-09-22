@@ -6,6 +6,7 @@ using ab3d2::dxr::DxrSceneGeometryHashes;
 using ab3d2::dxr::DxrSceneUpdateKind;
 using ab3d2::dxr::dxr_scene_classify_update;
 using ab3d2::dxr::dxr_scene_geometry_hashes;
+using ab3d2::dxr::dxr_vector_material_hash;
 
 namespace {
 
@@ -86,6 +87,76 @@ int main()
     surface.geometry.vertex_count = 0u;
     const DxrSceneGeometryHashes topology_changed =
         dxr_scene_geometry_hashes(frame);
-    return expect(dxr_scene_classify_update(true, relit, topology_changed),
-                  DxrSceneUpdateKind::rebuild, "topology replacement") ? 0 : 1;
+    if (!expect(dxr_scene_classify_update(true, relit, topology_changed),
+                DxrSceneUpdateKind::rebuild, "topology replacement")) {
+        return 1;
+    }
+
+    /*
+     * A vector model's animation frame - the player firing the shotgun, an
+     * alien walking - selects different authored texture regions for the same
+     * faces. That is vertex data, not scene layout: classifying it as layout
+     * rebuilt every BLAS, the TLAS, the emitter table and the atlas roughly
+     * every 80ms while firing, which is the stutter this guards against.
+     */
+    SourceVectorSceneMaterial weapon_materials[2] = {};
+    weapon_materials[0].width = 32u;
+    weapon_materials[0].height = 32u;
+    weapon_materials[0].source_map_offset = 0x400u;
+    weapon_materials[0].minimum_u = 0u;
+    weapon_materials[0].maximum_u = 31u;
+    weapon_materials[0].minimum_v = 0u;
+    weapon_materials[0].maximum_v = 31u;
+    weapon_materials[1] = weapon_materials[0];
+    weapon_materials[1].source_map_offset = 0x800u;
+    SourceVectorSceneTriangle weapon_triangles[1] = {};
+    weapon_triangles[0].material_index = 0u;
+    SourceVectorSceneMesh weapon = {};
+    weapon.triangles = weapon_triangles;
+    weapon.triangle_count = 1u;
+    weapon.materials = weapon_materials;
+    weapon.material_count = 2u;
+
+    const uint64_t idle = dxr_vector_material_hash(0u, weapon, true);
+    if (idle != dxr_vector_material_hash(0u, weapon, true)) {
+        std::fprintf(stderr,
+                     "DXR vector material hash is not deterministic\n");
+        return 1;
+    }
+
+    /* The next animation frame points the same face at the other region. */
+    weapon_triangles[0].material_index = 1u;
+    const uint64_t fired = dxr_vector_material_hash(0u, weapon, true);
+    if (idle == fired) {
+        std::fprintf(stderr,
+                     "DXR vector material hash ignored an animation frame\n");
+        return 1;
+    }
+
+    /*
+     * The scene layout is the model's structural identity, which an animation
+     * step does not touch, so the step has to classify as a geometry update.
+     */
+    const DxrSceneGeometryHashes weapon_idle = {0x5eedu, idle};
+    const DxrSceneGeometryHashes weapon_fired = {0x5eedu, fired};
+    if (!expect(dxr_scene_classify_update(true, weapon_idle, weapon_fired),
+                DxrSceneUpdateKind::geometry, "view weapon animation step") ||
+        !expect(dxr_scene_classify_update(true, weapon_idle, weapon_idle),
+                DxrSceneUpdateKind::unchanged, "held view weapon frame")) {
+        return 1;
+    }
+
+    /* World vector objects take the same path with no material extent. */
+    const uint64_t alien_idle = dxr_vector_material_hash(0u, weapon, false);
+    weapon_triangles[0].material_index = 0u;
+    const uint64_t alien_stepped = dxr_vector_material_hash(0u, weapon, false);
+    if (alien_idle == alien_stepped) {
+        std::fprintf(stderr,
+                     "DXR world-vector material hash ignored an animation frame\n");
+        return 1;
+    }
+    return expect(dxr_scene_classify_update(
+                      true, {0xa11eu, alien_idle}, {0xa11eu, alien_stepped}),
+                  DxrSceneUpdateKind::geometry, "world vector animation step") ?
+        0 : 1;
 }

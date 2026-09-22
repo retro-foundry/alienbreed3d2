@@ -27,6 +27,13 @@ typedef struct {
     /* data/draw_data.s:draw_Palette_vw. */
     const uint8_t *source_display_palette_bytes;
     size_t source_display_palette_byte_count;
+    /*
+     * ObjT bitmap graphics indices the level loaded. A backend that decodes
+     * object art lazily uses these to do it before gameplay instead of inside
+     * the frame that first shows a muzzle flash, an impact or a projectile.
+     */
+    const uint32_t *bitmap_asset_ids;
+    size_t bitmap_asset_count;
 } RendererResourceCatalog;
 
 #endif

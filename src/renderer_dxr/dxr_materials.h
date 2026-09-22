@@ -37,6 +37,17 @@ struct DxrMaterialDefinition {
                static_cast<size_t>(DxrMaterialChannel::count)> pixels;
 };
 
+struct DxrVectorMaterialBinding {
+    uint32_t source_asset_id = 0;
+    uint32_t source_map_offset = 0;
+    uint8_t minimum_u = 0;
+    uint8_t maximum_u = 0;
+    uint8_t minimum_v = 0;
+    uint8_t maximum_v = 0;
+    uint8_t glare = 0;
+    const DxrMaterialDefinition *definition = nullptr;
+};
+
 struct DxrBitmapMaterialBinding {
     uint32_t source_asset_id = 0;
     uint32_t frame_index = 0;
@@ -61,6 +72,21 @@ public:
     bool resolve_bitmap(
         uint32_t source_asset_id, uint32_t frame_index,
         uint32_t source_mode, const DxrMaterialDefinition *&definition,
+        std::string &error);
+    /* Resolve every packaged texture region for one vector asset. A vector
+     * model's animation frame selects a different authored region, so packing
+     * the whole set lets an animating weapon or alien switch material indices
+     * without repacking its atlas. The bitmap equivalent is
+     * resolve_bitmap_asset_mode. */
+    bool resolve_vector_asset(
+        uint32_t source_asset_id,
+        std::vector<DxrVectorMaterialBinding> &bindings,
+        std::string &error);
+    /* Resolve every packaged frame and mode for one bitmap asset, so a level's
+     * object art can be decoded before gameplay rather than on first use. */
+    bool resolve_bitmap_asset(
+        uint32_t source_asset_id,
+        std::vector<DxrBitmapMaterialBinding> &bindings,
         std::string &error);
     /* Resolve every packaged frame for one active bitmap mode. This lets a
      * live animated ObjT switch material indices without repacking its atlas. */

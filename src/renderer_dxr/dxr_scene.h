@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <set>
 #include <utility>
@@ -26,6 +27,13 @@ enum class DxrScenePrimitive : uint32_t {
     world_billboard = 2u,
     world_effect = 3u,
     world_vector = 4u,
+};
+
+/* One reserved run of world-vector slots, per asset. Sized to that asset's own
+ * face count, because vector models differ in size where billboards do not. */
+struct DxrVectorPool {
+    size_t capacity = 0u;
+    size_t vertex_count = 0u;
 };
 
 struct DxrViewWeaponCompilation;
@@ -129,6 +137,18 @@ public:
     }
     uint64_t emitter_state_hash() const { return emitter_state_hash_; }
     uint64_t rebuild_count() const { return rebuild_count_; }
+    /*
+     * Decode every packaged texture region for the level's vector assets
+     * before gameplay. DxrMaterialLibrary::resolve_index is lazy: the first use
+     * of a material seeks into the package and PNG-decodes five channels inside
+     * whatever frame happened to need it, which is the hitch on the first shot
+     * and the first kill. Doing it here moves that cost to the load screen.
+     */
+    bool prepare_vector_materials(const uint32_t *asset_ids, size_t asset_count,
+                                  size_t &prepared, std::string &error);
+    /* The same, for ObjT bitmap art: muzzle flashes, impacts and projectiles. */
+    bool prepare_bitmap_materials(const uint32_t *asset_ids, size_t asset_count,
+                                  size_t &prepared, std::string &error);
     bool history_reset_pending() const { return history_reset_pending_; }
     void mark_history_promoted() { history_reset_pending_ = false; }
 
@@ -136,6 +156,9 @@ private:
     struct CompiledInstance {
         uint32_t source_instance_id = 0;
         uint32_t source_mesh_id = 0;
+        /* The vector pool run this slot belongs to; slots are matched by
+         * position within their asset's run rather than by occupant. */
+        uint32_t pool_asset_id = 0;
         uint32_t first_surface = 0;
         uint32_t surface_count = 0;
         uint32_t first_vertex = 0;
@@ -166,6 +189,13 @@ private:
                                  bool &static_changed, std::string &error);
     void release_gpu();
 
+    /* Per-component layout hashes from the previous frame, so a rebuild can
+     * name what moved. Diagnostic only; set from AB3D2_DXR_HITCH_MS. */
+    bool rebuild_log_enabled_ = std::getenv("AB3D2_DXR_HITCH_MS") != nullptr;
+    uint64_t previous_world_layout_ = 0u;
+    uint64_t previous_view_weapon_layout_ = 0u;
+    uint64_t previous_bitmap_layout_ = 0u;
+    uint64_t previous_vector_layout_ = 0u;
     DxrSceneGeometryHashes scene_hashes_ = {};
     bool has_hashes_ = false;
     bool gpu_build_pending_ = false;
@@ -177,6 +207,13 @@ private:
      * ever grows, to a high-water mark, because shrinking it is a layout
      * change and therefore a rebuild. */
     size_t world_bitmap_pool_capacity_ = 0u;
+    /*
+     * The view weapon's reserved vertex run, high-water across every weapon
+     * model the level has shown. graphics_type selects the model, so firing can
+     * swap it outright; reserving the run keeps that a vertex rewrite instead
+     * of a rebuild, which measured over 300 ms.
+     */
+    size_t view_weapon_vertex_capacity_ = 0u;
     uint32_t atlas_width_ = 0;
     uint32_t atlas_height_ = 0;
     std::vector<DxrSceneVertex> vertices_;
@@ -186,8 +223,6 @@ private:
     uint64_t emitter_state_hash_ = 0u;
     std::vector<uint32_t> surface_material_indices_;
     std::vector<float> material_emissive_bound_;
-    uint32_t view_weapon_first_material_ = 0u;
-    uint32_t view_weapon_material_count_ = 0u;
     std::map<std::tuple<uint32_t, uint32_t, uint32_t>, uint32_t>
         bitmap_material_indices_;
     /*
@@ -199,6 +234,36 @@ private:
      * geometry changes, which is what a level load looks like from here.
      */
     std::set<std::pair<uint32_t, uint32_t>> bitmap_modes_seen_;
+    /*
+     * Every vector asset the level has animated - the view weapon and world
+     * vector objects. A rebuild packs all of each asset's authored texture
+     * regions, so stepping an animation frame renames a material instead of
+     * costing a rebuild. Cleared with bitmap_modes_seen_ on a world change.
+     */
+    std::set<uint32_t> vector_assets_seen_;
+    /*
+     * What prepare_resources decoded and packed before gameplay. Unlike the
+     * seen-sets above these survive the per-world reset, because they describe
+     * the level's own art rather than what has happened to appear so far.
+     */
+    std::set<std::pair<uint32_t, uint32_t>> preloaded_bitmap_modes_;
+    std::set<uint32_t> preloaded_vector_assets_;
+    /*
+     * Reserved world-vector slots per asset, matched by position like the
+     * bitmap projectile pool. Without it a projectile spawning or an alien
+     * dying changed the instance list and rebuilt the whole scene. Each run
+     * only grows, to a high-water mark.
+     */
+    std::map<uint32_t, DxrVectorPool> world_vector_pools_;
+    /*
+     * Pooled triangles that have been emissive at least once since the last
+     * rebuild, against the sample-space area they last had. They keep an
+     * emitter entry at zero power while idle, at that remembered area, so a
+     * shot or an impact coming and going changes neither the shape of the
+     * emitter table nor any slot's identity. Keys are vertex offsets, so this
+     * belongs to one compiled layout.
+     */
+    std::map<uint32_t, float> reserved_emitter_slots_;
     uint64_t bitmap_modes_world_layout_ = 0;
     std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
                         uint8_t, uint8_t, uint8_t>, uint32_t>

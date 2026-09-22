@@ -92,6 +92,46 @@ uint64_t dxr_scene_instance_vertex_hash(
     return hash_instance_vertices(fnv_offset, instance);
 }
 
+uint64_t dxr_vector_material_hash(uint64_t seed,
+                                  const SourceVectorSceneMesh &mesh,
+                                  bool include_material_extent)
+{
+    uint64_t hash = hash_bytes(seed, &mesh.material_count,
+                               sizeof(mesh.material_count));
+    for (size_t material_index = 0;
+         mesh.materials && material_index < mesh.material_count;
+         ++material_index) {
+        const SourceVectorSceneMaterial &material =
+            mesh.materials[material_index];
+        if (include_material_extent) {
+            hash = hash_bytes(hash, &material.width, sizeof(material.width));
+            hash = hash_bytes(hash, &material.height, sizeof(material.height));
+        }
+        hash = hash_bytes(hash, &material.source_map_offset,
+                          sizeof(material.source_map_offset));
+        hash = hash_bytes(hash, &material.minimum_u,
+                          sizeof(material.minimum_u));
+        hash = hash_bytes(hash, &material.maximum_u,
+                          sizeof(material.maximum_u));
+        hash = hash_bytes(hash, &material.minimum_v,
+                          sizeof(material.minimum_v));
+        hash = hash_bytes(hash, &material.maximum_v,
+                          sizeof(material.maximum_v));
+        hash = hash_bytes(hash, &material.glare, sizeof(material.glare));
+    }
+    for (size_t triangle_index = 0;
+         mesh.triangles && triangle_index < mesh.triangle_count;
+         ++triangle_index) {
+        const SourceVectorSceneTriangle &triangle =
+            mesh.triangles[triangle_index];
+        hash = hash_bytes(hash, &triangle.material_index,
+                          sizeof(triangle.material_index));
+        hash = hash_bytes(hash, &triangle.additive,
+                          sizeof(triangle.additive));
+    }
+    return hash;
+}
+
 DxrSceneUpdateKind dxr_scene_classify_update(
     bool has_previous, const DxrSceneGeometryHashes &previous,
     const DxrSceneGeometryHashes &current)

@@ -85,6 +85,18 @@ public:
     ID3D12PipelineState *pipeline_state() const { return pipeline_state_.Get(); }
     bool has_scene() const { return scene_.ready(); }
     uint64_t scene_rebuild_count() const { return scene_.rebuild_count(); }
+    bool prepare_vector_materials(const uint32_t *asset_ids, size_t asset_count,
+                                  size_t &prepared, std::string &error)
+    {
+        return scene_.prepare_vector_materials(asset_ids, asset_count, prepared,
+                                               error);
+    }
+    bool prepare_bitmap_materials(const uint32_t *asset_ids, size_t asset_count,
+                                  size_t &prepared, std::string &error)
+    {
+        return scene_.prepare_bitmap_materials(asset_ids, asset_count, prepared,
+                                               error);
+    }
     size_t last_view_weapon_coverage() const {
         return last_view_weapon_coverage_;
     }

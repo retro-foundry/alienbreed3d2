@@ -7,6 +7,7 @@
 #include <memory>
 #include <new>
 #include <string>
+#include <vector>
 
 struct RendererRtx {
     std::unique_ptr<ab3d2::dxr::DxrRenderer> implementation;
@@ -77,7 +78,54 @@ extern "C" int renderer_rtx_prepare_resources(
         return 0;
     }
     *out_prepared_vector_material_count = 0;
-    return 1;
+    /*
+     * Decode the level's vector-model PBR art now rather than on first use.
+     * DxrMaterialLibrary resolves lazily, so without this the first frame that
+     * shows a weapon-firing pose, a projectile or a hit reaction pays a package
+     * seek and five PNG decodes mid-frame - the hitch on the first shot and the
+     * first kill.
+     */
+    if (catalog->vector_resource_count != 0u && !catalog->vector_resources) {
+        copy_error(error, error_size,
+                   "D3D12/DXR resource preparation received an invalid vector catalog");
+        return 0;
+    }
+    try {
+        std::vector<uint32_t> asset_ids;
+        asset_ids.reserve(catalog->vector_resource_count);
+        for (size_t index = 0; index < catalog->vector_resource_count; ++index) {
+            asset_ids.push_back(catalog->vector_resources[index].source_asset_id);
+        }
+        std::string implementation_error;
+        size_t prepared = 0u;
+        if (!renderer->implementation->prepare_vector_materials(
+                asset_ids.empty() ? nullptr : asset_ids.data(),
+                asset_ids.size(), prepared, implementation_error)) {
+            copy_error(error, error_size, implementation_error);
+            return 0;
+        }
+        std::vector<uint32_t> bitmap_ids;
+        bitmap_ids.reserve(catalog->bitmap_asset_count);
+        for (size_t index = 0; index < catalog->bitmap_asset_count; ++index) {
+            if (!catalog->bitmap_asset_ids) {
+                break;
+            }
+            bitmap_ids.push_back(catalog->bitmap_asset_ids[index]);
+        }
+        size_t prepared_bitmaps = 0u;
+        if (!renderer->implementation->prepare_bitmap_materials(
+                bitmap_ids.empty() ? nullptr : bitmap_ids.data(),
+                bitmap_ids.size(), prepared_bitmaps, implementation_error)) {
+            copy_error(error, error_size, implementation_error);
+            return 0;
+        }
+        *out_prepared_vector_material_count = prepared + prepared_bitmaps;
+        return 1;
+    } catch (const std::exception &exception) {
+        exception_error(error, error_size, "D3D12/DXR resource preparation",
+                        exception);
+        return 0;
+    }
 }
 
 extern "C" int renderer_rtx_get_presentation_size(

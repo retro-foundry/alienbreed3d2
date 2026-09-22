@@ -311,6 +311,7 @@ static int game_app_prepare_renderer_resources(GameApp *app,
                                                char *error, size_t error_size)
 {
     RendererVectorResource vector_resources[GAME_LINK_OBJECT_COUNT];
+    uint32_t bitmap_asset_ids[GAME_LINK_OBJECT_COUNT];
     RendererResourceCatalog catalog = {0};
     size_t prepared_material_count = 0u;
     Uint64 start_counter;
@@ -318,7 +319,8 @@ static int game_app_prepare_renderer_resources(GameApp *app,
     Uint64 frequency;
 
     if (!app || !app->renderer ||
-        app->game.shared_resources.vector_count > GAME_LINK_OBJECT_COUNT) {
+        app->game.shared_resources.vector_count > GAME_LINK_OBJECT_COUNT ||
+        app->game.shared_resources.object_count > GAME_LINK_OBJECT_COUNT) {
         if (error && error_size > 0u) {
             (void)snprintf(error, error_size,
                            "renderer source-resource catalog is invalid");
@@ -334,6 +336,14 @@ static int game_app_prepare_renderer_resources(GameApp *app,
         vector_resources[resource_index].source_byte_count =
             app->game.shared_resources.vector_models[resource_index].size;
     }
+    /* ObjT bitmap graphics share the object index space the sprites name. */
+    memset(bitmap_asset_ids, 0, sizeof(bitmap_asset_ids));
+    for (uint16_t object_index = 0u;
+         object_index < app->game.shared_resources.object_count; ++object_index) {
+        bitmap_asset_ids[object_index] = object_index;
+    }
+    catalog.bitmap_asset_ids = bitmap_asset_ids;
+    catalog.bitmap_asset_count = app->game.shared_resources.object_count;
     catalog.vector_resources = vector_resources;
     catalog.vector_resource_count = app->game.shared_resources.vector_count;
     catalog.vector_texture_bytes = app->game.shared_resources.texture_maps.bytes;

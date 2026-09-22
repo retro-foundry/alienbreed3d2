@@ -290,6 +290,32 @@ uint64_t DxrRenderer::scene_rebuild_count() const
     return pipeline_ ? pipeline_->scene_rebuild_count() : UINT64_C(0);
 }
 
+bool DxrRenderer::prepare_vector_materials(const uint32_t *asset_ids,
+                                           size_t asset_count, size_t &prepared,
+                                           std::string &error)
+{
+    prepared = 0u;
+    if (!pipeline_) {
+        error = "D3D12/DXR resource preparation ran before the pipeline existed";
+        return false;
+    }
+    return pipeline_->prepare_vector_materials(asset_ids, asset_count, prepared,
+                                               error);
+}
+
+bool DxrRenderer::prepare_bitmap_materials(const uint32_t *asset_ids,
+                                           size_t asset_count, size_t &prepared,
+                                           std::string &error)
+{
+    prepared = 0u;
+    if (!pipeline_) {
+        error = "D3D12/DXR resource preparation ran before the pipeline existed";
+        return false;
+    }
+    return pipeline_->prepare_bitmap_materials(asset_ids, asset_count, prepared,
+                                               error);
+}
+
 size_t DxrRenderer::last_view_weapon_coverage() const
 {
     return pipeline_ ? pipeline_->last_view_weapon_coverage() : 0u;
