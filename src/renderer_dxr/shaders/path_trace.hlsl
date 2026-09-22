@@ -358,6 +358,22 @@ static const uint DiagnosticTargetAfter = 37u;
  * intact this equals what the previous frame reported writing; if it does not,
  * something between the write and the read is changing it. */
 static const uint DiagnosticHistoryEnergyRead = 38u;
+/*
+ * What this pass should output, computed per pixel from its own two inputs and
+ * their confidences. Summing a prediction pixel by pixel avoids comparing a
+ * ratio of sums against a sum of ratios, which is how the earlier factor split
+ * misled me. If this disagrees with what the pass actually produced, the
+ * disagreement is in one pixel's arithmetic and not in the statistics.
+ */
+static const uint DiagnosticPredictedAfter = 39u;
+/*
+ * Pixels that reached temporal reuse with, and without, a fresh canonical
+ * sample. A pixel with none mixes nothing new in: its output is its history
+ * copied forward, so whatever it holds persists indefinitely and never regresses
+ * toward the mean the fresh samples describe.
+ */
+static const uint DiagnosticReuseWithCanonical = 40u;
+static const uint DiagnosticReuseWithoutCanonical = 41u;
 
 
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
@@ -4114,9 +4130,27 @@ void ResampleTemporal()
      * no "before" value at all, and counting its zero would measure temporal
      * reuse filling in coverage rather than inflating energy.
      */
+    if (reused) {
+        InterlockedAdd(Diagnostics[reservoirValid(canonical) ?
+                           DiagnosticReuseWithCanonical :
+                           DiagnosticReuseWithoutCanonical], 1u);
+    }
     if (reused && reservoirValid(canonical)) {
         InterlockedAdd(Diagnostics[DiagnosticHistoryEnergyRead],
                        quantizeEnergy(historyResolved));
+        {
+            float canonicalEnergy =
+                reservoirLuminance(resolvedRadiance(canonical));
+            float historyEnergy = reservoirLuminance(historyResolved);
+            float canonicalCount = canonical.m;
+            float historyCount = max(current.m - canonical.m, 0.0);
+            float total = canonicalCount + historyCount;
+            float predicted = total > 0.0 ?
+                (canonicalEnergy * canonicalCount +
+                 historyEnergy * historyCount) / total : 0.0;
+            InterlockedAdd(Diagnostics[DiagnosticPredictedAfter],
+                           quantizeEnergy(predicted.xxx));
+        }
         InterlockedAdd(Diagnostics[DiagnosticCanonicalM],
                        uint(min(canonical.m, 255.0) * 16.0));
         InterlockedAdd(Diagnostics[DiagnosticHistoryM],

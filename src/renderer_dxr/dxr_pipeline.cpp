@@ -134,7 +134,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 39u;
+constexpr UINT diagnostic_value_count = 42u;
 constexpr UINT burst_dispatch_width_offset = 88u;
 static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
               burst_dispatch_width_offset);
@@ -1933,6 +1933,15 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
                      ratio(values[34], values[35]),
                      ratio(values[36], values[37]));
         std::fprintf(stderr, "[RESTIR] history-as-read=%u\n", values[38]);
+        std::fprintf(stderr,
+                     "[RESTIR] predicted=%u actual=%u excess=%.3f\n",
+                     values[39], values[29],
+                     values[39] == 0u ? 0.0 :
+                         static_cast<double>(values[29]) /
+                             static_cast<double>(values[39]));
+        std::fprintf(stderr,
+                     "[RESTIR] reuse with canonical=%u without=%u\n",
+                     values[40], values[41]);
     }
     last_burst_work_overflow_ = values[15];
     last_indirect_history_accepts_ = values[16];
