@@ -143,11 +143,13 @@ world_light_tessellation=4
 # upscaling, and never reads a reconstructed image.
 
 # Which estimator produces indirect lighting.
-#   path-trace  Independent fresh paths every frame, no reservoir reuse. This is
-#               the reference the resampled estimator is validated against.
-#   restir-pt   ReSTIR PT Enhanced spatiotemporal path resampling.
-# Default path-trace.
-#rtx_indirect_mode=path-trace
+#   restir-pt   ReSTIR PT Enhanced spatiotemporal path resampling. This is what
+#               the renderer runs.
+#   path-trace  Independent fresh paths every frame, no reservoir reuse. Slower
+#               to converge, and kept as the reference the resampled estimator
+#               is validated against rather than as a quality setting.
+# Default restir-pt.
+#rtx_indirect_mode=restir-pt
 
 # Cap on a reservoir's represented sample count M, 1 through 64. Default 20.
 # A reservoir that survives reuse raises M every frame, and the cap bounds how

@@ -295,9 +295,10 @@ private:
     /* Roughness at which specular stops being traced; see
      * renderer_ray_tracing_options.h. The long-standing behaviour is 0.3. */
     float specular_roughness_limit_ = 0.3f;
-    /* Which estimator produces indirect lighting. Path tracing remains the
-     * reference the resampled estimator is validated against. */
-    uint32_t indirect_mode_ = RENDERER_INDIRECT_PATH_TRACE;
+    /* Which estimator produces indirect lighting. Path tracing remains
+     * selectable as the reference the resampled estimator is validated
+     * against, but ReSTIR PT is what the renderer runs. */
+    uint32_t indirect_mode_ = RENDERER_INDIRECT_RESTIR_PT;
     uint32_t restir_temporal_history_ =
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_TEMPORAL_HISTORY;
     uint32_t restir_spatial_samples_ =
