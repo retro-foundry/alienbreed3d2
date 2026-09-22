@@ -46,7 +46,17 @@ static const float ExposureSpeedDown = 1.0;
 static const float ExposureSpeedUp = 2.0;
 static const float HistogramFractionScale = 128.0;
 static const float BloomSoftThreshold = 0.02;
-static const float BloomStrength = 0.08;
+/*
+ * Q2RTX's bloom_intensity, and its compositing form.
+ *
+ * This pass added a fraction of the blurred bright image on top of the full
+ * scene; Q2RTX blends between the two, which neither creates energy nor
+ * brightens what was already correct. Combined with a coefficient forty times
+ * larger, a bright surface threw a wide halo tens of pixels into the dark
+ * around it -- clearly visible against a dark wall beside an emissive panel,
+ * and nothing to do with tone mapping or with resampling.
+ */
+static const float BloomStrength = 0.002;
 static const float BloomUpsampleWeight = 0.5;
 static const uint BloomExtract = 0u;
 static const uint BloomDownsample = 1u;
@@ -158,7 +168,7 @@ void bloom_main(uint3 dispatchThreadId : SV_DispatchThreadID)
             InputRadiance.Load(int3(pixel, 0)).rgb);
         float3 bloom = finiteHdr(
             BloomInput.SampleLevel(LinearClampSampler, uv, 0.0).rgb);
-        result = source + bloom * BloomStrength;
+        result = lerp(source, bloom, BloomStrength);
     }
     BloomOutput[pixel] = float4(finiteHdr(result), 1.0);
 }
