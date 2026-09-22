@@ -135,7 +135,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 72u;
+constexpr UINT diagnostic_value_count = 74u;
 constexpr UINT burst_dispatch_width_offset = 88u;
 static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
               burst_dispatch_width_offset);
@@ -1993,6 +1993,12 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
                      last_metered_low_luminance_,
                      last_metered_high_luminance_,
                      last_target_exposure_, last_automatic_exposure_);
+        std::fprintf(stderr,
+                     "[RESTIR] spatial predicted=%u actual=%u excess=%.3f\n",
+                     values[72], values[73],
+                     values[72] == 0u ? 0.0 :
+                         static_cast<double>(values[73]) /
+                             static_cast<double>(values[72]));
         std::fprintf(stderr, "[RESTIR] bounce luminance log2 histogram:");
         for (size_t bucket = 0u; bucket < 16u; ++bucket) {
             if (values[56u + bucket] != 0u) {
@@ -3139,29 +3145,17 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.previous_jitter_y = previous_jitter.y;
     constants.candidate_count = candidate_count_;
     /*
-     * Calibrate the ceiling to the scene rather than to a constant.
+     * Q2RTX's fixed MAX_OUTPUT_VALUE.
      *
-     * Q2RTX clamps every lighting output at a fixed 1000, which works because
-     * its scenes meter within a stop or two of its 256 ceiling. This renderer's
-     * light units are arbitrary and its scenes meter around 0.15, so a fixed
-     * 1000 is not a ceiling at all -- measured over half a million samples it
-     * caught three. Meanwhile single bounces reach several thousand, tens of
-     * thousands of times the metered high, which is what a firefly is.
-     *
-     * Scaling the light units cannot fix that: auto-exposure renormalises, so
-     * the scene and its outliers scale together and the ratio is unchanged. A
-     * ceiling expressed as a multiple of what the scene actually metered is
-     * scale-invariant by construction, and tracks the frame instead of assuming
-     * one. The previous frame's high percentile is the reference because it is
-     * already computed, already robust to outliers, and already the number the
-     * exposure trusts.
+     * A ceiling that tracked the previous frame's metered high percentile
+     * looked better calibrated, but it lags the scene: when a light switches on
+     * the metered high is still the dark frame's, so the ceiling suppresses
+     * exactly the samples that are supposed to brighten the image, and indirect
+     * light recovers measurably slower. The firefly filters handle the tail
+     * where it matters, against the unresampled canonical samples, which do not
+     * lag because they are this frame's.
      */
-    const float metered_reference = last_metered_high_luminance_;
-    constants.radiance_clamp =
-        (radiance_clamp_ > 0.0f && metered_reference > 0.0f) ?
-            std::min(radiance_clamp_,
-                     radiance_clamp_relative_ * metered_reference) :
-            radiance_clamp_;
+    constants.radiance_clamp = radiance_clamp_;
     constants.ndf_trim = ndf_trim_;
     constants.samples_per_pixel = spp_;
     constants.exposure_delta_seconds =

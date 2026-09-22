@@ -399,6 +399,10 @@ static const uint DiagnosticShiftFail = 45u;
  * about this distribution, not about any single constant. */
 static const uint DiagnosticLuminanceHistogram = 56u;
 static const uint DiagnosticLuminanceBuckets = 16u;
+/* Same per-pixel prediction the temporal pass passed at 1.002: what spatial
+ * reuse must output, computed from its own inputs and their confidences. */
+static const uint DiagnosticSpatialPredicted = 72u;
+static const uint DiagnosticSpatialActual = 73u;
 
 
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
@@ -532,7 +536,8 @@ static const uint ReservoirDecorrelationStream = 0x10b00u;
 /* How far above the local canonical mean a resolved value may sit before it is
  * treated as a firefly, and an absolute floor so dark regions are not policed
  * against a near-zero mean. Zero threshold disables the filter. */
-static const float ReservoirFireflyThreshold = 6.0;
+static const float ReservoirFireflyThreshold = 4.0;
+static const float ReservoirFireflyStoreThreshold = 16.0;
 static const float ReservoirFireflyFloor = 0.05;
 static const uint ReservoirTemporalStream = 0x10800u;
 static const uint ReservoirSpatialStream = 0x10900u;
@@ -4426,9 +4431,78 @@ void ResampleSpatial()
         }
     }
 
+    float predictedEnergy = 0.0;
+    float predictedWeight = 0.0;
+    if (reservoirValid(centre)) {
+        predictedEnergy += reservoirLuminance(resolvedRadiance(centre)) * ownM;
+        predictedWeight += ownM;
+    }
+    for (uint probe = 0u; probe < acceptedCount; ++probe) {
+        PathReservoir neighbour = ResampleReservoirs[acceptedIndex[probe]];
+        predictedEnergy +=
+            reservoirLuminance(resolvedRadiance(neighbour)) * acceptedM[probe];
+        predictedWeight += acceptedM[probe];
+    }
     finalizeResampling(current, reservoirLuminance(selectedTarget),
                        piSum * reservoirLuminance(selectedTarget));
+    if (predictedWeight > 0.0) {
+        InterlockedAdd(Diagnostics[DiagnosticSpatialPredicted],
+                       quantizeEnergy((predictedEnergy /
+                                       predictedWeight).xxx));
+        InterlockedAdd(Diagnostics[DiagnosticSpatialActual],
+                       quantizeEnergy(resolvedRadiance(current)));
+    }
     current.m = min(current.m, float(ReservoirTemporalHistory));
+    /*
+     * Reject a firefly before it is stored, not only before it is shown.
+     *
+     * Final shading already replaces an outlier with this pixel's preserved
+     * sample, which fixes the pixel on screen. It does nothing about the
+     * reservoir, which is still written here and becomes both next frame's
+     * history and its neighbours' spatial candidate. The contamination
+     * therefore keeps spreading through the grid while the image looks clean,
+     * and surfaces again whenever the filter happens not to fire -- which is
+     * why adding neighbours made the tail explode while the mean stayed right.
+     *
+     * The reference is the preserved canonical samples, which are noisy but
+     * unresampled and so cannot themselves be contaminated by reuse.
+     */
+    if (ReservoirFireflyThreshold > 0.0 && reservoirValid(current)) {
+        float localCanonical = 0.0;
+        uint localCount = 0u;
+        for (int fy = -2; fy <= 2; ++fy) {
+            for (int fx = -2; fx <= 2; ++fx) {
+                int2 probe = int2(pixel) + int2(fx, fy);
+                if (any(probe < 0) || any(probe >= int2(dimensions))) {
+                    continue;
+                }
+                PathReservoir fresh = PreservedReservoirs[
+                    reservoirIndex(uint2(probe), dimensions)];
+                if (reservoirValid(fresh)) {
+                    localCanonical +=
+                        reservoirLuminance(resolvedRadiance(fresh));
+                    ++localCount;
+                }
+            }
+        }
+        if (localCount > 0u) {
+            localCanonical /= float(localCount);
+            /* Held to a looser bound than the one final shading applies.
+             * This rejection also stops the sample propagating, so a
+             * legitimately bright reservoir caught here is not merely hidden
+             * for a frame but prevented from reaching its neighbours, and
+             * during a lighting change that is the difference between
+             * recovering promptly and not. */
+            if (reservoirLuminance(resolvedRadiance(current)) >
+                ReservoirFireflyStoreThreshold * localCanonical +
+                    ReservoirFireflyFloor) {
+                PathReservoir preserved = PreservedReservoirs[index];
+                if (reservoirValid(preserved)) {
+                    current = preserved;
+                }
+            }
+        }
+    }
     CurrentReservoirs[index] = current;
 
     /* The duplication map reads this next frame to find neighbourhoods that
