@@ -123,6 +123,9 @@ enum ShaderRecordIndex : UINT {
     shader_record_primary_visibility,
     shader_record_shade_primary,
     shader_record_burst_continuation,
+    shader_record_resample_temporal,
+    shader_record_resample_spatial,
+    shader_record_compute_duplication_map,
     shader_record_reconstruct_indirect,
     shader_record_calculate_automatic_exposure,
     shader_record_surface_miss,
@@ -211,6 +214,12 @@ struct FrameConstants {
     uint32_t proxy_primary_candidates;
     uint32_t force_specular_guide;
     float traced_specular_roughness_limit;
+    /* Which estimator produces indirect lighting; see RendererIndirectMode. */
+    uint32_t indirect_mode;
+    uint32_t restir_temporal_history;
+    uint32_t restir_spatial_samples;
+    float restir_spatial_radius;
+    float restir_history_reduction;
     /* Keeps the structure a whole number of 16-byte constant registers, so the
      * C++ and HLSL layouts cannot disagree about trailing padding. */
     uint32_t frame_constant_padding[3];
@@ -222,7 +231,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 67u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 72u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -650,20 +659,42 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         error = "DXR indirect light samples must be 1-2 when specified";
         return false;
     }
-    if (options.indirect_mode == RENDERER_INDIRECT_RESTIR_PT) {
-        error = "rtx_indirect_mode=restir-pt is not implemented yet; "
-                "the ReSTIR PT resampling passes are still being built";
+    if (options.indirect_mode != RENDERER_INDIRECT_DEFAULT) {
+        indirect_mode_ = static_cast<uint32_t>(options.indirect_mode);
+    }
+    /*
+     * Canonical sampling is in place; reuse is not. Rather than accept the
+     * controls for passes that do not run, refuse each one with the reason, so
+     * a settings file can never claim resampling the renderer is not doing.
+     */
+    if (options.restir_temporal_history != 0u) {
+        restir_temporal_history_ = options.restir_temporal_history;
+    }
+    if (options.restir_spatial_samples != 0u) {
+        restir_spatial_samples_ = options.restir_spatial_samples;
+    }
+    if (options.restir_spatial_radius_set != 0u) {
+        restir_spatial_radius_ = options.restir_spatial_radius;
+    }
+    if (options.restir_history_reduction_set != 0u) {
+        restir_history_reduction_ = options.restir_history_reduction;
+    }
+    /* The reconnection criterion is fixed at the footprint form; the
+     * roughness-cutoff comparison mode has no shader path yet. */
+    if (options.restir_reconnection == RENDERER_RECONNECTION_FIXED) {
+        error = "rtx_restir_reconnection=fixed has no shader path; the "
+                "footprint criterion is the only implemented mode";
         return false;
     }
-    if (options.restir_temporal_history != 0u ||
-        options.restir_spatial_samples != 0u ||
-        options.restir_spatial_radius_set != 0u ||
-        options.restir_reconnection != RENDERER_RECONNECTION_DEFAULT ||
-        options.restir_connection_footprint_set != 0u ||
-        options.restir_history_reduction_set != 0u ||
-        options.restir_decorrelation_set != 0u) {
-        error = "the rtx_restir_* settings require rtx_indirect_mode=restir-pt, "
-                "which is not implemented yet";
+    if (options.restir_connection_footprint_set != 0u) {
+        error = "rtx_restir_connection_footprint applies to the hybrid shift's "
+                "replayed prefix, which this renderer's diffuse indirect "
+                "transport does not yet produce";
+        return false;
+    }
+    if (options.restir_decorrelation_set != 0u) {
+        error = "rtx_restir_decorrelation needs the resampled and preserved "
+                "initial reservoirs that reuse introduces";
         return false;
     }
     if (options.debug_view != RENDERER_DEBUG_VIEW_OFF) {
@@ -745,7 +776,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         uint32_t limit;
         uint32_t *target;
     };
-    const std::array<Override, 5> overrides = {
+    const std::array<Override, 8> overrides = {
         Override{"AB3D2_DXR_MAX_BOUNCES", 1u,
                  indirect_reconstruction::maximum_path_depth,
                  &maximum_depth_},
@@ -753,6 +784,13 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         Override{"AB3D2_DXR_INDIRECT_LIGHT_SAMPLES", 1u, 2u,
                  &indirect_light_samples_},
         Override{"AB3D2_DXR_CANDIDATES", 1u, 1024u, &candidate_count_},
+        /* Lets the hidden GPU smoke sweep the estimator without an ini edit.
+         * The values follow RendererIndirectMode. */
+        Override{"AB3D2_DXR_INDIRECT_MODE", 1u, 2u, &indirect_mode_},
+        Override{"AB3D2_DXR_RESTIR_TEMPORAL_HISTORY", 1u, 64u,
+                 &restir_temporal_history_},
+        Override{"AB3D2_DXR_RESTIR_SPATIAL_SAMPLES", 0u, 8u,
+                 &restir_spatial_samples_},
         Override{"AB3D2_DXR_GI_TEMPORAL_FRAMES", 1u,
                  indirect_reconstruction::temporal_window_maximum,
                  &indirect_temporal_window_},
@@ -1310,7 +1348,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[4].NumDescriptors = 7;
     ranges[4].BaseShaderRegister = 26;
     ranges[4].OffsetInDescriptorsFromTableStart = 13;
-    std::array<D3D12_ROOT_PARAMETER, 14> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 19> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1329,19 +1367,32 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[7].Descriptor.ShaderRegister = 10;
     parameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     parameters[8].Descriptor.ShaderRegister = 0;
+    /* Both reservoir grids bind as root unordered-access descriptors, which
+     * keeps them in one resource state for the whole frame and lets the
+     * previous grid be read without a transition. */
     parameters[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[9].Descriptor.ShaderRegister = 12;
-    parameters[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    parameters[10].DescriptorTable.NumDescriptorRanges = 2;
-    parameters[10].DescriptorTable.pDescriptorRanges = &ranges[3];
+    parameters[9].Descriptor.ShaderRegister = 10;
+    parameters[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[10].Descriptor.ShaderRegister = 11;
     parameters[11].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[11].Descriptor.ShaderRegister = 33;
+    parameters[11].Descriptor.ShaderRegister = 22;
     parameters[12].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[12].Descriptor.ShaderRegister = 34;
-    parameters[13].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    parameters[13].Constants.Num32BitValues = 3u;
-    parameters[13].Constants.ShaderRegister = 1u;
-    parameters[13].Constants.RegisterSpace = 0u;
+    parameters[12].Descriptor.ShaderRegister = 23;
+    parameters[13].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[13].Descriptor.ShaderRegister = 24;
+    parameters[14].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[14].Descriptor.ShaderRegister = 12;
+    parameters[15].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[15].DescriptorTable.NumDescriptorRanges = 2;
+    parameters[15].DescriptorTable.pDescriptorRanges = &ranges[3];
+    parameters[16].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[16].Descriptor.ShaderRegister = 33;
+    parameters[17].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[17].Descriptor.ShaderRegister = 34;
+    parameters[18].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[18].Constants.Num32BitValues = 3u;
+    parameters[18].Constants.ShaderRegister = 1u;
+    parameters[18].Constants.RegisterSpace = 0u;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -1373,6 +1424,10 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t primary_visibility[] = L"PrimaryVisibility";
     static constexpr wchar_t shade_primary[] = L"ShadePrimary";
     static constexpr wchar_t burst_continuation[] = L"BurstContinuation";
+    static constexpr wchar_t resample_temporal[] = L"ResampleTemporal";
+    static constexpr wchar_t resample_spatial[] = L"ResampleSpatial";
+    static constexpr wchar_t compute_duplication_map[] =
+        L"ComputeDuplicationMap";
     static constexpr wchar_t reconstruct_indirect[] = L"ReconstructIndirect";
     static constexpr wchar_t calculate_automatic_exposure[] =
         L"CalculateAutomaticExposure";
@@ -1381,18 +1436,21 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     static constexpr wchar_t closest_hit[] = L"ClosestHit";
     static constexpr wchar_t any_hit[] = L"AnyHit";
     static constexpr wchar_t hit_group_name[] = L"HitGroup";
-    std::array<D3D12_EXPORT_DESC, 11> exports = {};
+    std::array<D3D12_EXPORT_DESC, 14> exports = {};
     exports[0].Name = build_light_grid;
     exports[1].Name = ray_generation;
     exports[2].Name = primary_visibility;
     exports[3].Name = shade_primary;
     exports[4].Name = burst_continuation;
-    exports[5].Name = reconstruct_indirect;
-    exports[6].Name = calculate_automatic_exposure;
-    exports[7].Name = surface_miss;
-    exports[8].Name = shadow_miss;
-    exports[9].Name = closest_hit;
-    exports[10].Name = any_hit;
+    exports[5].Name = resample_temporal;
+    exports[6].Name = resample_spatial;
+    exports[7].Name = compute_duplication_map;
+    exports[8].Name = reconstruct_indirect;
+    exports[9].Name = calculate_automatic_exposure;
+    exports[10].Name = surface_miss;
+    exports[11].Name = shadow_miss;
+    exports[12].Name = closest_hit;
+    exports[13].Name = any_hit;
     D3D12_DXIL_LIBRARY_DESC library_description = {};
     library_description.DXILLibrary = {library.data(), library.size()};
     library_description.NumExports = static_cast<UINT>(exports.size());
@@ -1405,9 +1463,10 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     D3D12_RAYTRACING_SHADER_CONFIG shader_configuration = {};
     shader_configuration.MaxPayloadSizeInBytes = 20u;
     shader_configuration.MaxAttributeSizeInBytes = 8u;
-    std::array<const wchar_t *, 10> configured_exports = {
+    std::array<const wchar_t *, 13> configured_exports = {
         build_light_grid, ray_generation, primary_visibility, shade_primary,
-        burst_continuation, reconstruct_indirect,
+        burst_continuation, resample_temporal, resample_spatial,
+        compute_duplication_map, reconstruct_indirect,
         calculate_automatic_exposure, surface_miss, shadow_miss,
         hit_group_name};
     D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION shader_association = {};
@@ -1469,6 +1528,9 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
         properties->GetShaderIdentifier(primary_visibility),
         properties->GetShaderIdentifier(shade_primary),
         properties->GetShaderIdentifier(burst_continuation),
+        properties->GetShaderIdentifier(resample_temporal),
+        properties->GetShaderIdentifier(resample_spatial),
+        properties->GetShaderIdentifier(compute_duplication_map),
         properties->GetShaderIdentifier(reconstruct_indirect),
         properties->GetShaderIdentifier(calculate_automatic_exposure),
         properties->GetShaderIdentifier(surface_miss),
@@ -2553,6 +2615,50 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             post_hdr_output_.Get(), nullptr, &output_uav,
             cpu_descriptor(post_hdr_uav));
     }
+    {
+        const uint64_t reservoir_count =
+            static_cast<uint64_t>(width) * static_cast<uint64_t>(height);
+        D3D12_RESOURCE_DESC reservoir_description = buffer_description(
+            reservoir_count * sizeof(DxrPathReservoir));
+        reservoir_description.Flags =
+            D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        for (size_t index = 0u; index < 3u; ++index) {
+            const HRESULT result = device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &reservoir_description,
+                D3D12_RESOURCE_STATE_COMMON, nullptr,
+                IID_PPV_ARGS(&reservoirs_[index]));
+            if (FAILED(result)) {
+                error = hresult_error(
+                    "ID3D12Device::CreateCommittedResource(ReSTIR reservoirs)",
+                    result);
+                return false;
+            }
+            reservoirs_[index]->SetName(
+                index == 0u ? L"AB3D2 ReSTIR Reservoirs A" :
+                index == 1u ? L"AB3D2 ReSTIR Reservoirs B" :
+                              L"AB3D2 ReSTIR Resample Reservoirs");
+        }
+        D3D12_RESOURCE_DESC grid_description = buffer_description(
+            reservoir_count * sizeof(uint32_t));
+        grid_description.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        ID3D12Resource **grids[] = {&sample_ancestry_, &duplication_map_};
+        const wchar_t *names[] = {L"AB3D2 ReSTIR Sample Ancestry",
+                                  L"AB3D2 ReSTIR Duplication Map"};
+        for (size_t index = 0u; index < 2u; ++index) {
+            Microsoft::WRL::ComPtr<ID3D12Resource> grid;
+            const HRESULT result = device->CreateCommittedResource(
+                &default_heap, D3D12_HEAP_FLAG_NONE, &grid_description,
+                D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&grid));
+            if (FAILED(result)) {
+                error = hresult_error(
+                    "ID3D12Device::CreateCommittedResource(ReSTIR grids)",
+                    result);
+                return false;
+            }
+            grid->SetName(names[index]);
+            *grids[index] = grid.Detach();
+        }
+    }
     render_width_ = width;
     render_height_ = height;
     present_width_ = present_width;
@@ -2920,6 +3026,21 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.diffuse_gi_scale = diffuse_gi_scale_;
     /* The blend keeps its 2:3 shape, so only the upper bound is configured. */
     constants.traced_specular_roughness_limit = specular_roughness_limit_;
+    constants.indirect_mode = indirect_mode_;
+    /*
+     * A reservoir stores the radiance its path carried when it was traced, not
+     * a recipe for re-deriving it, so when the emitters change that stored
+     * value is simply wrong. Confidence is exactly what makes that dangerous:
+     * a reservoir capped at twenty frames keeps reporting the old lighting
+     * nineteen times out of twenty and a light switching on takes most of a
+     * second to appear. Discard the history on the frame the emitter state
+     * changes and let canonical sampling re-establish it.
+     */
+    constants.restir_temporal_history =
+        indirect_lighting_changed ? 1u : restir_temporal_history_;
+    constants.restir_spatial_samples = restir_spatial_samples_;
+    constants.restir_spatial_radius = restir_spatial_radius_;
+    constants.restir_history_reduction = restir_history_reduction_;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
     constants.single_primary_direct_survivor =
         single_primary_direct_survivor_ ? 1u : 0u;
@@ -3021,21 +3142,33 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         7, blue_noise_sampler_->GetGPUVirtualAddress());
     command_list->SetComputeRootConstantBufferView(
         8, frame_constants_->GetGPUVirtualAddress() + frame_constant_offset);
+    /* The reservoir grids ping-pong, so this frame writes one and reads the
+     * other as its history. */
     command_list->SetComputeRootUnorderedAccessView(
-        9, diagnostics_->GetGPUVirtualAddress());
+        9, reservoirs_[frame_slot & 1u]->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
+        10, reservoirs_[1u - (frame_slot & 1u)]->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
+        11, reservoirs_[2]->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
+        12, sample_ancestry_->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
+        13, duplication_map_->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
+        14, diagnostics_->GetGPUVirtualAddress());
     command_list->SetComputeRootDescriptorTable(
-        10, gpu_descriptor(light_grid_uav));
+        15, gpu_descriptor(light_grid_uav));
     command_list->SetComputeRootUnorderedAccessView(
-        11, burst_work_items->GetGPUVirtualAddress());
+        16, burst_work_items->GetGPUVirtualAddress());
     command_list->SetComputeRootUnorderedAccessView(
-        12, burst_dispatch_arguments->GetGPUVirtualAddress());
+        17, burst_dispatch_arguments->GetGPUVirtualAddress());
     const std::array<uint32_t, 3> ray_root_constants = {
         scene_.atlas_width(),
         scene_.atlas_height(),
         interleaved_deep_diffuse_ ? 1u : 0u,
     };
     command_list->SetComputeRoot32BitConstants(
-        13, static_cast<UINT>(ray_root_constants.size()),
+        18, static_cast<UINT>(ray_root_constants.size()),
         ray_root_constants.data(), 0u);
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
@@ -3136,6 +3269,36 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->ResourceBarrier(
         static_cast<UINT>(std::size(fresh_indirect_ready)),
         fresh_indirect_ready);
+    /*
+     * ReSTIR reuse runs between canonical sampling and reconstruction, and each
+     * stage is its own dispatch because a pass may not read its neighbours out
+     * of the grid it is writing. Temporal hands over through the resample grid,
+     * spatial writes the frame's final reservoirs, and the duplication map is
+     * built from the ancestry those leave behind for the next frame to read.
+     */
+    if (indirect_mode_ == RENDERER_INDIRECT_RESTIR_PT) {
+        dispatch.Width = render_width;
+        dispatch.Height = render_height;
+        const UINT restir_records[] = {
+            shader_record_resample_temporal,
+            shader_record_resample_spatial,
+            shader_record_compute_duplication_map,
+        };
+        for (const UINT record : restir_records) {
+            dispatch.RayGenerationShaderRecord = {
+                table + shader_record_size * record, shader_record_size};
+            command_list->DispatchRays(&dispatch);
+            const D3D12_RESOURCE_BARRIER restir_ready[] = {
+                uav_barrier(reservoirs_[0].Get()),
+                uav_barrier(reservoirs_[1].Get()),
+                uav_barrier(reservoirs_[2].Get()),
+                uav_barrier(sample_ancestry_.Get()),
+                uav_barrier(duplication_map_.Get()),
+            };
+            command_list->ResourceBarrier(
+                static_cast<UINT>(std::size(restir_ready)), restir_ready);
+        }
+    }
     {
         DxrGpuProfileScope profile(profiler, command_list,
                                    DxrGpuStage::indirect_reconstruct);

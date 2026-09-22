@@ -23,6 +23,34 @@ namespace ab3d2::dxr {
 class DxrStreamline;
 class DxrGpuProfiler;
 
+/*
+ * Layout mirrored by `PathReservoir` in shaders/path_trace.hlsl. Members are
+ * grouped into sixteen-byte rows so the two declarations cannot drift into
+ * disagreeing about packing.
+ */
+struct DxrPathReservoir {
+    float translated_world_position[3];
+    float weight_sum;
+    float world_normal[3];
+    float m;
+    float radiance[3];
+    float partial_jacobian;
+    float target_function[3];
+    float rc_wi_pdf;
+    uint32_t rc_vertex_length;
+    uint32_t path_length;
+    uint32_t random_seed;
+    uint32_t random_index;
+    uint32_t age;
+    uint32_t ancestry;
+    uint32_t primary_normal;
+    uint32_t primary_material;
+    float primary_position[3];
+    float primary_depth;
+};
+
+static_assert(sizeof(DxrPathReservoir) == 112u);
+
 enum class DxrReconstructionBuffer : size_t {
     noisy_radiance,
     diffuse_albedo,
@@ -244,6 +272,14 @@ private:
     UINT present_height_ = 0;
     uint32_t candidate_count_ =
         RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES;
+    /* Render-resolution reservoir grids. ReSTIR history is path history at the
+     * internal rendering resolution, so these are sized to the render extent
+     * and never to the resolution DLSS presents at. */
+    Microsoft::WRL::ComPtr<ID3D12Resource> reservoirs_[3];
+    /* Ancestry of each pixel's surviving path, and how many of its neighbours
+     * share it. Written one frame and read the next. */
+    Microsoft::WRL::ComPtr<ID3D12Resource> sample_ancestry_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> duplication_map_;
     float radiance_clamp_ = 0.0f;
     float exposure_bias_stops_ = -1.0f;
     float ndf_trim_ = 0.9f;
@@ -259,6 +295,17 @@ private:
     /* Roughness at which specular stops being traced; see
      * renderer_ray_tracing_options.h. The long-standing behaviour is 0.3. */
     float specular_roughness_limit_ = 0.3f;
+    /* Which estimator produces indirect lighting. Path tracing remains the
+     * reference the resampled estimator is validated against. */
+    uint32_t indirect_mode_ = RENDERER_INDIRECT_PATH_TRACE;
+    uint32_t restir_temporal_history_ =
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_TEMPORAL_HISTORY;
+    uint32_t restir_spatial_samples_ =
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_SAMPLES;
+    float restir_spatial_radius_ =
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_RADIUS;
+    float restir_history_reduction_ =
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
     uint32_t maximum_depth_ = 3u;
     uint32_t debug_view_ = 0;
