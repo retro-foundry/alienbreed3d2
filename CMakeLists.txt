@@ -673,6 +673,13 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_include_directories(ab3d2_dxr_reconstruction_test PRIVATE src)
     add_test(NAME ab3d2_dxr_reconstruction_test
              COMMAND $<TARGET_FILE:ab3d2_dxr_reconstruction_test>)
+    add_executable(ab3d2_dxr_restir_reconnection_test
+      tests/dxr_restir_reconnection_test.cpp)
+    set_target_properties(ab3d2_dxr_restir_reconnection_test
+      PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    target_include_directories(ab3d2_dxr_restir_reconnection_test PRIVATE src)
+    add_test(NAME ab3d2_dxr_restir_reconnection_test
+             COMMAND $<TARGET_FILE:ab3d2_dxr_restir_reconnection_test>)
     add_executable(ab3d2_dxr_path_dimensions_test
       tests/dxr_path_dimensions_test.cpp)
     set_target_properties(ab3d2_dxr_path_dimensions_test
