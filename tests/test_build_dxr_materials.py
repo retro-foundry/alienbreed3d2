@@ -17,7 +17,7 @@ SPEC = ROOT / "data" / "renderer_dxr" / "material_sources.json"
 FLOOR_SOURCE = ROOT / "amiga" / "media" / "includes" / "floortile"
 FLOOR_REMAP = ROOT / "amiga" / "media" / "includes" / "newtexturemaps.pal"
 DISPLAY_PALETTE = ROOT / "amiga" / "media" / "includes" / "256pal"
-EXPECTED_CONTENT_DIGEST = "f58bed00b3a2593a969391b5355b96b2783392be1d9289c7a4a63be1795bdadd"
+EXPECTED_CONTENT_DIGEST = "8f4f36f9c73ee9df5ac00a9b1eb91970988bf9fb69f50229c4ba3d8563596d16"
 RUNTIME_HEADER = struct.Struct("<8sIIII")
 RUNTIME_RECORD = struct.Struct("<IIIIffffII")
 
@@ -108,8 +108,11 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 self.assertEqual(material["roughness_space"], "linear")
                 self.assertEqual(material["metalness_space"], "linear")
                 self.assertEqual(material["emissive_space"], "srgb")
+                # The floor's mask covers 90% of its texels and the wall
+                # fixture's covers 12%, so matching their mean radiance rather
+                # than their peak puts the floor at 3.5 against the same 200.
                 authored_emission = {
-                    "floor_0101": [200.0, 200.0, 200.0],
+                    "floor_0101": [3.5, 3.5, 3.5],
                     "technolights": [200.0, 200.0, 200.0],
                 }
                 if material["name"] in authored_emission:
@@ -182,7 +185,7 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 )
             ]
             self.assertEqual(floor_light[0:2], (2, 257))
-            self.assertEqual(floor_light[5:8], (200.0, 200.0, 200.0))
+            self.assertEqual(floor_light[5:8], (3.5, 3.5, 3.5))
             self.assertEqual(floor_light[8], 1)
 
             with Image.open(first / "technolights_emissive.png") as image:
