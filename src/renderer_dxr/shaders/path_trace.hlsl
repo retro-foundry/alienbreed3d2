@@ -2048,7 +2048,7 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
     /* The cosines above are validity gates, not weights: the shifted path's
      * target is the stored radiance in the same units the canonical candidate
      * uses, so the two can be compared without either needing an inverse. */
-    shiftedTarget = source.radiance;
+    shiftedTarget = source.radiance * receiverCosine;
     if (any(isnan(shiftedTarget)) || any(isinf(shiftedTarget))) {
         return false;
     }
@@ -3845,7 +3845,12 @@ void BurstContinuation()
              * division is unbounded. A target that needs no inverse cannot
              * produce one.
              */
-            float3 canonicalTarget = incident;
+            float canonicalCosine = saturate(
+                dot(surface.shadingNormal, pathSample.firstDirection));
+            if (!(canonicalCosine > 1.0e-3)) {
+                continue;
+            }
+            float3 canonicalTarget = incident * canonicalCosine;
             PathReservoir candidate = makeReservoir(
                 canonicalTarget, canonicalAncestry, indirectSampleIndex,
                 pathSample.firstHit ? 1u : 0u, MaximumDepth, 1.0, 1.0,
@@ -3855,7 +3860,7 @@ void BurstContinuation()
                 pathSample.firstHit ?
                     pathSample.firstSurface.geometricNormal :
                     pathSample.firstDirection,
-                incident, 1.0);
+                incident, canonicalCosine);
             candidate.ancestry = canonicalAncestry;
             candidate.primaryPosition = surface.position;
             candidate.primaryNormal =
@@ -4408,7 +4413,15 @@ void ReconstructIndirect()
          */
         PathReservoir resolved =
             CurrentReservoirs[reservoirIndex(pixel, dimensions)];
-        filteredIncident = resolvedRadiance(resolved);
+        float3 contribution = resolvedRadiance(resolved);
+        float3 shadingNormal = normalize(ShadingNormal[pixel].xyz);
+        float3 toReconnection = resolved.rcVertexLength == 0u ?
+            normalize(resolved.worldNormal) :
+            normalize(resolved.translatedWorldPosition -
+                      resolved.primaryPosition);
+        float resolveCosine = saturate(dot(shadingNormal, toReconnection));
+        filteredIncident = resolveCosine > 0.05 ?
+            contribution / resolveCosine : 0.0;
         if (any(isnan(filteredIncident)) || any(isinf(filteredIncident))) {
             filteredIncident = 0.0;
         }
