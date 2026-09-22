@@ -1351,15 +1351,27 @@ float2 environmentMotion(float3 direction, float2 dimensions)
 }
 
 /*
- * Scene motion is jitter-free for Streamline, but renderer-owned history is a
- * pixel-addressed copy of the previous jittered frame. The current primary ray
- * passes through `pixel + 0.5 + current jitter`; adding the motion reaches the
- * previous projection, and removing the previous jitter converts that
- * projection back to the previous buffer's pixel grid.
+ * The two directions of temporal correspondence, mirroring
+ * renderer_dxr/dxr_temporal_correspondence.h, which states the convention in
+ * full and is covered by ab3d2_dxr_temporal_correspondence_test.
+ *
+ * Motion points backwards in time in unjittered pixels, so
+ * `previousPixel = currentPixel + motion`. Scene motion stays jitter-free
+ * because jitter moves where a pixel is sampled and not where the world is;
+ * jitter enters only here, when a projected position has to be turned into a
+ * texel of a grid that was itself sampled through a jitter.
+ *
+ * No other shader function may reason about the sign of a jitter term.
  */
-float2 reprojectHistoryPixel(uint2 pixel, float2 motion)
+float2 currentToPreviousPixel(uint2 pixel, float2 motion)
 {
     return float2(pixel) + 0.5 + motion +
+        float2(JitterX - PreviousJitterX, JitterY - PreviousJitterY);
+}
+
+float2 previousToCurrentPixel(float2 previousPixel, float2 motion)
+{
+    return previousPixel - motion -
         float2(JitterX - PreviousJitterX, JitterY - PreviousJitterY);
 }
 
