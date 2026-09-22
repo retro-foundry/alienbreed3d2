@@ -149,6 +149,11 @@ private:
     UINT width_ = 0;
     UINT height_ = 0;
     UINT frame_index_ = 0;
+    /* Set from AB3D2_DXR_HITCH_MS: log any frame at or above this many
+     * milliseconds, with its CPU phase breakdown. Off unless set. */
+    bool hitch_log_enabled_ = false;
+    double hitch_log_threshold_ms_ = 0.0;
+    uint64_t hitch_log_last_rebuilds_ = 0u;
     UINT render_target_descriptor_size_ = 0;
     UINT64 next_fence_value_ = 1;
     uint32_t rendered_frame_count_ = 0;

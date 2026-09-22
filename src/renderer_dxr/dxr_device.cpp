@@ -1078,6 +1078,18 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
 {
     RECT client = {};
 
+    if (const char *hitch_threshold = std::getenv("AB3D2_DXR_HITCH_MS")) {
+        const double threshold = std::atof(hitch_threshold);
+        if (threshold > 0.0) {
+            hitch_log_enabled_ = true;
+            hitch_log_threshold_ms_ = threshold;
+            std::fprintf(stdout,
+                         "[HITCH] logging frames at or above %.1f ms\n",
+                         threshold);
+            std::fflush(stdout);
+        }
+    }
+
     if (!window || !IsWindow(window)) {
         error = "DXR device initialization received no valid HWND";
         return false;
@@ -1474,6 +1486,31 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     cpu_timing.validation_readback_ms = capture_scene ?
         elapsed_ms(validation_readback_begin) : 0.0;
     performance_profiler_.set_cpu_timing(frame_index_, cpu_timing);
+    /*
+     * Hitch log. The profiler averages 600 frames after a 120-frame warmup, so
+     * a one-off stall - the first shot, the first kill - is invisible in it.
+     * This names the frame that stalled and what it spent the time on, which is
+     * the only way to tell a scene rebuild from a material decode from a GPU
+     * stall without attaching a profiler to a live session.
+     */
+    if (hitch_log_enabled_ && cpu_timing.frame_ms >= hitch_log_threshold_ms_) {
+        const uint64_t rebuilds = pipeline.scene_rebuild_count();
+        std::fprintf(stdout,
+                     "[HITCH] frame %.1f ms (scene_update %.1f, present_wait %.1f, "
+                     "frame_reuse_wait %.1f, command_record %.1f, queue_submit %.1f, "
+                     "present %.1f) rebuilds %llu%s\n",
+                     cpu_timing.frame_ms, cpu_timing.scene_update_ms,
+                     cpu_timing.present_wait_ms, cpu_timing.frame_reuse_wait_ms,
+                     cpu_timing.command_record_ms, cpu_timing.queue_submit_ms,
+                     cpu_timing.present_ms,
+                     static_cast<unsigned long long>(rebuilds),
+                     rebuilds != hitch_log_last_rebuilds_ ?
+                         " <-- SCENE REBUILD THIS FRAME" : "");
+        std::fflush(stdout);
+        hitch_log_last_rebuilds_ = rebuilds;
+    } else {
+        hitch_log_last_rebuilds_ = pipeline.scene_rebuild_count();
+    }
     if (capture_scene &&
         !performance_profiler_.collect(frame_index_, error)) {
         return false;
