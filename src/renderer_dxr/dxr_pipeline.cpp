@@ -135,7 +135,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 74u;
+constexpr UINT diagnostic_value_count = 78u;
 constexpr UINT burst_dispatch_width_offset = 88u;
 static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
               burst_dispatch_width_offset);
@@ -1999,6 +1999,14 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
                      values[72] == 0u ? 0.0 :
                          static_cast<double>(values[73]) /
                              static_cast<double>(values[72]));
+        if (values[74] != 0u) {
+            const double shaded = static_cast<double>(values[74]);
+            std::fprintf(stderr,
+                         "[RESTIR] shaded=%u decorrelated=%.1f%% firefly=%.1f%% "
+                         "mean-age=%.1f\n",
+                         values[74], 100.0 * values[75] / shaded,
+                         100.0 * values[76] / shaded, values[77] / shaded);
+        }
         std::fprintf(stderr, "[RESTIR] bounce luminance log2 histogram:");
         for (size_t bucket = 0u; bucket < 16u; ++bucket) {
             if (values[56u + bucket] != 0u) {

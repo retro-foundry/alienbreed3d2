@@ -403,6 +403,13 @@ static const uint DiagnosticLuminanceBuckets = 16u;
  * reuse must output, computed from its own inputs and their confidences. */
 static const uint DiagnosticSpatialPredicted = 72u;
 static const uint DiagnosticSpatialActual = 73u;
+/* How often final shading throws the resampled reservoir away. Each fire
+ * shades a single unresampled path, so a high rate means ReSTIR is doing
+ * nothing for that pixel and the frame is effectively one sample per pixel. */
+static const uint DiagnosticShaded = 74u;
+static const uint DiagnosticDecorrelated = 75u;
+static const uint DiagnosticFireflyReplaced = 76u;
+static const uint DiagnosticAgeSum = 77u;
 
 
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
@@ -4604,6 +4611,9 @@ void ReconstructIndirect()
          * winning: a reservoir that keeps refreshing is already independent
          * enough, and only a stale one needs replacing.
          */
+        InterlockedAdd(Diagnostics[DiagnosticShaded], 1u);
+        InterlockedAdd(Diagnostics[DiagnosticAgeSum],
+                       min(resolved.age, 255u));
         if (ReservoirDecorrelation > 0.0) {
             float stagnancy = saturate(float(resolved.age) /
                 max(float(ReservoirTemporalHistory), 1.0));
@@ -4614,6 +4624,7 @@ void ReconstructIndirect()
                 PathReservoir preserved = PreservedReservoirs[resolvedIndex];
                 if (reservoirValid(preserved)) {
                     resolved = preserved;
+                    InterlockedAdd(Diagnostics[DiagnosticDecorrelated], 1u);
                 }
             }
         }
@@ -4659,6 +4670,8 @@ void ReconstructIndirect()
                         PreservedReservoirs[resolvedIndex];
                     if (reservoirValid(preserved)) {
                         resolved = preserved;
+                        InterlockedAdd(
+                            Diagnostics[DiagnosticFireflyReplaced], 1u);
                     }
                 }
             }
