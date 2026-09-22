@@ -63,7 +63,6 @@ struct DxrPerformanceMetadata {
     uint32_t maximum_depth = 0u;
     uint32_t light_candidates = 0u;
     uint32_t primary_light_candidates = 0u;
-    uint32_t reservoir_sample_limit = 0u;
     RendererRayReconstructionMode reconstruction_mode =
         RENDERER_RAY_RECONSTRUCTION_OFF;
     uint64_t scene_rebuild_count = 0u;

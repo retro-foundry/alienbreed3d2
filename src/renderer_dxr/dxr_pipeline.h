@@ -23,25 +23,6 @@ namespace ab3d2::dxr {
 class DxrStreamline;
 class DxrGpuProfiler;
 
-/* Layout mirrored by `PackedLightReservoir` in shaders/path_trace.hlsl. The
- * production renderer no longer publishes screen-space direct reservoirs, but
- * the dormant diagnostic shader export still needs one valid root-UAV binding. */
-struct DxrLightReservoir {
-    uint32_t emitter_index;
-    uint32_t position_sample;
-    float unbiased_weight;
-    uint32_t sample_count;
-    float surface_position[3];
-    uint32_t surface_normal;
-    float surface_texture_coordinate[2];
-    uint32_t surface_geometric_normal;
-    uint32_t surface_material_index;
-    uint32_t surface_texture_window_origin;
-    uint32_t surface_texture_window_extent;
-};
-
-static_assert(sizeof(DxrLightReservoir) == 56u);
-
 enum class DxrReconstructionBuffer : size_t {
     noisy_radiance,
     diffuse_albedo,
@@ -256,7 +237,6 @@ private:
                static_cast<size_t>(DxrReconstructionBuffer::count)>
         reconstruction_targets_;
     Microsoft::WRL::ComPtr<ID3D12Resource> streamline_output_;
-    Microsoft::WRL::ComPtr<ID3D12Resource> direct_reservoir_binding_;
     UINT descriptor_size_ = 0;
     UINT render_width_ = 0;
     UINT render_height_ = 0;
@@ -264,9 +244,6 @@ private:
     UINT present_height_ = 0;
     uint32_t candidate_count_ =
         RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES;
-    /* Retained direct-reservoir limit. ab3d2.ini no longer exposes it: it does
-     * not accumulate or filter the Ray Reconstruction diffuse signal. */
-    uint32_t reservoir_sample_limit_ = 32u;
     float radiance_clamp_ = 0.0f;
     float exposure_bias_stops_ = -1.0f;
     float ndf_trim_ = 0.9f;

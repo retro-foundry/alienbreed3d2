@@ -189,7 +189,6 @@ struct FrameConstants {
     float previous_jitter_x;
     float previous_jitter_y;
     uint32_t candidate_count;
-    uint32_t reservoir_sample_limit;
     float radiance_clamp;
     float ndf_trim;
     uint32_t samples_per_pixel;
@@ -223,7 +222,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 68u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 67u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -746,9 +745,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         uint32_t limit;
         uint32_t *target;
     };
-    /* Keep the former reservoir-limit spelling range-compatible for existing
-     * launch configurations. It does not control GI history. */
-    const std::array<Override, 6> overrides = {
+    const std::array<Override, 5> overrides = {
         Override{"AB3D2_DXR_MAX_BOUNCES", 1u,
                  indirect_reconstruction::maximum_path_depth,
                  &maximum_depth_},
@@ -756,8 +753,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         Override{"AB3D2_DXR_INDIRECT_LIGHT_SAMPLES", 1u, 2u,
                  &indirect_light_samples_},
         Override{"AB3D2_DXR_CANDIDATES", 1u, 1024u, &candidate_count_},
-        Override{"AB3D2_DXR_RESERVOIR_LIMIT", 0u, 65536u,
-                  &reservoir_sample_limit_},
         Override{"AB3D2_DXR_GI_TEMPORAL_FRAMES", 1u,
                  indirect_reconstruction::temporal_window_maximum,
                  &indirect_temporal_window_},
@@ -1043,7 +1038,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  std::to_string(diffuse_gi_scale_) + " bounces=" +
                  std::to_string(maximum_depth_) + " candidates=" +
                  std::to_string(candidate_count_) + " reservoir limit=" +
-                 std::to_string(reservoir_sample_limit_) + " radiance clamp=" +
+                 " radiance clamp=" +
                  std::to_string(radiance_clamp_) + " exposure bias=" +
                  std::to_string(exposure_bias_stops_) + " EV NDF trim=" +
                  std::to_string(ndf_trim_) + " split primary=" +
@@ -1315,7 +1310,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[4].NumDescriptors = 7;
     ranges[4].BaseShaderRegister = 26;
     ranges[4].OffsetInDescriptorsFromTableStart = 13;
-    std::array<D3D12_ROOT_PARAMETER, 16> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 14> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1334,25 +1329,19 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[7].Descriptor.ShaderRegister = 10;
     parameters[8].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
     parameters[8].Descriptor.ShaderRegister = 0;
-    /* Both reservoir buffers bind as unordered-access root descriptors, which
-     * keeps them in one resource state for the whole frame. */
     parameters[9].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[9].Descriptor.ShaderRegister = 10;
-    parameters[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[10].Descriptor.ShaderRegister = 11;
+    parameters[9].Descriptor.ShaderRegister = 12;
+    parameters[10].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[10].DescriptorTable.NumDescriptorRanges = 2;
+    parameters[10].DescriptorTable.pDescriptorRanges = &ranges[3];
     parameters[11].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[11].Descriptor.ShaderRegister = 12;
-    parameters[12].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    parameters[12].DescriptorTable.NumDescriptorRanges = 2;
-    parameters[12].DescriptorTable.pDescriptorRanges = &ranges[3];
-    parameters[13].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[13].Descriptor.ShaderRegister = 33;
-    parameters[14].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[14].Descriptor.ShaderRegister = 34;
-    parameters[15].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    parameters[15].Constants.Num32BitValues = 3u;
-    parameters[15].Constants.ShaderRegister = 1u;
-    parameters[15].Constants.RegisterSpace = 0u;
+    parameters[11].Descriptor.ShaderRegister = 33;
+    parameters[12].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[12].Descriptor.ShaderRegister = 34;
+    parameters[13].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+    parameters[13].Constants.Num32BitValues = 3u;
+    parameters[13].Constants.ShaderRegister = 1u;
+    parameters[13].Constants.RegisterSpace = 0u;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -1951,7 +1940,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         bloom_targets_[0] && bloom_targets_[1] && bloom_targets_[2] &&
         bloom_targets_[3] && bloom_targets_[4] && bloom_targets_[5] &&
         post_hdr_output_ &&
-        direct_reservoir_binding_ &&
         streamline_scene_motion_ &&
         view_weapon_histories_[0] && view_weapon_histories_[1] &&
         rr_disocclusion_mask_ && rr_bias_current_color_mask_ &&
@@ -1965,7 +1953,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     for (auto &target : reconstruction_targets_) {
         target.Reset();
     }
-    direct_reservoir_binding_.Reset();
     streamline_scene_motion_.Reset();
     for (auto &history : view_weapon_histories_) {
         history.Reset();
@@ -2566,30 +2553,6 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             post_hdr_output_.Get(), nullptr, &output_uav,
             cpu_descriptor(post_hdr_uav));
     }
-    /* SpatialShade is retained as a diagnostic shader export but is never
-     * dispatched. Give both of its root UAVs the same single-element binding
-     * instead of carrying three full-resolution direct-reservoir allocations. */
-    const D3D12_RESOURCE_DESC direct_reservoir_description = [] {
-        D3D12_RESOURCE_DESC reservoir =
-            buffer_description(sizeof(DxrLightReservoir));
-        reservoir.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        return reservoir;
-    }();
-    {
-        const HRESULT result = device->CreateCommittedResource(
-            &default_heap, D3D12_HEAP_FLAG_NONE,
-            &direct_reservoir_description,
-            D3D12_RESOURCE_STATE_COMMON, nullptr,
-            IID_PPV_ARGS(&direct_reservoir_binding_));
-        if (FAILED(result)) {
-            error = hresult_error(
-                "ID3D12Device::CreateCommittedResource(direct reservoir binding)",
-                result);
-            return false;
-        }
-        direct_reservoir_binding_->SetName(
-            L"AB3D2 Inactive Direct Reservoir Binding");
-    }
     render_width_ = width;
     render_height_ = height;
     present_width_ = present_width;
@@ -2855,7 +2818,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     performance_metadata.primary_light_candidates = compact_local_primary_ ?
         light_grid::compact_primary_candidate_count(candidate_count_) :
         candidate_count_;
-    performance_metadata.reservoir_sample_limit = reservoir_sample_limit_;
     performance_metadata.scene_rebuild_count = scene_.rebuild_count();
     performance_metadata.history_valid = history_valid;
     performance_metadata.validation_enabled = validation_enabled;
@@ -2920,7 +2882,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.previous_jitter_x = previous_jitter.x;
     constants.previous_jitter_y = previous_jitter.y;
     constants.candidate_count = candidate_count_;
-    constants.reservoir_sample_limit = reservoir_sample_limit_;
     constants.radiance_clamp = radiance_clamp_;
     constants.ndf_trim = ndf_trim_;
     constants.samples_per_pixel = spp_;
@@ -2995,10 +2956,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         command_list->ResourceBarrier(1, &light_grid_state);
     }
     if (targets_recreated) {
-        const std::array<D3D12_RESOURCE_BARRIER, 8> initial_states = {
-            transition(direct_reservoir_binding_.Get(),
-                       D3D12_RESOURCE_STATE_COMMON,
-                       D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
+        const std::array<D3D12_RESOURCE_BARRIER, 7> initial_states = {
             transition(automatic_exposure_.Get(),
                        D3D12_RESOURCE_STATE_COMMON,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS),
@@ -3064,24 +3022,20 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->SetComputeRootConstantBufferView(
         8, frame_constants_->GetGPUVirtualAddress() + frame_constant_offset);
     command_list->SetComputeRootUnorderedAccessView(
-        9, direct_reservoir_binding_->GetGPUVirtualAddress());
-    command_list->SetComputeRootUnorderedAccessView(
-        10, direct_reservoir_binding_->GetGPUVirtualAddress());
-    command_list->SetComputeRootUnorderedAccessView(
-        11, diagnostics_->GetGPUVirtualAddress());
+        9, diagnostics_->GetGPUVirtualAddress());
     command_list->SetComputeRootDescriptorTable(
-        12, gpu_descriptor(light_grid_uav));
+        10, gpu_descriptor(light_grid_uav));
     command_list->SetComputeRootUnorderedAccessView(
-        13, burst_work_items->GetGPUVirtualAddress());
+        11, burst_work_items->GetGPUVirtualAddress());
     command_list->SetComputeRootUnorderedAccessView(
-        14, burst_dispatch_arguments->GetGPUVirtualAddress());
+        12, burst_dispatch_arguments->GetGPUVirtualAddress());
     const std::array<uint32_t, 3> ray_root_constants = {
         scene_.atlas_width(),
         scene_.atlas_height(),
         interleaved_deep_diffuse_ ? 1u : 0u,
     };
     command_list->SetComputeRoot32BitConstants(
-        15, static_cast<UINT>(ray_root_constants.size()),
+        13, static_cast<UINT>(ray_root_constants.size()),
         ray_root_constants.data(), 0u);
     command_list->SetPipelineState1(ray_state_object_.Get());
     const D3D12_GPU_VIRTUAL_ADDRESS table = shader_table_->GetGPUVirtualAddress();
@@ -3112,9 +3066,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     }
     /* The control primary polygon NEE keeps the complete global proposal. The
      * compact candidate combines explicit global draws with receiver-local
-     * grid draws. Reached surfaces use the same complete grid construction.
-     * SpatialShade remains dormant: no temporal or neighboring screen-space
-     * direct reservoir is shaded. */
+     * grid draws. Reached surfaces use the same complete grid construction. */
     dispatch.Width = render_width;
     dispatch.Height = render_height;
     dispatch.Depth = 1;

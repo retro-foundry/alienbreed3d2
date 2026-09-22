@@ -156,7 +156,6 @@ bool same_configuration(const DxrPerformanceMetadata &left,
         left.maximum_depth == right.maximum_depth &&
         left.light_candidates == right.light_candidates &&
         left.primary_light_candidates == right.primary_light_candidates &&
-        left.reservoir_sample_limit == right.reservoir_sample_limit &&
         left.reconstruction_mode == right.reconstruction_mode &&
         left.validation_enabled == right.validation_enabled &&
         left.split_primary == right.split_primary &&
@@ -538,7 +537,6 @@ void DxrGpuProfiler::report()
            << ",\"primary_light_candidates\":"
            << metadata.primary_light_candidates
            << ",\"reservoir_limit\":"
-           << metadata.reservoir_sample_limit
            << ",\"rr_mode\":"
            << json_string(reconstruction_name(metadata.reconstruction_mode))
            << ",\"validation_enabled\":"
