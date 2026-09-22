@@ -354,6 +354,10 @@ static const uint DiagnosticWeightBefore = 34u;
 static const uint DiagnosticWeightAfter = 35u;
 static const uint DiagnosticTargetBefore = 36u;
 static const uint DiagnosticTargetAfter = 37u;
+/* What the history reservoir resolves to as READ this frame. If the buffer is
+ * intact this equals what the previous frame reported writing; if it does not,
+ * something between the write and the read is changing it. */
+static const uint DiagnosticHistoryEnergyRead = 38u;
 
 
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
@@ -4017,6 +4021,7 @@ void ResampleTemporal()
     }
 
     bool reused = false;
+    float3 historyResolved = 0.0;
     if (HistoryValid != 0u && ReservoirTemporalHistory > 1u) {
         float2 motion = SceneMotion[pixel];
         if (all(abs(motion) < InvalidMotion)) {
@@ -4085,6 +4090,7 @@ void ResampleTemporal()
                                 selectedTarget = shiftedTarget;
                             }
                             reused = true;
+                            historyResolved = resolvedRadiance(history);
                         }
                     }
                 }
@@ -4109,6 +4115,8 @@ void ResampleTemporal()
      * reuse filling in coverage rather than inflating energy.
      */
     if (reused && reservoirValid(canonical)) {
+        InterlockedAdd(Diagnostics[DiagnosticHistoryEnergyRead],
+                       quantizeEnergy(historyResolved));
         InterlockedAdd(Diagnostics[DiagnosticCanonicalM],
                        uint(min(canonical.m, 255.0) * 16.0));
         InterlockedAdd(Diagnostics[DiagnosticHistoryM],

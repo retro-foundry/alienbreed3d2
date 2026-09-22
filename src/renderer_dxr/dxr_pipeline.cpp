@@ -134,7 +134,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 38u;
+constexpr UINT diagnostic_value_count = 39u;
 constexpr UINT burst_dispatch_width_offset = 88u;
 static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
               burst_dispatch_width_offset);
@@ -1932,6 +1932,7 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
                      "[RESTIR] weight x%.3f target x%.3f\n",
                      ratio(values[34], values[35]),
                      ratio(values[36], values[37]));
+        std::fprintf(stderr, "[RESTIR] history-as-read=%u\n", values[38]);
     }
     last_burst_work_overflow_ = values[15];
     last_indirect_history_accepts_ = values[16];
@@ -3303,6 +3304,20 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             burst_dispatch_arguments, 0u, nullptr, 0u);
     }
     const D3D12_RESOURCE_BARRIER fresh_indirect_ready[] = {
+        /*
+         * The reservoir grids are written by the primary passes (which clear
+         * them and stamp the surface) and again by the burst pass (which fills
+         * in the canonical sample), and the very next dispatch reads them.
+         * Without a barrier here the temporal pass races the writes that
+         * produce its own input -- the kind of defect that is invisible on one
+         * driver and not on another, and that no amount of auditing the
+         * estimator would ever find.
+         */
+        uav_barrier(reservoirs_[0].Get()),
+        uav_barrier(reservoirs_[1].Get()),
+        uav_barrier(reservoirs_[2].Get()),
+        uav_barrier(sample_ancestry_.Get()),
+        uav_barrier(duplication_map_.Get()),
         uav_barrier(current_indirect_radiance),
         uav_barrier(current_indirect_chroma),
         uav_barrier(current_indirect_metadata),
