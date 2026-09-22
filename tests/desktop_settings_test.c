@@ -138,9 +138,12 @@ int main(void)
     if (RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES != 16 ||
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL != 4 ||
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES != 2 ||
-        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_TEMPORAL_FRAMES != 1 ||
-        RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT != 32 ||
-        RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE != 0.75f) {
+        RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE != 0.75f ||
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_TEMPORAL_HISTORY != 20 ||
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_SAMPLES != 2 ||
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_RADIUS != 0.03f ||
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_CONNECTION_FOOTPRINT != 1.0f ||
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION != 1.0f) {
         fprintf(stderr, "ray-traced lighting production defaults changed\n");
         return 1;
     }
@@ -148,13 +151,21 @@ int main(void)
     if (settings.ray_tracing.samples_per_pixel != 0u ||
         settings.ray_tracing.indirect_samples_per_pixel != 0u ||
         settings.ray_tracing.indirect_light_samples != 0u ||
-        settings.ray_tracing.indirect_temporal_frames != 0u ||
         settings.ray_tracing.diffuse_gi_scale != 0.0f ||
         settings.ray_tracing.diffuse_gi_scale_set != 0u ||
         settings.ray_tracing.maximum_bounces != 0u ||
         settings.ray_tracing.light_candidates != 0u ||
-        settings.ray_tracing.reservoir_sample_limit != 0u ||
-        settings.ray_tracing.reservoir_sample_limit_set != 0u ||
+        settings.ray_tracing.indirect_mode != RENDERER_INDIRECT_DEFAULT ||
+        settings.ray_tracing.denoiser != RENDERER_DENOISER_DEFAULT ||
+        settings.ray_tracing.debug_view != RENDERER_DEBUG_VIEW_OFF ||
+        settings.ray_tracing.restir_temporal_history != 0u ||
+        settings.ray_tracing.restir_spatial_samples != 0u ||
+        settings.ray_tracing.restir_spatial_radius_set != 0u ||
+        settings.ray_tracing.restir_reconnection !=
+            RENDERER_RECONNECTION_DEFAULT ||
+        settings.ray_tracing.restir_connection_footprint_set != 0u ||
+        settings.ray_tracing.restir_history_reduction_set != 0u ||
+        settings.ray_tracing.restir_decorrelation_set != 0u ||
         settings.ray_tracing.radiance_clamp != 0.0f ||
         settings.ray_tracing.exposure_bias_stops != 0.0f ||
         settings.ray_tracing.exposure_bias_set != 0u ||
@@ -173,11 +184,9 @@ int main(void)
             "rtx_samples_per_pixel=4\n"
             "rtx_indirect_samples=12\n"
             "rtx_indirect_light_samples=2\n"
-            "rtx_gi_temporal_frames=1\n"
             "rtx_diffuse_gi=0.625\n"
             "rtx_max_bounces=2\n"
             "rtx_light_candidates=16\n"
-            "rtx_reservoir_limit=32\n"
             "rtx_radiance_clamp=0\n"
             "rtx_exposure_bias=-1.25\n"
             "rtx_ndf_trim=0.75\n"
@@ -192,13 +201,10 @@ int main(void)
             settings.ray_tracing.samples_per_pixel != 4u ||
             settings.ray_tracing.indirect_samples_per_pixel != 12u ||
             settings.ray_tracing.indirect_light_samples != 2u ||
-            settings.ray_tracing.indirect_temporal_frames != 1u ||
             settings.ray_tracing.diffuse_gi_scale != 0.625f ||
             settings.ray_tracing.diffuse_gi_scale_set == 0u ||
             settings.ray_tracing.maximum_bounces != 2u ||
             settings.ray_tracing.light_candidates != 16u ||
-            settings.ray_tracing.reservoir_sample_limit != 32u ||
-            settings.ray_tracing.reservoir_sample_limit_set == 0u ||
             settings.ray_tracing.radiance_clamp != 0.0f ||
             settings.ray_tracing.exposure_bias_stops < -1.26f ||
             settings.ray_tracing.exposure_bias_stops > -1.24f ||
@@ -248,8 +254,8 @@ int main(void)
             "rtx_indirect_samples=33\n",
             "rtx_indirect_light_samples=0\n",
             "rtx_indirect_light_samples=3\n",
-            "rtx_gi_temporal_frames=0\n",
-            "rtx_gi_temporal_frames=2\n",
+            "rtx_gi_temporal_frames=1\n",
+            "rtx_reservoir_limit=32\n",
             "rtx_diffuse_gi=-0.01\n",
             "rtx_diffuse_gi=1.01\n",
             "rtx_max_bounces=0\n",
@@ -301,13 +307,86 @@ int main(void)
             }
         }
     }
+    /*
+     * The ReSTIR PT surface. Each key carries a set flag or a non-zero enum so
+     * the renderer can tell an explicit choice from an absent one, which
+     * matters because zero is meaningful for several of them.
+     */
     desktop_settings_default(&settings);
-    if (!desktop_settings_parse(&settings, "rtx_reservoir_limit=0\n", 22u,
-                                error, sizeof(error)) ||
-        settings.ray_tracing.reservoir_sample_limit != 0u ||
-        settings.ray_tracing.reservoir_sample_limit_set == 0u) {
-        fprintf(stderr, "a zero reservoir limit was not accepted: %s\n", error);
+    {
+        static const char text[] =
+            "rtx_indirect_mode=restir-pt\n"
+            "rtx_restir_temporal_history=20\n"
+            "rtx_restir_spatial_samples=0\n"
+            "rtx_restir_spatial_radius=0.03\n"
+            "rtx_restir_reconnection=footprint\n"
+            "rtx_restir_connection_footprint=1.0\n"
+            "rtx_restir_history_reduction=0\n"
+            "rtx_restir_decorrelation=0\n"
+            "rtx_denoiser=ray-reconstruction\n"
+            "rtx_debug_view=reservoir-m\n"
+            "rtx_dlss=performance\n";
+        if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u, error,
+                                    sizeof(error)) ||
+            settings.ray_tracing.indirect_mode != RENDERER_INDIRECT_RESTIR_PT ||
+            settings.ray_tracing.restir_temporal_history != 20u ||
+            settings.ray_tracing.restir_spatial_samples != 0u ||
+            settings.ray_tracing.restir_spatial_radius != 0.03f ||
+            settings.ray_tracing.restir_spatial_radius_set == 0u ||
+            settings.ray_tracing.restir_reconnection !=
+                RENDERER_RECONNECTION_FOOTPRINT ||
+            settings.ray_tracing.restir_connection_footprint != 1.0f ||
+            settings.ray_tracing.restir_connection_footprint_set == 0u ||
+            settings.ray_tracing.restir_history_reduction != 0.0f ||
+            settings.ray_tracing.restir_history_reduction_set == 0u ||
+            settings.ray_tracing.restir_decorrelation != 0.0f ||
+            settings.ray_tracing.restir_decorrelation_set == 0u ||
+            settings.ray_tracing.denoiser !=
+                RENDERER_DENOISER_RAY_RECONSTRUCTION ||
+            settings.ray_tracing.debug_view !=
+                RENDERER_DEBUG_VIEW_RESERVOIR_M ||
+            settings.ray_tracing.reconstruction !=
+                RENDERER_RAY_RECONSTRUCTION_PERFORMANCE) {
+            fprintf(stderr, "the ReSTIR PT settings were not accepted: %s\n",
+                    error);
+            return 1;
+        }
+    }
+    /* rtx_ray_reconstruction now names the DLSS quality ladder alone. */
+    desktop_settings_default(&settings);
+    if (!desktop_settings_parse(&settings, "rtx_ray_reconstruction=balanced\n",
+                                31u, error, sizeof(error)) ||
+        settings.ray_tracing.reconstruction !=
+            RENDERER_RAY_RECONSTRUCTION_BALANCED ||
+        settings.ray_tracing.denoiser != RENDERER_DENOISER_DEFAULT) {
+        fprintf(stderr, "the rtx_dlss alias was not accepted: %s\n", error);
         return 1;
+    }
+    {
+        static const char *const rejected[] = {
+            "rtx_restir_temporal_history=0\n",
+            "rtx_restir_temporal_history=65\n",
+            "rtx_restir_spatial_samples=9\n",
+            "rtx_restir_spatial_radius=0.26\n",
+            "rtx_restir_connection_footprint=0.05\n",
+            "rtx_restir_history_reduction=4.5\n",
+            "rtx_restir_decorrelation=1.5\n",
+            "rtx_indirect_mode=restir\n",
+            "rtx_restir_reconnection=roughness\n",
+            "rtx_denoiser=nrd\n",
+            "rtx_debug_view=reservoirs\n",
+        };
+        size_t index;
+        for (index = 0u; index < sizeof(rejected) / sizeof(rejected[0]);
+             ++index) {
+            desktop_settings_default(&settings);
+            if (desktop_settings_parse(&settings, rejected[index],
+                                       strlen(rejected[index]), error,
+                                       sizeof(error))) {
+                fprintf(stderr, "%s was accepted\n", rejected[index]);
+                return 1;
+            }
+        }
     }
     return 0;
 }

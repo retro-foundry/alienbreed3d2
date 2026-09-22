@@ -622,15 +622,19 @@ bool DxrPipeline::configure_debug_view(std::string &error)
 /*
  * Applies ab3d2.ini's ray-tracing settings over the tuned defaults, then lets
  * the environment override either, so bounce depth, sample count, candidate
- * count, and secondary-light sample count can be swept against `--gpu-smoke` without
- * editing a file. The former reservoir-limit spelling remains range-checked for
- * configuration compatibility but does not control GI history.
+ * count, and secondary-light sample count can be swept against `--gpu-smoke`
+ * without editing a file.
  *
  * Zero keeps the renderer default for ordinary quality fields. It explicitly
  * disables the radiance clamp or diffuse-GI transfer when their setting is
- * present. Flags distinguish explicit zero from absence for GI transfer, the
- * compatibility limit, and post-curve exposure bias. A zero temporal-frame
- * field means absent; the renderer then keeps the fresh-only production mode.
+ * present. Flags distinguish explicit zero from absence for GI transfer,
+ * post-curve exposure bias, and each ReSTIR control whose zero is meaningful.
+ *
+ * The ReSTIR PT estimator and the diagnostic views are a declared configuration
+ * surface whose passes do not exist yet. Rather than accept those keys and
+ * quietly do nothing with them, every one of them is refused here with the
+ * reason, so a settings file can never claim an estimator the renderer is not
+ * actually running.
  */
 bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                                        std::string &error)
@@ -647,19 +651,47 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         error = "DXR indirect light samples must be 1-2 when specified";
         return false;
     }
-    if (options.indirect_temporal_frames != 0u &&
-        !indirect_reconstruction::temporal_window_valid(
-            options.indirect_temporal_frames)) {
-        error = "DXR GI temporal frames must be 1; final-radiance history is disabled";
+    if (options.indirect_mode == RENDERER_INDIRECT_RESTIR_PT) {
+        error = "rtx_indirect_mode=restir-pt is not implemented yet; "
+                "the ReSTIR PT resampling passes are still being built";
+        return false;
+    }
+    if (options.restir_temporal_history != 0u ||
+        options.restir_spatial_samples != 0u ||
+        options.restir_spatial_radius_set != 0u ||
+        options.restir_reconnection != RENDERER_RECONNECTION_DEFAULT ||
+        options.restir_connection_footprint_set != 0u ||
+        options.restir_history_reduction_set != 0u ||
+        options.restir_decorrelation_set != 0u) {
+        error = "the rtx_restir_* settings require rtx_indirect_mode=restir-pt, "
+                "which is not implemented yet";
+        return false;
+    }
+    if (options.debug_view != RENDERER_DEBUG_VIEW_OFF) {
+        error = "rtx_debug_view is not implemented yet; the render-resolution "
+                "diagnostic views land with the ReSTIR PT passes";
+        return false;
+    }
+    /* Ray Reconstruction is the only reconstruction path that exists. The
+     * renderer-owned spatial filter it replaced has been retired. */
+    if (options.denoiser != RENDERER_DENOISER_DEFAULT &&
+        options.denoiser != RENDERER_DENOISER_RAY_RECONSTRUCTION) {
+        error = "rtx_denoiser must be ray-reconstruction; the spatial and off "
+                "paths are not implemented yet";
+        return false;
+    }
+    /* Ray Reconstruction is a DLSS feature, so it cannot denoise a frame that
+     * DLSS never sees. Refuse the contradiction rather than silently dropping
+     * one half of it. */
+    if (options.denoiser == RENDERER_DENOISER_RAY_RECONSTRUCTION &&
+        options.reconstruction == RENDERER_RAY_RECONSTRUCTION_OFF) {
+        error = "rtx_denoiser=ray-reconstruction requires DLSS; rtx_dlss=off "
+                "leaves nothing to reconstruct with";
         return false;
     }
     candidate_count_ = options.light_candidates != 0u ?
         options.light_candidates :
             RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES;
-    reservoir_sample_limit_ = (options.reservoir_sample_limit_set != 0u ||
-                               options.reservoir_sample_limit != 0u) ?
-        options.reservoir_sample_limit :
-            RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT;
     if (options.samples_per_pixel != 0u) {
         spp_ = options.samples_per_pixel;
     }
@@ -669,9 +701,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     indirect_light_samples_ = options.indirect_light_samples != 0u ?
         options.indirect_light_samples :
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES;
-    indirect_temporal_window_ = options.indirect_temporal_frames != 0u ?
-        options.indirect_temporal_frames :
-        RENDERER_RAY_TRACING_DEFAULT_INDIRECT_TEMPORAL_FRAMES;
     if (options.diffuse_gi_scale_set != 0u) {
         if (!std::isfinite(options.diffuse_gi_scale) ||
             options.diffuse_gi_scale < 0.0f ||

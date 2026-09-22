@@ -114,12 +114,10 @@ int main(void)
     requested.samples_per_pixel = 3u;
     requested.indirect_samples_per_pixel = 7u;
     requested.indirect_light_samples = 2u;
-    requested.indirect_temporal_frames = 1u;
     requested.diffuse_gi_scale = 0.6f;
     requested.diffuse_gi_scale_set = UINT8_MAX;
     requested.maximum_bounces = 2u;
     requested.light_candidates = 8u;
-    requested.reservoir_sample_limit = 24u;
     requested.radiance_clamp = 0.0f;
     requested.exposure_bias_stops = -1.5f;
     requested.exposure_bias_set = UINT8_MAX;
@@ -160,13 +158,10 @@ int main(void)
         applied.indirect_samples_per_pixel !=
             requested.indirect_samples_per_pixel ||
         applied.indirect_light_samples != requested.indirect_light_samples ||
-        applied.indirect_temporal_frames !=
-            requested.indirect_temporal_frames ||
         applied.diffuse_gi_scale != requested.diffuse_gi_scale ||
         applied.diffuse_gi_scale_set == 0u ||
         applied.maximum_bounces != requested.maximum_bounces ||
         applied.light_candidates != requested.light_candidates ||
-        applied.reservoir_sample_limit != requested.reservoir_sample_limit ||
         applied.radiance_clamp != requested.radiance_clamp ||
         applied.exposure_bias_stops != requested.exposure_bias_stops ||
         applied.exposure_bias_set == 0u ||
@@ -177,14 +172,12 @@ int main(void)
         applied.hdr_saturation_percent_set != 0u) {
         fprintf(stderr,
                 "DXR ray-tracing settings did not reach the renderer "
-                "(direct spp %u indirect spp %u indirect light samples %u GI frames %u bounces %u candidates %u limit %u)\n",
+                "(direct spp %u indirect spp %u indirect light samples %u bounces %u candidates %u)\n",
                 (unsigned)applied.samples_per_pixel,
                 (unsigned)applied.indirect_samples_per_pixel,
                 (unsigned)applied.indirect_light_samples,
-                (unsigned)applied.indirect_temporal_frames,
                 (unsigned)applied.maximum_bounces,
-                (unsigned)applied.light_candidates,
-                (unsigned)applied.reservoir_sample_limit);
+                (unsigned)applied.light_candidates);
         renderer_rtx_destroy(renderer);
         SDL_Quit();
         return 1;

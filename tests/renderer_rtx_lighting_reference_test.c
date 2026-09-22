@@ -204,8 +204,6 @@ static int run_indirect_recovery_capture(
     options.diffuse_gi_scale_set = UINT8_MAX;
     options.maximum_bounces = 3u;
     options.light_candidates = 16u;
-    options.reservoir_sample_limit = 32u;
-    options.reservoir_sample_limit_set = UINT8_MAX;
     options.radiance_clamp = 0.0f;
     options.exposure_bias_stops = -1.0f;
     options.exposure_bias_set = UINT8_MAX;
@@ -506,8 +504,6 @@ static int run_radiance_channel_reference(void)
     options.diffuse_gi_scale_set = UINT8_MAX;
     options.maximum_bounces = 2u;
     options.light_candidates = 16u;
-    options.reservoir_sample_limit = 0u;
-    options.reservoir_sample_limit_set = UINT8_MAX;
     options.radiance_clamp = 0.0f;
     options.exposure_bias_stops = -1.0f;
     options.exposure_bias_set = UINT8_MAX;
@@ -721,8 +717,6 @@ int main(int argc, char **argv)
     options.diffuse_gi_scale_set = UINT8_MAX;
     options.maximum_bounces = 2u;
     options.light_candidates = 16u;
-    options.reservoir_sample_limit = 0u;
-    options.reservoir_sample_limit_set = UINT8_MAX;
     options.radiance_clamp = 0.0f;
     options.exposure_bias_stops = -1.0f;
     options.exposure_bias_set = UINT8_MAX;

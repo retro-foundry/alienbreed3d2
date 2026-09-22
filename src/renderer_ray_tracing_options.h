@@ -8,14 +8,14 @@
  * to the renderer boundary. None of them touch source assets or gameplay: they
  * trade image quality against frame cost.
  *
- * Zero on a quality/nit field normally means "keep the renderer's own default".
- * Output mode zero is the explicit automatic-monitor policy, although the
- * desktop application's shipped default is SDR to match Q2RTX's opt-in HDR.
- * The radiance clamp uses zero as its explicit off value. The retained reservoir
- * compatibility setting accepts zero; reservoir_sample_limit_set distinguishes
- * that value from an absent setting. Diffuse-GI transfer, exposure bias, and HDR
- * saturation also accept zero, so their accompanying set flags distinguish it
- * from an absent setting.
+ * Zero on a quality/nit field normally means "keep the renderer's own default",
+ * and every enum's zero is likewise the "renderer decides" value. Output mode
+ * zero is the explicit automatic-monitor policy, although the desktop
+ * application's shipped default is SDR to match Q2RTX's opt-in HDR. The
+ * radiance clamp uses zero as its explicit off value. Diffuse-GI transfer,
+ * exposure bias, HDR saturation, the ReSTIR spatial radius and the ReSTIR
+ * history-reduction strength all accept zero as a meaningful value, so each
+ * carries a set flag that distinguishes it from an absent setting.
  * The tuned defaults and measurements live with the code that uses them, in
  * renderer_dxr/dxr_pipeline.cpp.
  */
@@ -39,16 +39,109 @@ typedef enum {
     RENDERER_OUTPUT_HDR
 } RendererOutputMode;
 
+/*
+ * Which estimator produces indirect lighting. ReSTIR PT resamples whole light
+ * paths between pixels and frames; the plain path tracer draws independent
+ * fresh paths every frame and is the reference the resampled estimator is
+ * validated against.
+ */
+typedef enum {
+    RENDERER_INDIRECT_DEFAULT = 0,
+    /* Independent fresh paths per frame. No reservoir reuse. */
+    RENDERER_INDIRECT_PATH_TRACE,
+    /* ReSTIR PT Enhanced spatiotemporal path resampling. */
+    RENDERER_INDIRECT_RESTIR_PT
+} RendererIndirectMode;
+
+/*
+ * Which stage owns reconstruction of the noisy ray-traced signal. Ray
+ * Reconstruction replaces a conventional denoiser rather than running after
+ * one, so selecting it disables the renderer's own spatial filter.
+ */
+typedef enum {
+    RENDERER_DENOISER_DEFAULT = 0,
+    /* DLSS Ray Reconstruction denoises and upscales in one pass. */
+    RENDERER_DENOISER_RAY_RECONSTRUCTION,
+    /* Renderer-owned render-resolution spatial filter ahead of DLSS SR. */
+    RENDERER_DENOISER_SPATIAL,
+    /* Hand the raw resampled signal straight to DLSS SR. Diagnostic. */
+    RENDERER_DENOISER_OFF
+} RendererDenoiserMode;
+
+/*
+ * How ReSTIR PT decides that a pair of consecutive path vertices may be
+ * reconnected, which bounds how far a shifted path has to be replayed.
+ */
+typedef enum {
+    RENDERER_RECONNECTION_DEFAULT = 0,
+    /* Footprint criterion of ReSTIR PT Enhanced. */
+    RENDERER_RECONNECTION_FOOTPRINT,
+    /* Classic roughness-and-distance cutoffs. Diagnostic control. */
+    RENDERER_RECONNECTION_FIXED
+} RendererReconnectionMode;
+
+/*
+ * Render-resolution diagnostic views. Every one of them is inspected before any
+ * upscaling, because a reconstructed image cannot prove the estimator
+ * underneath it is correct.
+ */
+typedef enum {
+    RENDERER_DEBUG_VIEW_OFF = 0,
+    /* Estimator isolation. */
+    RENDERER_DEBUG_VIEW_REFERENCE,
+    RENDERER_DEBUG_VIEW_CANONICAL,
+    RENDERER_DEBUG_VIEW_TEMPORAL,
+    RENDERER_DEBUG_VIEW_SPATIAL,
+    /* Temporal correspondence. */
+    RENDERER_DEBUG_VIEW_MOTION,
+    RENDERER_DEBUG_VIEW_REPROJECTION,
+    RENDERER_DEBUG_VIEW_REJECTION,
+    RENDERER_DEBUG_VIEW_HISTORY_AGE,
+    /* Reservoir statistics. */
+    RENDERER_DEBUG_VIEW_RESERVOIR_M,
+    RENDERER_DEBUG_VIEW_ANCESTRY,
+    RENDERER_DEBUG_VIEW_DUPLICATION
+} RendererDebugView;
+
 /* Fresh current-frame path-sampling defaults. Four stratified diffuse paths
- * interleave one additional secondary-light RIS estimate every third frame.
- * Renderer-owned radiance history is disabled: one is the supported mode. */
+ * interleave one additional secondary-light RIS estimate every third frame. */
 enum {
     RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES = 16,
     RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL = 4,
-    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES = 2,
-    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_TEMPORAL_FRAMES = 1,
-    RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT = 32
+    RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES = 2
 };
+
+/*
+ * ReSTIR PT resampling defaults.
+ *
+ * The temporal confidence cap is the headline correlation control: a reservoir
+ * that survives reuse raises its represented sample count M every frame, and
+ * capping M bounds how long one path may keep speaking for a pixel. Twenty is
+ * the usual starting point; duplication-based history reduction lowers the cap
+ * further wherever one ancestor has colonised a neighbourhood.
+ *
+ * Two spatial neighbours is what reciprocal pairing makes affordable, because a
+ * pair's forward and reverse shifts are computed together rather than twice.
+ */
+enum {
+    RENDERER_RAY_TRACING_DEFAULT_RESTIR_TEMPORAL_HISTORY = 20,
+    RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_SAMPLES = 2
+};
+
+/*
+ * Spatial search radius as a fraction of render height rather than a pixel
+ * count, so a DLSS quality-mode change cannot silently alter the image-space
+ * footprint the estimator searches.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_RADIUS 0.03f
+
+/* Footprint threshold scaling the primary ray's footprint, per ReSTIR PT
+ * Enhanced. Larger values reconnect sooner and replay less. */
+#define RENDERER_RAY_TRACING_DEFAULT_RESTIR_CONNECTION_FOOTPRINT 1.0f
+
+/* Exponent of the power curve that pulls the temporal confidence cap toward one
+ * as local sample duplication rises. Zero disables history reduction. */
+#define RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION 1.0f
 
 /* Reduce secondary diffuse transfer modestly. Direct lighting and visible
  * emission are not affected. */
@@ -65,8 +158,6 @@ typedef struct {
     uint8_t indirect_samples_per_pixel;
     /* Maximum RIS estimates on the temporally interleaved diffuse stratum. */
     uint8_t indirect_light_samples;
-    /* Retained compatibility field. Only one (fresh current frame) is valid. */
-    uint8_t indirect_temporal_frames;
     /* Secondary diffuse transfer multiplier, zero through one. */
     float diffuse_gi_scale;
     uint8_t diffuse_gi_scale_set;
@@ -87,9 +178,6 @@ typedef struct {
     uint8_t maximum_bounces;
     /* Emitter candidates the direct-lighting reservoir draws per pixel. */
     uint16_t light_candidates;
-    /* Retained configuration field; RR-only GI does not consume this limit. */
-    uint32_t reservoir_sample_limit;
-    uint8_t reservoir_sample_limit_set;
     /* Zero disables the diagnostic per-sample firefly clamp. */
     float radiance_clamp;
     /* Post-tone-curve log2 exposure bias, -5 through 0 EV. */
@@ -97,9 +185,42 @@ typedef struct {
     uint8_t exposure_bias_set;
     /* GGX visible-normal sampling trim. */
     float ndf_trim;
-    /* DLSS Ray Reconstruction mode, which also sets the path-traced
-     * resolution the reconstruction upscales from. */
+    /* Which estimator produces indirect lighting. */
+    RendererIndirectMode indirect_mode;
+    /*
+     * Cap on a ReSTIR reservoir's represented sample count M. One disables
+     * temporal reuse without disabling ReSTIR itself. One through 64.
+     */
+    uint8_t restir_temporal_history;
+    /* Spatial neighbours resampled per pixel, zero through eight. */
+    uint8_t restir_spatial_samples;
+    /* Spatial search radius as a fraction of render height. */
+    float restir_spatial_radius;
+    uint8_t restir_spatial_radius_set;
+    /* Which vertex pairs ReSTIR PT may reconnect. */
+    RendererReconnectionMode restir_reconnection;
+    /* Footprint threshold scale for the footprint reconnection criterion. */
+    float restir_connection_footprint;
+    uint8_t restir_connection_footprint_set;
+    /* Duplication-based history reduction strength; zero disables it. */
+    float restir_history_reduction;
+    uint8_t restir_history_reduction_set;
+    /*
+     * Probability that final shading discards the resampled reservoir and
+     * shades the preserved initial sample instead, trading variance for the
+     * temporal independence Ray Reconstruction expects. Zero through one.
+     */
+    float restir_decorrelation;
+    uint8_t restir_decorrelation_set;
+    /*
+     * DLSS Super Resolution quality mode, which also sets the internal
+     * resolution the path tracer and every ReSTIR buffer run at.
+     */
     RendererRayReconstructionMode reconstruction;
+    /* Which stage reconstructs the noisy ray-traced signal. */
+    RendererDenoiserMode denoiser;
+    /* Render-resolution diagnostic view, inspected before any upscaling. */
+    RendererDebugView debug_view;
     /* Display-output policy. Hidden validation windows are always forced SDR. */
     RendererOutputMode output;
     /* Zero keeps Q2RTX's 800-nit scene default. */

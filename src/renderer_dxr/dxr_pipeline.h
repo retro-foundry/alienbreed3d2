@@ -134,16 +134,12 @@ public:
             static_cast<uint8_t>(indirect_spp_);
         options.indirect_light_samples =
             static_cast<uint8_t>(indirect_light_samples_);
-        options.indirect_temporal_frames =
-            static_cast<uint8_t>(indirect_temporal_window_);
         options.diffuse_gi_scale = diffuse_gi_scale_;
         options.diffuse_gi_scale_set = UINT8_MAX;
         options.specular_roughness_limit = specular_roughness_limit_;
         options.specular_roughness_limit_set = UINT8_MAX;
         options.maximum_bounces = static_cast<uint8_t>(maximum_depth_);
         options.light_candidates = static_cast<uint16_t>(candidate_count_);
-        options.reservoir_sample_limit = reservoir_sample_limit_;
-        options.reservoir_sample_limit_set = UINT8_MAX;
         options.radiance_clamp = radiance_clamp_;
         options.exposure_bias_stops = exposure_bias_stops_;
         options.exposure_bias_set = UINT8_MAX;
@@ -268,8 +264,9 @@ private:
     UINT present_height_ = 0;
     uint32_t candidate_count_ =
         RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES;
-    uint32_t reservoir_sample_limit_ =
-        RENDERER_RAY_TRACING_DEFAULT_RESERVOIR_SAMPLE_LIMIT;
+    /* Retained direct-reservoir limit. ab3d2.ini no longer exposes it: it does
+     * not accumulate or filter the Ray Reconstruction diffuse signal. */
+    uint32_t reservoir_sample_limit_ = 32u;
     float radiance_clamp_ = 0.0f;
     float exposure_bias_stops_ = -1.0f;
     float ndf_trim_ = 0.9f;

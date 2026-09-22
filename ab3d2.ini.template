@@ -38,60 +38,200 @@ always_run=1
 world_light_tessellation=4
 
 # --- Ray-traced backend (renderer=rtx) ------------------------------------
+#
 # Presentation-only quality settings. Every one of them is commented out, and a
 # commented-out key keeps the renderer's own default, so uncomment only what you
 # want to change. These do not touch source assets or gameplay.
+#
+# The frame is built in this order, and the sections below follow it:
+#
+#   primary rays -> path tracing -> ReSTIR PT resampling -> reconstruction
+#   -> DLSS upscaling -> tone mapping -> output
+#
+# Two temporal systems run in that pipeline and they are deliberately kept
+# apart. ReSTIR reuses Monte Carlo path samples at the internal render
+# resolution and owns the reservoir history. DLSS reconstructs the image and
+# owns the output-resolution image history. Neither reads the other's history.
+
+
+# --- Resolution and upscaling ---------------------------------------------
+
+# DLSS Super Resolution quality mode: quality, balanced, performance,
+# ultra-performance, or off. This also fixes the internal resolution that the
+# path tracer, the G-buffer and every ReSTIR reservoir buffer run at, so
+# changing it resizes those buffers and resets ReSTIR's temporal history for a
+# frame. It does not change the estimator: target functions, PDFs and path
+# transport are identical at every quality mode. Default quality.
+#
+# Ultra Performance is explicitly speed-first: at a 1280x720 window it traces
+# 285x160, reconstructs to 854x480, then uses the final linear presentation
+# upscale. The other enabled modes reconstruct directly to the window extent.
+#
+# rtx_ray_reconstruction is accepted as an alias for this key alone. It used to
+# select the denoiser as well; that half now lives in rtx_denoiser below.
+#rtx_dlss=quality
+
+# Which stage reconstructs the noisy ray-traced signal.
+#   ray-reconstruction  DLSS Ray Reconstruction denoises and upscales in one
+#                       pass. It replaces a conventional denoiser rather than
+#                       running after one, so the renderer's own spatial filter
+#                       is disabled whenever this is selected.
+#   spatial             A renderer-owned filter at internal resolution, ahead of
+#                       DLSS Super Resolution.
+#   off                 Hand the raw resampled signal straight to DLSS SR. This
+#                       is a diagnostic setting; it will be noisy.
+# No generic TAA pass ever runs between the path tracer and DLSS SR: DLSS
+# already performs temporal image reconstruction, and a second temporal filter
+# in front of it smears detail and hides motion-vector errors.
+# Default ray-reconstruction.
+#rtx_denoiser=ray-reconstruction
+
+
+# --- Path tracer ----------------------------------------------------------
+
+# Path length counting the primary hit, 1 through 8. 1 is direct lighting only.
+# Each further bounce adds its own shadow and continuation rays. Default 3.
+#rtx_max_bounces=3
 
 # Fresh primary direct-light samples per pixel per frame, 1 through 8. Default 1.
 #rtx_samples_per_pixel=1
 
-# Fresh stratified diffuse-indirect paths per internal pixel and frame, 1
-# through 32. Default 4 gives DLSS Ray Reconstruction an even low-frequency
-# signal without renderer-side interpolation. Use 2 for a faster mode or 8 for
-# an expensive quality check. These paths do not repeat primary direct shadows.
+# Fresh indirect paths per internal pixel per frame, 1 through 32. Default 4.
+# ReSTIR PT is designed around roughly one new path per pixel per frame and
+# recovers quality by resampling rather than by tracing more; if you enable
+# rtx_indirect_mode=restir-pt, lower this before raising the resampling budget.
 #rtx_indirect_samples=4
+
+# Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
+# primary vertex uses the complete alias table; the indirect vertex uses a
+# quantized world-stable local proposal and samples authored triangles uniformly
+# in area. Default 16.
+#rtx_light_candidates=16
 
 # Maximum polygon-light RIS estimates for one rotating diffuse path stratum.
 # Default 2 applies that extra estimate coherently every third frame, partitions
 # the stratum's candidate budget into two disjoint groups, and averages their
-# fresh visibility results. This averages one third of an extra secondary shadow per
-# pixel/reached bounce, not one per path, and does not trace another diffuse
-# continuation ray. Use 1 as the lower-cost control.
+# fresh visibility results. Use 1 as the lower-cost control.
 #rtx_indirect_light_samples=2
-
-# Renderer-owned final-radiance history is disabled after exact-pose testing
-# showed rare secondary estimates becoming persistent bright dots. This retained
-# compatibility setting must be 1 (fresh current frame).
-#rtx_gi_temporal_frames=1
 
 # Secondary diffuse-light transfer, 0 through 1. Default 0.75. Zero disables
 # diffuse continuation work; direct light and visible emission remain active.
-# Use rtx_indirect_samples separately to change ray cost.
 #rtx_diffuse_gi=0.75
 
 # Roughness at which specular stops being traced and is reconstructed from the
 # filtered diffuse signal instead. Reconstruction is much cheaper but carries no
 # directional detail, so a surface above this limit cannot mirror the scene.
 # World surfaces sit around 0.44 to 0.72, so the default leaves all of them
-# reconstructed. Raising this trades a continuation ray per rough surface for
-# real reflections. 0.3 through 1.
+# reconstructed. 0.3 through 1. Default 0.3.
 #rtx_specular_roughness=0.3
 
-# Path length counting the primary hit, 1 through 8. 1 is direct lighting only.
-# Each further bounce adds its own shadow and continuation rays. The first
-# diffuse continuation is always traced; production interleaves the deeper
-# suffix with unbiased throughput-adaptive Russian roulette. Default 3.
-#rtx_max_bounces=3
+# GGX visible-normal sampling trim, 0.1 through 1. Default 0.9.
+#rtx_ndf_trim=0.9
 
-# DLSS Ray Reconstruction mode: quality, balanced, performance,
-# ultra-performance, or off. This also sets the resolution the path tracer
-# renders at before reconstruction. Enabled modes own all temporal/spatial
-# image reconstruction; the renderer supplies a fresh current-frame GI signal.
-# Ultra Performance is explicitly speed-first:
-# at a 1280x720 window it traces 285x160, reconstructs to 854x480, then uses the
-# final linear presentation upscale. The other enabled modes reconstruct
-# directly to the window extent. Default quality.
-#rtx_ray_reconstruction=quality
+# Diagnostic ceiling on one sample's luminance. Q2RTX does not clamp path
+# radiance, so the matching default is 0 (disabled). Accepts 0 through 100000.
+# Prefer leaving this off and using the ReSTIR controls below for fireflies: a
+# clamp biases the estimator and will hide exactly the errors worth finding.
+#rtx_radiance_clamp=0
+
+
+# --- ReSTIR PT ------------------------------------------------------------
+#
+# ReSTIR PT resamples whole light paths between neighbouring pixels and between
+# frames, so a good path found anywhere on screen can be reused everywhere it is
+# valid. It runs entirely at the internal render resolution, before any
+# upscaling, and never reads a reconstructed image.
+
+# Which estimator produces indirect lighting.
+#   path-trace  Independent fresh paths every frame, no reservoir reuse. This is
+#               the reference the resampled estimator is validated against.
+#   restir-pt   ReSTIR PT Enhanced spatiotemporal path resampling.
+# Default path-trace.
+#rtx_indirect_mode=path-trace
+
+# Cap on a reservoir's represented sample count M, 1 through 64. Default 20.
+# A reservoir that survives reuse raises M every frame, and the cap bounds how
+# long one path may keep speaking for a pixel. Set it to 1 to disable temporal
+# reuse while leaving spatial resampling active, which is the first thing to try
+# when diagnosing a lighting trail or a persistent firefly.
+#rtx_restir_temporal_history=20
+
+# Spatial neighbours resampled per pixel, 0 through 8. Default 2. Zero disables
+# spatial reuse. Neighbour pairs are resampled reciprocally, so a pair's forward
+# and reverse shifts are computed together rather than twice.
+#rtx_restir_spatial_samples=2
+
+# Spatial search radius as a fraction of render height, 0 through 0.25.
+# Default 0.03. Deliberately not a pixel count: a fixed 8-pixel radius covers
+# very different amounts of the image at Quality and at Ultra Performance, so
+# expressing it relative to render height keeps the search footprint stable when
+# rtx_dlss changes.
+#rtx_restir_spatial_radius=0.03
+
+# How a shifted path decides it may stop being replayed and reconnect to the
+# stored path suffix.
+#   footprint  Footprint criterion of ReSTIR PT Enhanced. A ray's footprint
+#              grows with reconnection distance and with rougher scattering,
+#              and bounding it bounds how much the path contribution can
+#              deviate after the shift. This handles glossy transport that
+#              roughness cutoffs get wrong.
+#   fixed      Classic roughness-and-distance cutoffs, for A/B diagnosis only.
+# Default footprint.
+#rtx_restir_reconnection=footprint
+
+# Footprint threshold scaling the primary ray's footprint, 0.1 through 10.
+# Default 1. Larger values reconnect sooner and replay less of the path, which
+# is cheaper but reuses more aggressively. Only used when
+# rtx_restir_reconnection=footprint.
+#rtx_restir_connection_footprint=1.0
+
+# Duplication-based history reduction strength, 0 through 4. Default 1.
+# Zero disables it. Where one canonical path has been copied across many
+# reservoirs, those descendants are not independent samples, and letting them
+# accumulate confidence produces exactly the correlated lighting that persists
+# through a denoiser. This counts how many neighbours share a sample ancestry
+# and lowers the temporal cap toward 1 as that duplication rises; the value is
+# the exponent of the curve, so higher reduces history under milder duplication.
+#rtx_restir_history_reduction=1.0
+
+# Probability that final shading discards the resampled reservoir and shades the
+# preserved initial sample instead, 0 through 1. Default 0.
+# Ray Reconstruction expects temporally independent input noise, while ReSTIR
+# deliberately correlates samples across frames; enough correlation and RR reads
+# it as signal. This trades a little variance for that independence. It is only
+# meaningful with rtx_denoiser=ray-reconstruction.
+#rtx_restir_decorrelation=0
+
+
+# --- Diagnostics ----------------------------------------------------------
+
+# Render-resolution diagnostic view. Every one of these is the buffer as it
+# exists before any upscaling, because a reconstructed image cannot establish
+# that the estimator underneath it is correct: DLSS will happily make a biased
+# estimator look stable. Always confirm a suspected artifact here first.
+#
+#   off            Normal shading.
+#   reference      High-sample-count reference path tracer. Slow, unbiased, and
+#                  the thing every other mode is compared against.
+#   canonical      Initial samples only, with no reuse at all.
+#   temporal       Temporal reuse only.
+#   spatial        Spatial reuse only.
+#   motion         Motion vector XY.
+#   reprojection   Reprojected previous-frame coordinate.
+#   rejection      Why temporal history was refused for this pixel.
+#   history-age    Frames this reservoir has survived.
+#   reservoir-m    Represented sample count M.
+#   ancestry       Sample ancestry ID, as a colour.
+#   duplication    Local duplication ratio driving history reduction.
+#
+# If an artifact is visible in canonical, it is a path tracer bug. If it first
+# appears in temporal or spatial, it is a resampling or reprojection bug. If it
+# only appears after DLSS, check the motion, depth and jitter inputs.
+# Default off.
+#rtx_debug_view=off
+
+
+# --- Output and tone mapping ----------------------------------------------
 
 # Display output: sdr uses exact 8-bit sRGB; hdr requires native FP16 scRGB and
 # fails clearly if Windows HDR is unavailable; auto explicitly follows the
@@ -101,26 +241,12 @@ world_light_tessellation=4
 
 # Q2RTX-compatible HDR scene controls. Scene EV 0 maps to 800 nits by default,
 # and saturation is unchanged at 100%. Peak accepts 100 through 2000 nits;
-# saturation accepts 0 through 200%. UI brightness will accompany the pending
-# DXR HUD/text implementation instead of exposing a setting that has no pixels.
+# saturation accepts 0 through 200%.
 #rtx_hdr_peak_nits=800
 #rtx_hdr_saturation=100
 
-# Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
-# primary vertex uses the complete alias table; the indirect vertex uses a
-# quantized world-stable local ReGIR proposal and samples authored triangles
-# uniformly in area. The reservoir limit is retained only for configuration
-# compatibility and does not accumulate or filter RR-only diffuse radiance.
-# Defaults 16 candidates and a compatibility limit of 32.
-#rtx_light_candidates=16
-#rtx_reservoir_limit=32
-
-# Diagnostic ceiling on one sample's luminance. Q2RTX does not clamp path
-# radiance, so the matching default is 0 (disabled). Accepts 0 through 100000.
-#rtx_radiance_clamp=0
-
 # Q2RTX-compatible post-tone-curve exposure bias, -5 through 0 EV. Default -1.
+# This is applied downstream of the estimator on purpose: changing exposure must
+# not change which light path is statistically important, so it never reaches a
+# ReSTIR target function.
 #rtx_exposure_bias=-1
-
-# GGX visible-normal sampling trim, 0.1 through 1. Default 0.9.
-#rtx_ndf_trim=0.9
