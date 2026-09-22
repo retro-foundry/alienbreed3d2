@@ -508,8 +508,18 @@ static const uint ExposureHistogramBinCount = 64u;
  */
 static const float ExposureMinimumLuminance = 5.9604645e-8;
 static const float ExposureMaximumLuminance = 256.0;
-static const uint ExposureLowPercentileNumerator = 10u;
-static const uint ExposureHighPercentileNumerator = 98u;
+/*
+ * Q2RTX's tm_low_percentile and tm_high_percentile. This pass is diagnostic --
+ * nothing reads AutomaticExposure for shading, the displayed exposure comes
+ * from post_process.hlsl -- but it reported a number that disagreed with the
+ * one actually in force. Metering the 10th to 98th percentile spans nearly the
+ * whole histogram, so both the darkest regions and the brightest outliers drag
+ * it; the display path deliberately meters a narrow upper band that neither can
+ * move. A diagnostic that does not measure what the renderer does is worse than
+ * none, because it is believed.
+ */
+static const uint ExposureLowPercentileNumerator = 70u;
+static const uint ExposureHighPercentileNumerator = 90u;
 static const uint ExposurePercentileDenominator = 100u;
 static const float ExposureMeteringKey = 0.014;
 static const float ExposureMinimum = 0.125;
