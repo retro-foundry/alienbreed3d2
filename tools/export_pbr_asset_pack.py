@@ -27,6 +27,7 @@ except ImportError as error:  # pragma: no cover - build-host diagnostic
     ) from error
 
 import build_dxr_materials as sheet_tools
+import world_material_images
 from world_material_images import WORLD_TEXTURE_SCALE, resize_world_channels
 
 
@@ -81,6 +82,29 @@ WALL_COUNT = 16
 GUN_COUNT = 10
 VECTOR_ROUGHNESS_UNORM = 184
 VECTOR_SPECULAR_FACTOR = 0.35
+# Unauthored world walls and floors fell back to the neutral defaults: a flat
+# normal, metalness 0, and roughness 255 - the extreme of the scale, with no
+# specular lobe at all - on 19 of 20 floors and 3 of 15 walls. The constants
+# below drive derived_world_channels, which synthesises the three missing maps
+# from the albedo instead, so an unauthored surface has relief and a specular
+# response while it waits for artwork. An authored sheet always wins; these
+# never touch one.
+#
+# Centre of the derived roughness range: the same 0.72 the source-vector
+# materials already use as their proven response.
+WORLD_ROUGHNESS_UNORM = 184
+# How far luminance may push roughness either side of that centre. Darker
+# texels read as rougher, which is the usual relationship for the grime and
+# shadow baked into this art.
+WORLD_ROUGHNESS_VARIATION = 46
+# Height gain for the Sobel-style slope that becomes the derived normal.
+WORLD_NORMAL_HEIGHT_SCALE = 3.0
+# Ceiling for derived metalness. Bright desaturated texels read as metal; the
+# authored world sheets average about 48/255, so this stays near that rather
+# than declaring whole surfaces metallic, which looks far worse than none.
+WORLD_METALNESS_CEILING = 96
+# Saturation at or above which a texel is never treated as metal.
+WORLD_METALNESS_SATURATION_LIMIT = 0.32
 
 
 def be16(data: bytes, offset: int) -> int:
@@ -320,6 +344,78 @@ def default_channels(
         "roughness": solid((roughness_unorm,) * 3),
         "emissive": emission,
     }
+
+
+def derived_world_channels(
+    base_color: Image.Image,
+    emissive: bool = False,
+) -> dict[str, Image.Image]:
+    """Synthesise normal, metalness and roughness for a world surface that has
+    no authored sheet.
+
+    The albedo is the only real signal available, so relief comes from its
+    luminance slope, roughness from its luminance, and metalness from the
+    combination of low saturation and high luminance that reads as bare metal
+    in this art. Gradients wrap, because walls and floors tile.
+    """
+
+    import numpy
+
+    channels = default_channels(base_color, emissive, WORLD_ROUGHNESS_UNORM)
+    base = channels["base_color"]
+    alpha = base.getchannel("A")
+    rgb = numpy.asarray(base.convert("RGB"), dtype=numpy.float32) / 255.0
+    luminance = (0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] +
+                 0.0722 * rgb[..., 2])
+
+    # Central differences with wrap-around, so a tiled surface has no seam.
+    slope_x = (numpy.roll(luminance, -1, axis=1) -
+               numpy.roll(luminance, 1, axis=1)) * 0.5
+    slope_y = (numpy.roll(luminance, -1, axis=0) -
+               numpy.roll(luminance, 1, axis=0)) * 0.5
+    normal_x = -slope_x * WORLD_NORMAL_HEIGHT_SCALE
+    normal_y = -slope_y * WORLD_NORMAL_HEIGHT_SCALE
+    length = numpy.sqrt(normal_x * normal_x + normal_y * normal_y + 1.0)
+    encoded = numpy.stack(
+        (normal_x / length, normal_y / length, 1.0 / length), axis=-1)
+    encoded = numpy.clip(encoded * 0.5 + 0.5, 0.0, 1.0) * 255.0
+    normal = Image.fromarray(encoded.astype(numpy.uint8), "RGB").convert("RGBA")
+    normal.putalpha(alpha)
+    channels["normal"] = world_material_images.clamp_world_normal_blue(normal)
+
+    # Darker reads as rougher, but relative to this texture's own mean rather
+    # than to absolute 0.5: the source art is dark overall, so an absolute
+    # centre pushed every surface to one end of the range and threw away the
+    # variation this is here to produce.
+    mean_luminance = float(luminance.mean())
+    spread = float(max(luminance.std(), 1.0e-3))
+    relative = numpy.clip((mean_luminance - luminance) / (2.0 * spread),
+                          -1.0, 1.0)
+    roughness = (float(WORLD_ROUGHNESS_UNORM) +
+                 relative * float(WORLD_ROUGHNESS_VARIATION))
+    roughness = numpy.clip(roughness, 0.0, 255.0).astype(numpy.uint8)
+    rough_image = Image.fromarray(roughness, "L").convert("RGBA")
+    rough_image.putalpha(alpha)
+    channels["roughness"] = rough_image
+
+    maximum = rgb.max(axis=-1)
+    minimum = rgb.min(axis=-1)
+    saturation = numpy.where(maximum > 1.0e-4, (maximum - minimum) /
+                             numpy.maximum(maximum, 1.0e-4), 0.0)
+    desaturated = numpy.clip(
+        1.0 - saturation / WORLD_METALNESS_SATURATION_LIMIT, 0.0, 1.0)
+    # Metal candidates are the texels well above this texture's own mean, for
+    # the same reason the roughness centre is relative. Dark stone still scores
+    # zero; a bright desaturated plate or trim picks up some metalness.
+    brightness = numpy.clip(
+        (luminance - (mean_luminance + spread)) / (2.0 * spread), 0.0, 1.0)
+    metalness = desaturated * brightness * float(WORLD_METALNESS_CEILING)
+    metal_image = Image.fromarray(
+        numpy.clip(metalness, 0.0, 255.0).astype(numpy.uint8), "L").convert(
+            "RGBA")
+    metal_image.putalpha(alpha)
+    channels["metalness"] = metal_image
+    return channels
 
 
 def decode_packed_texel(word: int, third: int) -> int:
@@ -697,7 +793,7 @@ class PackWriter:
             "un_authored_channel_defaults": {
                 "normal": [128, 128, 255],
                 "metalness": [0, 0, 0],
-                "roughness": [255, 255, 255],
+                "roughness": [WORLD_ROUGHNESS_UNORM] * 3,
                 "emissive": [0, 0, 0],
             },
             "source_vector_material_defaults": {
@@ -831,7 +927,10 @@ def build_pack(
         wall_name = slug(wall_path.stem)
         authored = authored_entries.get(wall_name)
         base = wall_image(wall_path, palette)
-        channels = authored_sheet_channels(authored_dir, authored) if authored else default_channels(base)
+        channels = (
+            authored_sheet_channels(authored_dir, authored) if authored
+            else derived_world_channels(base)
+        )
         source_texture_size = (
             tuple(authored["source_texture_size"])
             if authored and "source_texture_size" in authored
@@ -886,7 +985,7 @@ def build_pack(
             variant_size = (variant_width, variant_height)
             variant_base = wall_image(wall_path, palette, variant_size)
             variant_channels = resize_world_channels(
-                default_channels(variant_base), variant_size
+                derived_world_channels(variant_base), variant_size
             )
             variant_name = (
                 f"wall_{wall_slots[wall_name]:02d}_{wall_name}_v{variant_height}"
@@ -936,11 +1035,11 @@ def build_pack(
         if authored:
             channels = authored_sheet_channels(authored_dir, authored)
         else:
-            channels = default_channels(base)
+            channels = derived_world_channels(base)
         emissive_factor = [0.0, 0.0, 0.0]
         generated = [] if authored else ["normal", "metalness", "roughness", "emissive"]
         if tile_offset == int(source_floor_entry["binding"]["source_asset_id"]):
-            channels = default_channels(base)
+            channels = derived_world_channels(base)
             channels["emissive"] = sheet_tools.emissive_from_albedo(
                 "floor_0101", base.convert("RGB")
             ).convert("RGBA")
