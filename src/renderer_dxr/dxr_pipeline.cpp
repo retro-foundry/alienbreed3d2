@@ -216,13 +216,15 @@ struct FrameConstants {
     float traced_specular_roughness_limit;
     /* Which estimator produces indirect lighting; see RendererIndirectMode. */
     uint32_t indirect_mode;
+    /* Probability that final shading falls back to the preserved sample. */
+    float restir_decorrelation;
     uint32_t restir_temporal_history;
     uint32_t restir_spatial_samples;
     float restir_spatial_radius;
     float restir_history_reduction;
     /* Keeps the structure a whole number of 16-byte constant registers, so the
      * C++ and HLSL layouts cannot disagree about trailing padding. */
-    uint32_t frame_constant_padding[3];
+    uint32_t frame_constant_padding[2];
 };
 
 /*
@@ -693,9 +695,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         return false;
     }
     if (options.restir_decorrelation_set != 0u) {
-        error = "rtx_restir_decorrelation needs the resampled and preserved "
-                "initial reservoirs that reuse introduces";
-        return false;
+        restir_decorrelation_ = options.restir_decorrelation;
     }
     if (options.debug_view != RENDERER_DEBUG_VIEW_OFF) {
         error = "rtx_debug_view is not implemented yet; the render-resolution "
@@ -795,6 +795,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  indirect_reconstruction::temporal_window_maximum,
                  &indirect_temporal_window_},
     };
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_RESTIR_DECORRELATION", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 0.0 || parsed > 1.0) {
+                error = "AB3D2_DXR_RESTIR_DECORRELATION must be 0-1";
+                return false;
+            }
+            restir_decorrelation_ = static_cast<float>(parsed);
+        }
+    }
     {
         char value[64] = {};
         const DWORD length = GetEnvironmentVariableA(
@@ -1348,7 +1365,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[4].NumDescriptors = 7;
     ranges[4].BaseShaderRegister = 26;
     ranges[4].OffsetInDescriptorsFromTableStart = 13;
-    std::array<D3D12_ROOT_PARAMETER, 19> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 20> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1380,6 +1397,8 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[12].Descriptor.ShaderRegister = 23;
     parameters[13].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[13].Descriptor.ShaderRegister = 24;
+    parameters[19].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[19].Descriptor.ShaderRegister = 25;
     parameters[14].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
     parameters[14].Descriptor.ShaderRegister = 12;
     parameters[15].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -2680,7 +2699,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             reservoir_count * sizeof(DxrPathReservoir));
         reservoir_description.Flags =
             D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        for (size_t index = 0u; index < 3u; ++index) {
+        for (size_t index = 0u; index < 4u; ++index) {
             const HRESULT result = device->CreateCommittedResource(
                 &default_heap, D3D12_HEAP_FLAG_NONE, &reservoir_description,
                 D3D12_RESOURCE_STATE_COMMON, nullptr,
@@ -2694,7 +2713,8 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
             reservoirs_[index]->SetName(
                 index == 0u ? L"AB3D2 ReSTIR Reservoirs A" :
                 index == 1u ? L"AB3D2 ReSTIR Reservoirs B" :
-                              L"AB3D2 ReSTIR Resample Reservoirs");
+                index == 2u ? L"AB3D2 ReSTIR Resample Reservoirs" :
+                              L"AB3D2 ReSTIR Preserved Reservoirs");
         }
         D3D12_RESOURCE_DESC grid_description = buffer_description(
             reservoir_count * sizeof(uint32_t));
@@ -3094,6 +3114,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
      * second to appear. Discard the history on the frame the emitter state
      * changes and let canonical sampling re-establish it.
      */
+    constants.restir_decorrelation = restir_decorrelation_;
     constants.restir_temporal_history =
         indirect_lighting_changed ? 1u : restir_temporal_history_;
     constants.restir_spatial_samples = restir_spatial_samples_;
@@ -3213,6 +3234,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->SetComputeRootUnorderedAccessView(
         13, duplication_map_->GetGPUVirtualAddress());
     command_list->SetComputeRootUnorderedAccessView(
+        19, reservoirs_[3]->GetGPUVirtualAddress());
+    command_list->SetComputeRootUnorderedAccessView(
         14, diagnostics_->GetGPUVirtualAddress());
     command_list->SetComputeRootDescriptorTable(
         15, gpu_descriptor(light_grid_uav));
@@ -3325,6 +3348,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         uav_barrier(reservoirs_[0].Get()),
         uav_barrier(reservoirs_[1].Get()),
         uav_barrier(reservoirs_[2].Get()),
+        uav_barrier(reservoirs_[3].Get()),
         uav_barrier(sample_ancestry_.Get()),
         uav_barrier(duplication_map_.Get()),
         uav_barrier(current_indirect_radiance),

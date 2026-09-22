@@ -228,6 +228,16 @@ RWStructuredBuffer<PathReservoir> ResampleReservoirs : register(u22);
  * it. Both are render-resolution grids read a frame after they are written. */
 RWStructuredBuffer<uint> SampleAncestry : register(u23);
 RWStructuredBuffer<uint> DuplicationMap : register(u24);
+/*
+ * The canonical reservoir as it was before any reuse touched it.
+ *
+ * Ray Reconstruction expects temporally independent noise, and ReSTIR's whole
+ * purpose is to correlate samples across frames. Enough correlation and the
+ * denoiser reads it as structure rather than noise. Keeping the unresampled
+ * sample lets final shading stochastically fall back to it, which is what
+ * restores the independence the denoiser was built to assume.
+ */
+RWStructuredBuffer<PathReservoir> PreservedReservoirs : register(u25);
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
 /* Demodulated diffuse-suffix lighting. Primary/burst shading writes a fresh
@@ -301,6 +311,8 @@ cbuffer FrameConstants : register(b0)
     uint ForceSpecularGuide;
     float TracedSpecularRoughnessLimit;
     uint IndirectMode;
+    /* Probability that final shading discards the resampled reservoir. */
+    float ReservoirDecorrelation;
     /* Cap on a reservoir's represented sample count. */
     uint ReservoirTemporalHistory;
     /* Spatial neighbours resampled per pixel. */
@@ -481,6 +493,7 @@ static const float ExposureDarkAdaptationRate = 1.0;
 static const float ExposureLightAdaptationRate = 4.0;
 static const float ExposureMaximumDeltaSeconds = 0.25;
 static const uint ReservoirCanonicalStream = 0x10200u;
+static const uint ReservoirDecorrelationStream = 0x10b00u;
 static const uint ReservoirTemporalStream = 0x10800u;
 static const uint ReservoirSpatialStream = 0x10900u;
 static const uint ReservoirSpatialOffsetStream = 0x10a00u;
@@ -4011,6 +4024,8 @@ void ResampleTemporal()
     }
 
     PathReservoir canonical = CurrentReservoirs[index];
+    /* Keep the unresampled sample before reuse overwrites this slot. */
+    PreservedReservoirs[index] = canonical;
     SurfaceData surface;
     float depth;
     if (!loadResamplingSurface(pixel, canonical, surface, depth)) {
@@ -4411,8 +4426,28 @@ void ReconstructIndirect()
          * never had. The traced paths are still accumulated for that field, so
          * only the diffuse term is replaced here.
          */
-        PathReservoir resolved =
-            CurrentReservoirs[reservoirIndex(pixel, dimensions)];
+        uint resolvedIndex = reservoirIndex(pixel, dimensions);
+        PathReservoir resolved = CurrentReservoirs[resolvedIndex];
+        /*
+         * Stochastic decorrelation, as a one-sample MIS between the resampled
+         * reservoir and the preserved initial one. The probability is scaled by
+         * how long this pixel has held the same sample without a fresh one
+         * winning: a reservoir that keeps refreshing is already independent
+         * enough, and only a stale one needs replacing.
+         */
+        if (ReservoirDecorrelation > 0.0) {
+            float stagnancy = saturate(float(resolved.age) /
+                max(float(ReservoirTemporalHistory), 1.0));
+            float probability = saturate(ReservoirDecorrelation * stagnancy);
+            float draw = sampleStream(pixel, SampleIndex,
+                                      ReservoirDecorrelationStream).x;
+            if (draw < probability) {
+                PathReservoir preserved = PreservedReservoirs[resolvedIndex];
+                if (reservoirValid(preserved)) {
+                    resolved = preserved;
+                }
+            }
+        }
         float3 contribution = resolvedRadiance(resolved);
         float3 shadingNormal = normalize(ShadingNormal[pixel].xyz);
         float3 toReconnection = resolved.rcVertexLength == 0u ?

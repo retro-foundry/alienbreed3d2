@@ -197,12 +197,18 @@ world_light_tessellation=4
 #rtx_restir_history_reduction=1.0
 
 # Probability that final shading discards the resampled reservoir and shades the
-# preserved initial sample instead, 0 through 1. Default 0.
-# Ray Reconstruction expects temporally independent input noise, while ReSTIR
-# deliberately correlates samples across frames; enough correlation and RR reads
-# it as signal. This trades a little variance for that independence. It is only
-# meaningful with rtx_denoiser=ray-reconstruction.
-#rtx_restir_decorrelation=0
+# preserved initial sample instead, 0 through 1. Default 1.
+#
+# Ray Reconstruction expects temporally independent input noise, and ReSTIR's
+# entire purpose is to correlate samples across frames. Enough correlation and
+# the denoiser reads it as structure rather than noise, which is visible as
+# blotches that no amount of fixing the estimator removes. The probability is
+# scaled per pixel by how long that pixel has held the same sample, so a
+# reservoir that keeps refreshing is left alone and only a stale one is
+# replaced. Measured on the Level A walk, this is the difference between the
+# worst scene being nine times less stable than plain path tracing and matching
+# it. Only meaningful with rtx_denoiser=ray-reconstruction.
+#rtx_restir_decorrelation=1.0
 
 
 # --- Diagnostics ----------------------------------------------------------

@@ -275,7 +275,7 @@ private:
     /* Render-resolution reservoir grids. ReSTIR history is path history at the
      * internal rendering resolution, so these are sized to the render extent
      * and never to the resolution DLSS presents at. */
-    Microsoft::WRL::ComPtr<ID3D12Resource> reservoirs_[3];
+    Microsoft::WRL::ComPtr<ID3D12Resource> reservoirs_[4];
     /* Ancestry of each pixel's surviving path, and how many of its neighbours
      * share it. Written one frame and read the next. */
     Microsoft::WRL::ComPtr<ID3D12Resource> sample_ancestry_;
@@ -299,6 +299,12 @@ private:
      * selectable as the reference the resampled estimator is validated
      * against, but ReSTIR PT is what the renderer runs. */
     uint32_t indirect_mode_ = RENDERER_INDIRECT_RESTIR_PT;
+    /*
+     * Ray Reconstruction expects temporally independent noise and ReSTIR
+     * deliberately produces the opposite, so final shading falls back to the
+     * unresampled sample this often. Zero disables it.
+     */
+    float restir_decorrelation_ = 1.0f;
     uint32_t restir_temporal_history_ =
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_TEMPORAL_HISTORY;
     uint32_t restir_spatial_samples_ =
