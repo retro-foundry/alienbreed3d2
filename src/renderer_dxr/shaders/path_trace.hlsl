@@ -1825,6 +1825,9 @@ bool reservoirSurfaceCompatible(PathReservoir reservoir, SurfaceData surface,
     if (!reservoirValid(reservoir)) {
         return false;
     }
+    if (!(reservoir.primaryDepth > 0.0)) {
+        return false;
+    }
     if (reservoir.primaryMaterial != surface.materialIndex) {
         return false;
     }
@@ -1923,9 +1926,10 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
         return false;
     }
 
-    /* Albedo is demodulated, so the receiving domain's target function is the
-     * stored radiance weighted by the new geometry. */
-    shiftedTarget = source.radiance * receiverCosine;
+    /* The cosines above are validity gates, not weights: the shifted path's
+     * target is the stored radiance in the same units the canonical candidate
+     * uses, so the two can be compared without either needing an inverse. */
+    shiftedTarget = source.radiance;
     if (any(isnan(shiftedTarget)) || any(isinf(shiftedTarget))) {
         return false;
     }
@@ -3216,6 +3220,50 @@ void writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
     }
 }
 
+/*
+ * Clears this pixel's reservoir at the start of the frame.
+ *
+ * Indirect paths are traced from a compacted work list, so a pixel that gets no
+ * continuation this frame never writes a canonical reservoir. Without this it
+ * would keep whatever the grid held two frames ago and the resampling passes
+ * would treat that as a current sample -- and on the very first frame, before
+ * anything has been written at all, it would be uninitialised memory read as
+ * path positions and traced against.
+ */
+void clearCurrentReservoir(uint2 pixel, uint2 dimensions)
+{
+    if (IndirectMode == IndirectModeRestirPt) {
+        CurrentReservoirs[reservoirIndex(pixel, dimensions)] =
+            emptyReservoir();
+    }
+}
+
+/*
+ * Records which surface a pixel is looking at, independently of whether it got
+ * an indirect path this frame.
+ *
+ * Indirect paths come from a compacted work list, so only some pixels produce a
+ * canonical sample. The rest still need their surface known, because temporal
+ * reuse can supply them a path from history and cannot validate that history
+ * against a surface nobody wrote down. A stamped reservoir carries a surface
+ * and no sample: primaryDepth is what says the surface is known, and M is what
+ * says whether a path has been found for it yet.
+ */
+void stampReservoirSurface(uint2 pixel, uint2 dimensions, SurfaceData surface,
+                           float depth)
+{
+    if (IndirectMode != IndirectModeRestirPt) {
+        return;
+    }
+    uint index = reservoirIndex(pixel, dimensions);
+    PathReservoir reservoir = CurrentReservoirs[index];
+    reservoir.primaryPosition = surface.position;
+    reservoir.primaryNormal = packOctahedralNormal(surface.geometricNormal);
+    reservoir.primaryMaterial = surface.materialIndex;
+    reservoir.primaryDepth = depth;
+    CurrentReservoirs[index] = reservoir;
+}
+
 void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                   float3 unjitteredDirection,
                   SegmentTraversal primarySegment)
@@ -3243,6 +3291,9 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
         SurfaceData surface = loadSurface(primaryPayload, direction);
         writeSurfaceGuides(pixel, primaryPayload, surface, dimensions,
                            -direction);
+        stampReservoirSurface(pixel, dimensions, surface,
+                              dot(surface.position - CameraPosition,
+                                  CameraForward));
         /* Base colour is a reconstruction/material guide, not self-emission.
          * Visible source radiance is deterministic. Primary local-light NEE
          * evaluates material-dependent diffuse and GGX together; the accepted
@@ -3505,24 +3556,6 @@ SegmentTraversal tracePrimary(float3 direction)
     return traceSegment(ray);
 }
 
-/*
- * Clears this pixel's reservoir at the start of the frame.
- *
- * Indirect paths are traced from a compacted work list, so a pixel that gets no
- * continuation this frame never writes a canonical reservoir. Without this it
- * would keep whatever the grid held two frames ago and the resampling passes
- * would treat that as a current sample -- and on the very first frame, before
- * anything has been written at all, it would be uninitialised memory read as
- * path positions and traced against.
- */
-void clearCurrentReservoir(uint2 pixel, uint2 dimensions)
-{
-    if (IndirectMode == IndirectModeRestirPt) {
-        CurrentReservoirs[reservoirIndex(pixel, dimensions)] =
-            emptyReservoir();
-    }
-}
-
 [shader("raygeneration")]
 void RayGeneration()
 {
@@ -3684,12 +3717,16 @@ void BurstContinuation()
              * would have produced, and what lets a shifted path be compared
              * against it in the same units.
              */
-            float canonicalCosine = saturate(
-                dot(surface.shadingNormal, pathSample.firstDirection));
-            if (!(canonicalCosine > 1.0e-4)) {
-                continue;
-            }
-            float3 canonicalTarget = incident * canonicalCosine;
+            /*
+             * The target function is the demodulated incoming radiance itself,
+             * with no geometric weighting. Folding the receiver cosine in would
+             * importance-sample slightly better, but the estimate then has to
+             * be divided by that cosine to get back to the units the rest of
+             * the pipeline works in, and at a grazing reconnection that
+             * division is unbounded. A target that needs no inverse cannot
+             * produce one.
+             */
+            float3 canonicalTarget = incident;
             PathReservoir candidate = makeReservoir(
                 canonicalTarget, canonicalAncestry, indirectSampleIndex,
                 pathSample.firstHit ? 1u : 0u, MaximumDepth, 1.0, 1.0,
@@ -3699,13 +3736,14 @@ void BurstContinuation()
                 pathSample.firstHit ?
                     pathSample.firstSurface.geometricNormal :
                     pathSample.firstDirection,
-                incident, canonicalCosine);
+                incident, 1.0);
             candidate.ancestry = canonicalAncestry;
             candidate.primaryPosition = surface.position;
             candidate.primaryNormal =
                 packOctahedralNormal(surface.geometricNormal);
             candidate.primaryMaterial = surface.materialIndex;
-            candidate.primaryDepth = LinearDepth[pixel];
+            candidate.primaryDepth = dot(surface.position - CameraPosition,
+                                         CameraForward);
             float acceptance = sampleStream(
                 pixel, indirectSampleIndex,
                 ReservoirCanonicalStream).x;
@@ -3720,6 +3758,14 @@ void BurstContinuation()
     }
 
     if (restir) {
+        /* Carry the surface stamp through, so a pixel whose candidates all
+         * failed still tells the reuse passes what it is looking at. */
+        PathReservoir stamped =
+            CurrentReservoirs[reservoirIndex(pixel, dimensions)];
+        reservoir.primaryPosition = stamped.primaryPosition;
+        reservoir.primaryNormal = stamped.primaryNormal;
+        reservoir.primaryMaterial = stamped.primaryMaterial;
+        reservoir.primaryDepth = stamped.primaryDepth;
         /* Normalizing by the selected target and the candidate count is the
          * uniform-MIS contribution weight. This pixel's own domain is the only
          * proposer so far; temporal and spatial reuse add theirs. */
@@ -3808,9 +3854,6 @@ bool loadResamplingSurface(uint2 pixel, PathReservoir reservoir,
 {
     surface = (SurfaceData)0;
     depth = 0.0;
-    if (!reservoirValid(reservoir)) {
-        return false;
-    }
     depth = reservoir.primaryDepth;
     if (!(depth > 0.0)) {
         return false;
@@ -3845,17 +3888,36 @@ void ResampleTemporal()
         return;
     }
 
-    PathReservoir current = CurrentReservoirs[index];
+    PathReservoir canonical = CurrentReservoirs[index];
     SurfaceData surface;
     float depth;
-    if (!loadResamplingSurface(pixel, current, surface, depth)) {
-        ResampleReservoirs[index] = current;
+    if (!loadResamplingSurface(pixel, canonical, surface, depth)) {
+        ResampleReservoirs[index] = canonical;
         return;
     }
 
-    /* The canonical sample's own domain always proposes. */
-    float3 selectedTarget = current.targetFunction;
-    float piSum = reservoirLuminance(selectedTarget) * current.m;
+    /*
+     * Stream into a fresh reservoir rather than adding to the canonical one.
+     * The canonical pass has already normalized its weight into a contribution
+     * weight, and a contribution weight and a running resampling sum are not
+     * the same quantity; adding one to the other produces a number that means
+     * nothing and, because this frame's reservoir is next frame's history,
+     * compounds instead of merely being wrong once.
+     */
+    PathReservoir current = emptyReservoir();
+    current.primaryPosition = canonical.primaryPosition;
+    current.primaryNormal = canonical.primaryNormal;
+    current.primaryMaterial = canonical.primaryMaterial;
+    current.primaryDepth = canonical.primaryDepth;
+
+    float3 selectedTarget = 0.0;
+    if (reservoirValid(canonical)) {
+        combineReservoir(current, canonical,
+                         sampleStream(pixel, SampleIndex,
+                                      ReservoirCanonicalStream).y,
+                         canonical.targetFunction);
+        selectedTarget = canonical.targetFunction;
+    }
 
     bool reused = false;
     if (HistoryValid != 0u && ReservoirTemporalHistory > 1u) {
@@ -3917,10 +3979,15 @@ void ResampleTemporal()
      * neighbour's term does not break the image, it just makes it brighter than
      * the scene is.
      */
-    piSum = reservoirLuminance(selectedTarget) * current.m;
+    float piSum = reservoirLuminance(selectedTarget) * current.m;
     finalizeResampling(current, reservoirLuminance(selectedTarget),
                        piSum * reservoirLuminance(selectedTarget));
     current.age = reused ? min(current.age + 1u, 0xffffu) : 0u;
+    /* Cap the confidence on the way out, not merely where history is read. An
+     * uncapped M inflates the normalization a later pass multiplies back in,
+     * and because this frame's reservoir is next frame's history the error
+     * compounds rather than merely biasing one image. */
+    current.m = min(current.m, float(ReservoirTemporalHistory));
     ResampleReservoirs[index] = current;
 }
 
@@ -3941,17 +4008,32 @@ void ResampleSpatial()
         return;
     }
 
-    PathReservoir current = ResampleReservoirs[index];
+    PathReservoir centre = ResampleReservoirs[index];
     SurfaceData surface;
     float depth;
     if (ReservoirSpatialSamples == 0u ||
-        !loadResamplingSurface(pixel, current, surface, depth)) {
-        CurrentReservoirs[index] = current;
+        !loadResamplingSurface(pixel, centre, surface, depth)) {
+        CurrentReservoirs[index] = centre;
         return;
     }
 
-    float3 selectedTarget = current.targetFunction;
-    float ownM = current.m;
+    /* As in the temporal pass: the incoming reservoir carries a contribution
+     * weight, so it is streamed in rather than added to. */
+    PathReservoir current = emptyReservoir();
+    current.primaryPosition = centre.primaryPosition;
+    current.primaryNormal = centre.primaryNormal;
+    current.primaryMaterial = centre.primaryMaterial;
+    current.primaryDepth = centre.primaryDepth;
+
+    float3 selectedTarget = 0.0;
+    if (reservoirValid(centre)) {
+        combineReservoir(current, centre,
+                         sampleStream(pixel, SampleIndex,
+                                      ReservoirSpatialStream).y,
+                         centre.targetFunction);
+        selectedTarget = centre.targetFunction;
+    }
+    float ownM = centre.m;
     float radius = max(ReservoirSpatialRadius * float(dimensions.y), 1.0);
 
     /* Each accepted neighbour is remembered so the normalization can ask every
@@ -4027,6 +4109,7 @@ void ResampleSpatial()
 
     finalizeResampling(current, reservoirLuminance(selectedTarget),
                        piSum * reservoirLuminance(selectedTarget));
+    current.m = min(current.m, float(ReservoirTemporalHistory));
     CurrentReservoirs[index] = current;
 
     /* The duplication map reads this next frame to find neighbourhoods that
@@ -4105,14 +4188,11 @@ void ReconstructIndirect()
          * composite expects, in the same units the averaging path produced. */
         PathReservoir resolved =
             CurrentReservoirs[reservoirIndex(pixel, dimensions)];
-        float3 contribution = resolvedRadiance(resolved);
-        float3 shadingNormal = normalize(ShadingNormal[pixel].xyz);
         float3 toReconnection = resolved.rcVertexLength == 0u ?
             normalize(resolved.worldNormal) :
             normalize(resolved.translatedWorldPosition -
                       resolved.primaryPosition);
-        float cosine = saturate(dot(shadingNormal, toReconnection));
-        filteredIncident = cosine > 1.0e-4 ? contribution / cosine : 0.0;
+        filteredIncident = resolvedRadiance(resolved);
         integratedSignal = indirectSignalFromRadiance(filteredIncident,
                                                       toReconnection);
     }
