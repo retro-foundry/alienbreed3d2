@@ -386,6 +386,12 @@ static const uint DiagnosticPredictedAfter = 39u;
  */
 static const uint DiagnosticReuseWithCanonical = 40u;
 static const uint DiagnosticReuseWithoutCanonical = 41u;
+/* What the duplication map actually reports: sum of counts, pixels with any
+ * duplicate at all, and pixels whose ancestry survived spatial reuse from a
+ * neighbour rather than being their own. */
+static const uint DiagnosticDuplicationSum = 42u;
+static const uint DiagnosticDuplicationNonZero = 43u;
+static const uint DiagnosticAncestryForeign = 44u;
 
 
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
@@ -4098,6 +4104,17 @@ void ResampleTemporal()
                                              lerp(maximumHistory, 1.0, t));
                     }
                     float historyM = min(history.m, maximumHistory);
+                    /*
+                     * Reject by age as well as capping confidence. Resampling
+                     * selects for brightness, so without this the brightest
+                     * sample in a neighbourhood keeps winning and never dies --
+                     * a ghost that follows the surface indefinitely however
+                     * stale its stored radiance has become. This is the
+                     * reference's age check, and it is what forces a refresh.
+                     */
+                    if (float(history.age) >= maximumHistory) {
+                        historyM = 0.0;
+                    }
                     if (historyM > 0.0) {
                         float3 shiftedTarget;
                         float jacobian;
@@ -4388,6 +4405,15 @@ void ComputeDuplicationMap()
         }
     }
     DuplicationMap[reservoirIndex(pixel, dimensions)] = min(count, 255u);
+    InterlockedAdd(Diagnostics[DiagnosticDuplicationSum], min(count, 255u));
+    if (count > 0u) {
+        InterlockedAdd(Diagnostics[DiagnosticDuplicationNonZero], 1u);
+    }
+    /* Ancestry encodes the pixel that generated the canonical sample, so a
+     * mismatch against this pixel means the sample was inherited. */
+    if ((own >> 8u) != reservoirIndex(pixel, dimensions)) {
+        InterlockedAdd(Diagnostics[DiagnosticAncestryForeign], 1u);
+    }
 }
 
 [shader("raygeneration")]
