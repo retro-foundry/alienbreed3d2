@@ -394,6 +394,11 @@ static const uint DiagnosticDuplicationNonZero = 43u;
 static const uint DiagnosticAncestryForeign = 44u;
 /* Which guard refused a shift, in source order. */
 static const uint DiagnosticShiftFail = 45u;
+/* Log2 histogram of one indirect bounce's luminance, two stops per bucket from
+ * 2^-8 upward. Whether the lighting energy sits in a sane range is a question
+ * about this distribution, not about any single constant. */
+static const uint DiagnosticLuminanceHistogram = 56u;
+static const uint DiagnosticLuminanceBuckets = 16u;
 
 
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
@@ -489,8 +494,20 @@ static const float IndirectHistoryMotionLimit = 0.5;
 static const uint ExposureSampleColumns = 32u;
 static const uint ExposureSampleRows = 18u;
 static const uint ExposureHistogramBinCount = 64u;
-static const float ExposureMinimumLuminance = 0.00001;
-static const float ExposureMaximumLuminance = 64.0;
+/*
+ * The metered luminance range, matching Q2RTX's min_log_luminance -24 and
+ * max_log_luminance +8 in tone_mapping_utils.glsl.
+ *
+ * The previous ceiling of 64 was below what the renderer actually produces:
+ * single indirect bounces reach several thousand, so everything above 64
+ * collapsed into the top histogram bin. A bright doorway seen from a dark
+ * corridor therefore metered as one saturated bucket rather than as its real
+ * distribution, the exposure was driven by a number that had lost its scale,
+ * and the dark side of the frame went to the noise floor. Widening the range is
+ * what lets the histogram describe a scene that spans both.
+ */
+static const float ExposureMinimumLuminance = 5.9604645e-8;
+static const float ExposureMaximumLuminance = 256.0;
 static const uint ExposureLowPercentileNumerator = 10u;
 static const uint ExposureHighPercentileNumerator = 98u;
 static const uint ExposurePercentileDenominator = 100u;
@@ -1747,6 +1764,30 @@ float3 resolvedRadiance(PathReservoir reservoir)
         return 0.0;
     }
     return reservoir.targetFunction * reservoir.weightSum;
+}
+
+/*
+ * Q2RTX's clamp_output, from path_tracer_rgen.h. It bounds every lighting
+ * result to MAX_OUTPUT_VALUE and turns a non-finite one into black, and it is
+ * production behaviour there rather than a diagnostic: direct, specular and
+ * each indirect bounce all pass through it.
+ *
+ * Without it one improbable path carries an unbounded radiance into the frame.
+ * That is a firefly on its own, and under resampling it is worse, because the
+ * reservoir will happily select it, hold it for the length of its history and
+ * copy it into its neighbours. Bounding the sample as it is produced stops it
+ * ever becoming a reservoir sample, which no amount of filtering afterwards
+ * can undo as cleanly.
+ */
+float3 clampOutput(float3 value)
+{
+    if (any(isnan(value)) || any(isinf(value))) {
+        return 0.0;
+    }
+    if (!(RadianceClamp > 0.0)) {
+        return max(value, 0.0);
+    }
+    return clamp(value, 0.0, RadianceClamp);
 }
 
 float3 fresnelSchlick(float cosine, float3 reflectance)
@@ -3843,7 +3884,18 @@ void BurstContinuation()
             sampleOrdinal;
         DiffusePathSample pathSample = sampleDiffusePath(
             pixel, indirectSampleIndex, surface);
-        float3 incident = pathSample.radiance * diffuseScale;
+        float3 incident = clampOutput(pathSample.radiance * diffuseScale);
+        {
+            float sampleLuminance = luminance(incident);
+            if (sampleLuminance > 0.0) {
+                int bucket = int(floor((log2(sampleLuminance) + 8.0) * 0.5));
+                bucket = clamp(bucket, 0,
+                               int(DiagnosticLuminanceBuckets) - 1);
+                InterlockedAdd(
+                    Diagnostics[DiagnosticLuminanceHistogram + uint(bucket)],
+                    1u);
+            }
+        }
         if (sampleOrdinal == 0u &&
             (DiagnosticGuideMask & 2u) != 0u) {
             DiffuseHitDistance[pixel] = pathSample.firstDistance;

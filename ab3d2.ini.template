@@ -128,11 +128,20 @@ world_light_tessellation=4
 # GGX visible-normal sampling trim, 0.1 through 1. Default 0.9.
 #rtx_ndf_trim=0.9
 
-# Diagnostic ceiling on one sample's luminance. Q2RTX does not clamp path
-# radiance, so the matching default is 0 (disabled). Accepts 0 through 100000.
-# Prefer leaving this off and using the ReSTIR controls below for fireflies: a
-# clamp biases the estimator and will hide exactly the errors worth finding.
-#rtx_radiance_clamp=0
+# Ceiling on one lighting sample, applied to direct, specular and each indirect
+# bounce. Default 1000, matching Q2RTX's MAX_OUTPUT_VALUE.
+#
+# An earlier note here claimed Q2RTX does not clamp path radiance and disabled
+# this by default. That was wrong: clamp_output() in its path tracer bounds
+# every lighting result to 1000 and turns a non-finite one into black, in
+# production rather than as a diagnostic. Without it one improbable path carries
+# unbounded radiance into the frame, which is a firefly by itself and worse
+# under resampling, where the reservoir selects it, holds it for the length of
+# its history and copies it into its neighbours.
+#
+# 0 disables it and is genuinely diagnostic: use it to see what the estimator
+# produces unbounded. Accepts 0 through 100000.
+#rtx_radiance_clamp=1000
 
 
 # --- ReSTIR PT ------------------------------------------------------------

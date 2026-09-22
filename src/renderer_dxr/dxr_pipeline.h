@@ -280,7 +280,13 @@ private:
      * share it. Written one frame and read the next. */
     Microsoft::WRL::ComPtr<ID3D12Resource> sample_ancestry_;
     Microsoft::WRL::ComPtr<ID3D12Resource> duplication_map_;
-    float radiance_clamp_ = 0.0f;
+    /* Q2RTX's MAX_OUTPUT_VALUE. It clamps every lighting output to this in
+     * production, so matching it is the parity behaviour, not a diagnostic. */
+    float radiance_clamp_ = 1000.0f;
+    /* Multiple of the metered high luminance the ceiling tracks, whichever is
+     * lower. Sixty-four sits above the bulk of the distribution and below the
+     * firefly tail measured on the Level A walk. */
+    float radiance_clamp_relative_ = 64.0f;
     float exposure_bias_stops_ = -1.0f;
     float ndf_trim_ = 0.9f;
     uint32_t spp_ = 1u;
