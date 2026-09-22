@@ -72,6 +72,14 @@ struct DxrWorldVectorInstance {
     std::vector<DxrSceneVertex> vertices;
     const SceneSpriteInstance *instance = nullptr;
     uint32_t pool_asset_id = 0u;
+    /*
+     * Always the slot's size. `vertices` holds a payload only when the slot is
+     * occupied: a vacant slot's vertices are every one the same collapsed
+     * point, so rebuilding that vector per slot per frame was pure waste for
+     * data that never changes. Both writers fill vacant slots from
+     * DxrWorldVectorCompilation::vacant_vertex instead.
+     */
+    size_t vertex_count = 0u;
     uint64_t vertex_hash = UINT64_C(1469598103934665603);
     /*
      * False for a reserved slot no live object occupies. The slot still carries
@@ -83,6 +91,8 @@ struct DxrWorldVectorInstance {
 
 struct DxrWorldVectorCompilation {
     std::vector<DxrWorldVectorInstance> instances;
+    /* What every vertex of a vacant slot holds; see DxrWorldVectorInstance. */
+    DxrSceneVertex vacant_vertex = {};
     /* Asset id -> slots the frame needed beyond that asset's capacity.
      * Non-empty asks the caller to grow those runs, which is a rebuild. */
     std::map<uint32_t, size_t> pool_overflow;
@@ -721,20 +731,21 @@ void fill_reserved_vector_slots(uint32_t asset, size_t capacity,
                                 size_t first_slot,
                                 DxrWorldVectorCompilation &result)
 {
-    DxrSceneVertex vacant = {};
-    vacant.position[0] = origin.x;
-    vacant.position[1] = origin.y;
-    vacant.position[2] = origin.z;
-    vacant.emitter_index = UINT32_MAX;
-    vacant.primitive = static_cast<uint32_t>(DxrScenePrimitive::world_vector);
-    vacant.emissive_scale = 1.0f;
+    result.vacant_vertex = {};
+    result.vacant_vertex.position[0] = origin.x;
+    result.vacant_vertex.position[1] = origin.y;
+    result.vacant_vertex.position[2] = origin.z;
+    result.vacant_vertex.emitter_index = UINT32_MAX;
+    result.vacant_vertex.primitive =
+        static_cast<uint32_t>(DxrScenePrimitive::world_vector);
+    result.vacant_vertex.emissive_scale = 1.0f;
     while (result.instances.size() < first_slot + capacity) {
         result.instances.emplace_back();
         DxrWorldVectorInstance &empty = result.instances.back();
         empty.occupied = false;
         empty.pool_asset_id = asset;
+        empty.vertex_count = vertex_count;
         empty.vertex_hash = empty_world_vector_slot_hash;
-        empty.vertices.assign(vertex_count, vacant);
         result.vertex_hash = hash_bytes(result.vertex_hash, &empty.vertex_hash,
                                         sizeof(empty.vertex_hash));
     }
@@ -825,6 +836,7 @@ bool compile_world_vectors(const SceneFrame &frame,
                     error = "DXR world vectors of one asset disagree on their face count";
                     return false;
                 }
+                compiled.vertex_count = vertex_count;
                 result.vertex_hash = hash_bytes(
                     result.vertex_hash, &compiled.vertex_hash,
                     sizeof(compiled.vertex_hash));
@@ -1550,7 +1562,7 @@ bool DxrScene::update(const SceneFrame &frame,
     for (const DxrWorldVectorInstance &vector : world_vectors.instances) {
         if (vector.occupied) {
             world_vector_pools_[vector.pool_asset_id].vertex_count =
-                vector.vertices.size();
+                vector.vertex_count;
         }
     }
     DxrSceneGeometryHashes hashes = dxr_scene_geometry_hashes(frame);
@@ -2032,17 +2044,17 @@ bool DxrScene::compile(const SceneFrame &frame,
              * is collapsed onto a point and can never be hit.
              */
             const size_t empty_first_vertex = compiled_vertices.size();
-            for (DxrSceneVertex vertex : vector.vertices) {
-                vertex.material_index = 0u;
-                compiled_vertices.push_back(vertex);
-            }
+            DxrSceneVertex vacant = world_vectors.vacant_vertex;
+            vacant.material_index = 0u;
+            compiled_vertices.insert(compiled_vertices.end(),
+                                     vector.vertex_count, vacant);
             CompiledInstance compiled_instance;
             compiled_instance.first_surface = static_cast<uint32_t>(
                 compiled_surface_material_indices.size());
             compiled_instance.first_vertex =
                 static_cast<uint32_t>(empty_first_vertex);
             compiled_instance.vertex_count =
-                static_cast<uint32_t>(vector.vertices.size());
+                static_cast<uint32_t>(vector.vertex_count);
             compiled_instance.acceleration_class =
                 SCENE_ACCELERATION_CLASS_DYNAMIC;
             compiled_instance.vertex_hash = vector.vertex_hash;
@@ -2079,7 +2091,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             images.push_back(std::move(image));
         }
         if (compiled_vertices.size() >
-            UINT32_MAX - vector.vertices.size()) {
+            UINT32_MAX - vector.vertex_count) {
             error = "DXR world vector exceeds scene index limits";
             return false;
         }
@@ -2107,8 +2119,8 @@ bool DxrScene::compile(const SceneFrame &frame,
         compiled_instance.first_surface = static_cast<uint32_t>(
             compiled_surface_material_indices.size());
         compiled_instance.first_vertex = static_cast<uint32_t>(first_vertex);
-        compiled_instance.vertex_count = static_cast<uint32_t>(
-            vector.vertices.size());
+        compiled_instance.vertex_count =
+            static_cast<uint32_t>(vector.vertex_count);
         compiled_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
         compiled_instance.vertex_hash = vector.vertex_hash;
         compiled_instance.world_vector = true;
@@ -2543,7 +2555,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
             previous.view_weapon ||
             previous.pool_asset_id != vector.pool_asset_id ||
             previous.acceleration_class != SCENE_ACCELERATION_CLASS_DYNAMIC ||
-            previous.vertex_count != vector.vertices.size()) {
+            previous.vertex_count != vector.vertex_count) {
             error = "DXR geometry-only update changed the world-vector layout";
             return false;
         }
@@ -2567,11 +2579,11 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
             compiled_instance.vertex_hash != previous.vertex_hash ||
             occupant_changed;
         if (instance_changed && !vector.occupied) {
-            for (size_t vertex_index = 0;
-                 vertex_index < vector.vertices.size(); ++vertex_index) {
-                DxrSceneVertex vertex = vector.vertices[vertex_index];
-                vertex.material_index = 0u;
-                compiled_vertices[previous.first_vertex + vertex_index] = vertex;
+            DxrSceneVertex vacant = world_vectors.vacant_vertex;
+            vacant.material_index = 0u;
+            for (size_t vertex_index = 0; vertex_index < vector.vertex_count;
+                 ++vertex_index) {
+                compiled_vertices[previous.first_vertex + vertex_index] = vacant;
             }
         } else if (instance_changed) {
             const SceneSprite &sprite = vector.instance->sprite;
