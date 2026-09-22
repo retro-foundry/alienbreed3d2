@@ -5,6 +5,13 @@ RWBuffer<uint> LuminanceHistogram : register(u0);
 RWStructuredBuffer<float> ToneMapState : register(u1);
 RWStructuredBuffer<uint> Diagnostics : register(u2);
 RWTexture2D<float4> BloomOutput : register(u3);
+/* The exposure the renderer will apply after reconstruction, published so DLSS
+ * uses it instead of deriving one of its own. Streamline's DLSS guide states
+ * that without a tagged exposure buffer DLSS enters auto-exposure mode, and the
+ * DLSS-RR guide adds that RR ignores useAutoExposure, so this is the only way
+ * to stop it adapting a second time over the renderer's tone mapping. */
+RWTexture2D<float> ExposureOutput : register(u4);
+static const float PresentExposureBiasStops = -1.0;
 SamplerState LinearClampSampler : register(s0);
 
 cbuffer PostConstants : register(b0)
@@ -411,6 +418,8 @@ void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float lowLuminance = exp2(histogramLogLuminance(lowBin));
     float highLuminance = exp2(histogramLogLuminance(highBin));
     ToneMapState[AdaptedLuminanceStateIndex] = adaptedLuminance;
+    ExposureOutput[uint2(0u, 0u)] =
+        exp2(PresentExposureBiasStops - 2.0) / max(adaptedLuminance, 1.0e-8);
     ToneMapState[TargetLuminanceStateIndex] = targetLuminance;
     ToneMapState[AverageLuminanceStateIndex] = averageLuminance;
     ToneMapState[LowLuminanceStateIndex] = lowLuminance;

@@ -25,6 +25,14 @@ struct DxrStreamlineResources {
     ID3D12Resource *specular_hit_distance = nullptr;
     ID3D12Resource *disocclusion_mask = nullptr;
     ID3D12Resource *bias_current_color = nullptr;
+    /*
+     * One texel holding the exposure the renderer will apply after
+     * reconstruction. Streamline's guide is explicit that without a tagged
+     * exposure buffer DLSS runs its own auto-exposure, and DLSS-RR ignores the
+     * useAutoExposure option entirely, so tagging this is the only way to stop
+     * it adapting a second time on top of the renderer's own tone mapping.
+     */
+    ID3D12Resource *exposure = nullptr;
 };
 
 class DxrStreamline final {

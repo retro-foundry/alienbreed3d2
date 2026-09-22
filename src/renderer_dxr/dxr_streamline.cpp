@@ -310,7 +310,7 @@ bool complete_resources(const DxrStreamlineResources &resources)
         resources.shading_normal && resources.linear_depth &&
         resources.scene_motion && resources.specular_hit_distance &&
         resources.disocclusion_mask &&
-        resources.bias_current_color;
+        resources.bias_current_color && resources.exposure;
 }
 
 }  // namespace
@@ -700,7 +700,7 @@ bool DxrStreamline::evaluate(
     }
 
     constexpr uint32_t uav_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
-    std::array<sl::Resource, 10> native_resources = {
+    std::array<sl::Resource, 11> native_resources = {
         sl::Resource(sl::ResourceType::eTex2d, resources.noisy_radiance,
                      uav_state),
         sl::Resource(sl::ResourceType::eTex2d, resources.output, uav_state),
@@ -720,10 +720,13 @@ bool DxrStreamline::evaluate(
                      resources.disocclusion_mask, uav_state),
         sl::Resource(sl::ResourceType::eTex2d,
                      resources.bias_current_color, uav_state),
+        sl::Resource(sl::ResourceType::eTex2d, resources.exposure, uav_state),
     };
     const sl::Extent input_extent{0, 0, render_width_, render_height_};
     const sl::Extent output_extent{0, 0, output_width_, output_height_};
-    std::array<sl::ResourceTag, 10> tags = {
+    /* One texel, so it carries its own extent rather than the render one. */
+    const sl::Extent exposure_extent{0, 0, 1u, 1u};
+    std::array<sl::ResourceTag, 11> tags = {
         sl::ResourceTag(&native_resources[0], sl::kBufferTypeScalingInputColor,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
@@ -754,7 +757,10 @@ bool DxrStreamline::evaluate(
         sl::ResourceTag(&native_resources[9], sl::kBufferTypeBiasCurrentColorHint,
                         sl::ResourceLifecycle::eValidUntilEvaluate,
                         &input_extent),
-    };
+            sl::ResourceTag(&native_resources[10], sl::kBufferTypeExposure,
+                        sl::ResourceLifecycle::eValidUntilEvaluate,
+                        &exposure_extent),
+};
     result = slSetTagForFrame(
         *frame_token, rr_viewport, tags.data(), static_cast<uint32_t>(tags.size()),
         reinterpret_cast<sl::CommandBuffer *>(command_list));

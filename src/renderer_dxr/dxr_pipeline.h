@@ -275,6 +275,9 @@ private:
     /* Render-resolution reservoir grids. ReSTIR history is path history at the
      * internal rendering resolution, so these are sized to the render extent
      * and never to the resolution DLSS presents at. */
+    /* One texel carrying the exposure the renderer will apply, handed to
+     * Streamline so DLSS does not derive its own on top of it. */
+    Microsoft::WRL::ComPtr<ID3D12Resource> rr_exposure_;
     Microsoft::WRL::ComPtr<ID3D12Resource> reservoirs_[4];
     /* Ancestry of each pixel's surviving path, and how many of its neighbours
      * share it. Written one frame and read the next. */

@@ -67,7 +67,8 @@ enum DescriptorIndex : UINT {
     post_hdr_srv = 58,
     bloom_uav_start = 59,
     post_hdr_uav = 65,
-    descriptor_count = 66,
+    rr_exposure_uav = 66,
+    descriptor_count = 67,
 };
 
 constexpr std::array<DescriptorIndex,
@@ -1238,8 +1239,12 @@ bool DxrPipeline::create_post_pipeline(ID3D12Device5 *device,
     bloom_output_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
     bloom_output_range.NumDescriptors = 1u;
     bloom_output_range.BaseShaderRegister = 3u;
+    D3D12_DESCRIPTOR_RANGE exposure_output_range = {};
+    exposure_output_range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    exposure_output_range.NumDescriptors = 1u;
+    exposure_output_range.BaseShaderRegister = 4u;
 
-    std::array<D3D12_ROOT_PARAMETER, 7> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 8> parameters = {};
     parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     parameters[0].DescriptorTable.NumDescriptorRanges = 1u;
     parameters[0].DescriptorTable.pDescriptorRanges = &ranges[0];
@@ -1268,6 +1273,10 @@ bool DxrPipeline::create_post_pipeline(ID3D12Device5 *device,
     parameters[6].DescriptorTable.NumDescriptorRanges = 1u;
     parameters[6].DescriptorTable.pDescriptorRanges = &bloom_output_range;
     parameters[6].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+    parameters[7].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    parameters[7].DescriptorTable.NumDescriptorRanges = 1u;
+    parameters[7].DescriptorTable.pDescriptorRanges = &exposure_output_range;
+    parameters[7].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 
     D3D12_STATIC_SAMPLER_DESC linear_sampler = {};
     linear_sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -2114,6 +2123,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         streamline_scene_motion_ &&
         view_weapon_histories_[0] && view_weapon_histories_[1] &&
         rr_disocclusion_mask_ && rr_bias_current_color_mask_ &&
+        rr_exposure_ &&
         surface_parameters_ && primary_visibility_ && burst_resources_ready &&
         render_width_ == width &&
         render_height_ == height && present_width_ == present_width &&
@@ -2130,6 +2140,7 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
     }
     rr_disocclusion_mask_.Reset();
     rr_bias_current_color_mask_.Reset();
+    rr_exposure_.Reset();
     surface_parameters_.Reset();
     primary_visibility_.Reset();
     for (auto &items : burst_work_items_) {
@@ -2289,6 +2300,35 @@ bool DxrPipeline::ensure_reconstruction_targets(ID3D12Device5 *device,
         device->CreateUnorderedAccessView(
             rr_disocclusion_mask_.Get(), nullptr, &uav,
             cpu_descriptor(rr_disocclusion_mask_uav));
+    }
+    {
+        /*
+         * One texel holding the exposure the renderer will apply after
+         * reconstruction. Streamline's DLSS guide states that without a tagged
+         * exposure buffer DLSS runs its own auto-exposure, and the DLSS-RR
+         * guide adds that RR ignores the useAutoExposure option, so tagging
+         * this is the only way to stop it adapting a second time on top of the
+         * renderer's tone mapping.
+         */
+        D3D12_RESOURCE_DESC exposure_description = description;
+        exposure_description.Width = 1u;
+        exposure_description.Height = 1u;
+        exposure_description.Format = DXGI_FORMAT_R32_FLOAT;
+        const HRESULT result = device->CreateCommittedResource(
+            &default_heap, D3D12_HEAP_FLAG_NONE, &exposure_description,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+            IID_PPV_ARGS(&rr_exposure_));
+        if (FAILED(result)) {
+            error = hresult_error(
+                "ID3D12Device::CreateCommittedResource(RR exposure)", result);
+            return false;
+        }
+        rr_exposure_->SetName(L"AB3D2 RR Exposure");
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uav = {};
+        uav.Format = DXGI_FORMAT_R32_FLOAT;
+        uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+        device->CreateUnorderedAccessView(rr_exposure_.Get(), nullptr, &uav,
+                                          cpu_descriptor(rr_exposure_uav));
     }
     {
         const HRESULT result = device->CreateCommittedResource(
@@ -3545,6 +3585,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                 DxrReconstructionBuffer::specular_hit_distance),
             rr_disocclusion_mask_.Get(),
             rr_bias_current_color_mask_.Get(),
+            rr_exposure_.Get(),
         };
         if (!streamline->evaluate(command_list, frame_number, current_camera,
                                   previous_camera, current_jitter,
@@ -3734,6 +3775,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         const D3D12_RESOURCE_BARRIER histogram_ready =
             uav_barrier(tone_map_histogram_.Get());
         command_list->ResourceBarrier(1, &histogram_ready);
+        command_list->SetComputeRootDescriptorTable(
+            7, gpu_descriptor(rr_exposure_uav));
         command_list->SetPipelineState(post_curve_pipeline_state_.Get());
         command_list->Dispatch(1u, 1u, 1u);
         const D3D12_RESOURCE_BARRIER curve_ready =
