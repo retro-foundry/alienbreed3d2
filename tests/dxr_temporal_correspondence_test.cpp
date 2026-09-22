@@ -220,6 +220,45 @@ void moving_object_test()
     TemporalSurfaceData same = revealed;
     check(surface_compatible(revealed, same),
           "an unchanged surface keeps its history");
+
+    /*
+     * The ghosting case, and the one every other check waves through.
+     *
+     * A wall behind a moving object, and the part of the same wall the object
+     * has just uncovered, are the same material, the same instance, the same
+     * orientation and the same depth. Everything an identity-and-depth test
+     * looks at agrees. Only where they are disagrees, and if that is not
+     * checked the newly revealed pixel inherits the lighting of whatever was
+     * standing in front of it and drags a lit silhouette behind the object.
+     */
+    TemporalSurfaceData here = revealed;
+    here.world_position = {0.0f, 0.0f, depth};
+    TemporalSurfaceData displaced = here;
+    displaced.world_position = {12.0f, 0.0f, depth};
+    check(!surface_compatible(here, displaced),
+          "a laterally displaced surface at the same depth rejects history");
+
+    TemporalSurfaceData nudged = here;
+    nudged.world_position = {0.02f, 0.0f, depth};
+    check(surface_compatible(here, nudged),
+          "a subpixel displacement still keeps its history");
+
+    /* A surface parallel to this one and slightly in front of it is a
+     * different wall, not this one. */
+    TemporalSurfaceData parallel = here;
+    parallel.world_position = {0.0f, 0.0f, depth - 8.0f};
+    parallel.depth = depth;
+    check(!surface_compatible(here, parallel),
+          "a parallel surface off the plane rejects history");
+
+    /* Spatial reuse deliberately looks at a different point on the same
+     * surface, so it waives the same-point requirement but not the plane. */
+    CompatibilityThresholds spatial = {};
+    spatial.relative_separation = -1.0f;
+    check(surface_compatible(here, displaced, spatial),
+          "a spatial neighbour on the same plane is still compatible");
+    check(!surface_compatible(here, parallel, spatial),
+          "a spatial neighbour off the plane is not");
 }
 
 /*

@@ -191,6 +191,13 @@ inline bool pixel_inside(PixelPosition position, uint32_t width,
 struct CompatibilityThresholds {
     float relative_depth = 0.02f;
     float normal_cosine = 0.9f;
+    /*
+     * How far the two surfaces may lie apart in the world, as a fraction of
+     * view depth. Negative means "do not require the same point", which is what
+     * a spatial neighbour is: deliberately a different point on the same
+     * surface, held only to the plane test.
+     */
+    float relative_separation = 0.01f;
 };
 
 /*
@@ -225,6 +232,34 @@ inline bool surface_compatible(const TemporalSurfaceData &current,
     if (brdf::dot(current.geometric_normal, previous.geometric_normal) <
         thresholds.normal_cosine) {
         return false;
+    }
+
+    /*
+     * Where the two surfaces actually are, which nothing above establishes.
+     * Depth measures distance along the view direction only, so a wall and a
+     * different part of the same wall revealed behind something that moved
+     * agree about material, about normal and about depth. Reusing one for the
+     * other is exactly how a lit silhouette is left trailing behind whatever
+     * moved, and it is the reason a reprojection landing on screen proves
+     * nothing on its own.
+     */
+    const Vec3 separation = current.world_position - previous.world_position;
+
+    /* Off-plane distance rejects a surface parallel to this one, which is how
+     * light leaks through a thin wall. */
+    const float planar =
+        std::fabs(brdf::dot(separation, current.geometric_normal));
+    if (planar > thresholds.relative_depth * current.depth) {
+        return false;
+    }
+
+    /* A temporal candidate must be the same point, because the motion vector
+     * claims it is. A spatial neighbour passes a negative limit. */
+    if (thresholds.relative_separation > 0.0f) {
+        const float limit = thresholds.relative_separation * current.depth;
+        if (brdf::dot(separation, separation) > limit * limit) {
+            return false;
+        }
     }
     return true;
 }

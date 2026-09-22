@@ -327,6 +327,10 @@ cbuffer RayRootConstants : register(b1)
  * looking at a different point on what should be the same surface, so its
  * geometry tolerances are looser while identity stays exact.
  */
+/* How far a reprojected surface may sit from where the motion vector says it
+ * is, as a fraction of view depth. This is the ghosting control: too loose and
+ * a disoccluded pixel inherits whatever was in front of it. */
+static const float ReservoirTemporalSeparation = 0.01;
 static const float ReservoirTemporalDepthTolerance = 0.02;
 static const float ReservoirTemporalNormalTolerance = 0.9;
 static const float ReservoirSpatialDepthTolerance = 0.05;
@@ -1820,18 +1824,15 @@ bool traceVisibility(float3 origin, float3 direction, float maximumDistance,
  */
 bool reservoirSurfaceCompatible(PathReservoir reservoir, SurfaceData surface,
                                 float surfaceDepth, float depthTolerance,
-                                float normalTolerance)
+                                float normalTolerance, float separationLimit)
 {
     if (!reservoirValid(reservoir)) {
         return false;
     }
-    if (!(reservoir.primaryDepth > 0.0)) {
+    if (!(reservoir.primaryDepth > 0.0) || !(surfaceDepth > 0.0)) {
         return false;
     }
     if (reservoir.primaryMaterial != surface.materialIndex) {
-        return false;
-    }
-    if (!(reservoir.primaryDepth > 0.0) || !(surfaceDepth > 0.0)) {
         return false;
     }
     float difference = abs(reservoir.primaryDepth - surfaceDepth);
@@ -1841,6 +1842,35 @@ bool reservoirSurfaceCompatible(PathReservoir reservoir, SurfaceData surface,
     }
     float3 storedNormal = unpackOctahedralNormal(reservoir.primaryNormal);
     if (dot(storedNormal, surface.geometricNormal) < normalTolerance) {
+        return false;
+    }
+
+    /*
+     * Where the two surfaces actually are, which the checks above cannot
+     * establish between them. A wall seen a moment ago and a different part of
+     * the same wall revealed behind a moving object agree about material, about
+     * normal, and to within a couple of percent about depth -- and reusing one
+     * for the other is precisely what leaves a lit silhouette trailing after
+     * whatever moved. Depth alone measures distance along the view direction
+     * and says nothing about lateral displacement.
+     */
+    float3 separation = reservoir.primaryPosition - surface.position;
+
+    /* Off-plane distance rejects a neighbour that lies on a different surface
+     * parallel to this one, which is how light leaks through a thin wall. */
+    float planar = abs(dot(separation, surface.geometricNormal));
+    if (planar > depthTolerance * surfaceDepth) {
+        return false;
+    }
+
+    /*
+     * A temporal candidate additionally has to be the SAME point, because
+     * reprojection claims it is. A spatial neighbour is deliberately a
+     * different point on the same surface, so it passes a negative limit and
+     * is held only to the plane test above.
+     */
+    if (separationLimit > 0.0 &&
+        dot(separation, separation) > separationLimit * separationLimit) {
         return false;
     }
     return true;
@@ -3929,9 +3959,11 @@ void ResampleTemporal()
                 all(previousCoordinate < int2(dimensions))) {
                 PathReservoir history = PreviousReservoirs[
                     reservoirIndex(uint2(previousCoordinate), dimensions)];
-                if (reservoirSurfaceCompatible(history, surface, depth,
-                                               ReservoirTemporalDepthTolerance,
-                                               ReservoirTemporalNormalTolerance)) {
+                if (reservoirSurfaceCompatible(
+                        history, surface, depth,
+                        ReservoirTemporalDepthTolerance,
+                        ReservoirTemporalNormalTolerance,
+                        ReservoirTemporalSeparation * depth)) {
                     /* Duplication-based history reduction: where one ancestry
                      * has colonised a neighbourhood its descendants are not the
                      * independent samples their combined confidence claims, so
@@ -4060,7 +4092,8 @@ void ResampleSpatial()
         PathReservoir neighbor = ResampleReservoirs[neighborIndex];
         if (!reservoirSurfaceCompatible(neighbor, surface, depth,
                                         ReservoirSpatialDepthTolerance,
-                                        ReservoirSpatialNormalTolerance)) {
+                                        ReservoirSpatialNormalTolerance,
+                                        -1.0)) {
             continue;
         }
         float3 shiftedTarget;
