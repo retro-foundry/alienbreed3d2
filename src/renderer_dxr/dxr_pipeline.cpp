@@ -134,7 +134,7 @@ enum ShaderRecordIndex : UINT {
     shader_record_count,
 };
 constexpr UINT shader_table_size = shader_record_size * shader_record_count;
-constexpr UINT diagnostic_value_count = 45u;
+constexpr UINT diagnostic_value_count = 56u;
 constexpr UINT burst_dispatch_width_offset = 88u;
 static_assert(offsetof(D3D12_DISPATCH_RAYS_DESC, Width) ==
               burst_dispatch_width_offset);
@@ -1965,6 +1965,18 @@ bool DxrPipeline::collect_diagnostics(std::string &error)
                      "[RESTIR] duplication sum=%u nonzero-pixels=%u "
                      "foreign-ancestry=%u\n",
                      values[42], values[43], values[44]);
+        static const char *const shift_reasons[] = {
+            "invalid", "length", "emit-cos", "src-length", "src-cos",
+            "jac-nonfinite", "jac-bounds", "recv-cos", "geo-cos",
+            "visibility", "target-nonfinite"};
+        std::fprintf(stderr, "[RESTIR] shift failures:");
+        for (size_t reason = 0u; reason < 11u; ++reason) {
+            if (values[45u + reason] != 0u) {
+                std::fprintf(stderr, " %s=%u", shift_reasons[reason],
+                             values[45u + reason]);
+            }
+        }
+        std::fputc(10, stderr);
     }
     last_burst_work_overflow_ = values[15];
     last_indirect_history_accepts_ = values[16];

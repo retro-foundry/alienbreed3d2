@@ -392,6 +392,8 @@ static const uint DiagnosticReuseWithoutCanonical = 41u;
 static const uint DiagnosticDuplicationSum = 42u;
 static const uint DiagnosticDuplicationNonZero = 43u;
 static const uint DiagnosticAncestryForeign = 44u;
+/* Which guard refused a shift, in source order. */
+static const uint DiagnosticShiftFail = 45u;
 
 
 /* Mirrors RendererIndirectMode in renderer_ray_tracing_options.h. */
@@ -500,6 +502,11 @@ static const float ExposureLightAdaptationRate = 4.0;
 static const float ExposureMaximumDeltaSeconds = 0.25;
 static const uint ReservoirCanonicalStream = 0x10200u;
 static const uint ReservoirDecorrelationStream = 0x10b00u;
+/* How far above the local canonical mean a resolved value may sit before it is
+ * treated as a firefly, and an absolute floor so dark regions are not policed
+ * against a near-zero mean. Zero threshold disables the filter. */
+static const float ReservoirFireflyThreshold = 6.0;
+static const float ReservoirFireflyFloor = 0.05;
 static const uint ReservoirTemporalStream = 0x10800u;
 static const uint ReservoirSpatialStream = 0x10900u;
 static const uint ReservoirSpatialOffsetStream = 0x10a00u;
@@ -1985,7 +1992,7 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
     shiftedTarget = 0.0;
     jacobian = 0.0;
     if (!reservoirValid(source)) {
-        return false;
+        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 0u], 1u); return false;
     }
 
     bool environmentSample = source.rcVertexLength == 0u;
@@ -2003,32 +2010,32 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
         float3 offset = source.translatedWorldPosition - offsetOrigin;
         float lengthSquared = dot(offset, offset);
         if (!(lengthSquared > 1.0e-9)) {
-            return false;
+            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 1u], 1u); return false;
         }
         distance = sqrt(lengthSquared);
         direction = offset / distance;
         /* The reconnection vertex must still face the new receiver. */
         float emissionCosine = dot(source.worldNormal, -direction);
         if (!(emissionCosine > 1.0e-4)) {
-            return false;
+            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 2u], 1u); return false;
         }
         float3 sourceOffset = source.translatedWorldPosition -
             source.primaryPosition;
         float sourceLengthSquared = dot(sourceOffset, sourceOffset);
         if (!(sourceLengthSquared > 1.0e-9)) {
-            return false;
+            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 3u], 1u); return false;
         }
         float sourceCosine = dot(source.worldNormal,
                                  -normalize(sourceOffset));
         if (!(sourceCosine > 1.0e-4)) {
-            return false;
+            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 4u], 1u); return false;
         }
         /* Equation (11) of the ReSTIR GI paper: the ratio of solid angles the
          * reconnection subtends from the two receivers. */
         jacobian = (emissionCosine * sourceLengthSquared) /
             (sourceCosine * lengthSquared);
         if (isnan(jacobian) || isinf(jacobian) || jacobian <= 0.0) {
-            return false;
+            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 5u], 1u); return false;
         }
         /*
          * A reconnection that is nearly degenerate -- the receiver almost in
@@ -2046,22 +2053,22 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
          */
         if (jacobian > ReservoirMaximumJacobian ||
             jacobian < 1.0 / ReservoirMaximumJacobian) {
-            return false;
+            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 6u], 1u); return false;
         }
     }
 
     float receiverCosine = dot(surface.shadingNormal, direction);
     if (!(receiverCosine > 1.0e-4)) {
-        return false;
+        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 7u], 1u); return false;
     }
     if (dot(surface.geometricNormal, direction) <= 0.0) {
-        return false;
+        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 8u], 1u); return false;
     }
     if (!traceVisibility(offsetOrigin, direction,
                          environmentSample ? SceneFarPlane :
                              distance - RayEpsilon,
                          instanceMask)) {
-        return false;
+        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 9u], 1u); return false;
     }
 
     /* The cosines above are validity gates, not weights: the shifted path's
@@ -2069,7 +2076,7 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
      * uses, so the two can be compared without either needing an inverse. */
     shiftedTarget = source.radiance * receiverCosine;
     if (any(isnan(shiftedTarget)) || any(isinf(shiftedTarget))) {
-        return false;
+        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 10u], 1u); return false;
     }
     return true;
 }
@@ -4471,6 +4478,52 @@ void ReconstructIndirect()
                 PathReservoir preserved = PreservedReservoirs[resolvedIndex];
                 if (reservoirValid(preserved)) {
                     resolved = preserved;
+                }
+            }
+        }
+        /*
+         * Firefly replacement. A reservoir whose resolved radiance is far above
+         * what the fresh samples around it say is plausible is a resampling
+         * outlier: one improbable path given an enormous contribution weight,
+         * which spatial reuse then copies into its neighbours as a bright patch.
+         * Compare against the local mean of the unresampled canonical samples,
+         * which are noisy but unbiased, and replace with this pixel's own
+         * preserved sample when the resolved value exceeds it by more than the
+         * filter permits. That is the reference's firefly filter with the
+         * decorrelation slot as the replacement, and it removes a firefly in the
+         * frame it appears rather than letting it be smeared for twenty.
+         */
+        if (ReservoirFireflyThreshold > 0.0) {
+            float localCanonical = 0.0;
+            uint localCount = 0u;
+            for (int fy = -2; fy <= 2; ++fy) {
+                for (int fx = -2; fx <= 2; ++fx) {
+                    int2 neighbour = int2(pixel) + int2(fx, fy);
+                    if (any(neighbour < 0) ||
+                        any(neighbour >= int2(dimensions))) {
+                        continue;
+                    }
+                    PathReservoir sample = PreservedReservoirs[
+                        reservoirIndex(uint2(neighbour), dimensions)];
+                    if (reservoirValid(sample)) {
+                        localCanonical +=
+                            reservoirLuminance(resolvedRadiance(sample));
+                        ++localCount;
+                    }
+                }
+            }
+            if (localCount > 0u) {
+                localCanonical /= float(localCount);
+                float resolvedLuminance =
+                    reservoirLuminance(resolvedRadiance(resolved));
+                if (resolvedLuminance >
+                    ReservoirFireflyThreshold * localCanonical +
+                        ReservoirFireflyFloor) {
+                    PathReservoir preserved =
+                        PreservedReservoirs[resolvedIndex];
+                    if (reservoirValid(preserved)) {
+                        resolved = preserved;
+                    }
                 }
             }
         }
