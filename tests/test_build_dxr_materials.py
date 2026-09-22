@@ -17,7 +17,7 @@ SPEC = ROOT / "data" / "renderer_dxr" / "material_sources.json"
 FLOOR_SOURCE = ROOT / "amiga" / "media" / "includes" / "floortile"
 FLOOR_REMAP = ROOT / "amiga" / "media" / "includes" / "newtexturemaps.pal"
 DISPLAY_PALETTE = ROOT / "amiga" / "media" / "includes" / "256pal"
-EXPECTED_CONTENT_DIGEST = "f58bed00b3a2593a969391b5355b96b2783392be1d9289c7a4a63be1795bdadd"
+EXPECTED_CONTENT_DIGEST = "3ce2065c09ec2c4a6dfb73aa8d02fa90fd11d988299e21c009478780947eb78e"
 RUNTIME_HEADER = struct.Struct("<8sIIII")
 RUNTIME_RECORD = struct.Struct("<IIIIffffII")
 
@@ -108,8 +108,11 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 self.assertEqual(material["roughness_space"], "linear")
                 self.assertEqual(material["metalness_space"], "linear")
                 self.assertEqual(material["emissive_space"], "srgb")
+                # technolights is authored PBR art whose emissive map is a
+                # real fixture mask. floor_0101 is a source-decoded tile and
+                # emits nothing: the game's palette has no fullbright entry, so
+                # no source texture is self-lit. See dxr_source_lighting.h.
                 authored_emission = {
-                    "floor_0101": [200.0, 200.0, 200.0],
                     "technolights": [200.0, 200.0, 200.0],
                 }
                 if material["name"] in authored_emission:
@@ -182,17 +185,20 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 )
             ]
             self.assertEqual(floor_light[0:2], (2, 257))
-            self.assertEqual(floor_light[5:8], (200.0, 200.0, 200.0))
-            self.assertEqual(floor_light[8], 1)
+            # No radiance, and the emissive-texture flag clear with it, so the
+            # runtime cannot treat the floor as an emitter.
+            self.assertEqual(floor_light[5:8], (0.0, 0.0, 0.0))
+            self.assertEqual(floor_light[8], 0)
 
             with Image.open(first / "technolights_emissive.png") as image:
                 pixels = list(image.convert("RGB").getdata())
                 self.assertTrue(any(pixel == (0, 0, 0) for pixel in pixels))
                 self.assertTrue(any(pixel != (0, 0, 0) for pixel in pixels))
-            with Image.open(first / "floor_0101_emissive.png") as image:
-                lit = sum(pixel != (0, 0, 0) for pixel in image.convert("RGB").getdata())
-                self.assertEqual(lit, 3541)
-            for name in ("brownspeakers", "technotritile"):
+            # The floor used to arrive here with 3541 of its 4096 texels lit,
+            # because emissive_from_albedo was asking which texels of an
+            # identity-row decode were bright and the answer was nearly all of
+            # them. Nothing in the source is self-lit, so the map is empty.
+            for name in ("floor_0101", "brownspeakers", "technotritile"):
                 with Image.open(first / f"{name}_emissive.png") as image:
                     self.assertIsNone(image.convert("RGB").getbbox())
 

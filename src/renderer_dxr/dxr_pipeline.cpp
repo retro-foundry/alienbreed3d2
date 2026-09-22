@@ -224,9 +224,10 @@ struct FrameConstants {
     uint32_t restir_spatial_samples;
     float restir_spatial_radius;
     float restir_history_reduction;
-    /* Keeps the structure a whole number of 16-byte constant registers, so the
-     * C++ and HLSL layouts cannot disagree about trailing padding. */
-    uint32_t frame_constant_padding[1];
+    /* Radiance of a fully lit source surface; see dxr_source_lighting.h. This
+     * also takes the slot that used to round the structure out to a whole
+     * number of 16-byte constant registers, so the total is unchanged. */
+    float source_light_scale;
 };
 
 /*
@@ -797,6 +798,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  indirect_reconstruction::temporal_window_maximum,
                  &indirect_temporal_window_},
     };
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_SOURCE_LIGHT_SCALE", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 0.0 || parsed > 1024.0) {
+                error = "AB3D2_DXR_SOURCE_LIGHT_SCALE must be 0-1024";
+                return false;
+            }
+            source_light_scale_ = static_cast<float>(parsed);
+        }
+    }
     {
         char value[64] = {};
         const DWORD length = GetEnvironmentVariableA(
@@ -3214,6 +3232,12 @@ bool DxrPipeline::record(ID3D12Device5 *device,
      */
     constants.restir_decorrelation = restir_decorrelation_;
     constants.maximum_emitter_radiance = scene_.maximum_emitter_radiance();
+    /*
+     * The game's light units are palette rows, so the scale that turns a fully
+     * lit surface into radiance is ours to choose. One keeps a lit white wall
+     * at unit radiance, which puts the scene in the range Q2RTX works in.
+     */
+    constants.source_light_scale = source_light_scale_;
     constants.restir_temporal_history =
         indirect_lighting_changed ? 1u : restir_temporal_history_;
     constants.restir_spatial_samples = restir_spatial_samples_;
