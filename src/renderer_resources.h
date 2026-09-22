@@ -28,11 +28,11 @@ typedef struct {
     const uint8_t *source_display_palette_bytes;
     size_t source_display_palette_byte_count;
     /*
-     * ObjT bitmap graphics indices the level loaded. A backend that decodes
-     * object art lazily uses these to do it before gameplay instead of inside
-     * the frame that first shows a muzzle flash, an impact or a projectile.
+     * How many ObjT bitmap graphics the level loaded; their asset ids are 0 to
+     * bitmap_asset_count - 1, the same index space the sprites name. A backend
+     * that decodes object art lazily uses this to do it before gameplay instead
+     * of inside the frame that first shows a muzzle flash or an impact.
      */
-    const uint32_t *bitmap_asset_ids;
     size_t bitmap_asset_count;
 } RendererResourceCatalog;
 

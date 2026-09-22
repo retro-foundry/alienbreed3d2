@@ -54,14 +54,11 @@ struct DxrWorldBitmapInstance {
 
 struct DxrWorldBitmapCompilation {
     /*
-     * The lasting billboards first, in frame order, then a fixed run of
-     * projectile slots. A lasting billboard is matched by identity across
-     * frames; a projectile slot is matched by position, because the ObjT slot
-     * behind it is a pool the source reuses and its occupant is expected to
-     * change.
+     * One fixed run of slots, matched by position rather than by identity,
+     * because the ObjT records behind them are a pool the source reuses and an
+     * occupant is expected to change. Every world billboard lives in the run.
      */
     std::vector<DxrWorldBitmapInstance> instances;
-    size_t pool_first = 0u;
     size_t pool_capacity = 0u;
     /* Slots the frame needed beyond `pool_capacity`. Non-zero asks the caller
      * to grow the pool, which is a layout change and so a rebuild. */
@@ -94,9 +91,21 @@ struct DxrWorldVectorCompilation {
 
     ~DxrWorldVectorCompilation()
     {
+        reset();
+    }
+
+    /* Discard a compilation made against a capacity that is about to grow.
+     * The sources own heap allocations, so they have to be released, and the
+     * struct is deliberately non-assignable. */
+    void reset()
+    {
         for (DxrWorldVectorInstance &instance : instances) {
             source_vector_scene_mesh_destroy(&instance.source);
         }
+        instances.clear();
+        pool_overflow.clear();
+        layout_hash = UINT64_C(1469598103934665603);
+        vertex_hash = UINT64_C(1469598103934665603);
     }
 
     DxrWorldVectorCompilation() = default;
@@ -156,6 +165,14 @@ constexpr size_t world_bitmap_pool_limit = 1024u;
  */
 constexpr uint64_t empty_world_bitmap_slot_hash = UINT64_C(0x9e3779b97f4a7c15);
 constexpr uint64_t empty_world_vector_slot_hash = UINT64_C(0xc2b2ae3d27d4eb4f);
+bool rebuild_log_enabled()
+{
+    double threshold = 0.0;
+    return hitch_log_threshold_ms(threshold);
+}
+
+/* No emitter has ever been reserved in this triangle slot. */
+constexpr float no_reserved_emitter_slot = -1.0f;
 constexpr size_t world_vector_pool_baseline = 4u;
 constexpr size_t world_vector_pool_limit = 256u;
 
@@ -555,7 +572,6 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
             sizeof(compiled.vertex_hash));
         occupants.push_back(std::move(compiled));
     }
-    result.pool_first = 0u;
     result.pool_capacity = pool_capacity;
     result.pool_overflow = occupants.size() > pool_capacity ?
         occupants.size() - pool_capacity : 0u;
@@ -575,7 +591,7 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
      * slot's vertices wherever its last occupant died, which is why the hash is
      * a constant rather than a fold of these positions.
      */
-    while (result.instances.size() < result.pool_first + pool_capacity) {
+    while (result.instances.size() < pool_capacity) {
         DxrWorldBitmapInstance empty;
         empty.occupied = false;
         empty.vertex_hash = empty_world_bitmap_slot_hash;
@@ -600,6 +616,121 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
     return true;
 }
 
+/* Compile one live vector object into its reserved slot. Split out of
+ * compile_world_vectors so the run-shaping logic there stays readable. */
+bool compile_world_vector_occupant(const SceneSpriteInstance &scene_instance,
+                                   uint32_t asset,
+                                   DxrWorldVectorInstance &compiled,
+                                   std::string &error)
+{
+    const SceneSprite &sprite = scene_instance.sprite;
+
+    compiled.instance = &scene_instance;
+    compiled.pool_asset_id = asset;
+    char compile_error[512] = {};
+    if (!source_vector_scene_compile_world_ray_traced(
+            &sprite, &compiled.source, compile_error,
+            sizeof(compile_error))) {
+        error = "DXR source world-vector compilation failed: ";
+        error += compile_error;
+        return false;
+    }
+    if (!compiled.source.triangles || compiled.source.triangle_count == 0u ||
+        !compiled.source.materials || compiled.source.material_count == 0u ||
+        compiled.source.triangle_count > UINT32_MAX / 3u ||
+        compiled.source.material_count > UINT32_MAX) {
+        error = "DXR source world vector compiled no stable faces";
+        return false;
+    }
+    for (size_t material_index = 0;
+         material_index < compiled.source.material_count; ++material_index) {
+        const SourceVectorSceneMaterial &material =
+            compiled.source.materials[material_index];
+        if (!material.rgba || material.width == 0u || material.height == 0u) {
+            error = "DXR source world vector contains an invalid material";
+            return false;
+        }
+    }
+    compiled.vertex_hash = dxr_vector_material_hash(
+        compiled.vertex_hash, compiled.source, false);
+    compiled.vertices.reserve(compiled.source.triangle_count * 3u);
+    for (size_t triangle_index = 0;
+         triangle_index < compiled.source.triangle_count; ++triangle_index) {
+        const SourceVectorSceneTriangle &triangle =
+            compiled.source.triangles[triangle_index];
+        if (triangle.material_index >= compiled.source.material_count) {
+            error = "DXR source world vector references an invalid material";
+            return false;
+        }
+        for (const SourceVectorSceneVertex &source : triangle.vertices) {
+            if (!std::isfinite(source.x) || !std::isfinite(source.y) ||
+                !std::isfinite(source.z) || !std::isfinite(source.u) ||
+                !std::isfinite(source.v)) {
+                error = "DXR source world vector contains a non-finite vertex";
+                return false;
+            }
+            DxrSceneVertex vertex = {};
+            vertex.position[0] = source.x;
+            vertex.position[1] = source.y;
+            vertex.position[2] = source.z;
+            vertex.texture_coordinate[0] = source.u;
+            vertex.texture_coordinate[1] = source.v;
+            vertex.material_index = triangle.material_index;
+            vertex.emitter_index = UINT32_MAX;
+            vertex.primitive = static_cast<uint32_t>(
+                triangle.additive ? DxrScenePrimitive::world_effect :
+                                    DxrScenePrimitive::world_vector);
+            /*
+             * Do not carry doapoly flat/Gouraud light into PBR entities. A
+             * `predoglare` face keeps full strength as well: unlike a glare
+             * bitmap, renderer_opengl.c draws the additive vector pass at an
+             * opacity of one.
+             */
+            vertex.emissive_scale = 1.0f;
+            compiled.vertex_hash = hash_bytes(
+                compiled.vertex_hash, vertex.position,
+                sizeof(vertex.position));
+            compiled.vertex_hash = hash_bytes(
+                compiled.vertex_hash, vertex.texture_coordinate,
+                sizeof(vertex.texture_coordinate));
+            compiled.vertices.push_back(vertex);
+        }
+    }
+    return true;
+}
+
+/*
+ * Pad an asset's run out to its reserved capacity. A vacant slot keeps its
+ * vertices, collapsed onto the camera, so the run holds its shape while
+ * objects of its kind spawn and die. The hash is a constant, not a fold of
+ * these positions: a geometry update leaves a vacated slot's vertices wherever
+ * its last occupant died.
+ */
+void fill_reserved_vector_slots(uint32_t asset, size_t capacity,
+                                size_t vertex_count,
+                                const SceneRenderPoint &origin,
+                                size_t first_slot,
+                                DxrWorldVectorCompilation &result)
+{
+    DxrSceneVertex vacant = {};
+    vacant.position[0] = origin.x;
+    vacant.position[1] = origin.y;
+    vacant.position[2] = origin.z;
+    vacant.emitter_index = UINT32_MAX;
+    vacant.primitive = static_cast<uint32_t>(DxrScenePrimitive::world_vector);
+    vacant.emissive_scale = 1.0f;
+    while (result.instances.size() < first_slot + capacity) {
+        result.instances.emplace_back();
+        DxrWorldVectorInstance &empty = result.instances.back();
+        empty.occupied = false;
+        empty.pool_asset_id = asset;
+        empty.vertex_hash = empty_world_vector_slot_hash;
+        empty.vertices.assign(vertex_count, vacant);
+        result.vertex_hash = hash_bytes(result.vertex_hash, &empty.vertex_hash,
+                                        sizeof(empty.vertex_hash));
+    }
+}
+
 bool compile_world_vectors(const SceneFrame &frame,
                            const std::map<uint32_t, DxrVectorPool> &pools,
                            DxrWorldVectorCompilation &result,
@@ -611,6 +742,8 @@ bool compile_world_vectors(const SceneFrame &frame,
             camera = &frame.commands[index].data.camera;
         }
     }
+    const SceneRenderPoint origin = scene_render_world_point(
+        camera ? camera->position : SceneWorldPoint{});
 
     /*
      * Group the frame's live vector objects by asset. Each asset gets its own
@@ -655,111 +788,26 @@ bool compile_world_vectors(const SceneFrame &frame,
     /*
      * Every asset the pool holds, not only the ones on screen: a reserved run
      * has to keep its shape when the last object of its kind dies, or that
-     * death is itself a layout change.
+     * death is itself a layout change. An asset absent from `pools` has no run,
+     * so iterating the pools alone is the whole set.
      */
-    std::set<uint32_t> assets;
     for (const auto &entry : pools) {
-        assets.insert(entry.first);
-    }
-    for (const auto &entry : live) {
-        assets.insert(entry.first);
-    }
-
-    for (const uint32_t asset : assets) {
-        const auto pool = pools.find(asset);
-        const size_t capacity = pool != pools.end() ? pool->second.capacity : 0u;
+        const uint32_t asset = entry.first;
+        const size_t capacity = entry.second.capacity;
         if (capacity == 0u) {
             continue;
         }
         const auto occupants = live.find(asset);
         const size_t first_slot = result.instances.size();
-        size_t vertex_count =
-            pool != pools.end() ? pool->second.vertex_count : 0u;
+        size_t vertex_count = entry.second.vertex_count;
+
         if (occupants != live.end()) {
             for (const SceneSpriteInstance *scene_instance : occupants->second) {
-                const SceneSprite &sprite = scene_instance->sprite;
                 result.instances.emplace_back();
                 DxrWorldVectorInstance &compiled = result.instances.back();
-                compiled.instance = scene_instance;
-                compiled.pool_asset_id = asset;
-                char compile_error[512] = {};
-                if (!source_vector_scene_compile_world_ray_traced(
-                        &sprite, &compiled.source, compile_error,
-                        sizeof(compile_error))) {
-                    error = "DXR source world-vector compilation failed: ";
-                    error += compile_error;
+                if (!compile_world_vector_occupant(*scene_instance, asset,
+                                                   compiled, error)) {
                     return false;
-                }
-                if (!compiled.source.triangles ||
-                    compiled.source.triangle_count == 0u ||
-                    !compiled.source.materials ||
-                    compiled.source.material_count == 0u ||
-                    compiled.source.triangle_count > UINT32_MAX / 3u ||
-                    compiled.source.material_count > UINT32_MAX) {
-                    error = "DXR source world vector compiled no stable faces";
-                    return false;
-                }
-                for (size_t material_index = 0;
-                     material_index < compiled.source.material_count;
-                     ++material_index) {
-                    const SourceVectorSceneMaterial &material =
-                        compiled.source.materials[material_index];
-                    if (!material.rgba || material.width == 0u ||
-                        material.height == 0u) {
-                        error = "DXR source world vector contains an invalid material";
-                        return false;
-                    }
-                }
-                compiled.vertex_hash = dxr_vector_material_hash(
-                    compiled.vertex_hash, compiled.source, false);
-                compiled.vertices.reserve(compiled.source.triangle_count * 3u);
-                for (size_t triangle_index = 0;
-                     triangle_index < compiled.source.triangle_count;
-                     ++triangle_index) {
-                    const SourceVectorSceneTriangle &triangle =
-                        compiled.source.triangles[triangle_index];
-                    if (triangle.material_index >=
-                        compiled.source.material_count) {
-                        error = "DXR source world vector references an invalid material";
-                        return false;
-                    }
-                    for (const SourceVectorSceneVertex &source :
-                         triangle.vertices) {
-                        if (!std::isfinite(source.x) ||
-                            !std::isfinite(source.y) ||
-                            !std::isfinite(source.z) ||
-                            !std::isfinite(source.u) ||
-                            !std::isfinite(source.v)) {
-                            error = "DXR source world vector contains a non-finite vertex";
-                            return false;
-                        }
-                        DxrSceneVertex vertex = {};
-                        vertex.position[0] = source.x;
-                        vertex.position[1] = source.y;
-                        vertex.position[2] = source.z;
-                        vertex.texture_coordinate[0] = source.u;
-                        vertex.texture_coordinate[1] = source.v;
-                        vertex.material_index = triangle.material_index;
-                        vertex.emitter_index = UINT32_MAX;
-                        vertex.primitive = static_cast<uint32_t>(
-                            triangle.additive ?
-                                DxrScenePrimitive::world_effect :
-                                DxrScenePrimitive::world_vector);
-                        /*
-                         * Do not carry doapoly flat/Gouraud light into PBR
-                         * entities. A `predoglare` face keeps full strength as
-                         * well: unlike a glare bitmap, renderer_opengl.c draws
-                         * the additive vector pass at an opacity of one.
-                         */
-                        vertex.emissive_scale = 1.0f;
-                        compiled.vertex_hash = hash_bytes(
-                            compiled.vertex_hash, vertex.position,
-                            sizeof(vertex.position));
-                        compiled.vertex_hash = hash_bytes(
-                            compiled.vertex_hash, vertex.texture_coordinate,
-                            sizeof(vertex.texture_coordinate));
-                        compiled.vertices.push_back(vertex);
-                    }
                 }
                 if (vertex_count == 0u) {
                     vertex_count = compiled.vertices.size();
@@ -779,34 +827,8 @@ bool compile_world_vectors(const SceneFrame &frame,
             result.instances.resize(first_slot);
             continue;
         }
-        /*
-         * Reserved-but-empty slots, collapsed onto the camera so the run keeps
-         * its full shape. As with the bitmap pool the hash is a constant, not a
-         * fold of these positions: a geometry update leaves an empty slot's
-         * vertices wherever its last occupant died.
-         */
-        while (result.instances.size() < first_slot + capacity) {
-            result.instances.emplace_back();
-            DxrWorldVectorInstance &empty = result.instances.back();
-            empty.occupied = false;
-            empty.pool_asset_id = asset;
-            empty.vertex_hash = empty_world_vector_slot_hash;
-            empty.vertices.assign(vertex_count, DxrSceneVertex{});
-            const SceneRenderPoint origin = scene_render_world_point(
-                camera ? camera->position : SceneWorldPoint{});
-            for (DxrSceneVertex &vertex : empty.vertices) {
-                vertex.position[0] = origin.x;
-                vertex.position[1] = origin.y;
-                vertex.position[2] = origin.z;
-                vertex.emitter_index = UINT32_MAX;
-                vertex.primitive =
-                    static_cast<uint32_t>(DxrScenePrimitive::world_vector);
-                vertex.emissive_scale = 1.0f;
-            }
-            result.vertex_hash = hash_bytes(
-                result.vertex_hash, &empty.vertex_hash,
-                sizeof(empty.vertex_hash));
-        }
+        fill_reserved_vector_slots(asset, capacity, vertex_count, origin,
+                                   first_slot, result);
         /* Layout is the shape of the run, never who is standing in it. */
         result.layout_hash = hash_bytes(result.layout_hash, &asset,
                                         sizeof(asset));
@@ -847,6 +869,34 @@ float maximum_emissive_luminance(const MaterialImage &image)
             red * 0.2126 + green * 0.7152 + blue * 0.0722);
     }
     return static_cast<float>(maximum_luminance);
+}
+
+/* One place that turns a packaged PBR definition into an atlas image. The
+ * wall/floor path builds its own because it also runs the mip chain. */
+MaterialImage material_image_from_definition(const DxrMaterialDefinition &pbr)
+{
+    MaterialImage image;
+    image.width = pbr.width;
+    image.height = pbr.height;
+    image.pixels = pbr.pixels;
+    image.normal_strength = pbr.normal_strength;
+    image.specular_factor = pbr.specular_factor;
+    std::memcpy(image.emissive_factor, pbr.emissive_factor,
+                sizeof(image.emissive_factor));
+    image.maximum_emissive_luminance = maximum_emissive_luminance(image);
+    return image;
+}
+
+/* The vertex that fills a view-weapon reserved run past its active model. One
+ * definition, because compile() and compile_geometry_update() both write into
+ * the same reserved slots and must agree on what vacant looks like. */
+DxrSceneVertex view_weapon_pad_vertex(
+    const std::vector<DxrSceneVertex> &vertices)
+{
+    DxrSceneVertex pad = vertices.empty() ? DxrSceneVertex{} : vertices.front();
+    pad.material_index = 0u;
+    pad.emitter_index = UINT32_MAX;
+    return pad;
 }
 
 bool build_material_mip_chain(MaterialImage &image, const char *kind,
@@ -1128,10 +1178,20 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
 bool compile_emissive_triangles(
     std::vector<DxrSceneVertex> &vertices,
     const std::vector<float> &material_emissive_bound,
-    std::map<uint32_t, float> &reserved_emitter_slots,
+    std::vector<float> &reserved_emitter_slots,
     std::vector<DxrEmissiveTriangle> &emitters, std::string &error)
 {
     emitters.clear();
+    /*
+     * Indexed by triangle, not keyed by vertex offset: the keys are dense and
+     * this is read once per triangle per frame, where a tree's pointer chasing
+     * cost more than the table it indexed. Cleared by compile(), which is what
+     * resizes it, because the offsets only mean anything within one layout.
+     */
+    const size_t triangle_slots = vertices.size() / 3u;
+    if (reserved_emitter_slots.size() != triangle_slots) {
+        reserved_emitter_slots.assign(triangle_slots, no_reserved_emitter_slot);
+    }
     std::vector<float> emitter_weights;
     for (DxrSceneVertex &vertex : vertices) {
         vertex.emitter_index = UINT32_MAX;
@@ -1149,28 +1209,6 @@ bool compile_emissive_triangles(
             error = "DXR geometry references an out-of-range material";
             return false;
         }
-        const float luminance = material_emissive_bound[material_index];
-        const float *first = vertices[first_vertex + 0u].position;
-        const float *second = vertices[first_vertex + 1u].position;
-        const float *third = vertices[first_vertex + 2u].position;
-        const float edge_a[3] = {
-            second[0] - first[0], second[1] - first[1],
-            second[2] - first[2]};
-        const float edge_b[3] = {
-            third[0] - first[0], third[1] - first[1], third[2] - first[2]};
-        const float cross[3] = {
-            edge_a[1] * edge_b[2] - edge_a[2] * edge_b[1],
-            edge_a[2] * edge_b[0] - edge_a[0] * edge_b[2],
-            edge_a[0] * edge_b[1] - edge_a[1] * edge_b[0],
-        };
-        const float area = 0.5f * std::sqrt(
-            cross[0] * cross[0] + cross[1] * cross[1] +
-            cross[2] * cross[2]);
-        /* The emitter proposal uses the material's conservative radiance bound,
-         * like a light tree/ReGIR cell, rather than average texture power. */
-        const float weight = area * luminance;
-        const bool emissive = luminance > 0.0f && area > 1.0e-6f &&
-            std::isfinite(weight) && weight > 0.0f;
         /*
          * A pooled slot keeps its emitter entry once it has ever been emissive,
          * at zero power while it is idle. Compacting it away instead shifted
@@ -1192,10 +1230,41 @@ bool compile_emissive_triangles(
             primitive == static_cast<uint32_t>(
                 DxrScenePrimitive::world_billboard) ||
             primitive == static_cast<uint32_t>(DxrScenePrimitive::world_vector);
-        const uint32_t slot = static_cast<uint32_t>(first_vertex);
+        const float luminance = material_emissive_bound[material_index];
+        /*
+         * The early-out. This loop walks every triangle in the level on every
+         * frame, and almost none of them are emissive or pooled, so nothing
+         * below here may run for the common case.
+         */
+        if (!(luminance > 0.0f) && !pooled) {
+            continue;
+        }
+        const size_t slot = first_vertex / 3u;
+        const float *first = vertices[first_vertex + 0u].position;
+        const float *second = vertices[first_vertex + 1u].position;
+        const float *third = vertices[first_vertex + 2u].position;
+        const float edge_a[3] = {
+            second[0] - first[0], second[1] - first[1],
+            second[2] - first[2]};
+        const float edge_b[3] = {
+            third[0] - first[0], third[1] - first[1], third[2] - first[2]};
+        const float cross[3] = {
+            edge_a[1] * edge_b[2] - edge_a[2] * edge_b[1],
+            edge_a[2] * edge_b[0] - edge_a[0] * edge_b[2],
+            edge_a[0] * edge_b[1] - edge_a[1] * edge_b[0],
+        };
+        const float area = 0.5f * std::sqrt(
+            cross[0] * cross[0] + cross[1] * cross[1] +
+            cross[2] * cross[2]);
+        /* The emitter proposal uses the material's conservative radiance bound,
+         * like a light tree/ReGIR cell, rather than average texture power. */
+        const float weight = area * luminance;
+        const bool emissive = luminance > 0.0f && area > 1.0e-6f &&
+            std::isfinite(weight) && weight > 0.0f;
         const float live_inverse_area = area > 1.0e-6f ? 1.0f / area : 0.0f;
-        const auto reserved = reserved_emitter_slots.find(slot);
-        const bool held = pooled && reserved != reserved_emitter_slots.end();
+        const float reserved_inverse_area =
+            pooled ? reserved_emitter_slots[slot] : no_reserved_emitter_slot;
+        const bool held = reserved_inverse_area != no_reserved_emitter_slot;
         if (emissive && pooled) {
             reserved_emitter_slots[slot] = live_inverse_area;
         }
@@ -1203,9 +1272,9 @@ bool compile_emissive_triangles(
             continue;
         }
         DxrEmissiveTriangle emitter = {};
-        emitter.first_vertex = slot;
+        emitter.first_vertex = static_cast<uint32_t>(first_vertex);
         emitter.inverse_area = emissive ? live_inverse_area :
-                                          reserved->second;
+                                          reserved_inverse_area;
         const uint32_t emitter_index = static_cast<uint32_t>(emitters.size());
         for (size_t vertex = 0; vertex < 3u; ++vertex) {
             vertices[first_vertex + vertex].emitter_index = emitter_index;
@@ -1258,10 +1327,10 @@ bool DxrScene::prepare_vector_materials(const uint32_t *asset_ids,
         !material_library_.load_from_executable(error)) {
         return false;
     }
+    if (!asset_ids) {
+        return true;
+    }
     for (size_t index = 0; index < asset_count; ++index) {
-        if (!asset_ids) {
-            break;
-        }
         std::vector<DxrVectorMaterialBinding> bindings;
         std::string enumerate_error;
         /*
@@ -1279,15 +1348,13 @@ bool DxrScene::prepare_vector_materials(const uint32_t *asset_ids,
          * seen-set here makes the level's first compile pack every vector
          * asset, so swapping to a firing weapon pose never repacks.
          */
-        vector_assets_seen_.insert(asset_ids[index]);
-        preloaded_vector_assets_.insert(asset_ids[index]);
+        catalog_vector_assets_.insert(asset_ids[index]);
         prepared += bindings.size();
     }
     return true;
 }
 
-bool DxrScene::prepare_bitmap_materials(const uint32_t *asset_ids,
-                                        size_t asset_count, size_t &prepared,
+bool DxrScene::prepare_bitmap_materials(size_t asset_count, size_t &prepared,
                                         std::string &error)
 {
     prepared = 0u;
@@ -1295,14 +1362,11 @@ bool DxrScene::prepare_bitmap_materials(const uint32_t *asset_ids,
         !material_library_.load_from_executable(error)) {
         return false;
     }
-    for (size_t index = 0; index < asset_count; ++index) {
-        if (!asset_ids) {
-            break;
-        }
+    for (uint32_t asset = 0; asset < asset_count; ++asset) {
         std::vector<DxrBitmapMaterialBinding> bindings;
         std::string enumerate_error;
         /* Objects with no packaged bitmap art are ordinary, as above. */
-        if (!material_library_.resolve_bitmap_asset(asset_ids[index], bindings,
+        if (!material_library_.resolve_bitmap_asset(asset, bindings,
                                                     enumerate_error)) {
             continue;
         }
@@ -1313,10 +1377,8 @@ bool DxrScene::prepare_bitmap_materials(const uint32_t *asset_ids,
          * a muzzle flash or an impact never repacks mid-fight.
          */
         for (const DxrBitmapMaterialBinding &binding : bindings) {
-            bitmap_modes_seen_.emplace(binding.source_asset_id,
-                                       binding.source_mode);
-            preloaded_bitmap_modes_.emplace(binding.source_asset_id,
-                                            binding.source_mode);
+            catalog_bitmap_modes_.emplace(binding.source_asset_id,
+                                          binding.source_mode);
         }
         prepared += bindings.size();
     }
@@ -1436,37 +1498,27 @@ bool DxrScene::update(const SceneFrame &frame,
         }
     }
     /*
-     * Size each asset's reserved run before compiling against it, from a count
-     * of the frame's live vector objects. Runs only grow, doubling past a frame
-     * that needed more, so a firefight settles after one rebuild instead of one
-     * per spawn or death. This mirrors the projectile pool above.
+     * Each asset's reserved run only grows, doubling past a frame that needed
+     * more, so a firefight settles after one rebuild instead of one per spawn
+     * or death. Same protocol as the projectile pool above: compile against the
+     * current capacity, grow from the overflow the compilation reports, and
+     * recompile once.
      */
-    {
-        std::map<uint32_t, size_t> live_counts;
-        for (size_t index = 0; index < frame.count; ++index) {
-            const SceneCommand &command = frame.commands[index];
-            if (command.type != SCENE_COMMAND_SPRITE_INSTANCE) {
-                continue;
-            }
-            const SceneSprite &sprite = command.data.sprite_instance.sprite;
-            if (sprite.presentation != SCENE_SPRITE_PRESENTATION_WORLD_OBJECT ||
-                sprite.source != SCENE_SPRITE_SOURCE_VECTOR_MODEL) {
-                continue;
-            }
-            ++live_counts[sprite.source_asset_id];
-        }
-        for (const auto &entry : live_counts) {
+    if (!compile_world_vectors(frame, world_vector_pools_, world_vectors,
+                               error)) {
+        return false;
+    }
+    if (!world_vectors.pool_overflow.empty()) {
+        for (const auto &entry : world_vectors.pool_overflow) {
             DxrVectorPool &pool = world_vector_pools_[entry.first];
-            if (entry.second <= pool.capacity) {
-                continue;
-            }
-            if (entry.second > world_vector_pool_limit) {
+            const size_t needed = pool.capacity + entry.second;
+            if (needed > world_vector_pool_limit) {
                 error = "DXR world-vector pool exceeded its limit";
                 return false;
             }
             size_t grown = pool.capacity != 0u ? pool.capacity :
                                                  world_vector_pool_baseline;
-            while (grown < entry.second) {
+            while (grown < needed) {
                 grown *= 2u;
             }
             pool.capacity = std::min(grown, world_vector_pool_limit);
@@ -1474,14 +1526,15 @@ bool DxrScene::update(const SceneFrame &frame,
                          std::to_string(entry.first) + " grown to " +
                          std::to_string(pool.capacity) + " slots");
         }
-    }
-    if (!compile_world_vectors(frame, world_vector_pools_, world_vectors,
-                               error)) {
-        return false;
-    }
-    if (!world_vectors.pool_overflow.empty()) {
-        error = "DXR world-vector pool could not be sized";
-        return false;
+        world_vectors.reset();
+        if (!compile_world_vectors(frame, world_vector_pools_, world_vectors,
+                                   error)) {
+            return false;
+        }
+        if (!world_vectors.pool_overflow.empty()) {
+            error = "DXR world-vector pool could not be sized";
+            return false;
+        }
     }
     /* Remember each run's slot size, so the run keeps its shape once the last
      * object of its kind is gone and no occupant is left to measure. */
@@ -1496,13 +1549,18 @@ bool DxrScene::update(const SceneFrame &frame,
     /*
      * Reserve the view weapon a fixed vertex run, high-water across every
      * weapon model the level has shown. Only its size is layout; which model
-     * fills it, and whether anything does, is vertex data.
+     * fills it, and whether anything does, is vertex data. The capacity is the
+     * weapon's whole layout contribution, so it is folded into the component's
+     * own hash - as compile_world_bitmaps does with pool_capacity - and not
+     * into hashes.layout here. Anything else leaves the [REBUILD] cause log
+     * unable to name the weapon.
      */
     if (view_weapon.vertices.size() > view_weapon_vertex_capacity_) {
         view_weapon_vertex_capacity_ = view_weapon.vertices.size();
     }
-    hashes.layout = hash_bytes(hashes.layout, &view_weapon_vertex_capacity_,
-                               sizeof(view_weapon_vertex_capacity_));
+    view_weapon.layout_hash = hash_bytes(view_weapon.layout_hash,
+                                         &view_weapon_vertex_capacity_,
+                                         sizeof(view_weapon_vertex_capacity_));
     hashes.layout = hash_bytes(hashes.layout, &view_weapon.layout_hash,
                                sizeof(view_weapon.layout_hash));
     hashes.vertex_data = hash_bytes(hashes.vertex_data,
@@ -1531,7 +1589,7 @@ bool DxrScene::update(const SceneFrame &frame,
          * the four inputs changed is the difference between fixing the cause
          * and guessing at it.
          */
-        if (rebuild_log_enabled_) {
+        if (rebuild_log_enabled()) {
             size_t geometry_instances = 0u;
             size_t geometry_surfaces = 0u;
             size_t geometry_vertices = 0u;
@@ -1550,11 +1608,9 @@ bool DxrScene::update(const SceneFrame &frame,
                 }
             }
             std::fprintf(stdout,
-                         "[REBUILD] world instances=%zu surfaces=%zu vertices=%zu :: ",
+                         "[REBUILD] world instances=%zu surfaces=%zu vertices=%zu :: %s%s%s%s%s\n",
                          geometry_instances, geometry_surfaces,
-                         geometry_vertices);
-            std::fprintf(stdout,
-                         "[REBUILD] %s%s%s%s%s\n",
+                         geometry_vertices,
                          has_hashes_ ? "" : "first scene ",
                          world_layout != previous_world_layout_ ?
                              "world-geometry " : "",
@@ -1583,7 +1639,7 @@ bool DxrScene::update(const SceneFrame &frame,
         return false;
     }
     if (static_changed) {
-        if (rebuild_log_enabled_) {
+        if (rebuild_log_enabled()) {
             std::fprintf(stdout,
                          "[REBUILD] static-changed (a material or slot was not "
                          "resident; atlas repack)\n");
@@ -1757,20 +1813,9 @@ bool DxrScene::compile(const SceneFrame &frame,
             frame.commands[index].data.geometry_instance.mesh.surface_count != 0u;
     }
     if (frame_has_world && bitmap_modes_world_layout_ != world_layout) {
-        bitmap_modes_seen_.clear();
-        vector_assets_seen_.clear();
+        discovered_bitmap_modes_.clear();
+        discovered_vector_assets_.clear();
         world_vector_pools_.clear();
-        /*
-         * Restore what prepare_resources preloaded. The seen-sets are per-world
-         * caches and this reset is what a level load looks like from here, but
-         * the preload is the level's own art: clearing it meant the first
-         * compile packed nothing, so the first muzzle flash or weapon pose
-         * still repacked and rebuilt, which is the hitch this was meant to fix.
-         */
-        bitmap_modes_seen_.insert(preloaded_bitmap_modes_.begin(),
-                                  preloaded_bitmap_modes_.end());
-        vector_assets_seen_.insert(preloaded_vector_assets_.begin(),
-                                   preloaded_vector_assets_.end());
         bitmap_modes_world_layout_ = world_layout;
     }
 
@@ -1798,16 +1843,8 @@ bool DxrScene::compile(const SceneFrame &frame,
                 error = "DXR bitmap PBR material enumeration is invalid";
                 return false;
             }
-            const DxrMaterialDefinition &pbr = *binding.definition;
-            MaterialImage image;
-            image.width = pbr.width;
-            image.height = pbr.height;
-            image.pixels = pbr.pixels;
-            image.normal_strength = pbr.normal_strength;
-            image.specular_factor = pbr.specular_factor;
-            std::memcpy(image.emissive_factor, pbr.emissive_factor,
-                        sizeof(image.emissive_factor));
-            image.maximum_emissive_luminance = maximum_emissive_luminance(image);
+            MaterialImage image =
+                material_image_from_definition(*binding.definition);
             compiled_bitmap_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
@@ -1815,10 +1852,16 @@ bool DxrScene::compile(const SceneFrame &frame,
         return true;
     };
 
-    /* Everything the level has ever shown, before anything currently on
-     * screen, so a repack keeps the whole set rather than this instant's. */
-    for (const auto &seen : bitmap_modes_seen_) {
-        if (!load_bitmap_mode(seen.first, seen.second)) {
+    /* The level's own art first, then everything it has actually shown, before
+     * anything currently on screen, so a repack keeps the whole set rather than
+     * this instant's. */
+    for (const auto &mode : catalog_bitmap_modes_) {
+        if (!load_bitmap_mode(mode.first, mode.second)) {
+            return false;
+        }
+    }
+    for (const auto &mode : discovered_bitmap_modes_) {
+        if (!load_bitmap_mode(mode.first, mode.second)) {
             return false;
         }
     }
@@ -1827,7 +1870,6 @@ bool DxrScene::compile(const SceneFrame &frame,
          ++bitmap_index) {
         const DxrWorldBitmapInstance &bitmap =
             world_bitmaps.instances[bitmap_index];
-        const bool pool_slot = bitmap_index >= world_bitmaps.pool_first;
         if (!bitmap.occupied) {
             /*
              * A reserved slot nothing occupies. It still needs its vertices and
@@ -1851,13 +1893,12 @@ bool DxrScene::compile(const SceneFrame &frame,
                 SCENE_ACCELERATION_CLASS_DYNAMIC;
             compiled_instance.vertex_hash = bitmap.vertex_hash;
             compiled_instance.world_bitmap = true;
-            compiled_instance.bitmap_pool = true;
             compiled_instance.opaque = false;
             compiled_instances.push_back(compiled_instance);
             continue;
         }
         const SceneSprite &sprite = bitmap.instance->sprite;
-        bitmap_modes_seen_.emplace(sprite.source_asset_id,
+        discovered_bitmap_modes_.emplace(sprite.source_asset_id,
                                    bitmap.source.material_mode);
         if (!load_bitmap_mode(sprite.source_asset_id,
                               bitmap.source.material_mode)) {
@@ -1893,7 +1934,6 @@ bool DxrScene::compile(const SceneFrame &frame,
         compiled_instance.acceleration_class = SCENE_ACCELERATION_CLASS_DYNAMIC;
         compiled_instance.vertex_hash = bitmap.vertex_hash;
         compiled_instance.world_bitmap = true;
-        compiled_instance.bitmap_pool = pool_slot;
         compiled_instance.opaque = false;
         compiled_instances.push_back(compiled_instance);
     }
@@ -1908,7 +1948,7 @@ bool DxrScene::compile(const SceneFrame &frame,
      * only the regions its current animation frame uses. Without this the
      * atlas holds one frame's regions and the next frame has to rebuild to
      * name its own, which is what made firing and alien animation stutter.
-     * The bitmap equivalent is load_bitmap_mode over bitmap_modes_seen_.
+     * The bitmap equivalent is load_bitmap_mode over discovered_bitmap_modes_.
      *
      * Budgeted: regions packed ahead of use must not crowd out what the frame
      * actually draws, so this stops at a quarter of the maximum atlas area. An
@@ -1949,17 +1989,8 @@ bool DxrScene::compile(const SceneFrame &frame,
                 error = "DXR vector atlas exceeds scene index limits";
                 return false;
             }
-            MaterialImage image;
-            image.width = binding.definition->width;
-            image.height = binding.definition->height;
-            image.pixels = binding.definition->pixels;
-            image.normal_strength = binding.definition->normal_strength;
-            image.specular_factor = binding.definition->specular_factor;
-            std::memcpy(image.emissive_factor,
-                        binding.definition->emissive_factor,
-                        sizeof(image.emissive_factor));
-            image.maximum_emissive_luminance =
-                maximum_emissive_luminance(image);
+            MaterialImage image =
+                material_image_from_definition(*binding.definition);
             compiled_vector_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
@@ -1971,14 +2002,18 @@ bool DxrScene::compile(const SceneFrame &frame,
     for (const DxrWorldVectorInstance &vector : world_vectors.instances) {
         /* pool_asset_id, not the sprite: a reserved slot has no occupant to
          * ask, and its run still belongs to that asset. */
-        vector_assets_seen_.insert(vector.pool_asset_id);
+        discovered_vector_assets_.insert(vector.pool_asset_id);
     }
     if (view_weapon.sprite) {
-        vector_assets_seen_.insert(view_weapon.sprite->source_asset_id);
+        discovered_vector_assets_.insert(view_weapon.sprite->source_asset_id);
     }
-    /* Everything the level has animated, before anything on screen now, so a
-     * repack keeps the whole set rather than this instant's. */
-    for (const uint32_t asset : vector_assets_seen_) {
+    /* As above: the level's own vector art, then whatever it has animated. */
+    for (const uint32_t asset : catalog_vector_assets_) {
+        if (!load_vector_asset(asset)) {
+            return false;
+        }
+    }
+    for (const uint32_t asset : discovered_vector_assets_) {
         if (!load_vector_asset(asset)) {
             return false;
         }
@@ -2040,16 +2075,8 @@ bool DxrScene::compile(const SceneFrame &frame,
                 error = "DXR world-vector PBR PNG extent disagrees with its source face";
                 return false;
             }
-            MaterialImage image;
-            image.width = pbr->width;
-            image.height = pbr->height;
-            image.pixels = pbr->pixels;
-            image.normal_strength = pbr->normal_strength;
-            image.specular_factor = pbr->specular_factor;
-            std::memcpy(image.emissive_factor, pbr->emissive_factor,
-                        sizeof(image.emissive_factor));
-            image.maximum_emissive_luminance =
-                maximum_emissive_luminance(image);
+            MaterialImage image =
+                material_image_from_definition(*pbr);
             compiled_vector_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
@@ -2143,25 +2170,17 @@ bool DxrScene::compile(const SceneFrame &frame,
                 error = "DXR view weapon exceeds scene index limits";
                 return false;
             }
-            MaterialImage image;
-            image.width = pbr->width;
-            image.height = pbr->height;
-            image.pixels = pbr->pixels;
-            image.normal_strength = pbr->normal_strength;
-            image.specular_factor = pbr->specular_factor;
-            std::memcpy(image.emissive_factor, pbr->emissive_factor,
-                        sizeof(image.emissive_factor));
-            image.maximum_emissive_luminance =
-                maximum_emissive_luminance(image);
+            MaterialImage image =
+                material_image_from_definition(*pbr);
             compiled_vector_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
         }
 
         const size_t first_vertex = compiled_vertices.size();
-        for (DxrSceneVertex vertex :
-             view_weapon.sprite ? view_weapon.vertices :
-                                  std::vector<DxrSceneVertex>{}) {
+        /* Empty exactly when there is no weapon: compile_view_weapon returns
+         * before filling `vertices` when `sprite` is null. */
+        for (DxrSceneVertex vertex : view_weapon.vertices) {
             if (vertex.material_index >= view_weapon.source.material_count) {
                 error = "DXR view weapon references an invalid source material";
                 return false;
@@ -2180,20 +2199,13 @@ bool DxrScene::compile(const SceneFrame &frame,
             vertex.material_index = material->second;
             compiled_vertices.push_back(vertex);
         }
-        /* Pad the rest of the reserved run onto the camera so a smaller weapon
-         * model, or none at all, keeps the run's shape. */
+        /* Pad the rest of the reserved run so a smaller weapon model, or none
+         * at all, keeps the run's shape. */
+        const DxrSceneVertex pad =
+            view_weapon_pad_vertex(view_weapon.vertices);
         while (compiled_vertices.size() <
                first_vertex + view_weapon_vertex_capacity_) {
-            DxrSceneVertex vertex = view_weapon.vertices.empty() ?
-                DxrSceneVertex{} : view_weapon.vertices.front();
-            vertex.material_index = 0u;
-            vertex.emitter_index = UINT32_MAX;
-            if (!view_weapon.vertices.empty()) {
-                vertex.position[0] = view_weapon.vertices.front().position[0];
-                vertex.position[1] = view_weapon.vertices.front().position[1];
-                vertex.position[2] = view_weapon.vertices.front().position[2];
-            }
-            compiled_vertices.push_back(vertex);
+            compiled_vertices.push_back(pad);
         }
         CompiledInstance compiled_instance;
         compiled_instance.source_instance_id = view_weapon.sprite ?
@@ -2449,14 +2461,12 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
          ++bitmap_index) {
         const DxrWorldBitmapInstance &bitmap =
             world_bitmaps.instances[bitmap_index];
-        const bool pool_slot = bitmap_index >= world_bitmaps.pool_first;
         if (instance_cursor >= instances_.size()) {
             error = "DXR geometry-only update added a world-bitmap BLAS";
             return false;
         }
         const CompiledInstance &previous = instances_[instance_cursor];
         if (!previous.world_bitmap || previous.view_weapon ||
-            previous.bitmap_pool != pool_slot ||
             previous.acceleration_class != SCENE_ACCELERATION_CLASS_DYNAMIC ||
             previous.vertex_count != 6u) {
             error = "DXR geometry-only update changed the world-bitmap layout";
@@ -2503,10 +2513,6 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
             bitmap.source.material_mode);
         const auto material = bitmap_material_indices_.find(material_key);
         if (material == bitmap_material_indices_.end()) {
-            if (!pool_slot) {
-                error = "DXR bitmap animation selected a material outside its preloaded atlas";
-                return false;
-            }
             /*
              * The first time an object of this kind appears its PBR maps are
              * not in the atlas yet. Rebuilding is the only way to add them, and
@@ -2521,13 +2527,11 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
          * occupant happens to hash the same, because the material index is what
          * carries the occupant's identity into the vertex buffer.
          */
-        const bool occupant_changed = pool_slot &&
-            (previous.source_instance_id != sprite.source_record_id ||
-             previous.source_mesh_id != bitmap.instance->source_mesh_id);
-        if (pool_slot) {
-            compiled_instance.source_instance_id = sprite.source_record_id;
-            compiled_instance.source_mesh_id = bitmap.instance->source_mesh_id;
-        }
+        const bool occupant_changed =
+            previous.source_instance_id != sprite.source_record_id ||
+            previous.source_mesh_id != bitmap.instance->source_mesh_id;
+        compiled_instance.source_instance_id = sprite.source_record_id;
+        compiled_instance.source_mesh_id = bitmap.instance->source_mesh_id;
         const bool slot_changed = instance_changed || occupant_changed;
         if (slot_changed) {
             for (size_t vertex_index = 0;
@@ -2681,15 +2685,11 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                 vertex.material_index = material->second;
                 compiled_vertices[previous.first_vertex + vertex_index] = vertex;
             }
+            const DxrSceneVertex pad =
+                view_weapon_pad_vertex(view_weapon.vertices);
             for (size_t vertex_index = active;
                  vertex_index < view_weapon_vertex_capacity_; ++vertex_index) {
-                DxrSceneVertex vertex = {};
-                if (active != 0u) {
-                    vertex = view_weapon.vertices.front();
-                }
-                vertex.material_index = 0u;
-                vertex.emitter_index = UINT32_MAX;
-                compiled_vertices[previous.first_vertex + vertex_index] = vertex;
+                compiled_vertices[previous.first_vertex + vertex_index] = pad;
             }
         }
         compiled_instances.push_back(compiled_instance);

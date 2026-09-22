@@ -1078,16 +1078,11 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
 {
     RECT client = {};
 
-    if (const char *hitch_threshold = std::getenv("AB3D2_DXR_HITCH_MS")) {
-        const double threshold = std::atof(hitch_threshold);
-        if (threshold > 0.0) {
-            hitch_log_enabled_ = true;
-            hitch_log_threshold_ms_ = threshold;
-            std::fprintf(stdout,
-                         "[HITCH] logging frames at or above %.1f ms\n",
-                         threshold);
-            std::fflush(stdout);
-        }
+    if (hitch_log_threshold_ms(hitch_log_threshold_ms_)) {
+        hitch_log_enabled_ = true;
+        std::fprintf(stdout, "[HITCH] logging frames at or above %.1f ms\n",
+                     hitch_log_threshold_ms_);
+        std::fflush(stdout);
     }
 
     if (!window || !IsWindow(window)) {

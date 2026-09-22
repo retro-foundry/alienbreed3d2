@@ -1,6 +1,7 @@
 #include "dxr_debug.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace ab3d2::dxr {
@@ -50,6 +51,20 @@ std::string wide_to_utf8(const wchar_t *text)
         return {};
     }
     return std::string(bytes.data());
+}
+
+bool hitch_log_threshold_ms(double &threshold)
+{
+    static const double configured = [] {
+        const char *value = std::getenv("AB3D2_DXR_HITCH_MS");
+        const double parsed = value ? std::atof(value) : 0.0;
+        return parsed > 0.0 ? parsed : 0.0;
+    }();
+    if (configured <= 0.0) {
+        return false;
+    }
+    threshold = configured;
+    return true;
 }
 
 void debug_output(const std::string &message)

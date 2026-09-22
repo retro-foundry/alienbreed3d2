@@ -303,8 +303,8 @@ bool DxrRenderer::prepare_vector_materials(const uint32_t *asset_ids,
                                                error);
 }
 
-bool DxrRenderer::prepare_bitmap_materials(const uint32_t *asset_ids,
-                                           size_t asset_count, size_t &prepared,
+bool DxrRenderer::prepare_bitmap_materials(size_t asset_count,
+                                           size_t &prepared,
                                            std::string &error)
 {
     prepared = 0u;
@@ -312,8 +312,7 @@ bool DxrRenderer::prepare_bitmap_materials(const uint32_t *asset_ids,
         error = "D3D12/DXR resource preparation ran before the pipeline existed";
         return false;
     }
-    return pipeline_->prepare_bitmap_materials(asset_ids, asset_count, prepared,
-                                               error);
+    return pipeline_->prepare_bitmap_materials(asset_count, prepared, error);
 }
 
 size_t DxrRenderer::last_view_weapon_coverage() const

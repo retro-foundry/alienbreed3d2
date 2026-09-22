@@ -45,8 +45,8 @@ public:
     uint64_t scene_rebuild_count() const;
     bool prepare_vector_materials(const uint32_t *asset_ids, size_t asset_count,
                                   size_t &prepared, std::string &error);
-    bool prepare_bitmap_materials(const uint32_t *asset_ids, size_t asset_count,
-                                  size_t &prepared, std::string &error);
+    bool prepare_bitmap_materials(size_t asset_count, size_t &prepared,
+                                  std::string &error);
     size_t last_view_weapon_coverage() const;
     uint64_t last_view_weapon_rgb_checksum() const;
     size_t last_world_bitmap_coverage() const;

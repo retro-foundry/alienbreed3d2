@@ -104,18 +104,10 @@ extern "C" int renderer_rtx_prepare_resources(
             copy_error(error, error_size, implementation_error);
             return 0;
         }
-        std::vector<uint32_t> bitmap_ids;
-        bitmap_ids.reserve(catalog->bitmap_asset_count);
-        for (size_t index = 0; index < catalog->bitmap_asset_count; ++index) {
-            if (!catalog->bitmap_asset_ids) {
-                break;
-            }
-            bitmap_ids.push_back(catalog->bitmap_asset_ids[index]);
-        }
         size_t prepared_bitmaps = 0u;
         if (!renderer->implementation->prepare_bitmap_materials(
-                bitmap_ids.empty() ? nullptr : bitmap_ids.data(),
-                bitmap_ids.size(), prepared_bitmaps, implementation_error)) {
+                catalog->bitmap_asset_count, prepared_bitmaps,
+                implementation_error)) {
             copy_error(error, error_size, implementation_error);
             return 0;
         }

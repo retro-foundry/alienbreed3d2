@@ -104,6 +104,11 @@ private:
         uint32_t size = 0;
     };
 
+    /* Shared by resolve_bitmap_asset and resolve_bitmap_asset_mode; a null
+     * source_mode enumerates every mode. */
+    bool enumerate_bitmap_bindings(
+        uint32_t source_asset_id, const uint32_t *source_mode,
+        std::vector<DxrBitmapMaterialBinding> &bindings, std::string &error);
     bool resolve_index(size_t index,
                        const DxrMaterialDefinition *&definition,
                        std::string &error);

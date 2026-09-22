@@ -11,7 +11,6 @@
 
 #include <array>
 #include <cstdint>
-#include <cstdlib>
 #include <map>
 #include <set>
 #include <utility>
@@ -146,9 +145,10 @@ public:
      */
     bool prepare_vector_materials(const uint32_t *asset_ids, size_t asset_count,
                                   size_t &prepared, std::string &error);
-    /* The same, for ObjT bitmap art: muzzle flashes, impacts and projectiles. */
-    bool prepare_bitmap_materials(const uint32_t *asset_ids, size_t asset_count,
-                                  size_t &prepared, std::string &error);
+    /* The same, for ObjT bitmap art: muzzle flashes, impacts and projectiles.
+     * Asset ids run from 0 to asset_count - 1. */
+    bool prepare_bitmap_materials(size_t asset_count, size_t &prepared,
+                                  std::string &error);
     bool history_reset_pending() const { return history_reset_pending_; }
     void mark_history_promoted() { history_reset_pending_ = false; }
 
@@ -168,10 +168,6 @@ private:
         uint64_t vertex_hash = 0;
         bool view_weapon = false;
         bool world_bitmap = false;
-        /* A reserved projectile slot: matched by position rather than by
-         * identity, because the ObjT record behind it is a pool the source
-         * reuses and its occupant is expected to change. */
-        bool bitmap_pool = false;
         bool world_vector = false;
         bool opaque = true;
     };
@@ -190,8 +186,7 @@ private:
     void release_gpu();
 
     /* Per-component layout hashes from the previous frame, so a rebuild can
-     * name what moved. Diagnostic only; set from AB3D2_DXR_HITCH_MS. */
-    bool rebuild_log_enabled_ = std::getenv("AB3D2_DXR_HITCH_MS") != nullptr;
+     * name what moved. Diagnostic only; see dxr_debug.h. */
     uint64_t previous_world_layout_ = 0u;
     uint64_t previous_view_weapon_layout_ = 0u;
     uint64_t previous_bitmap_layout_ = 0u;
@@ -233,21 +228,23 @@ private:
      * rebuild on its next appearance, over and over. Cleared when the world
      * geometry changes, which is what a level load looks like from here.
      */
-    std::set<std::pair<uint32_t, uint32_t>> bitmap_modes_seen_;
+    std::set<std::pair<uint32_t, uint32_t>> discovered_bitmap_modes_;
     /*
      * Every vector asset the level has animated - the view weapon and world
      * vector objects. A rebuild packs all of each asset's authored texture
      * regions, so stepping an animation frame renames a material instead of
      * costing a rebuild. Cleared with bitmap_modes_seen_ on a world change.
      */
-    std::set<uint32_t> vector_assets_seen_;
+    std::set<uint32_t> discovered_vector_assets_;
     /*
-     * What prepare_resources decoded and packed before gameplay. Unlike the
-     * seen-sets above these survive the per-world reset, because they describe
-     * the level's own art rather than what has happened to appear so far.
+     * What prepare_resources decoded and packed before gameplay. These describe
+     * the art the level owns, so they outlive the per-world reset; the
+     * discovered_ sets above answer the different question of what has actually
+     * appeared so far, and are cleared with the world. compile() packs both;
+     * nothing copies between them.
      */
-    std::set<std::pair<uint32_t, uint32_t>> preloaded_bitmap_modes_;
-    std::set<uint32_t> preloaded_vector_assets_;
+    std::set<std::pair<uint32_t, uint32_t>> catalog_bitmap_modes_;
+    std::set<uint32_t> catalog_vector_assets_;
     /*
      * Reserved world-vector slots per asset, matched by position like the
      * bitmap projectile pool. Without it a projectile spawning or an alien
@@ -263,7 +260,7 @@ private:
      * emitter table nor any slot's identity. Keys are vertex offsets, so this
      * belongs to one compiled layout.
      */
-    std::map<uint32_t, float> reserved_emitter_slots_;
+    std::vector<float> reserved_emitter_slots_;
     uint64_t bitmap_modes_world_layout_ = 0;
     std::map<std::tuple<uint32_t, uint32_t, uint8_t, uint8_t,
                         uint8_t, uint8_t, uint8_t>, uint32_t>
