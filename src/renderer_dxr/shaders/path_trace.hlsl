@@ -266,6 +266,7 @@ cbuffer FrameConstants : register(b0)
     uint CompactLocalPrimary;
     uint ProxyPrimaryCandidates;
     uint ForceSpecularGuide;
+    float TracedSpecularRoughnessLimit;
 };
 
 cbuffer RayRootConstants : register(b1)
@@ -2253,9 +2254,19 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
     return result;
 }
 
+/*
+ * How much of this surface's specular is reconstructed from the filtered
+ * diffuse signal rather than traced. Reconstruction carries no directional
+ * detail - it comes from an L0/L1 spherical harmonic - so a surface fully
+ * reconstructed cannot mirror the scene, however sharp its roughness says it
+ * should be. TracedSpecularRoughnessLimit is where that takeover completes;
+ * rtx_specular_roughness raises it to buy real reflections on rough surfaces
+ * for a continuation ray each. The blend keeps its original 2:3 shape.
+ */
 float fakeSpecularWeight(float linearRoughness)
 {
-    return smoothstep(0.20, 0.30, linearRoughness);
+    float limit = max(TracedSpecularRoughnessLimit, 0.3);
+    return smoothstep(limit * (2.0 / 3.0), limit, linearRoughness);
 }
 
 float continuationSpecularProbability(SurfaceData surface,

@@ -69,6 +69,14 @@ world_light_tessellation=4
 # Use rtx_indirect_samples separately to change ray cost.
 #rtx_diffuse_gi=0.75
 
+# Roughness at which specular stops being traced and is reconstructed from the
+# filtered diffuse signal instead. Reconstruction is much cheaper but carries no
+# directional detail, so a surface above this limit cannot mirror the scene.
+# World surfaces sit around 0.44 to 0.72, so the default leaves all of them
+# reconstructed. Raising this trades a continuation ray per rough surface for
+# real reflections. 0.3 through 1.
+#rtx_specular_roughness=0.3
+
 # Path length counting the primary hit, 1 through 8. 1 is direct lighting only.
 # Each further bounce adds its own shadow and continuation rays. The first
 # diffuse continuation is always traced; production interleaves the deeper

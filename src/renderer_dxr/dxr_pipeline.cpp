@@ -155,8 +155,11 @@ enum BloomTargetIndex : UINT {
     bloom_eighth_a,
     bloom_eighth_b,
 };
+/* Two placement alignments: the frame constants outgrew one when traced
+ * specular gained its roughness limit. A CBV must start on an alignment
+ * boundary, so this is the next size up rather than a tighter fit. */
 constexpr UINT64 frame_constant_stride =
-    D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
+    2u * D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
 constexpr float pi = 3.14159265358979323846f;
 constexpr float source_fullscreen_depth_scale =
     4.0f * (32767.0f / 65536.0f) * (85.0f / 256.0f) * (927.0f / 1024.0f);
@@ -208,6 +211,10 @@ struct FrameConstants {
     uint32_t compact_local_primary;
     uint32_t proxy_primary_candidates;
     uint32_t force_specular_guide;
+    float traced_specular_roughness_limit;
+    /* Keeps the structure a whole number of 16-byte constant registers, so the
+     * C++ and HLSL layouts cannot disagree about trailing padding. */
+    uint32_t frame_constant_padding[3];
 };
 
 /*
@@ -216,7 +223,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 64u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 68u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -673,6 +680,15 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             return false;
         }
         diffuse_gi_scale_ = options.diffuse_gi_scale;
+    }
+    if (options.specular_roughness_limit_set != 0u) {
+        if (!std::isfinite(options.specular_roughness_limit) ||
+            options.specular_roughness_limit < 0.3f ||
+            options.specular_roughness_limit > 1.0f) {
+            error = "DXR traced specular roughness limit must be 0.3-1";
+            return false;
+        }
+        specular_roughness_limit_ = options.specular_roughness_limit;
     }
     if (options.maximum_bounces != 0u) {
         maximum_depth_ = options.maximum_bounces;
@@ -2912,6 +2928,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         (debug_view_ == static_cast<uint32_t>(
              DxrReconstructionBuffer::specular_hit_distance) ? 4u : 0u);
     constants.diffuse_gi_scale = diffuse_gi_scale_;
+    /* The blend keeps its 2:3 shape, so only the upper bound is configured. */
+    constants.traced_specular_roughness_limit = specular_roughness_limit_;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
     constants.single_primary_direct_survivor =
         single_primary_direct_survivor_ ? 1u : 0u;

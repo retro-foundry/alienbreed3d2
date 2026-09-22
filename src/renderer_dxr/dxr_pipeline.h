@@ -138,6 +138,8 @@ public:
             static_cast<uint8_t>(indirect_temporal_window_);
         options.diffuse_gi_scale = diffuse_gi_scale_;
         options.diffuse_gi_scale_set = UINT8_MAX;
+        options.specular_roughness_limit = specular_roughness_limit_;
+        options.specular_roughness_limit_set = UINT8_MAX;
         options.maximum_bounces = static_cast<uint8_t>(maximum_depth_);
         options.light_candidates = static_cast<uint16_t>(candidate_count_);
         options.reservoir_sample_limit = reservoir_sample_limit_;
@@ -280,6 +282,9 @@ private:
         indirect_reconstruction::temporal_window_default;
     float diffuse_gi_scale_ =
         RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE;
+    /* Roughness at which specular stops being traced; see
+     * renderer_ray_tracing_options.h. The long-standing behaviour is 0.3. */
+    float specular_roughness_limit_ = 0.3f;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
     uint32_t maximum_depth_ = 3u;
     uint32_t debug_view_ = 0;

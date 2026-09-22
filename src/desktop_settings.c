@@ -297,6 +297,18 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.diffuse_gi_scale_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_specular_roughness")) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.3, 1.0,
+                &settings->ray_tracing.specular_roughness_limit)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_specular_roughness must be 0.3 through 1",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.specular_roughness_limit_set = UINT8_MAX;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_max_bounces")) {
         if (!desktop_settings_parse_unsigned(value, 8u, &number) || number == 0u) {
             (void)snprintf(error, error_size,

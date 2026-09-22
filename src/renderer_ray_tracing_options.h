@@ -71,6 +71,15 @@ typedef struct {
     float diffuse_gi_scale;
     uint8_t diffuse_gi_scale_set;
     /*
+     * Roughness at which specular stops being traced and is reconstructed from
+     * the filtered diffuse signal instead. Reconstruction is far cheaper but
+     * carries no directional detail, so a surface above this limit cannot
+     * mirror the scene. 0.3 is the long-standing behaviour; 1 traces specular
+     * on every surface, at the cost of a continuation ray for each.
+     */
+    float specular_roughness_limit;
+    uint8_t specular_roughness_limit_set;
+    /*
      * Path length, counting the primary hit. One is direct lighting only; each
      * further bounce adds its own next-event and continuation rays. One through
      * eight.
