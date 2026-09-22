@@ -199,5 +199,35 @@ int main()
     if (!(integrated_pdf > 0.95 && integrated_pdf < 1.01)) {
         return fail("mixture PDF does not integrate to expected hemisphere mass");
     }
+
+    /*
+     * Toksvig. A mip-averaged normal map that has kept its full length carries
+     * all of its detail and must not move roughness; one that has shortened has
+     * lost detail into the average, and roughness has to widen to stand in for
+     * it. Level zero resolves everything, so it is always a no-op.
+     */
+    constexpr float smooth_roughness = 0.25f;
+    /* The spec-power round trip is not bit-exact, so this is a tolerance
+     * rather than an equality. Mip zero below returns early and is exact. */
+    if (!(std::fabs(adjust_roughness_toksvig(smooth_roughness, 1.0f, 1.0f) -
+                    smooth_roughness) < 1.0e-3f)) {
+        return fail("an unshortened normal map perturbed roughness");
+    }
+    if (adjust_roughness_toksvig(smooth_roughness, 0.6f, 0.0f) !=
+        smooth_roughness) {
+        return fail("mip level zero perturbed roughness");
+    }
+    const float widened = adjust_roughness_toksvig(smooth_roughness, 0.6f, 1.0f);
+    if (!(widened > smooth_roughness)) {
+        return fail("a shortened normal map did not widen roughness");
+    }
+    const float widened_more =
+        adjust_roughness_toksvig(smooth_roughness, 0.3f, 1.0f);
+    if (!(widened_more > widened)) {
+        return fail("roughness did not track how much detail was averaged away");
+    }
+    if (!(widened_more <= 1.0f)) {
+        return fail("Toksvig roughness left the unit range");
+    }
     return 0;
 }

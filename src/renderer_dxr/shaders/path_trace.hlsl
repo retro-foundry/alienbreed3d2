@@ -842,6 +842,43 @@ float4 sampleMaterialAtlasHardware(Texture2D<float4> atlas,
         packedWindowExtent, 0u, materialAtlasInverseDimensions());
 }
 
+/*
+ * Toksvig specular antialiasing, matching Q2RTX's AdjustRoughnessToksvig.
+ *
+ * A mip-averaged normal map loses its high-frequency detail, and the averaged
+ * normal gets shorter as it does. Widening roughness by exactly that shortening
+ * keeps the specular lobe as broad as the detail it can no longer resolve, so a
+ * surface keeps its material character with distance instead of flattening into
+ * a narrow highlight that shimmers. Without it a normal map simply fades out.
+ */
+static const float ToksvigStrength = 1.0;
+
+/* Square of roughness to a Phong specular power, and back. */
+float roughnessSquareToSpecPower(float alpha)
+{
+    return max(0.01, 2.0 / (alpha * alpha + 1.0e-4) - 2.0);
+}
+
+float specPowerToRoughnessSquare(float power)
+{
+    return clamp(sqrt(max(0.0, 2.0 / (power + 2.0))), 0.0, 1.0);
+}
+
+float adjustRoughnessToksvig(float roughness, float normalMapLength,
+                             float mipLevel)
+{
+    float effect = ToksvigStrength * clamp(mipLevel, 0.0, 1.0);
+    if (!(effect > 0.0) || !(normalMapLength > 0.0)) {
+        return roughness;
+    }
+    /* Deliberately not squaring the roughness here, as in the reference. */
+    float shininess = roughnessSquareToSpecPower(roughness) * effect;
+    float factor = normalMapLength /
+        lerp(shininess, 1.0, normalMapLength);
+    factor = max(factor, 0.01);
+    return specPowerToRoughnessSquare(factor * shininess / effect);
+}
+
 struct MaterialFilterFootprint
 {
     float mipLevel;
@@ -1072,6 +1109,8 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
             surface.textureWindowOrigin, surface.textureWindowExtent,
             filter, inverseAtlasDimensions).xyz * 2.0 - 1.0;
     tangentNormal.xy *= material.normalStrength;
+    /* Length before normalizing: how much detail the mip average threw away. */
+    float normalMapLength = saturate(length(tangentNormal));
     tangentNormal = normalize(float3(tangentNormal.xy,
                                      max(tangentNormal.z, 1.0e-4)));
     surface.shadingNormal = normalize(tangent * tangentNormal.x +
@@ -1090,6 +1129,10 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
             RoughnessAtlas, material, surface.textureCoordinate,
             surface.textureWindowOrigin, surface.textureWindowExtent,
             filter, inverseAtlasDimensions).r,
+        0.045, 1.0);
+    surface.roughness = clamp(
+        adjustRoughnessToksvig(surface.roughness, normalMapLength,
+                               filter.mipLevel),
         0.045, 1.0);
     float emissionScale = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +

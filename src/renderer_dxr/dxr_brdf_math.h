@@ -215,6 +215,42 @@ inline float smoothstep(float minimum, float maximum, float value)
     return normalized * normalized * (3.0f - 2.0f * normalized);
 }
 
+/*
+ * Toksvig specular antialiasing, mirroring path_trace.hlsl and Q2RTX's
+ * AdjustRoughnessToksvig. A mip-averaged normal map loses its high-frequency
+ * detail and the averaged normal shortens as it does; widening roughness by
+ * that shortening keeps the specular lobe as broad as the detail it can no
+ * longer resolve, so a surface keeps its character with distance instead of
+ * flattening into a narrow shimmering highlight.
+ */
+constexpr float toksvig_strength = 1.0f;
+
+inline float roughness_square_to_spec_power(float alpha)
+{
+    return std::max(0.01f, 2.0f / (alpha * alpha + 1.0e-4f) - 2.0f);
+}
+
+inline float spec_power_to_roughness_square(float power)
+{
+    return std::clamp(std::sqrt(std::max(0.0f, 2.0f / (power + 2.0f))),
+                      0.0f, 1.0f);
+}
+
+inline float adjust_roughness_toksvig(float roughness, float normal_map_length,
+                                      float mip_level)
+{
+    const float effect = toksvig_strength * std::clamp(mip_level, 0.0f, 1.0f);
+    if (!(effect > 0.0f) || !(normal_map_length > 0.0f)) {
+        return roughness;
+    }
+    /* Deliberately not squaring the roughness here, as in the reference. */
+    const float shininess = roughness_square_to_spec_power(roughness) * effect;
+    float factor = normal_map_length /
+        (shininess + (1.0f - shininess) * normal_map_length);
+    factor = std::max(factor, 0.01f);
+    return spec_power_to_roughness_square(factor * shininess / effect);
+}
+
 /* Q2RTX splits ordinary direct highlights from explicit smooth reflection
  * transport over this narrow material-roughness interval. */
 inline float direct_specular_weight(float linear_roughness)
