@@ -82,9 +82,33 @@ struct DxrSceneVertex {
      * dxr_source_lighting.h.
      */
     float source_irradiance;
+    /*
+     * The draw zone holding this surface, as ZoneT numbers them. Light
+     * selection drops an emitter whose zone is absent from this zone's PVS
+     * row, which is what stops a corridor spending its candidates on the
+     * lights in the room next door. SceneGeometry and SceneSprite both carry
+     * the source index already; see DxrScene::zone_visibility_.
+     */
+    uint32_t source_zone_index;
 };
 
-static_assert(sizeof(DxrSceneVertex) == 72u);
+static_assert(sizeof(DxrSceneVertex) == 76u);
+
+/*
+ * One emitter as a single zone's candidate table sees it.
+ *
+ * The scene-wide alias table answers "which emitter, weighted by power". This
+ * answers the same question restricted to the emitters a zone can see, so a
+ * candidate drawn here is always a light that could reach the surface. The
+ * alias index is a slot within the zone's own table, not a scene emitter.
+ */
+struct DxrZoneLight {
+    uint32_t emitter_index;
+    float selection_probability;
+    float alias_threshold;
+    uint32_t alias_index;
+};
+static_assert(sizeof(DxrZoneLight) == 16u);
 
 struct DxrSceneMaterial {
     /* Content origin inside the material level's one-texel wrapped gutter. */
@@ -163,6 +187,17 @@ public:
     D3D12_GPU_VIRTUAL_ADDRESS previous_vertex_address() const;
     D3D12_GPU_VIRTUAL_ADDRESS material_address() const;
     D3D12_GPU_VIRTUAL_ADDRESS emitter_address() const;
+    /*
+     * One (first, count) pair per zone, naming that zone's slice of
+     * zone_light_address below. Element zero is not a zone: it carries the
+     * zone count, so the shaders can bounds-check without another constant,
+     * and zone z is at element 1 + z. A count of zero, or a zone count of
+     * zero, means that zone has no table and selection falls back to the
+     * scene-wide one.
+     */
+    D3D12_GPU_VIRTUAL_ADDRESS zone_light_range_address() const;
+    /* The zones' candidate tables, concatenated; see DxrZoneLight. */
+    D3D12_GPU_VIRTUAL_ADDRESS zone_light_address() const;
     bool view_weapon_pose_hash(uint64_t &pose_hash) const;
     uint32_t atlas_width() const { return atlas_width_; }
     uint32_t atlas_height() const { return atlas_height_; }
@@ -333,6 +368,31 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> previous_vertex_buffer_;
     Microsoft::WRL::ComPtr<ID3D12Resource> material_buffer_;
     Microsoft::WRL::ComPtr<ID3D12Resource> emitter_buffer_;
+    void capture_zone_visibility(const SceneFrame &frame);
+    void build_zone_light_lists();
+    bool ensure_zone_lights(ID3D12Device5 *device, std::string &error);
+    /*
+     * The level's zone visibility: word zero the zone count, word one the
+     * 32-bit words per row, then one row per zone, a set bit naming a zone
+     * that zone can see. This stays on the CPU -- the shaders read the
+     * candidate tables built from it, not the rows themselves.
+     */
+    std::vector<uint32_t> zone_visibility_;
+    std::vector<uint32_t> zone_light_ranges_;
+    std::vector<DxrZoneLight> zone_lights_;
+    /* Emitter power moves as pooled slots go live and idle, and the tables are
+     * weighted by it, so they are rebuilt when that state changes rather than
+     * once at load. */
+    uint64_t zone_light_emitter_hash_ = 0u;
+    bool zone_lights_dirty_ = true;
+    /*
+     * Deliberately outside release_gpu. That runs partway through
+     * record_build, after ensure_zone_lights has already written these and
+     * the frame is about to bind them, so releasing them there hands the
+     * dispatch a freed address and the device is removed.
+     */
+    Microsoft::WRL::ComPtr<ID3D12Resource> zone_light_range_buffer_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> zone_light_buffer_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
                static_cast<size_t>(DxrMaterialChannel::count)> atlas_textures_;
     Microsoft::WRL::ComPtr<ID3D12Resource> upload_buffer_;

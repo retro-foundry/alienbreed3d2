@@ -466,6 +466,7 @@ bool compile_view_weapon(
              * dxr_source_lighting.h for why it is not the world encoding. */
             vertex.source_irradiance =
                 source_lighting::sprite_irradiance(result.sprite->source_light_level);
+            vertex.source_zone_index = result.sprite->source_zone_index;
             vertex.view_weapon_position[0] = source.x;
             vertex.view_weapon_position[1] = source.y;
             vertex.view_weapon_position[2] = source.z;
@@ -592,6 +593,7 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
              * dxr_source_lighting.h for why it is not the world encoding. */
             vertex.source_irradiance =
                 source_lighting::sprite_irradiance(sprite.source_light_level);
+            vertex.source_zone_index = sprite.source_zone_index;
             compiled.vertex_hash = hash_bytes(
                 compiled.vertex_hash, vertex.position,
                 sizeof(vertex.position));
@@ -729,6 +731,7 @@ bool compile_world_vector_occupant(const SceneSpriteInstance &scene_instance,
              * dxr_source_lighting.h for why it is not the world encoding. */
             vertex.source_irradiance =
                 source_lighting::sprite_irradiance(sprite.source_light_level);
+            vertex.source_zone_index = sprite.source_zone_index;
             /*
              * Do not carry doapoly flat/Gouraud light into PBR entities. A
              * `predoglare` face keeps full strength as well: unlike a glare
@@ -1221,6 +1224,7 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
         /* What a bounce ray landing here will read instead of tracing on. */
         vertex.source_irradiance = source_lighting::world_irradiance(
             static_cast<float>(source.source_light_level));
+        vertex.source_zone_index = geometry.source_zone_index;
         vertices.push_back(vertex);
     }
     scene_geometry_triangle_indices_release(indices);
@@ -1640,6 +1644,18 @@ D3D12_GPU_VIRTUAL_ADDRESS DxrScene::material_address() const
     return material_buffer_ ? material_buffer_->GetGPUVirtualAddress() : 0;
 }
 
+D3D12_GPU_VIRTUAL_ADDRESS DxrScene::zone_light_range_address() const
+{
+    return zone_light_range_buffer_ ?
+        zone_light_range_buffer_->GetGPUVirtualAddress() : 0;
+}
+
+D3D12_GPU_VIRTUAL_ADDRESS DxrScene::zone_light_address() const
+{
+    return zone_light_buffer_ ?
+        zone_light_buffer_->GetGPUVirtualAddress() : 0;
+}
+
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::emitter_address() const
 {
     return emitter_buffer_ ? emitter_buffer_->GetGPUVirtualAddress() : 0;
@@ -1675,6 +1691,7 @@ bool DxrScene::update(const SceneFrame &frame,
     DxrViewWeaponCompilation view_weapon;
     DxrWorldBitmapCompilation world_bitmaps;
     DxrWorldVectorCompilation world_vectors;
+    capture_zone_visibility(frame);
     if (!compile_view_weapon(frame, camera, view_weapon, error)) {
         return false;
     }
@@ -2923,6 +2940,224 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
     return true;
 }
 
+/*
+ * Take the level's potential visibility set from the frame.
+ *
+ * game_bootstrap_build_scene_zone_visibility already flattens ZoneT+48, the
+ * same PVST objectmove.s:CanItBeSeen consults, into one bit row per zone, and
+ * publishes it on every frame's lighting command. Nothing in this renderer
+ * read it until now.
+ *
+ * The rows arrive at the source stride, which is sized for the lighting
+ * runtime's zone capacity rather than for this level. Repacking to exactly the
+ * words a row needs keeps the buffer small enough to stay in cache while a
+ * candidate loop hammers it.
+ */
+void DxrScene::capture_zone_visibility(const SceneFrame &frame)
+{
+    for (size_t index = 0; index < frame.count; ++index) {
+        const SceneCommand &command = frame.commands[index];
+        if (command.type != SCENE_COMMAND_LIGHTING) {
+            continue;
+        }
+        const SceneLighting &lighting = command.data.lighting;
+        const uint32_t zones = lighting.zone_count;
+        const uint32_t stride = lighting.zone_potential_visibility_stride;
+        if (!lighting.zone_potential_visibility || zones == 0u ||
+            stride == 0u) {
+            continue;
+        }
+        const uint32_t row_words = (zones + 31u) / 32u;
+        std::vector<uint32_t> packed(
+            2u + static_cast<size_t>(zones) * row_words, 0u);
+        packed[0] = zones;
+        packed[1] = row_words;
+        for (uint32_t viewer = 0u; viewer < zones; ++viewer) {
+            const uint8_t *row = lighting.zone_potential_visibility +
+                static_cast<size_t>(viewer) * stride;
+            for (uint32_t zone = 0u; zone < zones; ++zone) {
+                if ((zone >> 3u) >= stride) {
+                    break;
+                }
+                if ((row[zone >> 3u] & (1u << (zone & 7u))) == 0u) {
+                    continue;
+                }
+                packed[2u + static_cast<size_t>(viewer) * row_words +
+                       (zone >> 5u)] |= 1u << (zone & 31u);
+            }
+        }
+        if (packed != zone_visibility_) {
+            zone_visibility_ = std::move(packed);
+            zone_lights_dirty_ = true;
+        }
+        return;
+    }
+}
+
+/*
+ * Give every zone its own candidate table.
+ *
+ * The scene-wide alias table proposes emitters by power alone, so in a level
+ * whose lights are spread over 31 zones almost every candidate a corridor
+ * draws is a light in some other room. Measured on Level A, 94% of candidate
+ * draws were emitters the receiving surface's zone cannot see. Those draws are
+ * not wrong -- the shadow ray rejects them and the estimator stays correct --
+ * but they are the whole candidate budget, and dark-region noise falls off
+ * with roughly the cube root of the candidates that survive.
+ *
+ * Restricting the proposal is the fix, not reweighting it: a candidate that
+ * loses on inverse-square falloff costs its slot either way. This is what
+ * Q2RTX's per-cluster light lists do, built from the same kind of table.
+ *
+ * An emitter whose zone the level never numbered stays in every table, which
+ * keeps a surface that a zone lookup cannot place from going dark.
+ */
+void DxrScene::build_zone_light_lists()
+{
+    zone_light_ranges_.clear();
+    zone_lights_.clear();
+    const uint32_t zones =
+        zone_visibility_.size() >= 2u ? zone_visibility_[0] : 0u;
+    /* Element zero carries the zone count; zone z lives at element 1 + z. */
+    zone_light_ranges_.push_back(zones);
+    zone_light_ranges_.push_back(0u);
+    if (zones == 0u || emissive_triangles_.empty()) {
+        return;
+    }
+    const uint32_t row_words = zone_visibility_[1];
+    const auto row_bit = [&](uint32_t row, uint32_t bit) {
+        return ((zone_visibility_[2u + static_cast<size_t>(row) * row_words +
+                                  (bit >> 5u)] >> (bit & 31u)) & 1u) != 0u;
+    };
+    /* Either direction keeps the light. The source table is not guaranteed
+     * symmetric, and Q2RTX symmetrises its own for the same reason. */
+    const auto visible = [&](uint32_t viewer, uint32_t zone) {
+        return row_bit(viewer, zone) || row_bit(zone, viewer);
+    };
+    std::vector<uint32_t> emitter_zone(emissive_triangles_.size(), 0u);
+    std::vector<float> emitter_weight(emissive_triangles_.size(), 0.0f);
+    for (size_t index = 0; index < emissive_triangles_.size(); ++index) {
+        const DxrEmissiveTriangle &emitter = emissive_triangles_[index];
+        if (emitter.first_vertex >= vertices_.size()) {
+            emitter_zone[index] = UINT32_MAX;
+            continue;
+        }
+        emitter_zone[index] =
+            vertices_[emitter.first_vertex].source_zone_index;
+        /* Power, the same measure the scene-wide table is built on. */
+        const float emitted_luminance = emitter.radiance[0] * 0.2126f +
+            emitter.radiance[1] * 0.7152f + emitter.radiance[2] * 0.0722f;
+        const float area = emitter.inverse_area > 0.0f ?
+            1.0f / emitter.inverse_area : 0.0f;
+        const float weight = emitted_luminance * area;
+        emitter_weight[index] = std::isfinite(weight) && weight > 0.0f ?
+            weight : 0.0f;
+    }
+    std::vector<uint32_t> members;
+    std::vector<float> weights;
+    std::vector<alias_table::Entry> entries;
+    for (uint32_t zone = 0u; zone < zones; ++zone) {
+        members.clear();
+        weights.clear();
+        for (size_t index = 0; index < emissive_triangles_.size(); ++index) {
+            if (!(emitter_weight[index] > 0.0f)) {
+                continue;
+            }
+            const uint32_t source = emitter_zone[index];
+            if (source < zones && !visible(zone, source)) {
+                continue;
+            }
+            members.push_back(static_cast<uint32_t>(index));
+            weights.push_back(emitter_weight[index]);
+        }
+        entries.clear();
+        if (members.empty() || !alias_table::build(weights, entries) ||
+            entries.size() != members.size()) {
+            zone_light_ranges_.push_back(0u);
+            zone_light_ranges_.push_back(0u);
+            continue;
+        }
+        zone_light_ranges_.push_back(
+            static_cast<uint32_t>(zone_lights_.size()));
+        zone_light_ranges_.push_back(static_cast<uint32_t>(members.size()));
+        for (size_t slot = 0; slot < members.size(); ++slot) {
+            DxrZoneLight light = {};
+            light.emitter_index = members[slot];
+            light.selection_probability = entries[slot].probability;
+            light.alias_threshold = entries[slot].threshold;
+            light.alias_index = entries[slot].alias;
+            zone_lights_.push_back(light);
+        }
+    }
+}
+
+/*
+ * Keep those tables where the shaders can reach them.
+ *
+ * They are a few hundred kilobytes at most and change only when the emitters
+ * do, so they live on the upload heap and are written with a memcpy. A
+ * default-heap pair would want staging copies, barriers and room in the
+ * frame's command list for bytes that are otherwise untouched for a whole
+ * level.
+ */
+bool DxrScene::ensure_zone_lights(ID3D12Device5 *device, std::string &error)
+{
+    if (zone_light_emitter_hash_ != emitter_state_hash_) {
+        zone_light_emitter_hash_ = emitter_state_hash_;
+        zone_lights_dirty_ = true;
+    }
+    if (!zone_lights_dirty_ && zone_light_range_buffer_ && zone_light_buffer_) {
+        return true;
+    }
+    if (!device) {
+        error = "DXR zone light upload received no device";
+        return false;
+    }
+    build_zone_light_lists();
+    /* A level with no zones still has to bind something, and a zone count of
+     * zero is what tells the shaders to use the scene-wide table. */
+    static const DxrZoneLight absent_light = {};
+    const auto upload = [&](const void *source, UINT64 bytes,
+                            const wchar_t *name,
+                            Microsoft::WRL::ComPtr<ID3D12Resource> &buffer) {
+        if (!buffer || buffer->GetDesc().Width < bytes) {
+            buffer.Reset();
+            if (!create_buffer(device, bytes, D3D12_HEAP_TYPE_UPLOAD,
+                               D3D12_RESOURCE_STATE_GENERIC_READ,
+                               D3D12_RESOURCE_FLAG_NONE, name, buffer,
+                               error)) {
+                return false;
+            }
+        }
+        void *mapped = nullptr;
+        D3D12_RANGE no_read = {0, 0};
+        if (FAILED(buffer->Map(0, &no_read, &mapped)) || !mapped) {
+            error = "DXR zone light buffer map failed";
+            return false;
+        }
+        std::memcpy(mapped, source, static_cast<size_t>(bytes));
+        buffer->Unmap(0, nullptr);
+        return true;
+    };
+    if (!upload(zone_light_ranges_.data(),
+                static_cast<UINT64>(zone_light_ranges_.size()) *
+                    sizeof(uint32_t),
+                L"AB3D2 DXR Zone Light Ranges", zone_light_range_buffer_)) {
+        return false;
+    }
+    if (!upload(zone_lights_.empty() ?
+                    static_cast<const void *>(&absent_light) :
+                    static_cast<const void *>(zone_lights_.data()),
+                static_cast<UINT64>(
+                    zone_lights_.empty() ? 1u : zone_lights_.size()) *
+                    sizeof(DxrZoneLight),
+                L"AB3D2 DXR Zone Lights", zone_light_buffer_)) {
+        return false;
+    }
+    zone_lights_dirty_ = false;
+    return true;
+}
+
 bool DxrScene::record_build(ID3D12Device5 *device,
                             ID3D12GraphicsCommandList4 *command_list,
                             uint32_t frame_slot,
@@ -2933,6 +3168,9 @@ bool DxrScene::record_build(ID3D12Device5 *device,
                                 &atlas_descriptors,
                             std::string &error)
 {
+    if (!ensure_zone_lights(device, error)) {
+        return false;
+    }
     if (gpu_geometry_update_pending_) {
         if (!device || !command_list || frame_slot >= geometry_uploads_.size() ||
             !geometry_uploads_[frame_slot] || !vertex_buffer_ ||

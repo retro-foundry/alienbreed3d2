@@ -1420,7 +1420,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[4].NumDescriptors = 7;
     ranges[4].BaseShaderRegister = 26;
     ranges[4].OffsetInDescriptorsFromTableStart = 13;
-    std::array<D3D12_ROOT_PARAMETER, 20> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 22> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1467,6 +1467,11 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[18].Constants.Num32BitValues = 3u;
     parameters[18].Constants.ShaderRegister = 1u;
     parameters[18].Constants.RegisterSpace = 0u;
+    /* The zones' candidate tables; see DxrScene::zone_light_address. */
+    parameters[20].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    parameters[20].Descriptor.ShaderRegister = 11;
+    parameters[21].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    parameters[21].Descriptor.ShaderRegister = 12;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -3360,6 +3365,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     command_list->SetComputeRootDescriptorTable(4,
                                                 gpu_descriptor(base_color_atlas));
     command_list->SetComputeRootShaderResourceView(5, scene_.emitter_address());
+    command_list->SetComputeRootShaderResourceView(
+        20, scene_.zone_light_range_address());
+    command_list->SetComputeRootShaderResourceView(
+        21, scene_.zone_light_address());
     command_list->SetComputeRootShaderResourceView(
         6, scene_.previous_vertex_address());
     command_list->SetComputeRootShaderResourceView(

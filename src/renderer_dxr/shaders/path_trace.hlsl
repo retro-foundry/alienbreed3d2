@@ -42,6 +42,8 @@ struct SceneVertex
     /* The level's own lighting here, as a fraction of a fully lit surface.
      * Read only from the second bounce onward; see dxr_source_lighting.h. */
     float sourceIrradiance;
+    /* The draw zone holding this surface; see DxrSceneVertex. */
+    uint sourceZoneIndex;
 };
 
 struct SceneMaterial
@@ -61,6 +63,16 @@ struct SceneMaterial
  * Walker's alias table, built on the CPU in dxr_alias_table.h, so selecting an
  * emitter costs one lookup rather than a walk over every emitter.
  */
+/* One emitter as a single zone's candidate table sees it; see DxrZoneLight.
+ * The alias index is a slot inside that zone's table, not a scene emitter. */
+struct ZoneLight
+{
+    uint emitterIndex;
+    float selectionProbability;
+    float aliasThreshold;
+    uint aliasIndex;
+};
+
 struct EmissiveTriangle
 {
     uint firstVertex;
@@ -132,6 +144,9 @@ struct SurfaceData
     uint primitive;
     uint textureWindowOrigin;
     uint textureWindowExtent;
+    /* The draw zone holding this surface, plus one, so that the zero a
+     * synthesised surface carries means "not known" rather than zone zero. */
+    uint sourceZonePlusOne;
 };
 
 /*
@@ -213,6 +228,12 @@ Texture2D<float4> RoughnessAtlas : register(t6);
 StructuredBuffer<EmissiveTriangle> Emitters : register(t8);
 StructuredBuffer<SceneVertex> PreviousVertices : register(t9);
 ByteAddressBuffer BlueNoiseSampler : register(t10);
+/*
+ * One (first, count) pair per zone over ZoneLights, with the zone count in
+ * element zero and zone z at element 1 + z; see DxrScene.
+ */
+StructuredBuffer<uint2> ZoneLightRanges : register(t11);
+StructuredBuffer<ZoneLight> ZoneLights : register(t12);
 SamplerState MaterialBilinearSampler : register(s0);
 
 RWTexture2D<float4> NoisyRadiance : register(u0);
@@ -1343,6 +1364,7 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
         third.emissiveScale * payload.barycentrics.y;
     /* Flat per triangle; the emissive texture is never sampled. */
     surface.emission = first.emission * emissionScale;
+    surface.sourceZonePlusOne = first.sourceZoneIndex + 1u;
     surface.sourceIrradiance = SourceLightScale * (
         first.sourceIrradiance * firstWeight +
         second.sourceIrradiance * payload.barycentrics.x +
@@ -2489,6 +2511,58 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
     return evaluation;
 }
 
+/*
+ * Draw a candidate from this surface's own zone rather than from the level.
+ *
+ * The scene-wide alias table proposes emitters by power, so in a level whose
+ * lights are spread over dozens of zones nearly every candidate a corridor
+ * draws is a light in another room. Measured on Level A before this existed,
+ * 94% of candidate draws were emitters the receiving zone cannot see. They
+ * were never wrong -- the shadow ray rejected them and the estimator stayed
+ * correct -- but they were the whole candidate budget, and dark-region noise
+ * falls off with roughly the cube root of the candidates that survive.
+ *
+ * Deweighting them instead of replacing them buys nothing, because a light
+ * across the level is already losing on inverse-square falloff; the slot is
+ * spent either way. Q2RTX proposes from the light list of the surface's own
+ * PVS cluster for exactly this reason.
+ *
+ * Returns false when the zone is unknown or has no table of its own, and the
+ * caller falls back to the scene-wide distribution.
+ */
+bool selectEmitterForZone(float selection, uint zonePlusOne,
+                          out LightSelection result)
+{
+    result.emitterIndex = InvalidIndex;
+    result.inverseProbability = 0.0;
+    if (zonePlusOne == 0u) {
+        return false;
+    }
+    uint zoneCount = ZoneLightRanges[0].x;
+    uint zone = zonePlusOne - 1u;
+    if (zone >= zoneCount) {
+        return false;
+    }
+    uint2 range = ZoneLightRanges[1u + zone];
+    if (range.y == 0u) {
+        return false;
+    }
+    float scaled = saturate(selection) * float(range.y);
+    uint bucket = min(uint(scaled), range.y - 1u);
+    float fractional = scaled - float(bucket);
+    ZoneLight entry = ZoneLights[range.x + bucket];
+    if (fractional >= entry.aliasThreshold) {
+        entry = ZoneLights[range.x + entry.aliasIndex];
+    }
+    if (!(entry.selectionProbability > 0.0) ||
+        entry.emitterIndex >= EmitterCount) {
+        return false;
+    }
+    result.emitterIndex = entry.emitterIndex;
+    result.inverseProbability = 1.0 / entry.selectionProbability;
+    return true;
+}
+
 float3 sampleDiffusePolygonLightSurvivor(
     uint2 pixel, uint sampleIndex, uint stream, int lightGridCell,
     uint candidateStart, uint candidateStride, uint candidateCount,
@@ -2507,8 +2581,11 @@ float3 sampleDiffusePolygonLightSurvivor(
         ++groupCandidateCount;
         float4 random = sampleStream(
             pixel, sampleIndex, stream + candidate);
-        LightSelection lightSelection = selectEmitterForCell(
-            random.x, lightGridCell);
+        LightSelection lightSelection;
+        if (!selectEmitterForZone(random.x, surface.sourceZonePlusOne,
+                                  lightSelection)) {
+            lightSelection = selectEmitterForCell(random.x, lightGridCell);
+        }
         EmitterSample lightSample;
         lightSample.emitterIndex = lightSelection.emitterIndex;
         lightSample.positionSample = packPositionSample(random.yz);
@@ -2623,6 +2700,15 @@ DirectLightingSample samplePrimaryPolygonLight(
                 sampleStream(
                     pixel, sampleIndex,
                     DiffusePrimaryPolygonStream + candidate);
+            /*
+             * Primary hits keep the scene-wide distribution. A zone table
+             * costs the firing frame most of its temporal stability: the
+             * muzzle flash travels with the player, so the zone it belongs to
+             * changes as they move and a lit surface gains and loses it
+             * between frames. A directly visible surface is also the case the
+             * light grid already handles; the wasted candidates are the ones
+             * drawn at bounce vertices.
+             */
             LightSelection lightSelection;
             if (CompactLocalPrimary != 0u &&
                 candidate >= CompactPrimaryGlobalCandidates) {
@@ -3261,8 +3347,11 @@ float3 sampleSecondaryDirectLighting(uint2 pixel, uint sampleIndex, uint depth,
             SecondaryDirectStream + depth * 16u + candidate);
         float selection = (random.x + float(candidate)) /
             float(localSampleCount);
-        LightSelection lightSelection = selectEmitterForCell(
-            selection, lightGridCell);
+        LightSelection lightSelection;
+        if (!selectEmitterForZone(selection, surface.sourceZonePlusOne,
+                                  lightSelection)) {
+            lightSelection = selectEmitterForCell(selection, lightGridCell);
+        }
         EmitterSample candidateSample;
         candidateSample.emitterIndex = lightSelection.emitterIndex;
         candidateSample.positionSample = packPositionSample(random.yz);
