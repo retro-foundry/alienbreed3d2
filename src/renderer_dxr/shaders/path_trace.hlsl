@@ -39,6 +39,9 @@ struct SceneVertex
     /* Emitted radiance, flat over the triangle and measured on the CPU from
      * the emissive texture; emissiveScale applies on top. See DxrSceneVertex. */
     float3 emission;
+    /* The level's own lighting here, as a fraction of a fully lit surface.
+     * Read only from the second bounce onward; see dxr_source_lighting.h. */
+    float sourceIrradiance;
 };
 
 struct SceneMaterial
@@ -121,6 +124,9 @@ struct SurfaceData
     float metalness;
     float specularFactor;
     float3 emission;
+    /* Incident irradiance from the level's own lighting, already through the
+     * source shading curve and the scale. Only bounce vertices consume it. */
+    float sourceIrradiance;
     uint materialIndex;
     uint emitterIndex;
     uint primitive;
@@ -334,6 +340,13 @@ cbuffer FrameConstants : register(b0)
     float ReservoirSpatialRadius;
     /* Duplication-based history reduction strength; zero disables it. */
     float ReservoirHistoryReduction;
+    /*
+     * Radiance of a fully lit surface under the level's own lighting, which
+     * bounce vertices return in place of tracing on. The game measures light
+     * in palette rows, so this is what gives those rows a physical scale.
+     * Zero restores pure path-traced indirect.
+     */
+    float SourceLightScale;
 };
 
 cbuffer RayRootConstants : register(b1)
@@ -1330,6 +1343,10 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
         third.emissiveScale * payload.barycentrics.y;
     /* Flat per triangle; the emissive texture is never sampled. */
     surface.emission = first.emission * emissionScale;
+    surface.sourceIrradiance = SourceLightScale * (
+        first.sourceIrradiance * firstWeight +
+        second.sourceIrradiance * payload.barycentrics.x +
+        third.sourceIrradiance * payload.barycentrics.y);
     return surface;
 }
 
@@ -2748,6 +2765,15 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
         float3 directAtSurface = sampleDiffusePolygonLight(
             pixel, sampleIndex, lightStream, true, reachedSurface,
             diffuseLightSampleCount);
+        /*
+         * The level's own lighting at the surface this bounce reached. It is
+         * the same quantity as the polygon sample above -- light arriving here
+         * -- so it reflects the same way, but it is exact rather than
+         * estimated. Dark parts of the level are lit almost entirely through
+         * this path, and sampling alone left them at the noise floor.
+         */
+        directAtSurface += diffuseReflectance(reachedSurface) *
+            reachedSurface.sourceIrradiance;
         result.radiance += suffixThroughput * directAtSurface;
 
         if (continuationIndex + 2u >= pathDepth) {
@@ -2900,6 +2926,9 @@ float3 sampleSmoothSpecularPath(uint2 pixel, uint sampleIndex,
         reachedSurface.emitterIndex < EmitterCount ?
             1.0 - directSpecularWeight(primarySurface.roughness) : 1.0;
     float3 reachedRadiance = reachedSurface.emission * emissionComplement;
+    /* As in sampleDiffusePath: what the reflected surface is lit by. */
+    reachedRadiance += diffuseReflectance(reachedSurface) *
+        reachedSurface.sourceIrradiance;
     if (EmitterCount > 0u) {
         reachedRadiance += sampleDiffusePolygonLight(
             pixel, sampleIndex, SmoothSpecularPolygonStream, true,

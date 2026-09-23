@@ -196,6 +196,23 @@ world_light_tessellation=4
 # rtx_restir_reconnection=footprint.
 #rtx_restir_connection_footprint=1.0
 
+# Radiance of a fully lit surface under the level's own vertex lighting,
+# 0 through 64. Default 1. Zero returns indirect light to pure path tracing.
+#
+# Alien Breed 3D II lights every surface from its sector brightness tables, not
+# from the emissive fixtures a path tracer can see: no palette entry in the game
+# survives the darkest shading row, so no texture is self-lit. The renderer uses
+# those tables from the second bounce onward. The primary hit stays fully path
+# traced -- emitters, ray-traced shadows, the lot -- and a ray that bounces onto
+# a surface reads its vertex lighting rather than spending the rays needed to
+# light it properly.
+#
+# Dark parts of a level are lit almost entirely through those bounces, which is
+# where a path tracer has the least signal and so the most grain. Raising this
+# lifts them further out of the noise; lowering it returns to a darker, more
+# physically literal image lit only by what emits.
+#rtx_bounce_light=1.0
+
 # Duplication-based history reduction strength, 0 through 4. Default 1.
 # Zero disables it. Where one canonical path has been copied across many
 # reservoirs, those descendants are not independent samples, and letting them

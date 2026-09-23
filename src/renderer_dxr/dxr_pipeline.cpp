@@ -224,6 +224,9 @@ struct FrameConstants {
     uint32_t restir_spatial_samples;
     float restir_spatial_radius;
     float restir_history_reduction;
+    /* Radiance of a fully lit surface under the level's own vertex lighting;
+     * see dxr_source_lighting.h. Consumed only by bounce vertices. */
+    float source_light_scale;
     /* Keeps the structure a whole number of 16-byte constant registers, so the
      * C++ and HLSL layouts cannot disagree about trailing padding. */
     uint32_t frame_constant_padding[1];
@@ -235,7 +238,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 72u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 73u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -680,6 +683,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.restir_spatial_radius_set != 0u) {
         restir_spatial_radius_ = options.restir_spatial_radius;
     }
+    if (options.source_light_scale_set != 0u) {
+        source_light_scale_ = options.source_light_scale;
+    }
     if (options.restir_history_reduction_set != 0u) {
         restir_history_reduction_ = options.restir_history_reduction;
     }
@@ -797,6 +803,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  indirect_reconstruction::temporal_window_maximum,
                  &indirect_temporal_window_},
     };
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_BOUNCE_LIGHT", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 0.0 || parsed > 64.0) {
+                error = "AB3D2_DXR_BOUNCE_LIGHT must be 0-64";
+                return false;
+            }
+            source_light_scale_ = static_cast<float>(parsed);
+        }
+    }
     {
         char value[64] = {};
         const DWORD length = GetEnvironmentVariableA(
@@ -3219,6 +3242,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.restir_spatial_samples = restir_spatial_samples_;
     constants.restir_spatial_radius = restir_spatial_radius_;
     constants.restir_history_reduction = restir_history_reduction_;
+    constants.source_light_scale = source_light_scale_;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
     constants.single_primary_direct_survivor =
         single_primary_direct_survivor_ ? 1u : 0u;

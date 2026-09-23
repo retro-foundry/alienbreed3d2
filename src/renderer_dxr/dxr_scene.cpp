@@ -1,5 +1,7 @@
 #include "dxr_scene.h"
 
+#include "dxr_source_lighting.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include "dxr_emitter_history.h"
@@ -460,6 +462,10 @@ bool compile_view_weapon(
              * objdrawhires.s:doapoly flat/Gouraud modulation. Authored PBR
              * emission remains unscaled and all incident light is traced. */
             vertex.emissive_scale = 1.0f;
+            /* Entities use the source's own sprite brightness; see
+             * dxr_source_lighting.h for why it is not the world encoding. */
+            vertex.source_irradiance =
+                source_lighting::sprite_irradiance(result.sprite->source_light_level);
             vertex.view_weapon_position[0] = source.x;
             vertex.view_weapon_position[1] = source.y;
             vertex.view_weapon_position[2] = source.z;
@@ -582,6 +588,10 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
                 compiled.source.material_mode ==
                         SOURCE_BITMAP_MATERIAL_MODE_GLARE
                     ? source_glare_additive_strength : 1.0f;
+            /* Entities use the source's own sprite brightness; see
+             * dxr_source_lighting.h for why it is not the world encoding. */
+            vertex.source_irradiance =
+                source_lighting::sprite_irradiance(sprite.source_light_level);
             compiled.vertex_hash = hash_bytes(
                 compiled.vertex_hash, vertex.position,
                 sizeof(vertex.position));
@@ -715,6 +725,10 @@ bool compile_world_vector_occupant(const SceneSpriteInstance &scene_instance,
             vertex.primitive = static_cast<uint32_t>(
                 triangle.additive ? DxrScenePrimitive::world_effect :
                                     DxrScenePrimitive::world_vector);
+            /* Entities use the source's own sprite brightness; see
+             * dxr_source_lighting.h for why it is not the world encoding. */
+            vertex.source_irradiance =
+                source_lighting::sprite_irradiance(sprite.source_light_level);
             /*
              * Do not carry doapoly flat/Gouraud light into PBR entities. A
              * `predoglare` face keeps full strength as well: unlike a glare
@@ -1204,6 +1218,9 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
         /* PBR emission is authored radiance. Source Gouraud/ZoneT values are
          * raster-lighting inputs retained for OpenGL, not an emitter control. */
         vertex.emissive_scale = 1.0f;
+        /* What a bounce ray landing here will read instead of tracing on. */
+        vertex.source_irradiance = source_lighting::world_irradiance(
+            static_cast<float>(source.source_light_level));
         vertices.push_back(vertex);
     }
     scene_geometry_triangle_indices_release(indices);

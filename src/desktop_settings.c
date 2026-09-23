@@ -547,6 +547,19 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.restir_connection_footprint_set = UINT8_MAX;
         return 1;
     }
+    /* Zero returns indirect light to pure path tracing. */
+    if (desktop_settings_equals_ci(key, "rtx_bounce_light")) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.0, 64.0,
+                &settings->ray_tracing.source_light_scale)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_bounce_light must be 0 through 64",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.source_light_scale_set = UINT8_MAX;
+        return 1;
+    }
     /* Zero disables duplication-based history reduction entirely. */
     if (desktop_settings_equals_ci(key, "rtx_restir_history_reduction")) {
         if (!desktop_settings_parse_float_range(

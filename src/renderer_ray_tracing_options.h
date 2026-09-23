@@ -142,6 +142,10 @@ enum {
 /* Exponent of the power curve that pulls the temporal confidence cap toward one
  * as local sample duplication rises. Zero disables history reduction. */
 #define RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION 1.0f
+/* Radiance of a fully lit surface under the level's own vertex lighting, which
+ * bounce vertices return in place of tracing on. Zero restores pure
+ * path-traced indirect. */
+#define RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE 1.0f
 
 /* Reduce secondary diffuse transfer modestly. Direct lighting and visible
  * emission are not affected. */
@@ -205,6 +209,8 @@ typedef struct {
     /* Duplication-based history reduction strength; zero disables it. */
     float restir_history_reduction;
     uint8_t restir_history_reduction_set;
+    float source_light_scale;
+    uint8_t source_light_scale_set;
     /*
      * Probability that final shading discards the resampled reservoir and
      * shades the preserved initial sample instead, trading variance for the

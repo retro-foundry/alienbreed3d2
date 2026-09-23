@@ -319,6 +319,9 @@ private:
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_RADIUS;
     float restir_history_reduction_ =
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION;
+    /* rtx_bounce_light, or AB3D2_DXR_BOUNCE_LIGHT for measurement. */
+    float source_light_scale_ =
+        RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
     uint32_t maximum_depth_ = 3u;
     uint32_t debug_view_ = 0;

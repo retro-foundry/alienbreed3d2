@@ -75,9 +75,16 @@ struct DxrSceneVertex {
      * here, on the CPU, to measure it; see compile_emissive_triangles.
      */
     float emission[3];
+    /*
+     * The level's own lighting at this vertex, as a fraction of a fully lit
+     * surface, from the source brightness tables renderer_opengl.c shades
+     * with. Read only from the second bounce onward; see
+     * dxr_source_lighting.h.
+     */
+    float source_irradiance;
 };
 
-static_assert(sizeof(DxrSceneVertex) == 68u);
+static_assert(sizeof(DxrSceneVertex) == 72u);
 
 struct DxrSceneMaterial {
     /* Content origin inside the material level's one-texel wrapped gutter. */
