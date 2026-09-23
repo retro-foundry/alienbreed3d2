@@ -2264,7 +2264,15 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
     }
     float3 lightNormal = normalize(cross(second.position - first.position,
                                          third.position - first.position));
-    float lightCosine = abs(dot(lightNormal, -lightDirection));
+    /*
+     * A back face emits nothing. The winding gives each emitter a front, and
+     * an emissive surface only radiates from it: a glowing floor panel lights
+     * the room above it, not the inside of the platform it caps. Taking the
+     * absolute value here instead made every emitter two-sided, so any gap in
+     * the geometry behind one leaked its light into space it should never
+     * have reached.
+     */
+    float lightCosine = dot(lightNormal, -lightDirection);
     if (lightCosine <= 1.0e-6) {
         return evaluation;
     }
@@ -2338,7 +2346,15 @@ EmitterEvaluation evaluateEmitterProxy(SurfaceData surface,
     }
     float3 lightNormal = normalize(cross(second.position - first.position,
                                          third.position - first.position));
-    float lightCosine = abs(dot(lightNormal, -lightDirection));
+    /*
+     * A back face emits nothing. The winding gives each emitter a front, and
+     * an emissive surface only radiates from it: a glowing floor panel lights
+     * the room above it, not the inside of the platform it caps. Taking the
+     * absolute value here instead made every emitter two-sided, so any gap in
+     * the geometry behind one leaked its light into space it should never
+     * have reached.
+     */
+    float lightCosine = dot(lightNormal, -lightDirection);
     if (lightCosine <= 1.0e-6) {
         return evaluation;
     }
@@ -2418,7 +2434,15 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
     }
     float3 lightNormal = normalize(cross(second.position - first.position,
                                          third.position - first.position));
-    float lightCosine = abs(dot(lightNormal, -lightDirection));
+    /*
+     * A back face emits nothing. The winding gives each emitter a front, and
+     * an emissive surface only radiates from it: a glowing floor panel lights
+     * the room above it, not the inside of the platform it caps. Taking the
+     * absolute value here instead made every emitter two-sided, so any gap in
+     * the geometry behind one leaked its light into space it should never
+     * have reached.
+     */
+    float lightCosine = dot(lightNormal, -lightDirection);
     if (lightCosine <= 1.0e-6) {
         return evaluation;
     }

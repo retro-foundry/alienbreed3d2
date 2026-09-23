@@ -170,19 +170,32 @@ static int capture_indirect_luminance(RendererRtx *renderer,
 
 static void set_recovery_emitter_position(SceneVertex *vertices, int active)
 {
+    /*
+     * Two coincident triangles wound opposite ways, because this case wants a
+     * panel that lights the wall behind it as well as the receiver in front.
+     * A back face emits nothing now, so a surface that radiates both ways is
+     * two surfaces -- which is what it always was physically. One triangle
+     * taking the absolute cosine emitted into both hemispheres from a single
+     * area; two one-sided triangles of that same area emit the same power.
+     */
     const int32_t offset = active ? 0 : 24000;
-    vertices[0].position =
-        (SceneWorldPoint){350 + offset, 7680, -80 + offset};
-    vertices[1].position =
-        (SceneWorldPoint){450 + offset, 7680, -80 + offset};
-    vertices[2].position =
-        (SceneWorldPoint){400 + offset, -7680, -80 + offset};
-    vertices[0].texture_u = 0;
-    vertices[0].texture_v = 0;
-    vertices[1].texture_u = 1;
-    vertices[1].texture_v = 0;
-    vertices[2].texture_u = 0;
-    vertices[2].texture_v = 1;
+    const SceneWorldPoint corners[3] = {
+        {350 + offset, 7680, -80 + offset},
+        {450 + offset, 7680, -80 + offset},
+        {400 + offset, -7680, -80 + offset},
+    };
+    const int32_t texture_u[3] = {0, 1, 0};
+    const int32_t texture_v[3] = {0, 0, 1};
+    for (size_t corner = 0u; corner < 3u; ++corner) {
+        vertices[corner].position = corners[corner];
+        vertices[corner].texture_u = texture_u[corner];
+        vertices[corner].texture_v = texture_v[corner];
+        /* The facing pair, with the last two corners exchanged. */
+        const size_t mirrored = corner == 0u ? 0u : 3u - corner;
+        vertices[3u + corner].position = corners[mirrored];
+        vertices[3u + corner].texture_u = texture_u[mirrored];
+        vertices[3u + corner].texture_v = texture_v[mirrored];
+    }
 }
 
 static int run_indirect_recovery_capture(
@@ -225,7 +238,7 @@ static int run_indirect_recovery_capture(
     wall_vertices[3] = wall_vertices[0];
     wall_vertices[4] = wall_vertices[2];
     wall_vertices[5].position = (SceneWorldPoint){-480, -23040, -160};
-    SceneVertex light_vertices[3] = {0};
+    SceneVertex light_vertices[6] = {0};
     set_recovery_emitter_position(light_vertices, 0);
 
     SceneMeshSurface static_surfaces[2] = {0};
@@ -234,7 +247,7 @@ static int run_indirect_recovery_capture(
     initialize_wall_surface(&static_surfaces[1], wall_vertices, 6u,
                             REFERENCE_ROUGHNESS_100);
     SceneMeshSurface light_surface = {0};
-    initialize_wall_surface(&light_surface, light_vertices, 3u,
+    initialize_wall_surface(&light_surface, light_vertices, 6u,
                             REFERENCE_SPARSE_EMITTER);
     SceneCommand commands[3] = {0};
     commands[0].type = SCENE_COMMAND_CAMERA;
