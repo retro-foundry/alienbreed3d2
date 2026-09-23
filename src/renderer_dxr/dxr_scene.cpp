@@ -3053,12 +3053,8 @@ void DxrScene::build_zone_light_lists()
         emitter_weight[index] = std::isfinite(weight) && weight > 0.0f ?
             weight : 0.0f;
     }
-    std::vector<uint32_t> members;
-    std::vector<float> weights;
-    std::vector<alias_table::Entry> entries;
     for (uint32_t zone = 0u; zone < zones; ++zone) {
-        members.clear();
-        weights.clear();
+        const size_t first = zone_lights_.size();
         for (size_t index = 0; index < emissive_triangles_.size(); ++index) {
             if (!(emitter_weight[index] > 0.0f)) {
                 continue;
@@ -3067,27 +3063,11 @@ void DxrScene::build_zone_light_lists()
             if (source < zones && !visible(zone, source)) {
                 continue;
             }
-            members.push_back(static_cast<uint32_t>(index));
-            weights.push_back(emitter_weight[index]);
+            zone_lights_.push_back(static_cast<uint32_t>(index));
         }
-        entries.clear();
-        if (members.empty() || !alias_table::build(weights, entries) ||
-            entries.size() != members.size()) {
-            zone_light_ranges_.push_back(0u);
-            zone_light_ranges_.push_back(0u);
-            continue;
-        }
+        zone_light_ranges_.push_back(static_cast<uint32_t>(first));
         zone_light_ranges_.push_back(
-            static_cast<uint32_t>(zone_lights_.size()));
-        zone_light_ranges_.push_back(static_cast<uint32_t>(members.size()));
-        for (size_t slot = 0; slot < members.size(); ++slot) {
-            DxrZoneLight light = {};
-            light.emitter_index = members[slot];
-            light.selection_probability = entries[slot].probability;
-            light.alias_threshold = entries[slot].threshold;
-            light.alias_index = entries[slot].alias;
-            zone_lights_.push_back(light);
-        }
+            static_cast<uint32_t>(zone_lights_.size() - first));
     }
 }
 
@@ -3116,7 +3096,7 @@ bool DxrScene::ensure_zone_lights(ID3D12Device5 *device, std::string &error)
     build_zone_light_lists();
     /* A level with no zones still has to bind something, and a zone count of
      * zero is what tells the shaders to use the scene-wide table. */
-    static const DxrZoneLight absent_light = {};
+    static const uint32_t absent_light = 0u;
     const auto upload = [&](const void *source, UINT64 bytes,
                             const wchar_t *name,
                             Microsoft::WRL::ComPtr<ID3D12Resource> &buffer) {
@@ -3150,7 +3130,7 @@ bool DxrScene::ensure_zone_lights(ID3D12Device5 *device, std::string &error)
                     static_cast<const void *>(zone_lights_.data()),
                 static_cast<UINT64>(
                     zone_lights_.empty() ? 1u : zone_lights_.size()) *
-                    sizeof(DxrZoneLight),
+                    sizeof(uint32_t),
                 L"AB3D2 DXR Zone Lights", zone_light_buffer_)) {
         return false;
     }

@@ -63,16 +63,6 @@ struct SceneMaterial
  * Walker's alias table, built on the CPU in dxr_alias_table.h, so selecting an
  * emitter costs one lookup rather than a walk over every emitter.
  */
-/* One emitter as a single zone's candidate table sees it; see DxrZoneLight.
- * The alias index is a slot inside that zone's table, not a scene emitter. */
-struct ZoneLight
-{
-    uint emitterIndex;
-    float selectionProbability;
-    float aliasThreshold;
-    uint aliasIndex;
-};
-
 struct EmissiveTriangle
 {
     uint firstVertex;
@@ -233,7 +223,7 @@ ByteAddressBuffer BlueNoiseSampler : register(t10);
  * element zero and zone z at element 1 + z; see DxrScene.
  */
 StructuredBuffer<uint2> ZoneLightRanges : register(t11);
-StructuredBuffer<ZoneLight> ZoneLights : register(t12);
+StructuredBuffer<uint> ZoneLights : register(t12);
 SamplerState MaterialBilinearSampler : register(s0);
 
 RWTexture2D<float4> NoisyRadiance : register(u0);
@@ -2512,34 +2502,83 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
 }
 
 /*
+ * The solid angle this emitter covers as seen from a point, times its own
+ * luminance: what Q2RTX's light_lists.h:spherical_tri_area returns, and the
+ * mass its light CDF is built from.
+ *
+ * A candidate's worth to a surface is how much of that surface's hemisphere
+ * the light fills, not how much power the light has. The two differ by
+ * distance squared and by orientation, which is exactly the difference between
+ * the dim fixture in this corridor and the bright one across the level.
+ *
+ * Zero for a light behind the surface, and zero for one whose own facing is
+ * away -- emitters are one-sided here, so a back face contributes nothing.
+ */
+float emitterSolidAngleMass(uint emitterIndex, float3 position, float3 normal)
+{
+    EmissiveTriangle emitter = Emitters[emitterIndex];
+    float3 a = Vertices[emitter.firstVertex + 0u].position - position;
+    float3 b = Vertices[emitter.firstVertex + 1u].position - position;
+    float3 c = Vertices[emitter.firstVertex + 2u].position - position;
+    if (dot(normal, a) <= 0.0 && dot(normal, b) <= 0.0 &&
+        dot(normal, c) <= 0.0) {
+        return 0.0;
+    }
+    float3 facing = cross(b - a, c - a);
+    if (dot(facing, a) >= 0.0 && dot(facing, b) >= 0.0 &&
+        dot(facing, c) >= 0.0) {
+        return 0.0;
+    }
+    float3 unitA = normalize(a);
+    float3 unitB = normalize(b);
+    float3 unitC = normalize(c);
+    /* Van Oosterom and Strackee: the area of the spherical triangle. */
+    float area = 2.0 * atan2(
+        abs(dot(unitA, cross(unitB, unitC))),
+        1.0 + dot(unitA, unitB) + dot(unitB, unitC) + dot(unitA, unitC));
+    return max(area - 1.0e-5, 0.0) * luminance(emitter.radiance);
+}
+
+/*
  * Draw a candidate from this surface's own zone rather than from the level.
  *
- * The scene-wide alias table proposes emitters by power, so in a level whose
- * lights are spread over dozens of zones nearly every candidate a corridor
- * draws is a light in another room. Measured on Level A before this existed,
- * 94% of candidate draws were emitters the receiving zone cannot see. They
- * were never wrong -- the shadow ray rejected them and the estimator stayed
- * correct -- but they were the whole candidate budget, and dark-region noise
- * falls off with roughly the cube root of the candidates that survive.
+ * Two things had to change together, and only the pair is worth anything.
  *
- * Deweighting them instead of replacing them buys nothing, because a light
- * across the level is already losing on inverse-square falloff; the slot is
- * spent either way. Q2RTX proposes from the light list of the surface's own
- * PVS cluster for exactly this reason.
+ * The list: the scene-wide alias table proposes emitters by power, so in a
+ * level whose lights sit in 31 of its 134 zones nearly every candidate a
+ * corridor draws is a light in another room. Measured on Level A, 94% of
+ * candidate draws were emitters the receiving zone cannot see. They were never
+ * wrong -- the shadow ray rejected them -- but they were the whole candidate
+ * budget.
  *
- * Returns false when the zone is unknown or has no table of its own, and the
- * caller falls back to the scene-wide distribution.
+ * The draw: a static table weighted by power, sampled with replacement, keeps
+ * proposing the brightest light in the zone however far away it is, and can
+ * miss the dim one beside the surface entirely. Q2RTX instead walks a strided
+ * partition of up to eight DISTINCT lights and builds its CDF from each one's
+ * solid angle at this exact point, which is the measure that actually decides
+ * how much light arrives. This follows light_lists.h:sample_light_list,
+ * MAX_BRUTEFORCE_SAMPLING and all.
+ *
+ * Striding rather than taking the first eight is what keeps every light in a
+ * long list reachable: the partition is chosen at random and the pdf carries
+ * the partition count, so nothing is lost and the estimator stays unbiased.
+ *
+ * Returns false when the zone is unknown, has no list, or nothing in the
+ * chosen partition faces the surface; the caller falls back to the scene-wide
+ * distribution.
  */
-bool selectEmitterForZone(float selection, uint zonePlusOne,
+static const uint ZoneBruteForceLights = 8u;
+
+bool selectEmitterForZone(float selection, SurfaceData surface,
                           out LightSelection result)
 {
     result.emitterIndex = InvalidIndex;
     result.inverseProbability = 0.0;
-    if (zonePlusOne == 0u) {
+    if (surface.sourceZonePlusOne == 0u) {
         return false;
     }
     uint zoneCount = ZoneLightRanges[0].x;
-    uint zone = zonePlusOne - 1u;
+    uint zone = surface.sourceZonePlusOne - 1u;
     if (zone >= zoneCount) {
         return false;
     }
@@ -2547,19 +2586,59 @@ bool selectEmitterForZone(float selection, uint zonePlusOne,
     if (range.y == 0u) {
         return false;
     }
-    float scaled = saturate(selection) * float(range.y);
-    uint bucket = min(uint(scaled), range.y - 1u);
-    float fractional = scaled - float(bucket);
-    ZoneLight entry = ZoneLights[range.x + bucket];
-    if (fractional >= entry.aliasThreshold) {
-        entry = ZoneLights[range.x + entry.aliasIndex];
+    /* One partition of the list, chosen uniformly, walked with that stride. */
+    float partitions = ceil(float(range.y) / float(ZoneBruteForceLights));
+    float partitioned = saturate(selection) * partitions;
+    float chosen = min(floor(partitioned), partitions - 1.0);
+    float random = partitioned - chosen;
+    uint stride = uint(partitions);
+    uint start = range.x + uint(chosen);
+    uint end = range.x + range.y;
+
+    float masses[8];
+    float mass = 0.0;
+    uint slot = 0u;
+    uint index = start;
+    [unroll]
+    for (slot = 0u; slot < ZoneBruteForceLights; ++slot) {
+        masses[slot] = 0.0;
+        if (index >= end) {
+            continue;
+        }
+        uint emitterIndex = ZoneLights[index];
+        if (emitterIndex < EmitterCount) {
+            masses[slot] = emitterSolidAngleMass(
+                emitterIndex, surface.position, surface.shadingNormal);
+            mass += masses[slot];
+        }
+        index += stride;
     }
-    if (!(entry.selectionProbability > 0.0) ||
-        entry.emitterIndex >= EmitterCount) {
+    if (!(mass > 0.0)) {
         return false;
     }
-    result.emitterIndex = entry.emitterIndex;
-    result.inverseProbability = 1.0 / entry.selectionProbability;
+    /* Pick from the CDF those masses form. */
+    float target = random * mass;
+    uint selectedSlot = 0u;
+    float selectedMass = 0.0;
+    [unroll]
+    for (slot = 0u; slot < ZoneBruteForceLights; ++slot) {
+        if (masses[slot] <= 0.0) {
+            continue;
+        }
+        selectedSlot = slot;
+        selectedMass = masses[slot];
+        target -= masses[slot];
+        if (target <= 0.0) {
+            break;
+        }
+    }
+    uint selectedIndex = start + selectedSlot * stride;
+    if (selectedIndex >= end || !(selectedMass > 0.0)) {
+        return false;
+    }
+    result.emitterIndex = ZoneLights[selectedIndex];
+    /* The partition was one of `partitions`, so its probability divides in. */
+    result.inverseProbability = (mass * partitions) / selectedMass;
     return true;
 }
 
@@ -2582,8 +2661,7 @@ float3 sampleDiffusePolygonLightSurvivor(
         float4 random = sampleStream(
             pixel, sampleIndex, stream + candidate);
         LightSelection lightSelection;
-        if (!selectEmitterForZone(random.x, surface.sourceZonePlusOne,
-                                  lightSelection)) {
+        if (!selectEmitterForZone(random.x, surface, lightSelection)) {
             lightSelection = selectEmitterForCell(random.x, lightGridCell);
         }
         EmitterSample lightSample;
@@ -3348,8 +3426,7 @@ float3 sampleSecondaryDirectLighting(uint2 pixel, uint sampleIndex, uint depth,
         float selection = (random.x + float(candidate)) /
             float(localSampleCount);
         LightSelection lightSelection;
-        if (!selectEmitterForZone(selection, surface.sourceZonePlusOne,
-                                  lightSelection)) {
+        if (!selectEmitterForZone(selection, surface, lightSelection)) {
             lightSelection = selectEmitterForCell(selection, lightGridCell);
         }
         EmitterSample candidateSample;

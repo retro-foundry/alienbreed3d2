@@ -95,20 +95,13 @@ struct DxrSceneVertex {
 static_assert(sizeof(DxrSceneVertex) == 76u);
 
 /*
- * One emitter as a single zone's candidate table sees it.
+ * A zone's candidate list is plain emitter indices, in no particular order.
  *
- * The scene-wide alias table answers "which emitter, weighted by power". This
- * answers the same question restricted to the emitters a zone can see, so a
- * candidate drawn here is always a light that could reach the surface. The
- * alias index is a slot within the zone's own table, not a scene emitter.
+ * Q2RTX's light_lists.h carries no per-light probability either: the shader
+ * takes a strided partition of up to MAX_BRUTEFORCE_SAMPLING of them and
+ * builds its CDF from each one's solid angle at the shading point, which is a
+ * far better importance measure than anything that can be baked per zone.
  */
-struct DxrZoneLight {
-    uint32_t emitter_index;
-    float selection_probability;
-    float alias_threshold;
-    uint32_t alias_index;
-};
-static_assert(sizeof(DxrZoneLight) == 16u);
 
 struct DxrSceneMaterial {
     /* Content origin inside the material level's one-texel wrapped gutter. */
@@ -379,7 +372,7 @@ private:
      */
     std::vector<uint32_t> zone_visibility_;
     std::vector<uint32_t> zone_light_ranges_;
-    std::vector<DxrZoneLight> zone_lights_;
+    std::vector<uint32_t> zone_lights_;
     /* Emitter power moves as pooled slots go live and idle, and the tables are
      * weighted by it, so they are rebuilt when that state changes rather than
      * once at load. */
