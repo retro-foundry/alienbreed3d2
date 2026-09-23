@@ -197,7 +197,7 @@ world_light_tessellation=4
 #rtx_restir_connection_footprint=1.0
 
 # Radiance of a fully lit surface under the level's own vertex lighting,
-# 0 through 1024. Default 64. Zero returns indirect light to pure path tracing.
+# 0 through 1024. Default 0, which is pure path-traced indirect.
 #
 # Alien Breed 3D II lights every surface from its sector brightness tables, not
 # from the emissive fixtures a path tracer can see: no palette entry in the game
@@ -216,8 +216,12 @@ world_light_tessellation=4
 # floor_0101 emits 164 and the wall fixtures 1.5 to 7.7. One is about a 160th
 # of the brightest thing in frame and looks identical to zero. Measured on a
 # saved game, the tenth percentile of the frame runs 11 at zero, 16 at 8, 19 at
-# 64 and 20 at 128, and highlights begin to clip past 128.
-#rtx_bounce_light=64.0
+# 64 and 20 at 128, and highlights begin to clip past 128, so the useful range
+# is 64 to 128.
+#
+# It is off by default. It lifts the dark end of the frame, but it did not fix
+# the grain around a bright fixture that it was built for.
+#rtx_bounce_light=0.0
 
 # Duplication-based history reduction strength, 0 through 4. Default 1.
 # Zero disables it. Where one canonical path has been copied across many
