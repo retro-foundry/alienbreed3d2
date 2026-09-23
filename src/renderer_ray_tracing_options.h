@@ -143,14 +143,47 @@ enum {
  * as local sample duplication rises. Zero disables history reduction. */
 #define RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION 1.0f
 /*
+ * The two tone-mapping constants that do not survive the trip from Q2RTX.
+ *
+ * Everything else in the tone mapper is a faithful port and needs no
+ * adjustment, because everything else is unitless: the 70th and 90th metering
+ * percentiles, the adaptation speeds, the Reinhard blend, the knee, the white
+ * point and the seven-stop display range all mean the same thing whatever the
+ * scene's radiance happens to be. These two are measured in absolute scene
+ * luminance, so they are calibrated to Q2RTX's content and have to be
+ * recalibrated for this game's.
+ *
  * Where the tone curve stops treating a luminance as signal, in photographic
- * stops. Q2RTX's tm_noise_stops, and its -12 assumes Q2RTX's own light levels.
- * Below this the curve flattens towards a plain exposure line instead of
- * stretching the histogram, so regions the path tracer only has noise for read
- * dark rather than showing their grain. Raising it hides more noise and
- * crushes more of the image to black.
+ * stops -- Q2RTX's tm_noise_stops. Below this the curve flattens towards a
+ * plain exposure line instead of stretching the histogram, so regions the path
+ * tracer only has noise for read dark rather than showing their grain.
+ *
+ * Q2RTX ships -12. At -12 this game's frames contain NO true black at all once
+ * anything clips: the dark half of the image lifts into a flat featureless
+ * band with the path tracer's residual wobble riding on top of it, which is
+ * what reads as static whenever a light is on screen. Measured on the
+ * saved-state smoke with a clipping pose, the fraction of the frame below 8 of
+ * 255 is 0.0% at -12, 20.1% at -10 and 33.0% at -8, with the lit areas
+ * unchanged throughout. -8 loses the floor tiling; -10 keeps it.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS (-12.0f)
+#define RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS (-10.0f)
+/*
+ * The darkest scene luminance auto-exposure will meter to -- Q2RTX's
+ * tm_min_luminance, and the cap on how far exposure can open up, since the
+ * gain it produces is 0.125 divided by this.
+ *
+ * Q2RTX ships 0.0002, which permits 625x. A view of this game's dark geometry
+ * meters around 0.0036 and asks for 34x, and at that gain the path tracer's
+ * noise is amplified with everything else; worse, exposure needs seconds to
+ * travel that far, so during a turn it is always mid-ramp and the dark end
+ * drifts upward frame after frame, undoing the noise floor.
+ *
+ * At 0.01 the same view is capped to 12.5x. Measured against 0.0002 on that
+ * view: true black 24.6% -> 37.5% of the frame, noise amplitude in the dark
+ * regions 9.4 -> 7.9, and the clipped fraction unchanged at 8.2%, so the lights
+ * are untouched and only the amplification of the darks has gone.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_MINIMUM_LUMINANCE 0.01f
 /* Radiance of a fully lit surface under the level's own vertex lighting, which
  * bounce vertices return in place of tracing on. Indirect light is pure path
  * tracing by default: the fill lifts the dark end of the frame measurably, but
@@ -229,6 +262,8 @@ typedef struct {
     uint8_t source_light_scale_set;
     float noise_floor_stops;
     uint8_t noise_floor_stops_set;
+    float minimum_luminance;
+    uint8_t minimum_luminance_set;
     /*
      * Probability that final shading discards the resampled reservoir and
      * shades the preserved initial sample instead, trading variance for the

@@ -197,20 +197,43 @@ world_light_tessellation=4
 #rtx_restir_connection_footprint=1.0
 
 # Where the tone curve stops treating a luminance as signal, in photographic
-# stops, -24 through 0. Default -12.
+# stops, -24 through 0. Default -10.
 #
-# This is Q2RTX's tm_noise_stops, and its -12 is calibrated to Q2RTX's own
-# light levels. Below this value the curve flattens towards a plain exposure
-# line instead of stretching the histogram, so regions the path tracer only
-# has noise for read dark rather than showing their grain. It is the control
-# for "that corner should be too dark to see the static in".
+# This is Q2RTX's tm_noise_stops. Below this value the curve flattens towards
+# a plain exposure line instead of stretching the histogram, so regions the
+# path tracer only has noise for read dark rather than showing their grain.
+# It is the control for "that corner should be too dark to see the static in".
 #
-# Raising it hides more noise and crushes more of the image to black, and the
-# transition is abrupt once it reaches where a level's dark content sits.
-# Measured on a saved game: -12 leaves the frame's median at 9 with nothing
-# black, -10 gives 6, -9 gives 4 with 0.5% black, and -7 collapses half the
-# frame to black.
-#rtx_noise_floor=-12.0
+# Q2RTX ships -12, calibrated to Q2RTX's own light levels, and at -12 this
+# game's frames contain no true black at all once anything clips: the dark
+# half of the image lifts into a flat featureless band with the path tracer's
+# residual wobble on top, which is what reads as static whenever a light is on
+# screen. On a clipping view the fraction of the frame below 8 of 255 is 0.0%
+# at -12, 20.1% at -10 and 33.0% at -8, with the lit areas unchanged
+# throughout. -8 loses the floor tiling, so the default is -10.
+#
+# Raising it further hides more noise and crushes more of the image to black.
+#rtx_noise_floor=-10.0
+
+# The darkest scene luminance auto-exposure will meter to, 0.000001 through 1.
+# Default 0.01.
+#
+# This is Q2RTX's tm_min_luminance, and it is also the cap on how far exposure
+# can open up, because the gain it produces is 0.125 divided by this: 0.01
+# permits 12.5x.
+#
+# Q2RTX ships 0.0002, which permits 625x. A view of this game's dark geometry
+# meters around 0.0036 and asks for 34x, and at that gain the path tracer's
+# noise is amplified along with everything else. Worse, exposure needs seconds
+# to travel that far, so while the player turns it is always mid-ramp and the
+# dark end drifts upward frame after frame, undoing rtx_noise_floor above.
+#
+# Measured against 0.0002 on that view: true black rises from 24.6% to 37.5%
+# of the frame, noise amplitude in the dark regions falls from 9.4 to 7.9, and
+# the clipped fraction is unchanged at 8.2% -- the lights are untouched and
+# only the amplification of the darks has gone. Lower it to let dark rooms
+# brighten further at the cost of that amplification.
+#rtx_min_luminance=0.01
 
 # Radiance of a fully lit surface under the level's own vertex lighting,
 # 0 through 1024. Default 0, which is pure path-traced indirect.

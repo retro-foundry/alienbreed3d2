@@ -11,7 +11,6 @@ RWTexture2D<float4> BloomOutput : register(u3);
  * DLSS-RR guide adds that RR ignores useAutoExposure, so this is the only way
  * to stop it adapting a second time over the renderer's tone mapping. */
 RWTexture2D<float> ExposureOutput : register(u4);
-static const float PresentExposureBiasStops = -1.0;
 SamplerState LinearClampSampler : register(s0);
 
 cbuffer PostConstants : register(b0)
@@ -27,6 +26,12 @@ cbuffer PostConstants : register(b0)
     /* Where the tone curve stops treating a luminance as signal; see
      * RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS. */
     float NoiseFloorStops;
+    /* The darkest luminance metering will adapt to, which is also the cap on
+     * exposure gain; see RENDERER_RAY_TRACING_DEFAULT_MINIMUM_LUMINANCE. */
+    float MinimumSceneLuminance;
+    /* The exposure present.hlsl applies, so the value handed to Ray
+     * Reconstruction below is the one the frame is actually shown at. */
+    float ExposureBiasStops;
 };
 
 static const uint HistogramBinCount = 128u;
@@ -39,7 +44,6 @@ static const uint HighLuminanceStateIndex = AdaptedLuminanceStateIndex + 4u;
 static const float MinimumLogLuminance = -24.0;
 static const float MaximumLogLuminance = 8.0;
 static const float DisplayDynamicRangeStops = 7.0;
-static const float MinimumSceneLuminance = 0.0002;
 static const float MaximumSceneLuminance = 1.0;
 static const float NoiseFloorBlend = 0.5;
 static const float SlopeBlurSigma = 12.0;
@@ -431,14 +435,16 @@ void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float highLuminance = exp2(histogramLogLuminance(highBin));
     ToneMapState[AdaptedLuminanceStateIndex] = adaptedLuminance;
     ExposureOutput[uint2(0u, 0u)] =
-        exp2(PresentExposureBiasStops - 2.0) / max(adaptedLuminance, 1.0e-8);
+        exp2(ExposureBiasStops - 2.0) / max(adaptedLuminance, 1.0e-8);
     ToneMapState[TargetLuminanceStateIndex] = targetLuminance;
     ToneMapState[AverageLuminanceStateIndex] = averageLuminance;
     ToneMapState[LowLuminanceStateIndex] = lowLuminance;
     ToneMapState[HighLuminanceStateIndex] = highLuminance;
     if (ValidationEnabled != 0u) {
-        Diagnostics[5] = asuint(exp2(-3.0) / targetLuminance);
-        Diagnostics[6] = asuint(exp2(-3.0) / adaptedLuminance);
+        Diagnostics[5] =
+            asuint(exp2(ExposureBiasStops - 2.0) / targetLuminance);
+        Diagnostics[6] =
+            asuint(exp2(ExposureBiasStops - 2.0) / adaptedLuminance);
         Diagnostics[7] = asuint(averageLuminance);
         Diagnostics[8] = asuint(lowLuminance);
         Diagnostics[9] = asuint(highLuminance);

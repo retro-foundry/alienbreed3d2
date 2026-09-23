@@ -559,6 +559,18 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.noise_floor_stops_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_min_luminance")) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.000001, 1.0,
+                &settings->ray_tracing.minimum_luminance)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_min_luminance must be 0.000001 through 1",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.minimum_luminance_set = UINT8_MAX;
+        return 1;
+    }
     /* Zero returns indirect light to pure path tracing. */
     if (desktop_settings_equals_ci(key, "rtx_bounce_light")) {
         if (!desktop_settings_parse_float_range(
