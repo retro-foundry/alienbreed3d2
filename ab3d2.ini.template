@@ -197,7 +197,7 @@ world_light_tessellation=4
 #rtx_restir_connection_footprint=1.0
 
 # Where the tone curve stops treating a luminance as signal, in photographic
-# stops, -24 through 0. Default -10.
+# stops, -24 through 0. Default 0.
 #
 # This is Q2RTX's tm_noise_stops. Below this value the curve flattens towards
 # a plain exposure line instead of stretching the histogram, so regions the
@@ -210,10 +210,18 @@ world_light_tessellation=4
 # residual wobble on top, which is what reads as static whenever a light is on
 # screen. On a clipping view the fraction of the frame below 8 of 255 is 0.0%
 # at -12, 20.1% at -10 and 33.0% at -8, with the lit areas unchanged
-# throughout. -8 loses the floor tiling, so the default is -10.
+# throughout.
 #
-# Raising it further hides more noise and crushes more of the image to black.
-#rtx_noise_floor=-10.0
+# Zero, the top of the range, is what this game ships. It leaves the histogram
+# stretching to luminances above one and puts everything below it on the plain
+# exposure line -- the darkest and steadiest setting available. Against -10 the
+# frozen frame's temporal outliers go 7 to 0 and the firing frame's 25917 to
+# 20386, with 47% of the frame reading below 8 of 255 and the lit surfaces
+# untouched.
+#
+# Lower it to lift the dark end of the image back up, at the cost of showing
+# more of what the path tracer is unsure about there.
+#rtx_noise_floor=0.0
 
 # The darkest scene luminance auto-exposure will meter to, 0.000001 through 1.
 # Default 0.01.

@@ -164,9 +164,19 @@ enum {
  * what reads as static whenever a light is on screen. Measured on the
  * saved-state smoke with a clipping pose, the fraction of the frame below 8 of
  * 255 is 0.0% at -12, 20.1% at -10 and 33.0% at -8, with the lit areas
- * unchanged throughout. -8 loses the floor tiling; -10 keeps it.
+ * unchanged throughout.
+ *
+ * Zero is the top of the range and what this game ships. It leaves the
+ * histogram stretching to luminances above one and puts everything below on
+ * the plain exposure line, which is the darkest and steadiest setting
+ * available: measured against -10, the frozen frame's temporal outliers go
+ * 7 -> 0 and the firing frame's 25917 -> 20386, while 47% of the frame reads
+ * below 8 of 255 and the lit surfaces are untouched. A level authored with
+ * more light in its dark corners would want a lower value; this one does not
+ * have any, so stretching its dark end only reveals what the path tracer is
+ * unsure about.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS (-10.0f)
+#define RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS (0.0f)
 /*
  * The darkest scene luminance auto-exposure will meter to -- Q2RTX's
  * tm_min_luminance, and the cap on how far exposure can open up, since the
