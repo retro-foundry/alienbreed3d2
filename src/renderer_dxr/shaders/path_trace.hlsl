@@ -36,6 +36,9 @@ struct SceneVertex
     float emissiveScale;
     /* Camera-local source position for the view weapon; zero for the world. */
     float3 viewWeaponPosition;
+    /* Emitted radiance, flat over the triangle and measured on the CPU from
+     * the emissive texture; emissiveScale applies on top. See DxrSceneVertex. */
+    float3 emission;
 };
 
 struct SceneMaterial
@@ -197,7 +200,10 @@ Texture2D<float4> BaseColorAtlas : register(t3);
 Texture2D<float4> NormalAtlas : register(t4);
 Texture2D<float4> MetalnessAtlas : register(t5);
 Texture2D<float4> RoughnessAtlas : register(t6);
-Texture2D<float4> EmissiveAtlas : register(t7);
+/* t7 still holds the emissive atlas, but nothing samples it: emission comes
+ * from SceneVertex::emission, measured from that texture on the CPU. Leaving
+ * the declaration out means any new read fails to compile rather than quietly
+ * bringing texel emission back. */
 StructuredBuffer<EmissiveTriangle> Emitters : register(t8);
 StructuredBuffer<SceneVertex> PreviousVertices : register(t9);
 ByteAddressBuffer BlueNoiseSampler : register(t10);
@@ -1322,12 +1328,8 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     float emissionScale = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
-    surface.emission =
-        sampleMaterialAtlasFilteredHardware(
-            EmissiveAtlas, material, surface.textureCoordinate,
-            surface.textureWindowOrigin, surface.textureWindowExtent,
-            filter, inverseAtlasDimensions).rgb *
-        material.emissiveFactor * emissionScale;
+    /* Flat per triangle; the emissive texture is never sampled. */
+    surface.emission = first.emission * emissionScale;
     return surface;
 }
 

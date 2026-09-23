@@ -1357,19 +1357,56 @@ bool compile_emissive_triangles(
     std::vector<float> emitter_weights;
     for (DxrSceneVertex &vertex : vertices) {
         vertex.emitter_index = UINT32_MAX;
+        vertex.emission[0] = 0.0f;
+        vertex.emission[1] = 0.0f;
+        vertex.emission[2] = 0.0f;
     }
     for (size_t first_vertex = 0; first_vertex < vertices.size();
          first_vertex += 3u) {
         const uint32_t material_index = vertices[first_vertex].material_index;
-        if (vertices[first_vertex].primitive == static_cast<uint32_t>(
-                DxrScenePrimitive::view_weapon) ||
-            vertices[first_vertex].primitive == static_cast<uint32_t>(
-                DxrScenePrimitive::world_effect)) {
-            continue;
-        }
+        /* The weapon and additive effects emit but are never light sources. */
+        const bool light_source =
+            vertices[first_vertex].primitive != static_cast<uint32_t>(
+                DxrScenePrimitive::view_weapon) &&
+            vertices[first_vertex].primitive != static_cast<uint32_t>(
+                DxrScenePrimitive::world_effect);
         if (material_index >= material_emissive_bound.size()) {
+            if (!light_source) {
+                continue;
+            }
             error = "DXR geometry references an out-of-range material";
             return false;
+        }
+        const size_t slot = first_vertex / 3u;
+        const float luminance = material_emissive_bound[material_index];
+        /*
+         * The triangle's emission, measured once per UV layout and written to
+         * its vertices for everything that shows or casts emission. Light
+         * sampling and selection use the same value, so the proposal matches
+         * the power each triangle actually casts. Weighting by the material's
+         * brightest texel instead over-selected technolights by up to a
+         * hundred times its real power and starved the floor; see
+         * DxrEmissiveTriangle::radiance.
+         */
+        float radiance[3] = {};
+        if (luminance > 0.0f && material_index < materials.size()) {
+            const DxrSceneVertex *triangle = &vertices[first_vertex];
+            const uint64_t key = emitter_radiance_key(triangle);
+            DxrEmitterRadianceCache &cached = radiance_cache[slot];
+            if (cached.key != key) {
+                measure_emitter_radiance(triangle, materials[material_index],
+                                         emissive_atlas, atlas_width,
+                                         cached.radiance);
+                cached.key = key;
+            }
+            std::memcpy(radiance, cached.radiance, sizeof(radiance));
+            for (size_t vertex = 0; vertex < 3u; ++vertex) {
+                std::memcpy(vertices[first_vertex + vertex].emission, radiance,
+                            sizeof(radiance));
+            }
+        }
+        if (!light_source) {
+            continue;
         }
         /*
          * A pooled slot keeps its emitter entry once it has ever been emissive,
@@ -1392,7 +1429,6 @@ bool compile_emissive_triangles(
             primitive == static_cast<uint32_t>(
                 DxrScenePrimitive::world_billboard) ||
             primitive == static_cast<uint32_t>(DxrScenePrimitive::world_vector);
-        const float luminance = material_emissive_bound[material_index];
         /*
          * The early-out. This loop walks every triangle in the level on every
          * frame, and almost none of them are emissive or pooled, so nothing
@@ -1401,7 +1437,6 @@ bool compile_emissive_triangles(
         if (!(luminance > 0.0f) && !pooled) {
             continue;
         }
-        const size_t slot = first_vertex / 3u;
         const float *first = vertices[first_vertex + 0u].position;
         const float *second = vertices[first_vertex + 1u].position;
         const float *third = vertices[first_vertex + 2u].position;
@@ -1418,26 +1453,6 @@ bool compile_emissive_triangles(
         const float area = 0.5f * std::sqrt(
             cross[0] * cross[0] + cross[1] * cross[1] +
             cross[2] * cross[2]);
-        /*
-         * What light sampling will emit here, measured once per UV layout.
-         * Selection is weighted by it too, so the proposal matches the power
-         * each triangle actually casts. Weighting by the material's brightest
-         * texel instead over-selected technolights by up to a hundred times its
-         * real power and starved the floor; see DxrEmissiveTriangle::radiance.
-         */
-        float radiance[3] = {};
-        if (luminance > 0.0f && material_index < materials.size()) {
-            const DxrSceneVertex *triangle = &vertices[first_vertex];
-            const uint64_t key = emitter_radiance_key(triangle);
-            DxrEmitterRadianceCache &cached = radiance_cache[slot];
-            if (cached.key != key) {
-                measure_emitter_radiance(triangle, materials[material_index],
-                                         emissive_atlas, atlas_width,
-                                         cached.radiance);
-                cached.key = key;
-            }
-            std::memcpy(radiance, cached.radiance, sizeof(radiance));
-        }
         const float emitted_luminance = radiance[0] * 0.2126f +
             radiance[1] * 0.7152f + radiance[2] * 0.0722f;
         const float weight = area * emitted_luminance;

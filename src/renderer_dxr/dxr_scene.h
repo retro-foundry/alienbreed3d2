@@ -66,9 +66,18 @@ struct DxrSceneVertex {
      * this zero. Keeping the small authored offset avoids losing its motion to
      * cancellation after attachment to a large world-space camera position. */
     float view_weapon_position[3];
+    /*
+     * Emitted radiance, the same on all three vertices of a triangle: the mean
+     * of the material's emissive texture over that triangle's UVs, factor
+     * included, emissive_scale not. The renderer never samples an emissive
+     * texture -- every use of emission, whether seen directly, reflected, or
+     * sampled as a light, reads this colour instead. The texture is read only
+     * here, on the CPU, to measure it; see compile_emissive_triangles.
+     */
+    float emission[3];
 };
 
-static_assert(sizeof(DxrSceneVertex) == 56u);
+static_assert(sizeof(DxrSceneVertex) == 68u);
 
 struct DxrSceneMaterial {
     /* Content origin inside the material level's one-texel wrapped gutter. */
