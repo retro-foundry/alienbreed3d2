@@ -17,7 +17,7 @@ SPEC = ROOT / "data" / "renderer_dxr" / "material_sources.json"
 FLOOR_SOURCE = ROOT / "amiga" / "media" / "includes" / "floortile"
 FLOOR_REMAP = ROOT / "amiga" / "media" / "includes" / "newtexturemaps.pal"
 DISPLAY_PALETTE = ROOT / "amiga" / "media" / "includes" / "256pal"
-EXPECTED_CONTENT_DIGEST = "f58bed00b3a2593a969391b5355b96b2783392be1d9289c7a4a63be1795bdadd"
+EXPECTED_CONTENT_DIGEST = "43c8ef0af493352ad0d93ce18152b8c09e628f7626a33d9e49d8eb26331b0c9a"
 RUNTIME_HEADER = struct.Struct("<8sIIII")
 RUNTIME_RECORD = struct.Struct("<IIIIffffII")
 
@@ -108,9 +108,15 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 self.assertEqual(material["roughness_space"], "linear")
                 self.assertEqual(material["metalness_space"], "linear")
                 self.assertEqual(material["emissive_space"], "srgb")
+                # These two are the only lights in the game, and they are
+                # kept in family: through their own masks they emit mean
+                # radiances of 32.7 and 11.8 to 37.6. floor_0101's mask covers
+                # 90% of its tile against technolights' 12%, so equal factors
+                # would make the floor emit thirty-five times as much and
+                # stretch a scene past what the tone curve can hold.
                 authored_emission = {
-                    "floor_0101": [200.0, 200.0, 200.0],
-                    "technolights": [200.0, 200.0, 200.0],
+                    "floor_0101": [40.0, 40.0, 40.0],
+                    "technolights": [1600.0, 1600.0, 1600.0],
                 }
                 if material["name"] in authored_emission:
                     self.assertEqual(material["emissive_source"], "texture")
@@ -172,7 +178,7 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 )
             ]
             self.assertEqual(technolights[0:2], (1, 6))
-            self.assertEqual(technolights[5:8], (200.0, 200.0, 200.0))
+            self.assertEqual(technolights[5:8], (1600.0, 1600.0, 1600.0))
             self.assertEqual(technolights[8], 1)
             floor_light = records[
                 next(
@@ -182,7 +188,7 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 )
             ]
             self.assertEqual(floor_light[0:2], (2, 257))
-            self.assertEqual(floor_light[5:8], (200.0, 200.0, 200.0))
+            self.assertEqual(floor_light[5:8], (40.0, 40.0, 40.0))
             self.assertEqual(floor_light[8], 1)
 
             with Image.open(first / "technolights_emissive.png") as image:

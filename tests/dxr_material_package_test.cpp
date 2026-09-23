@@ -45,9 +45,9 @@ int main(int argc, char **argv)
         !lights || lights->width == 0u || lights->height == 0u ||
         lights->name != "wall_06_technolights" ||
         std::fabs(lights->normal_strength - 1.0f) > 0.0001f ||
-        std::fabs(lights->emissive_factor[0] - 200.0f) > 0.0001f ||
-        std::fabs(lights->emissive_factor[1] - 200.0f) > 0.0001f ||
-        std::fabs(lights->emissive_factor[2] - 200.0f) > 0.0001f) {
+        std::fabs(lights->emissive_factor[0] - 1600.0f) > 0.0001f ||
+        std::fabs(lights->emissive_factor[1] - 1600.0f) > 0.0001f ||
+        std::fabs(lights->emissive_factor[2] - 1600.0f) > 0.0001f) {
         std::fprintf(stderr, "technolights runtime material is incomplete\n");
         return 1;
     }
@@ -80,7 +80,10 @@ int main(int argc, char **argv)
         !library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0201u, 0u,
                          floor_pbr, error) ||
         !floor_light || !floor_pbr ||
-        std::fabs(floor_light->emissive_factor[0] - 200.0f) > 0.0001f ||
+        /* In family with wall_06_technolights by emitted radiance, not by
+         * factor: the floor's mask covers 90% of its tile and the fixture's
+         * 12%. See the emissive notes in tests/test_build_dxr_materials.py. */
+        std::fabs(floor_light->emissive_factor[0] - 40.0f) > 0.0001f ||
         floor_pbr->emissive_factor[0] != 0.0f) {
         std::fprintf(stderr, "source floor material bindings are incomplete\n");
         return 1;
