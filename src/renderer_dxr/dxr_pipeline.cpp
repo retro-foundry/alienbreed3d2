@@ -229,7 +229,12 @@ struct FrameConstants {
     float source_light_scale;
     /* Keeps the structure a whole number of 16-byte constant registers, so the
      * C++ and HLSL layouts cannot disagree about trailing padding. */
-    uint32_t frame_constant_padding[1];
+    /*
+     * AB3D2_DXR_ZONE_LIGHTS; zero restores the scene-wide distribution. This
+     * occupies what used to be the structure's one padding word, which kept
+     * it a whole number of 16-byte constant registers.
+     */
+    uint32_t zone_lights_enabled;
 };
 
 /*
@@ -823,6 +828,15 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                 return false;
             }
             noise_floor_stops_ = static_cast<float>(parsed);
+        }
+    }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_ZONE_LIGHTS", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            zone_lights_enabled_ = value[0] == 0x30 ? 0u : 1u;
         }
     }
     {
@@ -3270,6 +3284,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.restir_spatial_radius = restir_spatial_radius_;
     constants.restir_history_reduction = restir_history_reduction_;
     constants.source_light_scale = source_light_scale_;
+    constants.zone_lights_enabled = zone_lights_enabled_;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
     constants.single_primary_direct_survivor =
         single_primary_direct_survivor_ ? 1u : 0u;

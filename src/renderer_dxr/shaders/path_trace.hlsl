@@ -358,6 +358,13 @@ cbuffer FrameConstants : register(b0)
      * Zero restores pure path-traced indirect.
      */
     float SourceLightScale;
+    /*
+     * Zero routes candidate selection back to the scene-wide distribution,
+     * which is what AB3D2_DXR_ZONE_LIGHTS=0 is for: it makes one build
+     * measure both sides, so a comparison is never confounded by anything
+     * else that changed between two builds.
+     */
+    uint ZoneLightsEnabled;
 };
 
 cbuffer RayRootConstants : register(b1)
@@ -2574,7 +2581,7 @@ bool selectEmitterForZone(float selection, SurfaceData surface,
 {
     result.emitterIndex = InvalidIndex;
     result.inverseProbability = 0.0;
-    if (surface.sourceZonePlusOne == 0u) {
+    if (ZoneLightsEnabled == 0u || surface.sourceZonePlusOne == 0u) {
         return false;
     }
     uint zoneCount = ZoneLightRanges[0].x;

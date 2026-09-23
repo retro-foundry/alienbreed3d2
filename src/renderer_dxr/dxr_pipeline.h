@@ -323,6 +323,10 @@ private:
     float noise_floor_stops_ =
         RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS;
     /* rtx_bounce_light, or AB3D2_DXR_BOUNCE_LIGHT for measurement. */
+    /* AB3D2_DXR_ZONE_LIGHTS=0 puts light selection back on the scene-wide
+     * distribution for one run, so the zone lists are measured against
+     * themselves rather than against a separately built binary. */
+    uint32_t zone_lights_enabled_ = 1u;
     float source_light_scale_ =
         RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
