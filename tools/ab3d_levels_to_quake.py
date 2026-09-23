@@ -2296,9 +2296,17 @@ def to_quake_coords(x: float, z: float, scale_xy: float) -> Tuple[float, float]:
     return x * scale_xy, z * scale_xy
 
 
+# The source vertical domain against the source X/Z plan. The renderer's
+# scene_render_world_point divides Y by this while using X and Z raw, so a
+# converted map only has the proportions the game draws if the same number
+# appears here. It read 64 until 2026-09-23, which made every converted map
+# exactly twice as tall as it should be.
+AB3D_HEIGHT_UNIT = 128.0
+
+
 def to_quake_height(y_raw: int, scale_z: float) -> float:
     # AB3D height is 26.6 fixed in practice and positive toward ground.
-    y = y_raw / 64.0
+    y = y_raw / AB3D_HEIGHT_UNIT
     return -y * scale_z
 
 
