@@ -24,6 +24,9 @@ cbuffer PostConstants : register(b0)
     uint ResetHistory;
     uint BloomOperation;
     uint ValidationEnabled;
+    /* Where the tone curve stops treating a luminance as signal; see
+     * RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS. */
+    float NoiseFloorStops;
 };
 
 static const uint HistogramBinCount = 128u;
@@ -38,7 +41,6 @@ static const float MaximumLogLuminance = 8.0;
 static const float DisplayDynamicRangeStops = 7.0;
 static const float MinimumSceneLuminance = 0.0002;
 static const float MaximumSceneLuminance = 1.0;
-static const float NoiseFloorStops = -12.0;
 static const float NoiseFloorBlend = 0.5;
 static const float SlopeBlurSigma = 12.0;
 static const int SlopeBlurRadius = 13;

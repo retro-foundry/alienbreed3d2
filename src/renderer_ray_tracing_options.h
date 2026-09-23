@@ -142,6 +142,15 @@ enum {
 /* Exponent of the power curve that pulls the temporal confidence cap toward one
  * as local sample duplication rises. Zero disables history reduction. */
 #define RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION 1.0f
+/*
+ * Where the tone curve stops treating a luminance as signal, in photographic
+ * stops. Q2RTX's tm_noise_stops, and its -12 assumes Q2RTX's own light levels.
+ * Below this the curve flattens towards a plain exposure line instead of
+ * stretching the histogram, so regions the path tracer only has noise for read
+ * dark rather than showing their grain. Raising it hides more noise and
+ * crushes more of the image to black.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS (-12.0f)
 /* Radiance of a fully lit surface under the level's own vertex lighting, which
  * bounce vertices return in place of tracing on. Indirect light is pure path
  * tracing by default: the fill lifts the dark end of the frame measurably, but
@@ -218,6 +227,8 @@ typedef struct {
     uint8_t restir_history_reduction_set;
     float source_light_scale;
     uint8_t source_light_scale_set;
+    float noise_floor_stops;
+    uint8_t noise_floor_stops_set;
     /*
      * Probability that final shading discards the resampled reservoir and
      * shades the preserved initial sample instead, trading variance for the

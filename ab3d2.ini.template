@@ -196,6 +196,22 @@ world_light_tessellation=4
 # rtx_restir_reconnection=footprint.
 #rtx_restir_connection_footprint=1.0
 
+# Where the tone curve stops treating a luminance as signal, in photographic
+# stops, -24 through 0. Default -12.
+#
+# This is Q2RTX's tm_noise_stops, and its -12 is calibrated to Q2RTX's own
+# light levels. Below this value the curve flattens towards a plain exposure
+# line instead of stretching the histogram, so regions the path tracer only
+# has noise for read dark rather than showing their grain. It is the control
+# for "that corner should be too dark to see the static in".
+#
+# Raising it hides more noise and crushes more of the image to black, and the
+# transition is abrupt once it reaches where a level's dark content sits.
+# Measured on a saved game: -12 leaves the frame's median at 9 with nothing
+# black, -10 gives 6, -9 gives 4 with 0.5% black, and -7 collapses half the
+# frame to black.
+#rtx_noise_floor=-12.0
+
 # Radiance of a fully lit surface under the level's own vertex lighting,
 # 0 through 1024. Default 0, which is pure path-traced indirect.
 #

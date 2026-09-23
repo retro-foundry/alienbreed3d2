@@ -266,9 +266,11 @@ struct PostConstants {
     uint32_t reset_history;
     uint32_t bloom_operation;
     uint32_t validation_enabled;
+    /* rtx_noise_floor; see RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS. */
+    float noise_floor_stops;
 };
 
-static_assert(sizeof(PostConstants) == 8u * sizeof(uint32_t));
+static_assert(sizeof(PostConstants) == 9u * sizeof(uint32_t));
 
 enum class EnvironmentToggle {
     automatic,
@@ -686,6 +688,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.source_light_scale_set != 0u) {
         source_light_scale_ = options.source_light_scale;
     }
+    if (options.noise_floor_stops_set != 0u) {
+        noise_floor_stops_ = options.noise_floor_stops;
+    }
     if (options.restir_history_reduction_set != 0u) {
         restir_history_reduction_ = options.restir_history_reduction;
     }
@@ -803,6 +808,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  indirect_reconstruction::temporal_window_maximum,
                  &indirect_temporal_window_},
     };
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_NOISE_FLOOR", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < -24.0 || parsed > 0.0) {
+                error = "AB3D2_DXR_NOISE_FLOOR must be -24 to 0";
+                return false;
+            }
+            noise_floor_stops_ = static_cast<float>(parsed);
+        }
+    }
     {
         char value[64] = {};
         const DWORD length = GetEnvironmentVariableA(
@@ -3794,7 +3816,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                               constants.exposure_delta_seconds,
                                               history_valid ? 0u : 1u,
                                               0u,
-                                              constants.validation_enabled};
+                                              constants.validation_enabled,
+                                              noise_floor_stops_};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(post_constants) / sizeof(uint32_t), &post_constants, 0u);
         command_list->SetPipelineState(post_histogram_pipeline_state_.Get());

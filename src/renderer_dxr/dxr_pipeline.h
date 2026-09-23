@@ -319,6 +319,9 @@ private:
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_RADIUS;
     float restir_history_reduction_ =
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION;
+    /* rtx_noise_floor, or AB3D2_DXR_NOISE_FLOOR for measurement. */
+    float noise_floor_stops_ =
+        RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS;
     /* rtx_bounce_light, or AB3D2_DXR_BOUNCE_LIGHT for measurement. */
     float source_light_scale_ =
         RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE;

@@ -547,6 +547,18 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.restir_connection_footprint_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_noise_floor")) {
+        if (!desktop_settings_parse_float_range(
+                value, -24.0, 0.0,
+                &settings->ray_tracing.noise_floor_stops)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_noise_floor must be -24 through 0",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.noise_floor_stops_set = UINT8_MAX;
+        return 1;
+    }
     /* Zero returns indirect light to pure path tracing. */
     if (desktop_settings_equals_ci(key, "rtx_bounce_light")) {
         if (!desktop_settings_parse_float_range(
