@@ -680,13 +680,6 @@ if(BUILD_TESTING AND NOT EMSCRIPTEN)
     target_include_directories(ab3d2_dxr_restir_resampling_test PRIVATE src)
     add_test(NAME ab3d2_dxr_restir_resampling_test
              COMMAND $<TARGET_FILE:ab3d2_dxr_restir_resampling_test>)
-    add_executable(ab3d2_dxr_source_lighting_test
-      tests/dxr_source_lighting_test.cpp)
-    set_target_properties(ab3d2_dxr_source_lighting_test
-      PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
-    target_include_directories(ab3d2_dxr_source_lighting_test PRIVATE src)
-    add_test(NAME ab3d2_dxr_source_lighting_test
-             COMMAND $<TARGET_FILE:ab3d2_dxr_source_lighting_test>)
     add_executable(ab3d2_dxr_restir_duplication_test
       tests/dxr_restir_duplication_test.cpp)
     set_target_properties(ab3d2_dxr_restir_duplication_test

@@ -62,26 +62,13 @@ struct DxrSceneVertex {
      * their measured additive strength without turning source Gouraud/ZoneT
      * raster lighting into emitted radiance. */
     float emissive_scale;
-    /*
-     * The level's own lighting at this vertex, as a fraction of a fully lit
-     * surface. This is the only illumination Alien Breed 3D II has -- its
-     * palette holds no fullbright entry, so no texture in the game emits --
-     * and dxr_source_lighting.h explains the conversion, which differs
-     * between world geometry and sprites because the source encodes the two
-     * in opposite directions.
-     *
-     * It sits ahead of view_weapon_position so that float3 starts on a
-     * 16-byte boundary: behind it, the float3 straddled one and HLSL's
-     * structured-buffer packing no longer agreed with this structure.
-     */
-    float source_irradiance;
     /* Camera-local source position for the view weapon. World geometry leaves
      * this zero. Keeping the small authored offset avoids losing its motion to
      * cancellation after attachment to a large world-space camera position. */
     float view_weapon_position[3];
 };
 
-static_assert(sizeof(DxrSceneVertex) == 60u);
+static_assert(sizeof(DxrSceneVertex) == 56u);
 
 struct DxrSceneMaterial {
     /* Content origin inside the material level's one-texel wrapped gutter. */

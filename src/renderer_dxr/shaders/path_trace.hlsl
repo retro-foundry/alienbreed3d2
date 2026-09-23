@@ -34,11 +34,6 @@ struct SceneVertex
     /* Per-vertex strength for explicitly authored additive effects. World PBR
      * polygon lights use neutral one; source Gouraud lighting is not radiance. */
     float emissiveScale;
-    /* The level's own lighting at this vertex, as a fraction of a fully lit
-     * surface, and the only illumination this game has. The conversion lives
-     * in renderer_dxr/dxr_source_lighting.h. It sits ahead of the float3 so
-     * that float3 starts on a 16-byte boundary. */
-    float sourceIrradiance;
     /* Camera-local source position for the view weapon; zero for the world. */
     float3 viewWeaponPosition;
 };
@@ -119,9 +114,6 @@ struct SurfaceData
     float metalness;
     float specularFactor;
     float3 emission;
-    /* Incident irradiance from the level's own lighting, already through the
-     * source shading curve. Unlit primitives carry zero. */
-    float sourceIrradiance;
     uint materialIndex;
     uint emitterIndex;
     uint primitive;
@@ -332,12 +324,6 @@ cbuffer FrameConstants : register(b0)
     float ReservoirSpatialRadius;
     /* Duplication-based history reduction strength; zero disables it. */
     float ReservoirHistoryReduction;
-    /*
-     * Radiance of a fully lit source surface. The game's light units are its
-     * own palette rows, so this is what fixes them to a physical scale; see
-     * renderer_dxr/dxr_source_lighting.h.
-     */
-    float SourceLightScale;
 };
 
 cbuffer RayRootConstants : register(b1)
@@ -1332,10 +1318,6 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     float emissionScale = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
-    surface.sourceIrradiance = SourceLightScale * (
-        first.sourceIrradiance * firstWeight +
-        second.sourceIrradiance * payload.barycentrics.x +
-        third.sourceIrradiance * payload.barycentrics.y);
     surface.emission =
         sampleMaterialAtlasFilteredHardware(
             EmissiveAtlas, material, surface.textureCoordinate,
@@ -2774,12 +2756,6 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
         float3 directAtSurface = sampleDiffusePolygonLight(
             pixel, sampleIndex, lightStream, true, reachedSurface,
             diffuseLightSampleCount);
-        /* The level's own lighting at the reached surface is direct light
-         * exactly as the polygon sample above is, so it reflects the same
-         * way and is what carries indirect bounces in a game whose only
-         * illumination is its sector tables. */
-        directAtSurface += diffuseReflectance(reachedSurface) *
-            reachedSurface.sourceIrradiance;
         result.radiance += suffixThroughput * directAtSurface;
 
         if (continuationIndex + 2u >= pathDepth) {
@@ -2932,8 +2908,6 @@ float3 sampleSmoothSpecularPath(uint2 pixel, uint sampleIndex,
         reachedSurface.emitterIndex < EmitterCount ?
             1.0 - directSpecularWeight(primarySurface.roughness) : 1.0;
     float3 reachedRadiance = reachedSurface.emission * emissionComplement;
-    reachedRadiance += diffuseReflectance(reachedSurface) *
-        reachedSurface.sourceIrradiance;
     if (EmitterCount > 0u) {
         reachedRadiance += sampleDiffusePolygonLight(
             pixel, sampleIndex, SmoothSpecularPolygonStream, true,
@@ -3557,16 +3531,6 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
             resolvedRadiance += surface.emission;
         }
         float3 primaryThroughput = diffuseReflectance(surface);
-        /*
-         * The level's own lighting, reflected off this surface. It is direct
-         * diffuse light -- the game computed it per sector -- so it joins that
-         * channel, and it carries no sampling noise, so it is not averaged
-         * over samples the way the traced estimates below are.
-         */
-        if (RadianceChannel == RadianceChannelCombined ||
-            RadianceChannel == RadianceChannelDirectDiffuse) {
-            resolvedRadiance += primaryThroughput * surface.sourceIrradiance;
-        }
         /* Continuation rays can collect crossed additive layers or reached
          * authored emission even when the scene has no polygon emitter.
          * Keep only the polygon-light samplers themselves conditional on

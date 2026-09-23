@@ -5,8 +5,8 @@
       "name": "floor_0101",
       "source_generator": "floor_0101",
       "binding": {"source": "shared_floor", "source_asset_id": 257},
-      "emissive_source": "none",
-      "emissive_factor": [0.0, 0.0, 0.0]
+      "emissive_source": "albedo_mask",
+      "emissive_factor": [200.0, 200.0, 200.0]
     }
   ],
   "materials": [

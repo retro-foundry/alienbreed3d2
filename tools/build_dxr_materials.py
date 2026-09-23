@@ -121,19 +121,13 @@ def emissive_from_albedo(name: str, albedo: Image.Image) -> Image.Image:
 
     This is a build-time conversion into a conventional emissive texture. The
     runtime never infers emission from base-color brightness.
-
-    It applies only to authored PBR art. It must never be pointed at a
-    source-decoded tile: source_floor_0101 decodes through the remap table's
-    identity row, so every texel comes back at full brightness and asking which
-    of them are bright keeps the whole texture. That is how the entire floor
-    became a 164-radiance area light and the level's only illumination. The
-    game has no emissive surfaces at all -- no palette entry survives the
-    darkest shading row -- so a source tile's emission is always none.
     """
     pixels = []
     for red, green, blue in albedo.convert("RGB").getdata():
         brightest = max(red, green, blue)
-        if name == "technolights":
+        if name == "floor_0101":
+            keep = blue >= max(red, green) * 0.85 and brightest > 40
+        elif name == "technolights":
             keep = brightest > 56 and (
                 blue > red * 1.05
                 or red > green * 1.15
@@ -270,6 +264,7 @@ def validate_spec(spec: object, source_dir: Path) -> dict:
             )
         if emissive_source == "albedo_mask" and name not in (
             "technolights",
+            "floor_0101",
         ):
             raise ValueError(f"DXR material {name} has no approved emissive mask")
         names.add(name)
@@ -471,11 +466,7 @@ def build_materials(
                 "normal": Image.new("RGB", output_size, (128, 128, 255)),
                 "metalness": Image.new("RGB", output_size, (0, 0, 0)),
                 "roughness": Image.new("RGB", output_size, (255, 255, 255)),
-                "emissive": (
-                    emissive_from_albedo(material["name"], albedo)
-                    if material.get("emissive_source") == "albedo_mask"
-                    else Image.new("RGB", output_size, (0, 0, 0))
-                ),
+                "emissive": emissive_from_albedo(material["name"], albedo),
             },
             {
                 "source_generator": material["source_generator"],

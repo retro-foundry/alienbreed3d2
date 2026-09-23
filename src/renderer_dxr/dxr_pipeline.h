@@ -319,13 +319,6 @@ private:
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_RADIUS;
     float restir_history_reduction_ =
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION;
-    /*
-     * Radiance of a fully lit source surface. Alien Breed 3D II measures light
-     * in palette rows, so this is the constant that gives those rows a
-     * physical scale; one keeps a lit white wall at unit radiance.
-     * AB3D2_DXR_SOURCE_LIGHT_SCALE overrides it for measurement.
-     */
-    float source_light_scale_ = 1.0f;
     /* Path length counting the primary hit; ab3d2.ini may change it. */
     uint32_t maximum_depth_ = 3u;
     uint32_t debug_view_ = 0;

@@ -73,13 +73,6 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "technolights does not contain an explicit light mask\n");
         return 1;
     }
-    /*
-     * Neither floor emits. The pair used to differ -- 0x0101 carried 200 and
-     * 0x0201 nothing -- but that radiance was a build-time mistake, not source
-     * data: Alien Breed 3D II's palette darkens all 256 entries to black, so
-     * no texture in the game is self-lit. The level's light comes from its
-     * sector brightness tables instead; see dxr_source_lighting.h.
-     */
     const ab3d2::dxr::DxrMaterialDefinition *floor_light = nullptr;
     const ab3d2::dxr::DxrMaterialDefinition *floor_pbr = nullptr;
     if (!library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0101u, 0u,
@@ -87,7 +80,7 @@ int main(int argc, char **argv)
         !library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0201u, 0u,
                          floor_pbr, error) ||
         !floor_light || !floor_pbr ||
-        floor_light->emissive_factor[0] != 0.0f ||
+        std::fabs(floor_light->emissive_factor[0] - 200.0f) > 0.0001f ||
         floor_pbr->emissive_factor[0] != 0.0f) {
         std::fprintf(stderr, "source floor material bindings are incomplete\n");
         return 1;
