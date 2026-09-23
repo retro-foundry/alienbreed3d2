@@ -19379,9 +19379,9 @@
       },
       "class": "floor",
       "emissive_factor": [
-        40.0,
-        40.0,
-        40.0
+        1600.0,
+        1600.0,
+        1600.0
       ],
       "emissive_space": "srgb",
       "generated_channels": [

@@ -268,6 +268,8 @@ struct PostConstants {
     float noise_floor_stops;
     /* rtx_min_luminance; see RENDERER_RAY_TRACING_DEFAULT_MINIMUM_LUMINANCE. */
     float minimum_luminance;
+    /* rtx_max_luminance; see RENDERER_RAY_TRACING_DEFAULT_MAXIMUM_LUMINANCE. */
+    float maximum_luminance;
     /*
      * rtx_exposure_bias, the same value present.hlsl applies. The exposure
      * this pass hands to Ray Reconstruction has to be the exposure the frame
@@ -276,7 +278,7 @@ struct PostConstants {
     float exposure_bias_stops;
 };
 
-static_assert(sizeof(PostConstants) == 11u * sizeof(uint32_t));
+static_assert(sizeof(PostConstants) == 12u * sizeof(uint32_t));
 
 enum class EnvironmentToggle {
     automatic,
@@ -700,6 +702,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.minimum_luminance_set != 0u) {
         minimum_luminance_ = options.minimum_luminance;
     }
+    if (options.maximum_luminance_set != 0u) {
+        maximum_luminance_ = options.maximum_luminance;
+    }
     if (options.restir_history_reduction_set != 0u) {
         restir_history_reduction_ = options.restir_history_reduction;
     }
@@ -840,6 +845,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                 return false;
             }
             minimum_luminance_ = static_cast<float>(parsed);
+        }
+    }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_MAX_LUMINANCE", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 0.001 || parsed > 1024.0) {
+                error = "AB3D2_DXR_MAX_LUMINANCE must be 0.001 to 1024";
+                return false;
+            }
+            maximum_luminance_ = static_cast<float>(parsed);
         }
     }
     {
@@ -3713,7 +3735,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             constants.exposure_delta_seconds, history_valid ? 0u : 1u,
             static_cast<uint32_t>(operation),
             constants.validation_enabled,
-            noise_floor_stops_, minimum_luminance_, exposure_bias_stops_};
+            noise_floor_stops_, minimum_luminance_, maximum_luminance_,
+            exposure_bias_stops_};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(pass_constants) / sizeof(uint32_t),
             &pass_constants, 0u);
@@ -3832,6 +3855,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                               constants.validation_enabled,
                                               noise_floor_stops_,
                                               minimum_luminance_,
+                                              maximum_luminance_,
                                               exposure_bias_stops_};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(post_constants) / sizeof(uint32_t), &post_constants, 0u);

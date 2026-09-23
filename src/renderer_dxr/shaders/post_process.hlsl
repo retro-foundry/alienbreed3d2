@@ -29,6 +29,9 @@ cbuffer PostConstants : register(b0)
     /* The darkest luminance metering will adapt to, which is also the cap on
      * exposure gain; see RENDERER_RAY_TRACING_DEFAULT_MINIMUM_LUMINANCE. */
     float MinimumSceneLuminance;
+    /* The brightest, which is the floor on exposure gain; see
+     * RENDERER_RAY_TRACING_DEFAULT_MAXIMUM_LUMINANCE. */
+    float MaximumSceneLuminance;
     /* The exposure present.hlsl applies, so the value handed to Ray
      * Reconstruction below is the one the frame is actually shown at. */
     float ExposureBiasStops;
@@ -44,7 +47,6 @@ static const uint HighLuminanceStateIndex = AdaptedLuminanceStateIndex + 4u;
 static const float MinimumLogLuminance = -24.0;
 static const float MaximumLogLuminance = 8.0;
 static const float DisplayDynamicRangeStops = 7.0;
-static const float MaximumSceneLuminance = 1.0;
 static const float NoiseFloorBlend = 0.5;
 static const float SlopeBlurSigma = 12.0;
 static const int SlopeBlurRadius = 13;

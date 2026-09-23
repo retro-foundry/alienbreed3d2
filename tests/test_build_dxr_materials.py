@@ -17,7 +17,7 @@ SPEC = ROOT / "data" / "renderer_dxr" / "material_sources.json"
 FLOOR_SOURCE = ROOT / "amiga" / "media" / "includes" / "floortile"
 FLOOR_REMAP = ROOT / "amiga" / "media" / "includes" / "newtexturemaps.pal"
 DISPLAY_PALETTE = ROOT / "amiga" / "media" / "includes" / "256pal"
-EXPECTED_CONTENT_DIGEST = "43c8ef0af493352ad0d93ce18152b8c09e628f7626a33d9e49d8eb26331b0c9a"
+EXPECTED_CONTENT_DIGEST = "8d0581e08b5cce096707efba8abd2b3814bdc15dd6d1fa5b227d1c22f7fead9c"
 RUNTIME_HEADER = struct.Struct("<8sIIII")
 RUNTIME_RECORD = struct.Struct("<IIIIffffII")
 
@@ -108,14 +108,22 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 self.assertEqual(material["roughness_space"], "linear")
                 self.assertEqual(material["metalness_space"], "linear")
                 self.assertEqual(material["emissive_space"], "srgb")
-                # These two are the only lights in the game, and they are
-                # kept in family: through their own masks they emit mean
-                # radiances of 32.7 and 11.8 to 37.6. floor_0101's mask covers
-                # 90% of its tile against technolights' 12%, so equal factors
-                # would make the floor emit thirty-five times as much and
-                # stretch a scene past what the tone curve can hold.
+                # These two are the only lights in the game, and their
+                # factors are NOT comparable. Emitted radiance is the factor
+                # times the mask's mean value, and floor_0101's mask covers
+                # 88.9% of its tile at a mean of 0.820 against technolights'
+                # 9.7% at 0.014, so the floor emits 57x more per unit factor.
+                # They were held in family at 40 against 1600, emitting 32.8
+                # and 22.9.
+                #
+                # The floor now runs at 1600 deliberately, to push bounce
+                # light into corners the emitters cannot see -- measured at
+                # 2.3x more corner light relative to lit surfaces. It emits
+                # 57x the fixture, which is past what the tone curve held
+                # before rtx_max_luminance was raised from Q2RTX's 1.0 to 16
+                # to give exposure the range to bring it back down.
                 authored_emission = {
-                    "floor_0101": [40.0, 40.0, 40.0],
+                    "floor_0101": [1600.0, 1600.0, 1600.0],
                     "technolights": [1600.0, 1600.0, 1600.0],
                 }
                 if material["name"] in authored_emission:
@@ -188,7 +196,7 @@ class DxrMaterialBuilderTest(unittest.TestCase):
                 )
             ]
             self.assertEqual(floor_light[0:2], (2, 257))
-            self.assertEqual(floor_light[5:8], (40.0, 40.0, 40.0))
+            self.assertEqual(floor_light[5:8], (1600.0, 1600.0, 1600.0))
             self.assertEqual(floor_light[8], 1)
 
             with Image.open(first / "technolights_emissive.png") as image:

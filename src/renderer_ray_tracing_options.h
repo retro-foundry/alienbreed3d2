@@ -194,6 +194,22 @@ enum {
  * are untouched and only the amplification of the darks has gone.
  */
 #define RENDERER_RAY_TRACING_DEFAULT_MINIMUM_LUMINANCE 0.01f
+/*
+ * The brightest scene luminance auto-exposure will meter to -- Q2RTX's
+ * tm_max_luminance, and the floor on exposure gain, which is 0.125 divided by
+ * this.
+ *
+ * Q2RTX ships 1.0. This game's emitters are authored far above Q2RTX's: with
+ * the floor light and the techno lights both at 1600, a view of them meters
+ * around 8.7, so the clamp is exceeded eightfold and exposure sits pinned at
+ * its floor of 0.125 with nowhere left to go. The frame then blows out --
+ * 14% of it saturated -- and no amount of further authoring can be
+ * compensated for, because the control has already bottomed out.
+ *
+ * Raising it restores the range exposure needs to bring a bright scene back
+ * down. Lower it to force a scene to read brighter than it is.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_MAXIMUM_LUMINANCE 16.0f
 /* Radiance of a fully lit surface under the level's own vertex lighting, which
  * bounce vertices return in place of tracing on. Indirect light is pure path
  * tracing by default: the fill lifts the dark end of the frame measurably, but
@@ -268,6 +284,8 @@ typedef struct {
     uint8_t noise_floor_stops_set;
     float minimum_luminance;
     uint8_t minimum_luminance_set;
+    float maximum_luminance;
+    uint8_t maximum_luminance_set;
     /*
      * Probability that final shading discards the resampled reservoir and
      * shades the preserved initial sample instead, trading variance for the

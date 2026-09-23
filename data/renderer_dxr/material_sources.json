@@ -6,7 +6,7 @@
       "source_generator": "floor_0101",
       "binding": {"source": "shared_floor", "source_asset_id": 257},
       "emissive_source": "albedo_mask",
-      "emissive_factor": [40.0, 40.0, 40.0]
+      "emissive_factor": [1600.0, 1600.0, 1600.0]
     }
   ],
   "materials": [

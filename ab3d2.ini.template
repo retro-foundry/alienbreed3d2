@@ -239,6 +239,24 @@ world_light_tessellation=4
 # brighten further at the cost of that amplification.
 #rtx_min_luminance=0.01
 
+# The brightest scene luminance auto-exposure will meter to, 0.001 through
+# 1024. Default 16.
+#
+# This is Q2RTX's tm_max_luminance, and it is the floor on exposure gain: the
+# gain is 0.125 divided by this, so 16 bottoms out at 0.0078.
+#
+# Q2RTX ships 1.0, which bottoms out at 0.125. This game's emitters are
+# authored far above Q2RTX's -- the floor light and the techno lights both sit
+# at 1600 -- and a view of them meters around 8.7, eight times past that
+# clamp. Exposure then sits pinned with nowhere to go and the frame blows out:
+# measured on a clipping view, 129344 pixels saturated at 1.0 against none at
+# 16, with the frame mean falling 68.5 to 46.2. At 16 the clamp stops binding
+# for this content, and 64 measures identically, so there is no reason to go
+# higher.
+#
+# Lower it to force a bright scene to keep reading bright.
+#rtx_max_luminance=16.0
+
 # Radiance of a fully lit surface under the level's own vertex lighting,
 # 0 through 1024. Default 0, which is pure path-traced indirect.
 #

@@ -80,10 +80,20 @@ int main(int argc, char **argv)
         !library.resolve(SCENE_MATERIAL_SOURCE_SHARED_FLOOR_TEXTURE, 0x0201u, 0u,
                          floor_pbr, error) ||
         !floor_light || !floor_pbr ||
-        /* In family with wall_06_technolights by emitted radiance, not by
-         * factor: the floor's mask covers 90% of its tile and the fixture's
-         * 12%. See the emissive notes in tests/test_build_dxr_materials.py. */
-        std::fabs(floor_light->emissive_factor[0] - 40.0f) > 0.0001f ||
+        /*
+         * Factors are NOT comparable between these two materials, so this
+         * number cannot be read against wall_06_technolights' 1600. Emitted
+         * radiance is the factor times the mask's mean value, and the floor's
+         * mask covers 88.9% of its tile at a mean of 0.820 while the fixture's
+         * covers 9.7% at 0.014 -- the floor emits 57x more per unit of factor.
+         * Radiance parity would be a factor near 28; 40 puts the floor at
+         * 32.8 against the fixture's 22.9.
+         *
+         * 1600 is a deliberate choice to drive bounce light into corners the
+         * emitters cannot see, which measured 2.3x more corner light relative
+         * to lit surfaces. It leaves the floor at 57x the fixture by radiance.
+         */
+        std::fabs(floor_light->emissive_factor[0] - 1600.0f) > 0.0001f ||
         floor_pbr->emissive_factor[0] != 0.0f) {
         std::fprintf(stderr, "source floor material bindings are incomplete\n");
         return 1;
