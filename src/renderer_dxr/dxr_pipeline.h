@@ -143,8 +143,6 @@ public:
             static_cast<uint8_t>(indirect_spp_);
         options.indirect_light_samples =
             static_cast<uint8_t>(indirect_light_samples_);
-        options.diffuse_gi_scale = diffuse_gi_scale_;
-        options.diffuse_gi_scale_set = UINT8_MAX;
         options.specular_roughness_limit = specular_roughness_limit_;
         options.specular_roughness_limit_set = UINT8_MAX;
         options.maximum_bounces = static_cast<uint8_t>(maximum_depth_);
@@ -296,8 +294,6 @@ private:
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES;
     uint32_t indirect_temporal_window_ =
         indirect_reconstruction::temporal_window_default;
-    float diffuse_gi_scale_ =
-        RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE;
     /* Roughness at which specular stops being traced; see
      * renderer_ray_tracing_options.h. The long-standing behaviour is 0.3. */
     float specular_roughness_limit_ = 0.3f;

@@ -327,7 +327,6 @@ cbuffer FrameConstants : register(b0)
     uint LightGridRebuild;
     uint RayReconstructionActive;
     uint DiagnosticGuideMask;
-    float DiffuseGiScale;
     uint ValidationEnabled;
     uint SinglePrimaryDirectSurvivor;
     uint SingleContinuationLobe;
@@ -3757,7 +3756,7 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
             uint directSampleCount = max(SamplesPerPixel, 1u);
             /* Direct polygon NEE and fresh indirect continuation counts are
              * independent. Extra GI paths spend no primary shadow ray. */
-            indirectSampleCount = MaximumDepth >= 2u && DiffuseGiScale > 0.0 &&
+            indirectSampleCount = MaximumDepth >= 2u &&
                     luminance(primaryThroughput) > 1.0e-6 ?
                 max(IndirectSamplesPerPixel, 1u) : 0u;
             bool deferBurstContinuation =
@@ -4935,8 +4934,7 @@ void ReconstructIndirect()
     }
     filteredIncident = max(filteredIncident, 0.0);
     IndirectFiltered[pixel] = float4(filteredIncident, 1.0);
-    float3 reconstructed = filteredIncident * centerAlbedo.rgb *
-        DiffuseGiScale;
+    float3 reconstructed = filteredIncident * centerAlbedo.rgb;
     float reconstructedLuminance = luminance(reconstructed);
     if (RadianceClamp > 0.0 &&
         reconstructedLuminance > RadianceClamp) {

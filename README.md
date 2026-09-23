@@ -96,9 +96,6 @@ default, so the shipped template lists them commented out with their defaults:
 - `rtx_gi_temporal_frames=1` is a retained compatibility setting. Values above
   one fail initialization because exact-pose testing showed final-radiance
   history converting rare secondary estimates into persistent bright dots;
-- `rtx_diffuse_gi=0` through `1` scales only secondary diffuse transfer and
-  defaults to `0.75`. Exact zero skips diffuse continuation work without
-  changing direct light or visible emission.
 - `rtx_max_bounces=1` evaluates visible emission and primary direct Lambert/GGX
   lighting. Values `2` through `8` add real continuations. Every diffuse
   continuation uses the standard cosine-weighted Lambertian estimator and
@@ -141,7 +138,7 @@ default, so the shipped template lists them commented out with their defaults:
   after the tone curve in log2 stops and defaults to Q2RTX's `-1` EV.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_INDIRECT_SPP`,
-`AB3D2_DXR_INDIRECT_LIGHT_SAMPLES`, `AB3D2_DXR_DIFFUSE_GI`,
+`AB3D2_DXR_INDIRECT_LIGHT_SAMPLES`,
 `AB3D2_DXR_MAX_BOUNCES`,
 `AB3D2_DXR_CANDIDATES`,
 `AB3D2_DXR_RESERVOIR_LIMIT`, `AB3D2_DXR_GI_TEMPORAL_FRAMES`,
@@ -935,8 +932,7 @@ and runs at every primary pixel. At a diffuse continuation hit, the renderer
 performs the same local polygon-light proposal and stores demodulated incident
 radiance in a separate low-frequency channel.
 
-`rtx_diffuse_gi=0..1` controls secondary diffuse transfer and defaults to
-`0.75`. `rtx_indirect_samples` controls fresh per-pixel diffuse paths and
+`rtx_indirect_samples` controls fresh per-pixel diffuse paths and
 defaults to four. `rtx_indirect_light_samples=2` adds a second independent RIS
 estimate to one rotating path stratum every third frame. Each newly traced path
 and visibility result is

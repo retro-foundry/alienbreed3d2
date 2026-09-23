@@ -206,10 +206,6 @@ enum {
  * in frame and looks identical to zero. */
 #define RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE 0.0f
 
-/* Reduce secondary diffuse transfer modestly. Direct lighting and visible
- * emission are not affected. */
-#define RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE 0.75f
-
 typedef struct {
     /*
      * Fresh primary direct-light samples per pixel per frame. One through
@@ -222,8 +218,6 @@ typedef struct {
     /* Maximum RIS estimates on the temporally interleaved diffuse stratum. */
     uint8_t indirect_light_samples;
     /* Secondary diffuse transfer multiplier, zero through one. */
-    float diffuse_gi_scale;
-    uint8_t diffuse_gi_scale_set;
     /*
      * Roughness at which specular stops being traced and is reconstructed from
      * the filtered diffuse signal instead. Reconstruction is far cheaper but

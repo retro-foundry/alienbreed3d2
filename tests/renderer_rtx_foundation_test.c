@@ -114,8 +114,6 @@ int main(void)
     requested.samples_per_pixel = 3u;
     requested.indirect_samples_per_pixel = 7u;
     requested.indirect_light_samples = 2u;
-    requested.diffuse_gi_scale = 0.6f;
-    requested.diffuse_gi_scale_set = UINT8_MAX;
     requested.maximum_bounces = 2u;
     requested.light_candidates = 8u;
     requested.radiance_clamp = 0.0f;
@@ -158,8 +156,6 @@ int main(void)
         applied.indirect_samples_per_pixel !=
             requested.indirect_samples_per_pixel ||
         applied.indirect_light_samples != requested.indirect_light_samples ||
-        applied.diffuse_gi_scale != requested.diffuse_gi_scale ||
-        applied.diffuse_gi_scale_set == 0u ||
         applied.maximum_bounces != requested.maximum_bounces ||
         applied.light_candidates != requested.light_candidates ||
         applied.radiance_clamp != requested.radiance_clamp ||

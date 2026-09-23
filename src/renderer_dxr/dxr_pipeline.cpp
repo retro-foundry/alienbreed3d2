@@ -205,7 +205,6 @@ struct FrameConstants {
     uint32_t light_grid_rebuild;
     uint32_t ray_reconstruction_active;
     uint32_t diagnostic_guide_mask;
-    float diffuse_gi_scale;
     uint32_t validation_enabled;
     uint32_t single_primary_direct_survivor;
     uint32_t single_continuation_lobe;
@@ -227,13 +226,7 @@ struct FrameConstants {
     /* Radiance of a fully lit surface under the level's own vertex lighting;
      * see dxr_source_lighting.h. Consumed only by bounce vertices. */
     float source_light_scale;
-    /* Keeps the structure a whole number of 16-byte constant registers, so the
-     * C++ and HLSL layouts cannot disagree about trailing padding. */
-    /*
-     * AB3D2_DXR_ZONE_LIGHTS; zero restores the scene-wide distribution. This
-     * occupies what used to be the structure's one padding word, which kept
-     * it a whole number of 16-byte constant registers.
-     */
+    /* AB3D2_DXR_ZONE_LIGHTS; zero restores the scene-wide distribution. */
     uint32_t zone_lights_enabled;
 };
 
@@ -243,7 +236,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 73u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 72u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -760,15 +753,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     indirect_light_samples_ = options.indirect_light_samples != 0u ?
         options.indirect_light_samples :
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES;
-    if (options.diffuse_gi_scale_set != 0u) {
-        if (!std::isfinite(options.diffuse_gi_scale) ||
-            options.diffuse_gi_scale < 0.0f ||
-            options.diffuse_gi_scale > 1.0f) {
-            error = "DXR diffuse GI transfer must be 0-1";
-            return false;
-        }
-        diffuse_gi_scale_ = options.diffuse_gi_scale;
-    }
     if (options.specular_roughness_limit_set != 0u) {
         if (!std::isfinite(options.specular_roughness_limit) ||
             options.specular_roughness_limit < 0.3f ||
@@ -899,27 +883,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                 return false;
             }
             restir_decorrelation_ = static_cast<float>(parsed);
-        }
-    }
-    {
-        char value[64] = {};
-        const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_DIFFUSE_GI", value,
-            static_cast<DWORD>(sizeof(value)));
-        if (length >= sizeof(value)) {
-            error = "AB3D2_DXR_DIFFUSE_GI exceeds 63 bytes";
-            return false;
-        }
-        if (length > 0u) {
-            char *end = nullptr;
-            errno = 0;
-            const double parsed = std::strtod(value, &end);
-            if (errno != 0 || end == value || *end != '\0' ||
-                !std::isfinite(parsed) || parsed < 0.0 || parsed > 1.0) {
-                error = "AB3D2_DXR_DIFFUSE_GI must be 0-1";
-                return false;
-            }
-            diffuse_gi_scale_ = static_cast<float>(parsed);
         }
     }
     {
@@ -1178,8 +1141,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                   std::to_string(indirect_spp_) + " indirect light samples=" +
                   std::to_string(indirect_light_samples_) +
                   " GI temporal frames=" +
-                  std::to_string(indirect_temporal_window_) + " diffuse GI=" +
-                 std::to_string(diffuse_gi_scale_) + " bounces=" +
+                  std::to_string(indirect_temporal_window_) + " bounces=" +
                  std::to_string(maximum_depth_) + " candidates=" +
                  std::to_string(candidate_count_) + " reservoir limit=" +
                  " radiance clamp=" +
@@ -3134,8 +3096,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     const uint64_t current_light_grid_layout_hash =
         scene_.light_grid_layout_hash();
     const uint64_t current_emitter_state_hash = scene_.emitter_state_hash();
-    const uint32_t effective_indirect_spp = diffuse_gi_scale_ > 0.0f ?
-        indirect_spp_ : 0u;
+    const uint32_t effective_indirect_spp = indirect_spp_;
     const bool light_grid_active =
         (maximum_depth_ >= 2u || compact_local_primary_) &&
         scene_.emitter_count() > 0u;
@@ -3291,7 +3252,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
              2u : 0u) |
         (debug_view_ == static_cast<uint32_t>(
              DxrReconstructionBuffer::specular_hit_distance) ? 4u : 0u);
-    constants.diffuse_gi_scale = diffuse_gi_scale_;
     /* The blend keeps its 2:3 shape, so only the upper bound is configured. */
     constants.traced_specular_roughness_limit = specular_roughness_limit_;
     constants.indirect_mode = indirect_mode_;

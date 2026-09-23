@@ -138,7 +138,6 @@ int main(void)
     if (RENDERER_RAY_TRACING_DEFAULT_LIGHT_CANDIDATES != 16 ||
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_SAMPLES_PER_PIXEL != 4 ||
         RENDERER_RAY_TRACING_DEFAULT_INDIRECT_LIGHT_SAMPLES != 2 ||
-        RENDERER_RAY_TRACING_DEFAULT_DIFFUSE_GI_SCALE != 0.75f ||
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_TEMPORAL_HISTORY != 20 ||
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_SAMPLES != 2 ||
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_RADIUS != 0.03f ||
@@ -151,8 +150,6 @@ int main(void)
     if (settings.ray_tracing.samples_per_pixel != 0u ||
         settings.ray_tracing.indirect_samples_per_pixel != 0u ||
         settings.ray_tracing.indirect_light_samples != 0u ||
-        settings.ray_tracing.diffuse_gi_scale != 0.0f ||
-        settings.ray_tracing.diffuse_gi_scale_set != 0u ||
         settings.ray_tracing.maximum_bounces != 0u ||
         settings.ray_tracing.light_candidates != 0u ||
         settings.ray_tracing.indirect_mode != RENDERER_INDIRECT_DEFAULT ||
@@ -184,7 +181,6 @@ int main(void)
             "rtx_samples_per_pixel=4\n"
             "rtx_indirect_samples=12\n"
             "rtx_indirect_light_samples=2\n"
-            "rtx_diffuse_gi=0.625\n"
             "rtx_max_bounces=2\n"
             "rtx_light_candidates=16\n"
             "rtx_radiance_clamp=0\n"
@@ -201,8 +197,6 @@ int main(void)
             settings.ray_tracing.samples_per_pixel != 4u ||
             settings.ray_tracing.indirect_samples_per_pixel != 12u ||
             settings.ray_tracing.indirect_light_samples != 2u ||
-            settings.ray_tracing.diffuse_gi_scale != 0.625f ||
-            settings.ray_tracing.diffuse_gi_scale_set == 0u ||
             settings.ray_tracing.maximum_bounces != 2u ||
             settings.ray_tracing.light_candidates != 16u ||
             settings.ray_tracing.radiance_clamp != 0.0f ||
@@ -223,15 +217,12 @@ int main(void)
     }
     {
         static const char text[] =
-            "rtx_diffuse_gi=0\n"
             "rtx_exposure_bias=0\n"
             "rtx_hdr_saturation=0\n";
 
         desktop_settings_default(&settings);
         if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u,
                                     error, sizeof(error)) ||
-            settings.ray_tracing.diffuse_gi_scale != 0.0f ||
-            settings.ray_tracing.diffuse_gi_scale_set == 0u ||
             settings.ray_tracing.exposure_bias_stops != 0.0f ||
             settings.ray_tracing.exposure_bias_set == 0u ||
             settings.ray_tracing.hdr_saturation_percent != 0.0f ||
@@ -256,8 +247,6 @@ int main(void)
             "rtx_indirect_light_samples=3\n",
             "rtx_gi_temporal_frames=1\n",
             "rtx_reservoir_limit=32\n",
-            "rtx_diffuse_gi=-0.01\n",
-            "rtx_diffuse_gi=1.01\n",
             "rtx_max_bounces=0\n",
             "rtx_light_candidates=0\n",
             "rtx_radiance_clamp=-0.1\n",

@@ -114,10 +114,6 @@ world_light_tessellation=4
 # fresh visibility results. Use 1 as the lower-cost control.
 #rtx_indirect_light_samples=2
 
-# Secondary diffuse-light transfer, 0 through 1. Default 0.75. Zero disables
-# diffuse continuation work; direct light and visible emission remain active.
-#rtx_diffuse_gi=0.75
-
 # Roughness at which specular stops being traced and is reconstructed from the
 # filtered diffuse signal instead. Reconstruction is much cheaper but carries no
 # directional detail, so a surface above this limit cannot mirror the scene.

@@ -213,8 +213,6 @@ static int run_indirect_recovery_capture(
     RendererRayTracingOptions options = {0};
     options.samples_per_pixel = 1u;
     options.indirect_samples_per_pixel = (uint8_t)burst_ceiling;
-    options.diffuse_gi_scale = 0.75f;
-    options.diffuse_gi_scale_set = UINT8_MAX;
     options.maximum_bounces = 3u;
     options.light_candidates = 16u;
     options.radiance_clamp = 0.0f;
@@ -513,8 +511,6 @@ static int run_radiance_channel_reference(void)
     RendererRayTracingOptions options = {0};
     options.samples_per_pixel = 8u;
     options.indirect_samples_per_pixel = 8u;
-    options.diffuse_gi_scale = 0.75f;
-    options.diffuse_gi_scale_set = UINT8_MAX;
     options.maximum_bounces = 2u;
     options.light_candidates = 16u;
     options.radiance_clamp = 0.0f;
@@ -726,8 +722,6 @@ int main(int argc, char **argv)
     RendererRayTracingOptions options = {0};
     options.samples_per_pixel = 8u;
     options.indirect_samples_per_pixel = 1u;
-    options.diffuse_gi_scale = 0.0f;
-    options.diffuse_gi_scale_set = UINT8_MAX;
     options.maximum_bounces = 2u;
     options.light_candidates = 16u;
     options.radiance_clamp = 0.0f;
