@@ -62,6 +62,10 @@ struct EmissiveTriangle
     float inverseArea;
     float aliasThreshold;
     uint aliasIndex;
+    /* What light sampling emits: the mean of this triangle's emissive texture
+     * over its own UVs, factor included and emissive scale not. See
+     * DxrEmissiveTriangle in dxr_scene.h for why it is not the texel. */
+    float3 radiance;
 };
 
 /* Mirrored by light_grid::Entry in dxr_light_grid.h. Each entry is one
@@ -2227,9 +2231,6 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
                                 root * secondRandom);
     float3 lightPosition = first.position * barycentrics.x +
         second.position * barycentrics.y + third.position * barycentrics.z;
-    float2 lightUv = first.textureCoordinate * barycentrics.x +
-        second.textureCoordinate * barycentrics.y +
-        third.textureCoordinate * barycentrics.z;
     float3 toLight = lightPosition - surface.position;
     float distanceSquared = dot(toLight, toLight);
     if (distanceSquared <= RayEpsilon * RayEpsilon) {
@@ -2253,16 +2254,13 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
     if (!(lightPdf > 0.0)) {
         return evaluation;
     }
-    SceneMaterial lightMaterial = Materials[first.materialIndex];
     float lightEmissiveScale = first.emissiveScale * barycentrics.x +
         second.emissiveScale * barycentrics.y +
         third.emissiveScale * barycentrics.z;
-    float3 emittedRadiance =
-        sampleMaterialAtlasHardware(
-            EmissiveAtlas, lightMaterial, lightUv,
-            first.textureWindowOrigin,
-            first.textureWindowExtent).rgb *
-        lightMaterial.emissiveFactor * lightEmissiveScale;
+    /* The triangle's measured mean, not the texel at this point: a sparse map
+     * read per texel returns mostly black and occasionally a full-strength
+     * strip. See DxrEmissiveTriangle::radiance in dxr_scene.h. */
+    float3 emittedRadiance = emitter.radiance * lightEmissiveScale;
     BsdfEvaluation bsdf = evaluateBsdf(surface, viewDirection, lightDirection);
     evaluation.diffuseContribution =
         bsdf.diffuse * emittedRadiance * normalLight;
@@ -2281,12 +2279,11 @@ EmitterEvaluation evaluateEmitterSampleForFrame(SurfaceData surface,
 }
 
 /* Candidate streaming needs geometry, the receiving BSDF, and a proposal
- * target, but it need not sample the emitter texture. The global alias weight
- * is area times the maximum authored emissive luminance, so multiplying its
- * categorical probability by inverse area yields a positive radiance proxy
- * up to one common normalization. RIS later divides by the selected proxy
- * target and applies the exact textured contribution, preserving the integral
- * while sparse/black texels correctly contribute zero. */
+ * target. The global alias weight is area times the triangle's measured
+ * emitted luminance, so multiplying its categorical probability by inverse
+ * area yields that luminance up to one common normalization -- which is what
+ * light sampling now emits, so the proxy and the evaluated contribution agree
+ * in everything but the receiving geometry. */
 EmitterEvaluation evaluateEmitterProxy(SurfaceData surface,
                                        float3 viewDirection,
                                        EmitterSample lightSample)
@@ -2387,9 +2384,6 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
         root * positionSample.y);
     float3 lightPosition = first.position * barycentrics.x +
         second.position * barycentrics.y + third.position * barycentrics.z;
-    float2 lightUv = first.textureCoordinate * barycentrics.x +
-        second.textureCoordinate * barycentrics.y +
-        third.textureCoordinate * barycentrics.z;
     float3 toLight = lightPosition - surface.position;
     float distanceSquared = dot(toLight, toLight);
     if (distanceSquared <= RayEpsilon * RayEpsilon) {
@@ -2414,15 +2408,11 @@ EmitterEvaluation evaluateDiffusePolygonSample(SurfaceData surface,
     if (!(sourcePdf > 0.0) || isnan(sourcePdf) || isinf(sourcePdf)) {
         return evaluation;
     }
-    SceneMaterial lightMaterial = Materials[first.materialIndex];
     float lightEmissiveScale = first.emissiveScale * barycentrics.x +
         second.emissiveScale * barycentrics.y +
         third.emissiveScale * barycentrics.z;
-    float3 emittedRadiance = sampleMaterialAtlasHardware(
-        EmissiveAtlas, lightMaterial, lightUv,
-        first.textureWindowOrigin,
-        first.textureWindowExtent).rgb *
-        lightMaterial.emissiveFactor * lightEmissiveScale;
+    /* The triangle's measured mean; see evaluateEmitterSampleForFrame. */
+    float3 emittedRadiance = emitter.radiance * lightEmissiveScale;
     if (!any(emittedRadiance > 0.0)) {
         return evaluation;
     }

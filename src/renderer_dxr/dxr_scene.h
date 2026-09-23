@@ -97,6 +97,31 @@ struct DxrEmissiveTriangle {
     float inverse_area;
     float alias_threshold;
     uint32_t alias_index;
+    /*
+     * What light sampling emits from this triangle: the mean of its emissive
+     * texture over the triangle's own UVs, factor included. The per-vertex
+     * emissive scale is applied on top in the shader, and the surface itself
+     * still draws its texture; only the light it casts is averaged.
+     *
+     * It also weights selection. Selection used to be weighted by the
+     * material's brightest texel while sampling read the texel under the
+     * sampled point, so a sparse map was over-selected by the ratio of its
+     * peak to its mean. wall_06_technolights peaks at 150-160 against means
+     * of 1.5-5, so it took about 83% of all light samples in a room lit
+     * almost entirely by floor_0101; each rare floor sample then carried a
+     * huge weight, and those were the fireflies on the floor. Reading the
+     * texel is also a lottery for a sparse map -- mostly black, occasionally
+     * a full-strength strip -- which the mean removes. Measured per triangle
+     * rather than per material because triangles of one material show
+     * different parts of it: technolights' triangles range from 0.3 to 7.7.
+     */
+    float radiance[3];
+};
+
+/* A triangle's measured emission, kept until its UVs or material change. */
+struct DxrEmitterRadianceCache {
+    uint64_t key = 0u;
+    float radiance[3] = {};
 };
 
 class DxrScene final {
@@ -276,6 +301,10 @@ private:
      * belongs to one compiled layout.
      */
     std::vector<float> reserved_emitter_slots_;
+    /* Indexed by triangle like reserved_emitter_slots_ and cleared with it:
+     * the emitter compile walks every triangle every frame, and re-measuring
+     * the static world's lights each time would be wasted. */
+    std::vector<DxrEmitterRadianceCache> emitter_radiance_cache_;
     uint64_t bitmap_modes_world_layout_ = 0;
     std::map<DxrVectorMaterialKey, uint32_t> vector_material_indices_;
     std::vector<CompiledInstance> instances_;

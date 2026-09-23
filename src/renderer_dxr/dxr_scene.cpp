@@ -1210,10 +1210,134 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
     return true;
 }
 
+/* sRGB byte to linear light, decoded once rather than per texel read. */
+const std::array<float, 256> &srgb_linear_table()
+{
+    static const std::array<float, 256> table = [] {
+        std::array<float, 256> values = {};
+        for (size_t index = 0; index < values.size(); ++index) {
+            values[index] = srgb_to_linear(static_cast<uint8_t>(index));
+        }
+        return values;
+    }();
+    return table;
+}
+
+uint64_t emitter_radiance_key(const DxrSceneVertex *triangle)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    hash = hash_bytes(hash, &triangle[0].material_index,
+                      sizeof(triangle[0].material_index));
+    hash = hash_bytes(hash, &triangle[0].texture_window_origin,
+                      sizeof(triangle[0].texture_window_origin));
+    hash = hash_bytes(hash, &triangle[0].texture_window_extent,
+                      sizeof(triangle[0].texture_window_extent));
+    for (size_t vertex = 0; vertex < 3u; ++vertex) {
+        hash = hash_bytes(hash, triangle[vertex].texture_coordinate,
+                          sizeof(triangle[vertex].texture_coordinate));
+    }
+    /* Zero is the cache's empty marker. */
+    return hash == 0u ? 1u : hash;
+}
+
+/*
+ * The mean of a triangle's emissive texture over its own UVs, factor included.
+ *
+ * It reads the atlas exactly as sampleMaterialAtlasLevelHardware does at level
+ * zero -- the first vertex's texture window, or the whole image for a zero
+ * extent, addressed by frac(uv) -- at a stratified grid of points placed with
+ * the shader's own sqrt mapping onto the triangle, so they are uniform in
+ * area just as light sampling's points are. The mean of what light sampling
+ * used to read is therefore unchanged, without the variance.
+ */
+void measure_emitter_radiance(const DxrSceneVertex *triangle,
+                              const DxrSceneMaterial &material,
+                              const std::vector<uint8_t> &emissive_atlas,
+                              uint32_t atlas_width, float radiance[3])
+{
+    for (size_t channel = 0; channel < 3u; ++channel) {
+        radiance[channel] = 0.0f;
+    }
+    uint32_t origin_x = triangle[0].texture_window_origin & 0xffffu;
+    uint32_t origin_y = triangle[0].texture_window_origin >> 16u;
+    uint32_t extent_x = triangle[0].texture_window_extent & 0xffffu;
+    uint32_t extent_y = triangle[0].texture_window_extent >> 16u;
+    if (extent_x == 0u || extent_y == 0u) {
+        origin_x = 0u;
+        origin_y = 0u;
+        extent_x = material.width;
+        extent_y = material.height;
+    }
+    if (extent_x == 0u || extent_y == 0u || atlas_width == 0u) {
+        return;
+    }
+    const std::array<float, 256> &linear = srgb_linear_table();
+    /*
+     * 1024 points of the R2 low-discrepancy sequence. A regular grid aliased
+     * against the tile repeats on the floor's large triangles and read it 7%
+     * dark, which for the level's main light was most of the direct light
+     * lost; R2 has no period to beat against. The result is cached, so this
+     * runs once per triangle layout rather than every frame.
+     */
+    constexpr uint32_t sample_count = 1024u;
+    constexpr double plastic = 1.32471795724474602596;
+    constexpr double step_x = 1.0 / plastic;
+    constexpr double step_y = 1.0 / (plastic * plastic);
+    double sum[3] = {};
+    uint32_t samples = 0u;
+    for (uint32_t index = 0; index < sample_count; ++index) {
+        const double sequence_x = 0.5 + step_x * static_cast<double>(index);
+        const double sequence_y = 0.5 + step_y * static_cast<double>(index);
+        const float first_random = static_cast<float>(
+            sequence_x - std::floor(sequence_x));
+        const float second_random = static_cast<float>(
+            sequence_y - std::floor(sequence_y));
+        const float root = std::sqrt(first_random);
+        const float weights[3] = {
+            1.0f - root, root * (1.0f - second_random),
+            root * second_random};
+        float uv[2] = {};
+        for (size_t vertex = 0; vertex < 3u; ++vertex) {
+            uv[0] += triangle[vertex].texture_coordinate[0] * weights[vertex];
+            uv[1] += triangle[vertex].texture_coordinate[1] * weights[vertex];
+        }
+        const float wrapped_u = uv[0] - std::floor(uv[0]);
+        const float wrapped_v = uv[1] - std::floor(uv[1]);
+        const uint32_t texel_x = std::min(
+            extent_x - 1u,
+            static_cast<uint32_t>(wrapped_u * static_cast<float>(extent_x)));
+        const uint32_t texel_y = std::min(
+            extent_y - 1u,
+            static_cast<uint32_t>(wrapped_v * static_cast<float>(extent_y)));
+        const size_t offset =
+            (static_cast<size_t>(material.atlas_y + origin_y + texel_y) *
+                 atlas_width +
+             material.atlas_x + origin_x + texel_x) * 4u;
+        if (offset + 3u >= emissive_atlas.size()) {
+            continue;
+        }
+        for (size_t channel = 0; channel < 3u; ++channel) {
+            sum[channel] += linear[emissive_atlas[offset + channel]];
+        }
+        ++samples;
+    }
+    if (samples == 0u) {
+        return;
+    }
+    for (size_t channel = 0; channel < 3u; ++channel) {
+        radiance[channel] = static_cast<float>(
+            sum[channel] / static_cast<double>(samples)) *
+            material.emissive[channel];
+    }
+}
+
 bool compile_emissive_triangles(
     std::vector<DxrSceneVertex> &vertices,
     const std::vector<float> &material_emissive_bound,
+    const std::vector<DxrSceneMaterial> &materials,
+    const std::vector<uint8_t> &emissive_atlas, uint32_t atlas_width,
     std::vector<float> &reserved_emitter_slots,
+    std::vector<DxrEmitterRadianceCache> &radiance_cache,
     std::vector<DxrEmissiveTriangle> &emitters, std::string &error)
 {
     emitters.clear();
@@ -1226,6 +1350,9 @@ bool compile_emissive_triangles(
     const size_t triangle_slots = vertices.size() / 3u;
     if (reserved_emitter_slots.size() != triangle_slots) {
         reserved_emitter_slots.assign(triangle_slots, no_reserved_emitter_slot);
+    }
+    if (radiance_cache.size() != triangle_slots) {
+        radiance_cache.assign(triangle_slots, DxrEmitterRadianceCache{});
     }
     std::vector<float> emitter_weights;
     for (DxrSceneVertex &vertex : vertices) {
@@ -1291,10 +1418,30 @@ bool compile_emissive_triangles(
         const float area = 0.5f * std::sqrt(
             cross[0] * cross[0] + cross[1] * cross[1] +
             cross[2] * cross[2]);
-        /* The emitter proposal uses the material's conservative radiance bound,
-         * like a light tree/ReGIR cell, rather than average texture power. */
-        const float weight = area * luminance;
-        const bool emissive = luminance > 0.0f && area > 1.0e-6f &&
+        /*
+         * What light sampling will emit here, measured once per UV layout.
+         * Selection is weighted by it too, so the proposal matches the power
+         * each triangle actually casts. Weighting by the material's brightest
+         * texel instead over-selected technolights by up to a hundred times its
+         * real power and starved the floor; see DxrEmissiveTriangle::radiance.
+         */
+        float radiance[3] = {};
+        if (luminance > 0.0f && material_index < materials.size()) {
+            const DxrSceneVertex *triangle = &vertices[first_vertex];
+            const uint64_t key = emitter_radiance_key(triangle);
+            DxrEmitterRadianceCache &cached = radiance_cache[slot];
+            if (cached.key != key) {
+                measure_emitter_radiance(triangle, materials[material_index],
+                                         emissive_atlas, atlas_width,
+                                         cached.radiance);
+                cached.key = key;
+            }
+            std::memcpy(radiance, cached.radiance, sizeof(radiance));
+        }
+        const float emitted_luminance = radiance[0] * 0.2126f +
+            radiance[1] * 0.7152f + radiance[2] * 0.0722f;
+        const float weight = area * emitted_luminance;
+        const bool emissive = emitted_luminance > 0.0f && area > 1.0e-6f &&
             std::isfinite(weight) && weight > 0.0f;
         const float live_inverse_area = area > 1.0e-6f ? 1.0f / area : 0.0f;
         const float reserved_inverse_area =
@@ -1310,6 +1457,9 @@ bool compile_emissive_triangles(
         emitter.first_vertex = static_cast<uint32_t>(first_vertex);
         emitter.inverse_area = emissive ? live_inverse_area :
                                           reserved_inverse_area;
+        if (emissive) {
+            std::memcpy(emitter.radiance, radiance, sizeof(emitter.radiance));
+        }
         const uint32_t emitter_index = static_cast<uint32_t>(emitters.size());
         for (size_t vertex = 0; vertex < 3u; ++vertex) {
             vertices[first_vertex + vertex].emitter_index = emitter_index;
@@ -2244,15 +2394,6 @@ bool DxrScene::compile(const SceneFrame &frame,
         compiled_material_emissive_bound.push_back(
             image.maximum_emissive_luminance);
     }
-    /* first_vertex values only mean anything within one layout, so the reserved
-     * set belongs to the compile that created them. */
-    reserved_emitter_slots_.clear();
-    if (!compile_emissive_triangles(compiled_vertices,
-                                    compiled_material_emissive_bound,
-                                    reserved_emitter_slots_,
-                                    compiled_emitters, error)) {
-        return false;
-    }
 
     std::vector<DxrSceneMaterial> compiled_materials(images.size());
     std::array<std::vector<uint8_t>,
@@ -2347,6 +2488,23 @@ bool DxrScene::compile(const SceneFrame &frame,
             std::memcpy(material.emissive, image.emissive_factor,
                         sizeof(material.emissive));
         }
+    }
+
+    /*
+     * After atlas packing, because each emitter's radiance is measured from
+     * the packed emissive atlas. first_vertex values only mean anything within
+     * one layout, so the reserved set and the measurements belong to the
+     * compile that created them.
+     */
+    reserved_emitter_slots_.clear();
+    emitter_radiance_cache_.clear();
+    if (!compile_emissive_triangles(
+            compiled_vertices, compiled_material_emissive_bound,
+            compiled_materials,
+            compiled_atlases[static_cast<size_t>(DxrMaterialChannel::emissive)],
+            atlas_width, reserved_emitter_slots_, emitter_radiance_cache_,
+            compiled_emitters, error)) {
+        return false;
     }
 
     vertices_ = std::move(compiled_vertices);
@@ -2706,10 +2864,11 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
     }
 
     std::vector<DxrEmissiveTriangle> compiled_emitters;
-    if (!compile_emissive_triangles(compiled_vertices,
-                                    material_emissive_bound_,
-                                    reserved_emitter_slots_,
-                                    compiled_emitters, error)) {
+    if (!compile_emissive_triangles(
+            compiled_vertices, material_emissive_bound_, materials_,
+            atlas_pixels_[static_cast<size_t>(DxrMaterialChannel::emissive)],
+            atlas_width_, reserved_emitter_slots_, emitter_radiance_cache_,
+            compiled_emitters, error)) {
         return false;
     }
     if (!emitter_history_layout_compatible<DxrEmissiveTriangle>(
