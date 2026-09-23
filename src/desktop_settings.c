@@ -550,10 +550,10 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
     /* Zero returns indirect light to pure path tracing. */
     if (desktop_settings_equals_ci(key, "rtx_bounce_light")) {
         if (!desktop_settings_parse_float_range(
-                value, 0.0, 64.0,
+                value, 0.0, 1024.0,
                 &settings->ray_tracing.source_light_scale)) {
             (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_bounce_light must be 0 through 64",
+                           "ab3d2.ini line %zu: rtx_bounce_light must be 0 through 1024",
                            line_number);
             return 0;
         }

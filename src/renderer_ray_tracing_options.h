@@ -144,8 +144,15 @@ enum {
 #define RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION 1.0f
 /* Radiance of a fully lit surface under the level's own vertex lighting, which
  * bounce vertices return in place of tracing on. Zero restores pure
- * path-traced indirect. */
-#define RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE 1.0f
+ * path-traced indirect.
+ *
+ * The unit is scene radiance, so it has to be read against what the level's
+ * emitters put out: floor_0101 emits 164 and the wall fixtures 1.5 to 7.7. A
+ * value of one therefore contributes about a 160th of the brightest thing in
+ * frame and is indistinguishable from off, which is what this default was
+ * before. Sixty-four lifts the tenth percentile of the frame from 11 to 19 and
+ * the median from 17 to 27 with nothing clipping. */
+#define RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE 64.0f
 
 /* Reduce secondary diffuse transfer modestly. Direct lighting and visible
  * emission are not affected. */

@@ -813,8 +813,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
             errno = 0;
             const double parsed = std::strtod(value, &end);
             if (errno != 0 || end == value || *end != 0x00 ||
-                !std::isfinite(parsed) || parsed < 0.0 || parsed > 64.0) {
-                error = "AB3D2_DXR_BOUNCE_LIGHT must be 0-64";
+                !std::isfinite(parsed) || parsed < 0.0 || parsed > 1024.0) {
+                error = "AB3D2_DXR_BOUNCE_LIGHT must be 0-1024";
                 return false;
             }
             source_light_scale_ = static_cast<float>(parsed);
