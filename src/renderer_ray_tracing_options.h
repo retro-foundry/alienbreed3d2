@@ -139,9 +139,16 @@ enum {
  * Enhanced. Larger values reconnect sooner and replay less. */
 #define RENDERER_RAY_TRACING_DEFAULT_RESTIR_CONNECTION_FOOTPRINT 1.0f
 
-/* Exponent of the power curve that pulls the temporal confidence cap toward one
- * as local sample duplication rises. Zero disables history reduction. */
-#define RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION 1.0f
+/*
+ * Exponent of the power curve that pulls the temporal confidence cap toward one
+ * as local sample duplication rises. Zero disables history reduction, and that
+ * is the default because it is biased: the samples that spread through a
+ * neighbourhood are the bright ones resampling favours, so lowering confidence
+ * where they have spread lowers the weight of exactly those samples. With the
+ * estimator otherwise unbiased it darkened a doorway-lit room by 11% at the
+ * default reuse and 17% at 64 frames and 4 neighbours.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION 0.0f
 /*
  * The two tone-mapping constants that do not survive the trip from Q2RTX.
  *

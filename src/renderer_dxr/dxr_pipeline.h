@@ -306,7 +306,7 @@ private:
      * deliberately produces the opposite, so final shading falls back to the
      * unresampled sample this often. Zero disables it.
      */
-    float restir_decorrelation_ = 1.0f;
+    float restir_decorrelation_ = 0.0f;
     uint32_t restir_temporal_history_ =
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_TEMPORAL_HISTORY;
     uint32_t restir_spatial_samples_ =

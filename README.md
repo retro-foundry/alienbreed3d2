@@ -1126,11 +1126,40 @@ had been losing. It is not free of bias: RR averages pixels above the knee in
 compressed units, which cost the corridor seen through the doorway 2% at `160`
 and 6% at `40`, while `640` let the sparkle back.
 
-Two things found along the way are not fixed. With the firefly filter disabled,
-ReSTIR's input in such a room reads about four times path tracing's, a bias in
-reuse that the filter has been hiding. And that filter's absolute `0.05` floor
-sits far above this room's radiance, so it still removes about 40% of the room's
-light before RR sees it.
+#### ReSTIR PT bias
+
+ReSTIR PT was measured against plain path tracing by summing the room's radiance
+immediately before RR, with the firefly filter compiled out, in five
+configurations: path tracing, ReSTIR without reuse, temporal only, spatial only,
+and both. It was biased in every one, including without reuse, and seven causes
+were found and removed:
+
+- the canonical reservoir was finalized to `wsum / M` instead of
+  `wsum / (M * target)`, which multiplied every path by its own luminance;
+- the resolve divided the contribution by the receiver cosine, although the
+  contribution is already the averaging path's estimate;
+- the canonical candidate and the shift weighed directions with the shading
+  normal while `sampleDiffusePath` draws them around the geometric one;
+- spatial reuse dropped a neighbour from the balance heuristic whenever its own
+  sample failed to shift, used the current pixel's target as the numerator
+  whatever the source domain, and left out the shift Jacobians, together about
+  40% too bright;
+- temporal reuse used uniform `1/M` weights; it now uses the balance heuristic,
+  evaluating the surviving sample on the history's stamped surface;
+- decorrelation chose the preserved sample with a probability scaled by the
+  reservoir's age, and the long-lived samples are the bright winners, so it is
+  now a fixed probability and defaults to `0`; and
+- duplication-based history reduction lowers confidence exactly where bright
+  samples have spread, so `rtx_restir_history_reduction` now defaults to `0`.
+
+At the defaults the room's pre-RR radiance now matches path tracing (0.000342
+against 0.000337 at the feet, 0.000148 against 0.000149 across the room), and
+also at `rtx_light_scale=10`, where it had metered about four times too bright.
+Its per-pixel noise before RR is about a third of path tracing's and almost no
+pixel is left black (0% against 33% at the feet), although after RR a still view
+is equally clean in both modes, and ReSTIR costs about 3 ms more a frame at
+640x360. The firefly filter, which removed about 44% of the room's light while
+the bias made its doorway paths extreme, now removes about 5%.
 
 The same renderer compiles to a preloaded WebGL build through Emscripten:
 

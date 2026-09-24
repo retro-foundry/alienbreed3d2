@@ -2217,7 +2217,14 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
         }
     }
 
-    float receiverCosine = dot(surface.shadingNormal, direction);
+    /*
+     * Geometric, not shading. sampleDiffusePath draws its continuation around
+     * the geometric normal and the canonical candidate is weighed by the same
+     * cosine, so a shading cosine here would put the two sides of every
+     * resampling weight against different normals on a normal-mapped surface,
+     * and refuse directions the canonical estimator accepted.
+     */
+    float receiverCosine = dot(surface.geometricNormal, direction);
     if (!(receiverCosine > 1.0e-4)) {
         InterlockedAdd(Diagnostics[DiagnosticShiftFail + 7u], 1u); return false;
     }
@@ -4415,8 +4422,13 @@ void BurstContinuation()
              * division is unbounded. A target that needs no inverse cannot
              * produce one.
              */
+            /*
+             * Geometric, to match the generator and the shift: the direction
+             * was drawn around the geometric normal, so this cosine over the
+             * first-bounce weight is the density it was really drawn with.
+             */
             float canonicalCosine = saturate(
-                dot(surface.shadingNormal, pathSample.firstDirection));
+                dot(surface.geometricNormal, pathSample.firstDirection));
             /* A direction the portal proposal put below the surface is still a
              * sample, one that found nothing; it has to count towards M. */
             bool proposedNothing = !(pathSample.firstWeight > 0.0);
@@ -4468,12 +4480,19 @@ void BurstContinuation()
         reservoir.primaryNormal = stamped.primaryNormal;
         reservoir.primaryMaterial = stamped.primaryMaterial;
         reservoir.primaryDepth = stamped.primaryDepth;
-        /* Normalizing by the selected target and the candidate count is the
-         * uniform-MIS contribution weight. This pixel's own domain is the only
-         * proposer so far; temporal and spatial reuse add theirs. */
+        /*
+         * The unbiased contribution weight, wsum / (M * target(y)). This
+         * pixel's own domain is the only proposer so far; temporal and spatial
+         * reuse add theirs. finalizeResampling divides by its denominator, so
+         * the selected target appears twice there: once as the balance
+         * heuristic's term, once as the target the weight is normalized by.
+         * With only one it was wsum / M, which multiplied every path's
+         * contribution by its own luminance.
+         */
         finalizeResampling(reservoir,
                            reservoirLuminance(reservoir.targetFunction),
                            reservoirLuminance(reservoir.targetFunction) *
+                               reservoirLuminance(reservoir.targetFunction) *
                                reservoir.m);
         CurrentReservoirs[reservoirIndex(pixel, dimensions)] = reservoir;
     }
@@ -4624,6 +4643,17 @@ void ResampleTemporal()
 
     bool reused = false;
     float3 historyResolved = 0.0;
+    /* The history domain, for the balance heuristic below: present whenever a
+     * compatible history with confidence exists, whether or not its own
+     * sample survived the shift here. */
+    float canonicalM = current.m;
+    bool historyDomain = false;
+    bool historySelected = false;
+    float historyDomainM = 0.0;
+    float historyJacobian = 1.0;
+    float historySourceTarget = 0.0;
+    PathReservoir historyReservoir = emptyReservoir();
+    uint2 historyPixel = pixel;
     if (HistoryValid != 0u && ReservoirTemporalHistory > 1u) {
         float2 motion = SceneMotion[pixel];
         if (all(abs(motion) < InvalidMotion)) {
@@ -4676,6 +4706,10 @@ void ResampleTemporal()
                         historyM = 0.0;
                     }
                     if (historyM > 0.0) {
+                        historyDomain = true;
+                        historyDomainM = historyM;
+                        historyReservoir = history;
+                        historyPixel = uint2(previousCoordinate);
                         float3 shiftedTarget;
                         float jacobian;
                         bool shifted = shiftReservoir(
@@ -4701,9 +4735,15 @@ void ResampleTemporal()
                                     history.weightSum * historyM * jacobian,
                                     historyM)) {
                                 selectedTarget = shiftedTarget;
+                                historySelected = true;
+                                historyJacobian = jacobian;
+                                historySourceTarget = reservoirLuminance(
+                                    history.targetFunction);
                             }
                             reused = true;
                             historyResolved = resolvedRadiance(history);
+                        } else {
+                            current.m += historyM;
                         }
                     }
                 }
@@ -4718,8 +4758,38 @@ void ResampleTemporal()
      * neighbour's term does not break the image, it just makes it brighter than
      * the scene is.
      */
-    float piSum = reservoirLuminance(selectedTarget) * current.m;
-    finalizeResampling(current, reservoirLuminance(selectedTarget),
+    /*
+     * Each term is that domain's target for the surviving sample in THIS
+     * pixel's measure: the canonical domain's is the target itself, the
+     * history's is the target on the previous frame's surface times the
+     * Jacobian of the shift that takes the sample there. The numerator is
+     * the term of the domain the sample came from. Weighting every domain
+     * by this pixel's target instead -- plain 1/M -- counts the history's
+     * confidence even for samples the previous frame could not have drawn,
+     * which darkened the default configuration by about 7%.
+     */
+    float selectedPi = reservoirLuminance(selectedTarget);
+    float piSum = reservoirLuminance(selectedTarget) * canonicalM;
+    if (historyDomain) {
+        if (historySelected) {
+            selectedPi = historySourceTarget / max(historyJacobian, 1.0e-8);
+            piSum += selectedPi * historyDomainM;
+        } else {
+            SurfaceData historySurface;
+            float historyDepth;
+            float3 reverseTarget;
+            float reverseJacobian;
+            if (reservoirValid(current) &&
+                loadResamplingSurface(historyPixel, historyReservoir,
+                                      historySurface, historyDepth) &&
+                shiftReservoir(current, historySurface, SceneInstanceMask,
+                               reverseTarget, reverseJacobian)) {
+                piSum += reservoirLuminance(reverseTarget) * reverseJacobian *
+                    historyDomainM;
+            }
+        }
+    }
+    finalizeResampling(current, selectedPi,
                        piSum * reservoirLuminance(selectedTarget));
     /*
      * Only pixels that actually produced a canonical sample can say anything
@@ -4834,6 +4904,7 @@ void ResampleSpatial()
      */
     int selectedEntry = -1;
     float3 selectedSourceTarget = 0.0;
+    float selectedJacobian = 1.0;
 
     for (uint tap = 0u; tap < ReservoirSpatialSamples && tap < 8u; ++tap) {
         float2 offset = reservoirNeighborOffset(
@@ -4857,24 +4928,35 @@ void ResampleSpatial()
                                         -1.0)) {
             continue;
         }
-        float3 shiftedTarget;
-        float jacobian;
-        if (!shiftReservoir(neighbor, surface, SceneInstanceMask,
-                            shiftedTarget, jacobian)) {
-            continue;
-        }
-        InterlockedAdd(Diagnostics[DiagnosticSpatialAccepted], 1u);
-        float acceptance = sampleStream(pixel, SampleIndex + tap,
-                                        ReservoirSpatialStream).x;
-        if (resampleReservoir(current, neighbor, acceptance, shiftedTarget,
-                              neighbor.weightSum * neighbor.m * jacobian,
-                              neighbor.m)) {
-            selectedTarget = shiftedTarget;
-            selectedEntry = int(acceptedCount);
-            selectedSourceTarget = neighbor.targetFunction;
-        }
+        /*
+         * A compatible neighbour is a domain of the estimator whether or not
+         * its own sample survives the shift here. A failed shift means it adds
+         * nothing to the numerator, but the surviving sample could still have
+         * been drawn in that domain, so it stays in the denominator. Dropping
+         * it -- as a failed shift once did -- shrinks the denominator exactly
+         * where neighbours found nothing usable, and inflated spatial reuse by
+         * about 40% in a room lit through a doorway.
+         */
         acceptedIndex[acceptedCount] = neighborIndex;
         acceptedM[acceptedCount] = neighbor.m;
+        float3 shiftedTarget;
+        float jacobian;
+        if (shiftReservoir(neighbor, surface, SceneInstanceMask,
+                           shiftedTarget, jacobian)) {
+            InterlockedAdd(Diagnostics[DiagnosticSpatialAccepted], 1u);
+            float acceptance = sampleStream(pixel, SampleIndex + tap,
+                                            ReservoirSpatialStream).x;
+            if (resampleReservoir(current, neighbor, acceptance, shiftedTarget,
+                                  neighbor.weightSum * neighbor.m * jacobian,
+                                  neighbor.m)) {
+                selectedTarget = shiftedTarget;
+                selectedEntry = int(acceptedCount);
+                selectedSourceTarget = neighbor.targetFunction;
+                selectedJacobian = jacobian;
+            }
+        } else {
+            current.m += neighbor.m;
+        }
         ++acceptedCount;
     }
 
@@ -4884,6 +4966,19 @@ void ResampleSpatial()
      * impossible to spot afterwards: without it the weight is divided among
      * fewer proposers than really competed and the image comes out bright.
      */
+    /*
+     * The balance heuristic over domains: each term is that domain's target
+     * for the surviving sample pulled into THIS pixel's measure, so a
+     * neighbour's term carries the Jacobian of the shift that takes the sample
+     * there. The numerator is the term of the domain the sample was actually
+     * drawn from; streaming already multiplied its candidate by M, so this is
+     * m_s(y) / M_s, and W = wsum * pi / (target * piSum) is unbiased. Using
+     * this pixel's own target as the numerator whatever the source, and
+     * leaving the Jacobians out, inflated spatial reuse by about 40%.
+     */
+    float selectedPi = selectedEntry >= 0 ?
+        reservoirLuminance(selectedSourceTarget) / max(selectedJacobian, 1.0e-8) :
+        reservoirLuminance(selectedTarget);
     float piSum = reservoirLuminance(selectedTarget) * ownM;
     for (uint entry = 0u; entry < acceptedCount; ++entry) {
         /*
@@ -4895,8 +4990,7 @@ void ResampleSpatial()
          * instability grew with neighbour count rather than falling.
          */
         if (int(entry) == selectedEntry) {
-            piSum += reservoirLuminance(selectedSourceTarget) *
-                acceptedM[entry];
+            piSum += selectedPi * acceptedM[entry];
             continue;
         }
         PathReservoir neighbor = ResampleReservoirs[acceptedIndex[entry]];
@@ -4913,7 +5007,8 @@ void ResampleSpatial()
         float reverseJacobian;
         if (shiftReservoir(current, neighborSurface, SceneInstanceMask,
                            reverseTarget, reverseJacobian)) {
-            piSum += reservoirLuminance(reverseTarget) * acceptedM[entry];
+            piSum += reservoirLuminance(reverseTarget) * reverseJacobian *
+                acceptedM[entry];
         }
     }
 
@@ -4929,7 +5024,7 @@ void ResampleSpatial()
             reservoirLuminance(resolvedRadiance(neighbour)) * acceptedM[probe];
         predictedWeight += acceptedM[probe];
     }
-    finalizeResampling(current, reservoirLuminance(selectedTarget),
+    finalizeResampling(current, selectedPi,
                        piSum * reservoirLuminance(selectedTarget));
     if (predictedWeight > 0.0) {
         InterlockedAdd(Diagnostics[DiagnosticSpatialPredicted],
@@ -5121,10 +5216,15 @@ void ReconstructIndirect()
         InterlockedAdd(Diagnostics[DiagnosticShaded], 1u);
         InterlockedAdd(Diagnostics[DiagnosticAgeSum],
                        min(resolved.age, 255u));
+        /*
+         * A fixed probability. Choosing between two unbiased estimates is
+         * unbiased only when the choice does not look at them: scaling it by
+         * the resampled reservoir's age replaced exactly the long-lived
+         * winners, which resampling makes the bright ones, and darkened
+         * temporal reuse in proportion to its history length.
+         */
         if (ReservoirDecorrelation > 0.0) {
-            float stagnancy = saturate(float(resolved.age) /
-                max(float(ReservoirTemporalHistory), 1.0));
-            float probability = saturate(ReservoirDecorrelation * stagnancy);
+            float probability = saturate(ReservoirDecorrelation);
             float draw = sampleStream(pixel, SampleIndex,
                                       ReservoirDecorrelationStream).x;
             if (draw < probability) {
@@ -5183,15 +5283,15 @@ void ReconstructIndirect()
                 }
             }
         }
-        float3 contribution = resolvedRadiance(resolved);
-        float3 shadingNormal = normalize(ShadingNormal[pixel].xyz);
-        float3 toReconnection = resolved.rcVertexLength == 0u ?
-            normalize(resolved.worldNormal) :
-            normalize(resolved.translatedWorldPosition -
-                      resolved.primaryPosition);
-        float resolveCosine = saturate(dot(shadingNormal, toReconnection));
-        filteredIncident = resolveCosine > 0.05 ?
-            contribution / resolveCosine : 0.0;
+        /*
+         * The contribution is already the estimate the averaging path makes:
+         * the target carries the receiver cosine and the contribution weight
+         * divides the sampling density, which carries the same cosine, back
+         * out. Dividing by the cosine again here inflated every pixel by
+         * 1 / cos, which the canonical weight's missing 1 / target had been
+         * partly cancelling.
+         */
+        filteredIncident = resolvedRadiance(resolved);
         if (any(isnan(filteredIncident)) || any(isinf(filteredIncident))) {
             filteredIncident = 0.0;
         }

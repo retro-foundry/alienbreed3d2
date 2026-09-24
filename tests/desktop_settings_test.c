@@ -142,7 +142,7 @@ int main(void)
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_SAMPLES != 2 ||
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_SPATIAL_RADIUS != 0.03f ||
         RENDERER_RAY_TRACING_DEFAULT_RESTIR_CONNECTION_FOOTPRINT != 1.0f ||
-        RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION != 1.0f) {
+        RENDERER_RAY_TRACING_DEFAULT_RESTIR_HISTORY_REDUCTION != 0.0f) {
         fprintf(stderr, "ray-traced lighting production defaults changed\n");
         return 1;
     }

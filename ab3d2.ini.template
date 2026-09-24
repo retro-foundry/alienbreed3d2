@@ -349,28 +349,30 @@ rtx_max_luminance=1024.0
 # the grain around a bright fixture that it was built for.
 #rtx_bounce_light=0.0
 
-# Duplication-based history reduction strength, 0 through 4. Default 1.
-# Zero disables it. Where one canonical path has been copied across many
-# reservoirs, those descendants are not independent samples, and letting them
-# accumulate confidence produces exactly the correlated lighting that persists
-# through a denoiser. This counts how many neighbours share a sample ancestry
-# and lowers the temporal cap toward 1 as that duplication rises; the value is
-# the exponent of the curve, so higher reduces history under milder duplication.
-#rtx_restir_history_reduction=1.0
+# Duplication-based history reduction strength, 0 through 4. Default 0, off.
+# Where one canonical path has been copied across many reservoirs, those
+# descendants are not independent samples. This counts how many neighbours
+# share a sample ancestry and lowers the temporal cap toward 1 as that
+# duplication rises; the value is the exponent of the curve.
+#
+# It is off because it is biased. The samples that spread are the bright ones
+# resampling favours, so lowering confidence where they have spread lowers the
+# weight of exactly those samples: a doorway-lit room read 11% dark at the
+# default reuse and 17% at 64 frames and 4 neighbours.
+#rtx_restir_history_reduction=0
 
 # Probability that final shading discards the resampled reservoir and shades the
-# preserved initial sample instead, 0 through 1. Default 1.
+# preserved initial sample instead, 0 through 1. Default 0, off.
 #
-# Ray Reconstruction expects temporally independent input noise, and ReSTIR's
-# entire purpose is to correlate samples across frames. Enough correlation and
-# the denoiser reads it as structure rather than noise, which is visible as
-# blotches that no amount of fixing the estimator removes. The probability is
-# scaled per pixel by how long that pixel has held the same sample, so a
-# reservoir that keeps refreshing is left alone and only a stale one is
-# replaced. Measured on the Level A walk, this is the difference between the
-# worst scene being nine times less stable than plain path tracing and matching
-# it. Only meaningful with rtx_denoiser=ray-reconstruction.
-#rtx_restir_decorrelation=1.0
+# Ray Reconstruction expects temporally independent input noise, and ReSTIR
+# correlates samples across frames on purpose. This trades some of that reuse
+# back for independence. The probability is fixed: it used to be scaled by how
+# long a pixel had held its sample, but the long-lived samples are the bright
+# winners resampling favours, so that replaced exactly those and darkened the
+# image in proportion to the history length. Once the estimator itself was
+# unbiased, ReSTIR without decorrelation measured as free of sparkle after RR
+# as plain path tracing. Only meaningful with rtx_denoiser=ray-reconstruction.
+#rtx_restir_decorrelation=0
 
 
 # --- Diagnostics ----------------------------------------------------------
