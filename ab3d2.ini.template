@@ -99,7 +99,25 @@ world_light_tessellation=4
 # brightest emitter would otherwise overflow RR's half-float input, so a high
 # rtx_light_scale is safe. 1 restores the unscaled input. It does nothing
 # while DLSS is off.
-#rtx_rr_input_scale=1
+#rtx_rr_input_scale=32
+
+# Where the DLSS pass's input starts being compressed, in multiples of the
+# luminance the exposure shows as white, 0 through 1024. Default 160. Above it
+# a pixel's luminance L becomes knee * ln(1 + L / knee), and the exact inverse
+# is applied to the output. 0 disables it.
+#
+# With a bright opening on screen, Ray Reconstruction's history of the dark
+# room beside it degrades over a still view: clean for the first second, then
+# fireflies that appear, blur and never converge. The room's own input does
+# not change while this happens, and hiding only the opening's pixels from RR
+# stops it, so it is the highlights' magnitude that RR reacts to. Compressing
+# only what is far past white removes that while the dark room stays linear.
+# It is not a clamp, but RR does average the pixels above the knee in
+# compressed units, so they are the one place it is biased. Measured on a
+# doorway-lit room: 160 holds sparkle at the level of a fresh history while the
+# corridor seen through the doorway loses 2%; 40 suppresses a little more and
+# costs that corridor 6%; 640 lets the sparkle back.
+#rtx_rr_highlight_knee=160
 
 
 # --- Path tracer ----------------------------------------------------------
@@ -116,6 +134,26 @@ world_light_tessellation=4
 # recovers quality by resampling rather than by tracing more; if you enable
 # rtx_indirect_mode=restir-pt, lower this before raising the resampling budget.
 #rtx_indirect_samples=4
+
+# Probability that a path's first bounce is aimed through one of its zone's
+# openings rather than drawn from the cosine distribution, 0 through 0.9.
+# Default 0.5.
+#
+# A room lit only through a doorway gets all of its light from the bounce rays
+# that happen to leave through it. The rest find nothing, so the room is a few
+# very bright samples on black, and each of them reads as a firefly that the
+# denoiser smears into a blotch. The level already knows its openings -- every
+# EdgeT that joins one zone to another -- so a share of first bounces is aimed
+# at those whose far side can see a light.
+#
+# It is unbiased: both proposals form one mixture, and each path is weighted by
+# the cosine density over the mixture's density in its direction. Measured on
+# a doorway-lit room before any denoising, the room's mean bounce light is
+# unchanged within a standard error and its frame-to-frame noise halves. 0.75
+# began to flicker on the same room, and it costs about 0.36 ms a frame at
+# 640x360 on an RTX 3090. It stops short of 1 because the cosine share is what
+# keeps every direction reachable; 0 is plain cosine sampling.
+#rtx_portal_sampling=0.5
 
 # Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
 # primary vertex uses the complete alias table; the indirect vertex uses a

@@ -1671,6 +1671,18 @@ D3D12_GPU_VIRTUAL_ADDRESS DxrScene::zone_light_address() const
         zone_light_buffer_->GetGPUVirtualAddress() : 0;
 }
 
+D3D12_GPU_VIRTUAL_ADDRESS DxrScene::zone_portal_range_address() const
+{
+    return zone_portal_range_buffer_ ?
+        zone_portal_range_buffer_->GetGPUVirtualAddress() : 0;
+}
+
+D3D12_GPU_VIRTUAL_ADDRESS DxrScene::zone_portal_address() const
+{
+    return zone_portal_buffer_ ?
+        zone_portal_buffer_->GetGPUVirtualAddress() : 0;
+}
+
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::emitter_address() const
 {
     return emitter_buffer_ ? emitter_buffer_->GetGPUVirtualAddress() : 0;
@@ -2980,6 +2992,18 @@ void DxrScene::capture_zone_visibility(const SceneFrame &frame)
             continue;
         }
         const SceneLighting &lighting = command.data.lighting;
+        /* Immutable for a level, so this only differs across a load; compare
+         * in place rather than copying the table every frame. */
+        const size_t portal_count =
+            lighting.zone_portals ? lighting.zone_portal_count : 0u;
+        if (portal_count != zone_portal_source_.size() ||
+            (portal_count != 0u &&
+             std::memcmp(zone_portal_source_.data(), lighting.zone_portals,
+                         portal_count * sizeof(ScenePortal)) != 0)) {
+            zone_portal_source_.assign(lighting.zone_portals,
+                                       lighting.zone_portals + portal_count);
+            zone_lights_dirty_ = true;
+        }
         const uint32_t zones = lighting.zone_count;
         const uint32_t stride = lighting.zone_potential_visibility_stride;
         if (!lighting.zone_potential_visibility || zones == 0u ||
@@ -3091,6 +3115,73 @@ void DxrScene::build_zone_light_lists()
 }
 
 /*
+ * The level's openings in render-world space, grouped by the zone that owns
+ * them and laid out like the zone light tables so the shaders index both the
+ * same way. Built after those tables because an opening is only worth
+ * proposing when the zone beyond it can see a light.
+ */
+void DxrScene::build_zone_portals()
+{
+    zone_portal_ranges_.clear();
+    zone_portals_.clear();
+    const uint32_t zones =
+        zone_light_ranges_.empty() ? 0u : zone_light_ranges_[0];
+    zone_portal_ranges_.push_back(zones);
+    zone_portal_ranges_.push_back(0u);
+    if (zones == 0u) {
+        return;
+    }
+    const auto sees_light = [&](uint32_t zone) {
+        const size_t count_index = 2u * (1u + static_cast<size_t>(zone)) + 1u;
+        return zone < zones && count_index < zone_light_ranges_.size() &&
+            zone_light_ranges_[count_index] != 0u;
+    };
+    const auto render_point = [](int32_t x, int32_t y, int32_t z) {
+        const SceneRenderPoint point =
+            scene_render_world_point(SceneWorldPoint{x, y, z});
+        return std::array<float, 3>{point.x, point.y, point.z};
+    };
+    std::vector<std::vector<DxrZonePortal>> by_zone(zones);
+    for (const ScenePortal &source : zone_portal_source_) {
+        if (source.zone_index >= zones) {
+            continue;
+        }
+        const std::array<float, 3> corner =
+            render_point(source.x, source.roof, source.z);
+        const std::array<float, 3> end = render_point(
+            static_cast<int32_t>(source.x) + source.x_length, source.roof,
+            static_cast<int32_t>(source.z) + source.z_length);
+        const std::array<float, 3> bottom =
+            render_point(source.x, source.floor, source.z);
+        DxrZonePortal portal = {};
+        float edge_squared = 0.0f;
+        float rise_squared = 0.0f;
+        for (size_t axis = 0u; axis < 3u; ++axis) {
+            portal.corner[axis] = corner[axis];
+            portal.edge[axis] = end[axis] - corner[axis];
+            portal.rise[axis] = bottom[axis] - corner[axis];
+            edge_squared += portal.edge[axis] * portal.edge[axis];
+            rise_squared += portal.rise[axis] * portal.rise[axis];
+        }
+        portal.area = std::sqrt(edge_squared * rise_squared);
+        if (!(portal.area > 0.0f) || !std::isfinite(portal.area)) {
+            continue;
+        }
+        portal.join_zone = source.join_zone_index;
+        portal.lit = sees_light(source.join_zone_index) ? 1.0f : 0.0f;
+        by_zone[source.zone_index].push_back(portal);
+    }
+    for (uint32_t zone = 0u; zone < zones; ++zone) {
+        zone_portal_ranges_.push_back(
+            static_cast<uint32_t>(zone_portals_.size()));
+        zone_portal_ranges_.push_back(
+            static_cast<uint32_t>(by_zone[zone].size()));
+        zone_portals_.insert(zone_portals_.end(), by_zone[zone].begin(),
+                             by_zone[zone].end());
+    }
+}
+
+/*
  * Keep those tables where the shaders can reach them.
  *
  * They are a few hundred kilobytes at most and change only when the emitters
@@ -3105,7 +3196,8 @@ bool DxrScene::ensure_zone_lights(ID3D12Device5 *device, std::string &error)
         zone_light_emitter_hash_ = emitter_state_hash_;
         zone_lights_dirty_ = true;
     }
-    if (!zone_lights_dirty_ && zone_light_range_buffer_ && zone_light_buffer_) {
+    if (!zone_lights_dirty_ && zone_light_range_buffer_ && zone_light_buffer_ &&
+        zone_portal_range_buffer_ && zone_portal_buffer_) {
         return true;
     }
     if (!device) {
@@ -3113,9 +3205,11 @@ bool DxrScene::ensure_zone_lights(ID3D12Device5 *device, std::string &error)
         return false;
     }
     build_zone_light_lists();
+    build_zone_portals();
     /* A level with no zones still has to bind something, and a zone count of
      * zero is what tells the shaders to use the scene-wide table. */
     static const uint32_t absent_light = 0u;
+    static const DxrZonePortal absent_portal = {};
     const auto upload = [&](const void *source, UINT64 bytes,
                             const wchar_t *name,
                             Microsoft::WRL::ComPtr<ID3D12Resource> &buffer) {
@@ -3151,6 +3245,21 @@ bool DxrScene::ensure_zone_lights(ID3D12Device5 *device, std::string &error)
                     zone_lights_.empty() ? 1u : zone_lights_.size()) *
                     sizeof(uint32_t),
                 L"AB3D2 DXR Zone Lights", zone_light_buffer_)) {
+        return false;
+    }
+    if (!upload(zone_portal_ranges_.data(),
+                static_cast<UINT64>(zone_portal_ranges_.size()) *
+                    sizeof(uint32_t),
+                L"AB3D2 DXR Zone Portal Ranges", zone_portal_range_buffer_)) {
+        return false;
+    }
+    if (!upload(zone_portals_.empty() ?
+                    static_cast<const void *>(&absent_portal) :
+                    static_cast<const void *>(zone_portals_.data()),
+                static_cast<UINT64>(
+                    zone_portals_.empty() ? 1u : zone_portals_.size()) *
+                    sizeof(DxrZonePortal),
+                L"AB3D2 DXR Zone Portals", zone_portal_buffer_)) {
         return false;
     }
     zone_lights_dirty_ = false;

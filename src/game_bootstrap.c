@@ -782,6 +782,66 @@ static int game_bootstrap_build_scene_zone_visibility(
     return 1;
 }
 
+/*
+ * Every zone's openings into its neighbours, for a renderer that wants to aim
+ * light-gathering rays through them. An opening is an EdgeT whose join zone is
+ * another zone; it spans the owning zone's own floor to roof. The joined
+ * zone's heights would give a tighter opening but a door's zone closes to
+ * nothing, and an opening only proposes directions -- a closed door inside it
+ * is geometry a ray hits.
+ */
+static int game_bootstrap_build_scene_zone_portals(
+    GameBootstrap *game, char *error, size_t error_size)
+{
+    game->scene_zone_portal_count = 0u;
+    for (uint16_t zone_index = 0u;
+         zone_index < game->level_runtime.zone_count; ++zone_index) {
+        LevelZone zone;
+        uint32_t edge_count = 0u;
+
+        if (!level_runtime_get_zone(&game->level_runtime, zone_index, &zone,
+                                    error, error_size) ||
+            !level_runtime_get_zone_edge_count(&game->level_runtime, zone_index,
+                                               &edge_count, error, error_size)) {
+            return 0;
+        }
+        /* Heights grow downward, so an open zone has its floor below its roof. */
+        if (zone.floor <= zone.roof) {
+            continue;
+        }
+        for (uint32_t list_index = 0u; list_index < edge_count; ++list_index) {
+            uint32_t edge_index = 0u;
+            LevelEdge edge;
+            ScenePortal *portal;
+
+            if (!level_runtime_get_zone_edge_index(&game->level_runtime, zone_index,
+                                                   list_index, &edge_index,
+                                                   error, error_size) ||
+                !level_runtime_get_edge(&game->level_runtime, edge_index, &edge,
+                                        error, error_size)) {
+                return 0;
+            }
+            if (edge.join_zone_id < 0 || (uint16_t)edge.join_zone_id == zone_index ||
+                (edge.x_length == 0 && edge.z_length == 0)) {
+                continue;
+            }
+            if (game->scene_zone_portal_count >= GAME_BOOTSTRAP_SCENE_PORTAL_CAPACITY) {
+                return 1;
+            }
+            portal = &game->scene_zone_portals[game->scene_zone_portal_count++];
+            portal->x = edge.x;
+            portal->z = edge.z;
+            portal->x_length = edge.x_length;
+            portal->z_length = edge.z_length;
+            portal->roof = zone.roof;
+            portal->floor = zone.floor;
+            portal->zone_index = zone_index;
+            portal->join_zone_index = (uint16_t)edge.join_zone_id;
+        }
+    }
+    return 1;
+}
+
 int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
                               uint16_t level_index, char *error, size_t error_size)
 {
@@ -894,7 +954,8 @@ int game_bootstrap_load_level(GameBootstrap *game, const char *data_root,
         game_bootstrap_release_level(game);
         return 0;
     }
-    if (!game_bootstrap_build_scene_zone_visibility(game, error, error_size)) {
+    if (!game_bootstrap_build_scene_zone_visibility(game, error, error_size) ||
+        !game_bootstrap_build_scene_zone_portals(game, error, error_size)) {
         game_bootstrap_release_level(game);
         return 0;
     }
@@ -1290,6 +1351,8 @@ int game_bootstrap_submit_scene_frame(GameBootstrap *game, SceneFrame *frame)
             &game->scene_zone_visibility[0][0];
         command.data.lighting.zone_potential_visibility_stride =
             (LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY + 7u) / 8u;
+        command.data.lighting.zone_portals = game->scene_zone_portals;
+        command.data.lighting.zone_portal_count = game->scene_zone_portal_count;
         command.data.lighting.ambient_animation_phase_tick =
             ambient_animation_phase_tick;
         command.data.lighting.ambient_animation_interval_ticks =

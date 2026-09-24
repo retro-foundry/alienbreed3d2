@@ -1467,6 +1467,79 @@ static int level_data_verify_shotgun_animation_present_rates(const char *data_ro
     return 1;
 }
 
+/*
+ * The renderer aims light-gathering rays through every zone's openings, so the
+ * table has to describe real joins: an EdgeT into another zone, an open height
+ * range, grouped by owning zone, and published on the lighting command.
+ */
+static int level_data_verify_scene_zone_portals(const char *data_root)
+{
+    GameBootstrap game = {0};
+    SceneFrame frame = {0};
+    char error[256] = {0};
+    int succeeded = 0;
+    uint32_t zones_with_portals = 0u;
+    int published = 0;
+
+    if (!game_bootstrap_init(&game, data_root, error, sizeof(error)) ||
+        !game_session_default(&game.session, &game.game_link_catalog, error, sizeof(error)) ||
+        !game_session_select_level(&game.session, 0u, error, sizeof(error)) ||
+        !game_bootstrap_start_selected_single_player(&game, data_root, error, sizeof(error)) ||
+        !scene_frame_init(&frame, 8u)) {
+        fprintf(stderr, "could not start Level A for the zone portal table: %s\n", error);
+        goto cleanup;
+    }
+    if (game.scene_zone_portal_count == 0u ||
+        game.scene_zone_portal_count > GAME_BOOTSTRAP_SCENE_PORTAL_CAPACITY) {
+        fprintf(stderr, "Level A published %u zone portals\n",
+                game.scene_zone_portal_count);
+        goto cleanup;
+    }
+    for (uint32_t index = 0u; index < game.scene_zone_portal_count; ++index) {
+        const ScenePortal *portal = &game.scene_zone_portals[index];
+
+        if (portal->zone_index >= game.level_runtime.zone_count ||
+            portal->join_zone_index >= game.level_runtime.zone_count ||
+            portal->join_zone_index == portal->zone_index ||
+            !(portal->floor > portal->roof) ||
+            (portal->x_length == 0 && portal->z_length == 0) ||
+            (index > 0u &&
+             portal->zone_index < game.scene_zone_portals[index - 1u].zone_index)) {
+            fprintf(stderr, "zone portal %u is inconsistent: zone %u join %u\n",
+                    index, portal->zone_index, portal->join_zone_index);
+            goto cleanup;
+        }
+        if (index == 0u ||
+            portal->zone_index != game.scene_zone_portals[index - 1u].zone_index) {
+            ++zones_with_portals;
+        }
+    }
+    if (!game_bootstrap_submit_scene_frame(&game, &frame)) {
+        fprintf(stderr, "could not submit a Level A frame for the zone portal table\n");
+        goto cleanup;
+    }
+    for (size_t index = 0u; index < frame.count; ++index) {
+        const SceneCommand *command = &frame.commands[index];
+
+        if (command->type == SCENE_COMMAND_LIGHTING &&
+            command->data.lighting.zone_portals == game.scene_zone_portals &&
+            command->data.lighting.zone_portal_count == game.scene_zone_portal_count) {
+            published = 1;
+        }
+    }
+    if (!published || zones_with_portals < 2u) {
+        fprintf(stderr, "Level A zone portals were not published (%u zones)\n",
+                zones_with_portals);
+        goto cleanup;
+    }
+    succeeded = 1;
+
+cleanup:
+    scene_frame_destroy(&frame);
+    game_bootstrap_destroy(&game);
+    return succeeded;
+}
+
 int main(int argc, char **argv)
 {
     AssetBlob level_data = {0};
@@ -1667,6 +1740,9 @@ int main(int argc, char **argv)
         }
     }
     if (!level_data_verify_shotgun_animation_present_rates(argv[1])) {
+        return 1;
+    }
+    if (!level_data_verify_scene_zone_portals(argv[1])) {
         return 1;
     }
     {

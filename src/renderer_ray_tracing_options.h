@@ -241,6 +241,51 @@ enum {
  * One restores the unscaled input.
  */
 #define RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE 32.0f
+/*
+ * Where Ray Reconstruction's input starts being compressed, in multiples of
+ * the luminance the frame displays as white. Above it a pixel's luminance L
+ * becomes knee * ln(1 + L / knee), colour kept, and the exact inverse is
+ * applied to RR's output. Zero disables it.
+ *
+ * With a bright opening on screen RR's history of the dark room beside it
+ * degrades: a still view is clean for the first second and then fills with
+ * fireflies that appear, blur and never converge. The room's own input is
+ * unchanged throughout, and dimming only the opening's pixels in RR's input
+ * removes the effect entirely, so it is the bright pixels' magnitude RR reacts
+ * to. Compressing only what is far past white takes that away while the
+ * dark room stays linear: its values sit thousands of times below the knee,
+ * where the mapping differs from identity by far less than a percent. It is
+ * not a clamp -- a highlight comes back at full value -- but RR does average
+ * the pixels above the knee in compressed units, and that is where it is
+ * biased.
+ *
+ * "White" is the exposure's white, and the adaptive tone curve can still show
+ * a corridor that is a hundred times brighter as mid grey, so the knee has to
+ * sit well above it. Measured on a doorway-lit room over a still 192 frames:
+ * off, sparkle events at 0.009-0.032%; 40 and 160 both hold them at about
+ * 0.001%; 640 lets them back to 0.007-0.013%. 40 darkened the visible
+ * corridor through the doorway by 6% and 160 by 2%, which is why it is 160.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_RR_HIGHLIGHT_KNEE 160.0f
+/*
+ * Probability that a path's first bounce is aimed through one of its zone's
+ * openings instead of drawn from the cosine distribution, zero through 0.9.
+ *
+ * A room lit only through a doorway gets all of its light from the few bounce
+ * rays that happen to leave through that doorway. The rest return nothing, so
+ * the room is a handful of very bright samples on black, and every one of them
+ * reads as a firefly. The level already knows where its openings are: every
+ * EdgeT that joins one zone to another. Aiming some bounces at the openings
+ * whose far side can see a light makes those paths common instead of rare.
+ *
+ * It is unbiased. Both strategies are one mixture, and every path is weighted
+ * by the cosine density over the mixture's density in its direction, so a
+ * direction either strategy could produce is counted exactly once. The cosine
+ * share keeps every direction reachable, which is why this stops short of
+ * one, and it bounds a path's weight at 1 / (1 - this). Zero is plain cosine
+ * sampling.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_PORTAL_SAMPLING 0.5f
 /* Radiance of a fully lit surface under the level's own vertex lighting, which
  * bounce vertices return in place of tracing on. Indirect light is pure path
  * tracing by default: the fill lifts the dark end of the frame measurably, but
@@ -321,6 +366,10 @@ typedef struct {
     uint8_t light_scale_set;
     float rr_input_scale;
     uint8_t rr_input_scale_set;
+    float rr_highlight_knee;
+    uint8_t rr_highlight_knee_set;
+    float portal_sampling;
+    uint8_t portal_sampling_set;
     /*
      * Probability that final shading discards the resampled reservoir and
      * shades the preserved initial sample instead, trading variance for the

@@ -99,7 +99,8 @@ default, so the shipped template lists them commented out with their defaults:
 - `rtx_max_bounces=1` evaluates visible emission and primary direct Lambert/GGX
   lighting. Values `2` through `8` add real continuations. Every diffuse
   continuation uses the standard cosine-weighted Lambertian estimator and
-  standard uniform-area authored-triangle NEE.
+  standard uniform-area authored-triangle NEE, except that the first bounce
+  may instead be aimed through a zone opening; see `rtx_portal_sampling`.
 - `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
   path tracer renders at before reconstruction upscales it. Quality, Balanced,
@@ -135,7 +136,21 @@ default, so the shipped template lists them commented out with their defaults:
   Its Q2RTX-matching default is `0`, disabled, because the comparator has no
   path-radiance clamp control. `rtx_ndf_trim=0.9` trims the active sampled GGX
   visible-normal distribution, while `rtx_exposure_bias=-5..0` is applied
-  after the tone curve in log2 stops and defaults to Q2RTX's `-1` EV.
+  after the tone curve in log2 stops and defaults to Q2RTX's `-1` EV;
+- `rtx_portal_sampling=0..0.9` is the probability that a path's first bounce
+  is aimed at a uniformly chosen point on one of its zone's openings instead
+  of drawn from the cosine distribution. It defaults to `0.5`; `0` is plain
+  cosine sampling;
+- `rtx_rr_input_scale=1..1024` multiplies the DLSS pass's input and divides
+  its output by the same factor before bloom and tone mapping. It defaults to
+  `32`, is lowered automatically wherever the brightest emitter would
+  overflow the half-float input, and does nothing while DLSS is off; and
+- `rtx_rr_highlight_knee=0..1024` log-compresses the DLSS pass's input above
+  that many multiples of the exposure's white and inverts it on the output.
+  It defaults to `160`; `0` disables it.
+
+These three settings exist for one problem, a dark room lit only through an
+opening; see "Dark rooms beside bright openings" below.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_INDIRECT_SPP`,
 `AB3D2_DXR_INDIRECT_LIGHT_SAMPLES`,
@@ -144,8 +159,9 @@ default, so the shipped template lists them commented out with their defaults:
 `AB3D2_DXR_RESERVOIR_LIMIT`, `AB3D2_DXR_GI_TEMPORAL_FRAMES`,
 `AB3D2_DXR_RADIANCE_CLAMP`,
 `AB3D2_DXR_EXPOSURE_BIAS`, `AB3D2_DXR_NDF_TRIM`, `AB3D2_DXR_RR_MODE`,
-`AB3D2_DXR_OUTPUT`, `AB3D2_DXR_HDR_PEAK_NITS`, and
-`AB3D2_DXR_HDR_SATURATION` still
+`AB3D2_DXR_OUTPUT`, `AB3D2_DXR_HDR_PEAK_NITS`,
+`AB3D2_DXR_HDR_SATURATION`, `AB3D2_DXR_PORTAL_SAMPLING`,
+`AB3D2_DXR_RR_INPUT_SCALE`, and `AB3D2_DXR_RR_HIGHLIGHT_KNEE` still
 override the file for one run, which is how a setting gets swept without
 editing it. The ordinary hidden `--gpu-smoke` path
 deliberately reads no `ab3d2.ini`, so its measurements stay independent of the
@@ -157,6 +173,17 @@ sweeping the saved camera yaw. The default capture stops halfway through update
 nine. `AB3D2_DXR_SAVED_SMOKE_SHOT_FRAMES=1..64` and
 `AB3D2_DXR_SAVED_SMOKE_SHOT_SUBFRAME=1..4` select another exact pose. Hidden GPU
 smoke always forces mixer volume to zero, even when the adjacent INI is loaded.
+
+Four switches exist for measuring effects that take time to appear.
+`AB3D2_DXR_SAVED_SMOKE_FROZEN_FRAMES=1..4096` lengthens the frozen stage from
+its default 32 frames. `AB3D2_DXR_SAVED_SMOKE_IDLE_UPDATES=<n>` follows it with
+n ordinary game updates with no input and the camera in place, four
+presentations each, which is what a player standing still sees.
+`AB3D2_DXR_CAPTURE_SEQUENCE=1` keeps every `AB3D2_DXR_CAPTURE_PPM` readback as
+`<stem>_0000<ext>` onwards instead of only the last, because flicker and
+sparkle are frame-to-frame effects that one frame cannot show. And
+`AB3D2_GPU_SMOKE_SIZE=<width>x<height>` replaces the smoke's 1280x720 window,
+so an artifact reported at a player's resolution can be reproduced at it.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
 port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
@@ -1025,6 +1052,69 @@ or shader was copied; all HLSL is project-authored. The plan-listed files from
 approved `fisica-rt` commit `1784cba270676b8c49f85a9022041dc98528ab54`
 were consulted only for DXR geometry/pipeline/camera/noise concepts. No external
 runtime binary is staged.
+
+#### Dark rooms beside bright openings
+
+A room with no light of its own, lit only through a doorway from a bright
+corridor, used to look fine with the doorway off screen and fall apart with it
+in view: first blotches and sparkles, then, over a still view, fireflies that
+appeared, blurred and never converged. Three separate mechanisms were behind
+it, and each has its own setting.
+
+**The room's light is a rare event.** No emitter is visible from the room, so
+all of its light is one bounce that happens to leave through the doorway. With
+cosine sampling roughly one bounce ray in twenty does, and those few carry all
+of the room's light; the rest return nothing. `rtx_portal_sampling` aims a share
+of first bounces at the zone's openings instead. At level load every EdgeT that
+joins one zone to another becomes a rectangle spanning the owning zone's floor
+to roof (`ScenePortal`, published on the lighting command), and the renderer
+keeps those whose far side can see a light. A closed door inside a rectangle is
+simply geometry the ray hits, so the rectangles never need to follow doors.
+Both proposals form one mixture and every path is weighted by the cosine density
+over the mixture density in its direction, which keeps the estimate unbiased and
+bounds the weight at `1 / (1 - rtx_portal_sampling)`. Measured before any
+denoising, with ReSTIR's firefly filter compiled out, the room's mean bounce
+light was unchanged within a standard error in both indirect modes (path trace
+0.004537 +/- 0.000046 against 0.004489 +/- 0.000019) while its frame-to-frame
+noise fell by 2 to 2.4 times. It costs about 0.36 ms a frame at 640x360 on an
+RTX 3090; `0.75` began to flicker, hence `0.5`.
+
+**Ray Reconstruction is not scale invariant.** Such a room averages about
+0.00015 in scene radiance, and at that absolute level RR reconstructs it as
+blotches and sparkles, but only while something bright is on screen. The RR
+input pixels for the room were byte-identical with the doorway in and out of
+view; neither the tagged exposure texture (5.5 times off changed no more pixels
+than a rerun does) nor the tone curve's histogram moved the result. Multiplying
+RR's input by a constant and dividing its output by the same constant did:
+`4` stayed blotchy, `12.5` was partly clean, `32` and `64` were clean. That is
+`rtx_rr_input_scale`. It is a change of units, so nothing is clamped, and the
+renderer lowers it wherever the brightest emitter would otherwise overflow the
+RGBA16F input. Debug views are left in scene units.
+
+**RR's history degrades beside highlights.** Even so, a still view stayed clean
+for about thirty frames after a history reset and then filled with sparkle:
+pixels jumping above 1.5 times their own temporal median rose ten to thirty
+times by frame 100 to 160. The path tracer's output was stationary throughout;
+a frozen run and a run with the game simulating gave identical numbers at the
+same frame numbers; resetting only RR's history every 48 frames kept it clean;
+and dimming only the doorway's pixels in RR's input kept it clean for all 192
+frames. RR preset E was twenty to ninety times worse than the default preset D.
+`rtx_rr_highlight_knee` therefore compresses luminance above the knee as
+`W * ln(1 + L / W)` before RR and applies the exact inverse afterwards, with
+`W` read by both passes from the adapted luminance in the previous frame's tone
+state so the inverse matches. The dark room sits thousands of times below the
+knee and is untouched. Over 192 still frames the knee held sparkle at the level
+of a fresh history, `0.001%` against `0.009%` to `0.032%` without it, and
+returned to the right-hand wall most of the roughly 15% of its light that RR
+had been losing. It is not free of bias: RR averages pixels above the knee in
+compressed units, which cost the corridor seen through the doorway 2% at `160`
+and 6% at `40`, while `640` let the sparkle back.
+
+Two things found along the way are not fixed. With the firefly filter disabled,
+ReSTIR's input in such a room reads about four times path tracing's, a bias in
+reuse that the filter has been hiding. And that filter's absolute `0.05` floor
+sits far above this room's radiance, so it still removes about 40% of the room's
+light before RR sees it.
 
 The same renderer compiles to a preloaded WebGL build through Emscripten:
 

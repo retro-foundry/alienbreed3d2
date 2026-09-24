@@ -35,6 +35,9 @@
 #include "player_runtime.h"
 #include "scene_frame.h"
 
+/* Joined zone edges kept for the renderer; see scene_zone_portals. */
+#define GAME_BOOTSTRAP_SCENE_PORTAL_CAPACITY 4096u
+
 typedef struct {
     AssetBlob game_link;
     GameLink game_link_catalog;
@@ -68,6 +71,13 @@ typedef struct {
     /* Renderer-neutral flattened copy of ZoneT's immutable PVST topology. */
     uint8_t scene_zone_visibility[LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY]
                                  [(LIGHTING_RUNTIME_ZONE_BRIGHTNESS_CAPACITY + 7u) / 8u];
+    /*
+     * Renderer-neutral openings between zones, built from ZoneT and EdgeT when
+     * the level loads and grouped by zone. A level with more joined edges than
+     * this keeps the first ones; the renderer only uses them to aim rays.
+     */
+    ScenePortal scene_zone_portals[GAME_BOOTSTRAP_SCENE_PORTAL_CAPACITY];
+    uint32_t scene_zone_portal_count;
     /*
      * Presentation-only allinzone result captured before source object lights.
      * It separates the five-tick authored room animation from one-tick

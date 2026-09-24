@@ -104,6 +104,28 @@ static_assert(sizeof(DxrSceneVertex) == 76u);
  * far better importance measure than anything that can be baked per zone.
  */
 
+/*
+ * One opening between zones in render-world space, mirrored by `ZonePortal`
+ * in shaders/path_trace.hlsl. The rectangle is corner + s * edge + t * rise
+ * for s and t in [0, 1]; edge runs along the source EdgeT and rise spans the
+ * zone's floor to roof, so the two are perpendicular and area is the product
+ * of their lengths.
+ *
+ * `lit` is one when the zone on the far side can see at least one emitter and
+ * zero otherwise. An opening onto a room with nothing to see has nothing to
+ * gather, and proposing it would only spend the samples.
+ */
+struct DxrZonePortal {
+    float corner[3];
+    float area;
+    float edge[3];
+    uint32_t join_zone;
+    float rise[3];
+    float lit;
+};
+
+static_assert(sizeof(DxrZonePortal) == 48u);
+
 struct DxrSceneMaterial {
     /* Content origin inside the material level's one-texel wrapped gutter. */
     uint32_t atlas_x;
@@ -192,6 +214,11 @@ public:
     D3D12_GPU_VIRTUAL_ADDRESS zone_light_range_address() const;
     /* The zones' candidate tables, concatenated; see DxrZoneLight. */
     D3D12_GPU_VIRTUAL_ADDRESS zone_light_address() const;
+    /* One (first, count) pair per zone over zone_portal_address, laid out
+     * exactly as zone_light_range_address is. */
+    D3D12_GPU_VIRTUAL_ADDRESS zone_portal_range_address() const;
+    /* Every zone's openings, concatenated; see DxrZonePortal. */
+    D3D12_GPU_VIRTUAL_ADDRESS zone_portal_address() const;
     bool view_weapon_pose_hash(uint64_t &pose_hash) const;
     uint32_t atlas_width() const { return atlas_width_; }
     uint32_t atlas_height() const { return atlas_height_; }
@@ -372,6 +399,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D12Resource> emitter_buffer_;
     void capture_zone_visibility(const SceneFrame &frame);
     void build_zone_light_lists();
+    void build_zone_portals();
     bool ensure_zone_lights(ID3D12Device5 *device, std::string &error);
     /*
      * The level's zone visibility: word zero the zone count, word one the
@@ -383,6 +411,11 @@ private:
     float light_scale_ = RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE;
     std::vector<uint32_t> zone_light_ranges_;
     std::vector<uint32_t> zone_lights_;
+    /* The level's openings as the frame published them, and the GPU tables
+     * built from them and from the zone light tables. */
+    std::vector<ScenePortal> zone_portal_source_;
+    std::vector<uint32_t> zone_portal_ranges_;
+    std::vector<DxrZonePortal> zone_portals_;
     /* Emitter power moves as pooled slots go live and idle, and the tables are
      * weighted by it, so they are rebuilt when that state changes rather than
      * once at load. */
@@ -396,6 +429,8 @@ private:
      */
     Microsoft::WRL::ComPtr<ID3D12Resource> zone_light_range_buffer_;
     Microsoft::WRL::ComPtr<ID3D12Resource> zone_light_buffer_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> zone_portal_range_buffer_;
+    Microsoft::WRL::ComPtr<ID3D12Resource> zone_portal_buffer_;
     std::array<Microsoft::WRL::ComPtr<ID3D12Resource>,
                static_cast<size_t>(DxrMaterialChannel::count)> atlas_textures_;
     Microsoft::WRL::ComPtr<ID3D12Resource> upload_buffer_;

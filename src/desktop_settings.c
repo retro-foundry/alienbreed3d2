@@ -569,6 +569,28 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.rr_input_scale_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_rr_highlight_knee")) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.0, 1024.0, &settings->ray_tracing.rr_highlight_knee)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_rr_highlight_knee must be 0 through 1024",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.rr_highlight_knee_set = UINT8_MAX;
+        return 1;
+    }
+    if (desktop_settings_equals_ci(key, "rtx_portal_sampling")) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.0, 0.9, &settings->ray_tracing.portal_sampling)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_portal_sampling must be 0 through 0.9",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.portal_sampling_set = UINT8_MAX;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_max_luminance")) {
         if (!desktop_settings_parse_float_range(
                 value, 0.001, 1024.0,

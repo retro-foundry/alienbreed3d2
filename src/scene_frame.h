@@ -155,6 +155,26 @@ typedef struct {
 } SceneGeometryInstance;
 
 /*
+ * One opening between two zones: a defs.i:EdgeT whose join zone is another
+ * zone, raised from the owning zone's floor to its roof. Coordinates are the
+ * source ones SceneVertex uses, so scene_render_world_point places it.
+ *
+ * It is the zone's own height range rather than the overlap with the joined
+ * zone because a door's zone closes to nothing. The rectangle only proposes
+ * directions; a closed door in it is geometry that a ray simply hits.
+ */
+typedef struct {
+    int16_t x;
+    int16_t z;
+    int16_t x_length;
+    int16_t z_length;
+    int32_t roof;
+    int32_t floor;
+    uint16_t zone_index;
+    uint16_t join_zone_index;
+} ScenePortal;
+
+/*
  * `hires.s:donetalking` owns these tables.  Geometry receives its sampled
  * values per vertex, while retaining the raw tables here lets a future GPU
  * backend reproduce more of the source interpolation without touching game
@@ -169,6 +189,10 @@ typedef struct {
     /* ZoneT+48 PVST flattened as one viewer-zone bit row per source zone. */
     const uint8_t *zone_potential_visibility;
     uint16_t zone_potential_visibility_stride;
+    /* Every zone's openings, grouped by ScenePortal::zone_index. Immutable
+     * for the level, and borrowed like the visibility rows above. */
+    const ScenePortal *zone_portals;
+    uint32_t zone_portal_count;
     /* Presentation phase 0..interval-1 for newanims.s:brightanim. */
     uint8_t ambient_animation_phase_tick;
     uint8_t ambient_animation_interval_ticks;

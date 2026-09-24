@@ -232,6 +232,10 @@ struct FrameConstants {
     uint32_t zone_lights_enabled;
     /* What Ray Reconstruction's input is multiplied by; one without RR. */
     float reconstruction_input_scale;
+    /* rtx_portal_sampling; zero is plain cosine sampling. */
+    float portal_sampling;
+    /* RR's highlight knee over the adapted luminance; zero disables it. */
+    float reconstruction_knee_scale;
 };
 
 /*
@@ -240,7 +244,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 73u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 75u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -286,9 +290,11 @@ struct PostConstants {
      * it so that exposure still maps RR's input to the frame as displayed.
      */
     float reconstruction_input_scale;
+    /* The same knee scale path_trace.hlsl compressed RR's input with. */
+    float reconstruction_knee_scale;
 };
 
-static_assert(sizeof(PostConstants) == 13u * sizeof(uint32_t));
+static_assert(sizeof(PostConstants) == 14u * sizeof(uint32_t));
 
 enum class EnvironmentToggle {
     automatic,
@@ -721,6 +727,12 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.rr_input_scale_set != 0u) {
         rr_input_scale_ = options.rr_input_scale;
     }
+    if (options.rr_highlight_knee_set != 0u) {
+        rr_highlight_knee_ = options.rr_highlight_knee;
+    }
+    if (options.portal_sampling_set != 0u) {
+        portal_sampling_ = options.portal_sampling;
+    }
     if (options.restir_history_reduction_set != 0u) {
         restir_history_reduction_ = options.restir_history_reduction;
     }
@@ -912,6 +924,40 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                 return false;
             }
             rr_input_scale_ = static_cast<float>(parsed);
+        }
+    }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_RR_HIGHLIGHT_KNEE", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 0.0 || parsed > 1024.0) {
+                error = "AB3D2_DXR_RR_HIGHLIGHT_KNEE must be 0 to 1024";
+                return false;
+            }
+            rr_highlight_knee_ = static_cast<float>(parsed);
+        }
+    }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_PORTAL_SAMPLING", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 0.0 || parsed > 0.9) {
+                error = "AB3D2_DXR_PORTAL_SAMPLING must be 0 to 0.9";
+                return false;
+            }
+            portal_sampling_ = static_cast<float>(parsed);
         }
     }
     {
@@ -1219,7 +1265,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  " radiance clamp=" +
                  std::to_string(radiance_clamp_) + " exposure bias=" +
                  std::to_string(exposure_bias_stops_) + " EV RR input scale=" +
-                 std::to_string(rr_input_scale_) + " NDF trim=" +
+                 std::to_string(rr_input_scale_) + " RR highlight knee=" +
+                 std::to_string(rr_highlight_knee_) + " portal sampling=" +
+                 std::to_string(portal_sampling_) + " NDF trim=" +
                  std::to_string(ndf_trim_) + " split primary=" +
                  (split_primary_ ? "on" : "off") +
                  " single primary direct survivor=" +
@@ -1497,7 +1545,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[4].NumDescriptors = 7;
     ranges[4].BaseShaderRegister = 26;
     ranges[4].OffsetInDescriptorsFromTableStart = 13;
-    std::array<D3D12_ROOT_PARAMETER, 22> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 25> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1549,6 +1597,15 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[20].Descriptor.ShaderRegister = 11;
     parameters[21].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     parameters[21].Descriptor.ShaderRegister = 12;
+    /* The zones' openings; see DxrScene::zone_portal_address. */
+    parameters[22].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    parameters[22].Descriptor.ShaderRegister = 13;
+    parameters[23].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    parameters[23].Descriptor.ShaderRegister = 14;
+    /* The post pass's tone state, read for the adapted luminance that sets
+     * RR's highlight knee. It is in UAV state for the whole trace. */
+    parameters[24].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
+    parameters[24].Descriptor.ShaderRegister = 35;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -3143,16 +3200,32 @@ bool DxrPipeline::record(ID3D12Device5 *device,
      * rtx_rr_input_scale, lowered where it would carry the brightest emitter
      * past half-float range: RR's input is RGBA16F, and a directly visible
      * light has to survive the multiply. Without RR there is nothing to scale
-     * for, and the input is left exactly as traced.
+     * for, and the input is left exactly as traced. Nor under a debug view:
+     * those present RR's input buffer itself, which has to stay in scene units
+     * to be read against every capture taken before this scale existed.
      */
     float reconstruction_input_scale = 1.0f;
-    if (streamline_active) {
+    if (streamline_active && !debug_view_requested_) {
         const float brightest_emitter = scene_.maximum_emitter_radiance();
         reconstruction_input_scale = brightest_emitter > 0.0f ?
             std::clamp(half_float_maximum / brightest_emitter, 1.0f,
                        rr_input_scale_) :
             rr_input_scale_;
     }
+    /*
+     * rtx_rr_highlight_knee is in multiples of display white. The frame is
+     * shown at exp2(bias - 2) / adapted, so white is adapted / exp2(bias - 2)
+     * in scene units, and the knee in RR's units carries the input scale too.
+     * Both shaders multiply this by the adapted luminance the previous frame
+     * left in the tone state; neither pass runs the curve before reading it,
+     * so the two see the same number and the inverse is exact.
+     */
+    const float reconstruction_knee_scale =
+        streamline_active && !debug_view_requested_ &&
+                rr_highlight_knee_ > 0.0f ?
+            rr_highlight_knee_ * reconstruction_input_scale /
+                std::exp2(exposure_bias_stops_ - 2.0f) :
+            0.0f;
     const SceneCamera *camera = find_camera(frame);
     if (!camera) {
         error = "DXR SceneFrame has geometry but no camera command";
@@ -3361,6 +3434,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.source_light_scale = source_light_scale_;
     constants.zone_lights_enabled = zone_lights_enabled_;
     constants.reconstruction_input_scale = reconstruction_input_scale;
+    constants.portal_sampling = portal_sampling_;
+    constants.reconstruction_knee_scale = reconstruction_knee_scale;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
     constants.single_primary_direct_survivor =
         single_primary_direct_survivor_ ? 1u : 0u;
@@ -3460,6 +3535,12 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         20, scene_.zone_light_range_address());
     command_list->SetComputeRootShaderResourceView(
         21, scene_.zone_light_address());
+    command_list->SetComputeRootShaderResourceView(
+        22, scene_.zone_portal_range_address());
+    command_list->SetComputeRootShaderResourceView(
+        23, scene_.zone_portal_address());
+    command_list->SetComputeRootUnorderedAccessView(
+        24, tone_map_state_->GetGPUVirtualAddress());
     command_list->SetComputeRootShaderResourceView(
         6, scene_.previous_vertex_address());
     command_list->SetComputeRootShaderResourceView(
@@ -3802,7 +3883,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             static_cast<uint32_t>(operation),
             constants.validation_enabled,
             noise_floor_stops_, minimum_luminance_, maximum_luminance_,
-            exposure_bias_stops_, reconstruction_input_scale};
+            exposure_bias_stops_, reconstruction_input_scale,
+            reconstruction_knee_scale};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(pass_constants) / sizeof(uint32_t),
             &pass_constants, 0u);
@@ -3923,7 +4005,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                               minimum_luminance_,
                                               maximum_luminance_,
                                               exposure_bias_stops_,
-                                              reconstruction_input_scale};
+                                              reconstruction_input_scale,
+                                              reconstruction_knee_scale};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(post_constants) / sizeof(uint32_t), &post_constants, 0u);
         command_list->SetPipelineState(post_histogram_pipeline_state_.Get());

@@ -320,6 +320,10 @@ private:
         RENDERER_RAY_TRACING_DEFAULT_MAXIMUM_LUMINANCE;
     /* rtx_rr_input_scale, or AB3D2_DXR_RR_INPUT_SCALE for measurement. */
     float rr_input_scale_ = RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE;
+    /* rtx_rr_highlight_knee, or AB3D2_DXR_RR_HIGHLIGHT_KNEE for measurement. */
+    float rr_highlight_knee_ = RENDERER_RAY_TRACING_DEFAULT_RR_HIGHLIGHT_KNEE;
+    /* rtx_portal_sampling, or AB3D2_DXR_PORTAL_SAMPLING for measurement. */
+    float portal_sampling_ = RENDERER_RAY_TRACING_DEFAULT_PORTAL_SAMPLING;
     /* rtx_min_luminance, or AB3D2_DXR_MIN_LUMINANCE for measurement. */
     float minimum_luminance_ =
         RENDERER_RAY_TRACING_DEFAULT_MINIMUM_LUMINANCE;

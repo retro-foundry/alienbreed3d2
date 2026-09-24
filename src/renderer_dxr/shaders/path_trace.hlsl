@@ -226,6 +226,23 @@ ByteAddressBuffer BlueNoiseSampler : register(t10);
  */
 StructuredBuffer<uint2> ZoneLightRanges : register(t11);
 StructuredBuffer<uint> ZoneLights : register(t12);
+/* DxrZonePortal in dxr_scene.h: one opening between zones. */
+struct ZonePortal
+{
+    float3 corner;
+    float area;
+    float3 edge;
+    uint joinZone;
+    float3 rise;
+    float lit;
+};
+/* Laid out as ZoneLightRanges is, over ZonePortals. */
+StructuredBuffer<uint2> ZonePortalRanges : register(t13);
+StructuredBuffer<ZonePortal> ZonePortals : register(t14);
+/* post_process.hlsl's tone state: element 129 is the adapted luminance the
+ * previous frame was shown at, which places RR's highlight knee. */
+RWStructuredBuffer<float> ReconstructionToneState : register(u35);
+static const uint ReconstructionAdaptedLuminanceIndex = 129u;
 SamplerState MaterialBilinearSampler : register(s0);
 
 RWTexture2D<float4> NoisyRadiance : register(u0);
@@ -372,6 +389,11 @@ cbuffer FrameConstants : register(b0)
      * RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE.
      */
     float ReconstructionInputScale;
+    /* rtx_portal_sampling; see RENDERER_RAY_TRACING_DEFAULT_PORTAL_SAMPLING. */
+    float PortalSampling;
+    /* Times the adapted luminance, RR's highlight knee in its own units;
+     * zero disables it. See RENDERER_RAY_TRACING_DEFAULT_RR_HIGHLIGHT_KNEE. */
+    float ReconstructionKneeScale;
 };
 
 cbuffer RayRootConstants : register(b1)
@@ -609,6 +631,7 @@ static const uint SmoothSpecularDirectionStream = 0x10900u;
 static const uint SmoothSpecularPolygonStream = 0x34000u;
 static const uint ContinuationLobeSelectionStream = 0x10b00u;
 static const uint DiffuseStratificationStream = 0x10c00u;
+static const uint PortalSampleStream = 0x10d00u;
 /* Keep primary light selection in the sampler's unused dimension range. The
  * configurable tail falls back to the unbounded hash stream before the 256
  * Sobol dimensions wrap and begin repeating candidates. */
@@ -2873,11 +2896,175 @@ DirectLightingSample samplePrimaryPolygonLight(
     return result;
 }
 
+/*
+ * Aiming first bounces through a zone's openings.
+ *
+ * A room lit only through a doorway gets all of its light from the bounce rays
+ * that happen to leave through it, and those are rare: the room is a few very
+ * bright samples on black. The level knows where its openings are, so a share
+ * of first bounces is instead aimed at a uniformly chosen point on one of them.
+ *
+ * Both proposals are one mixture density, and a path is weighted by the cosine
+ * density over that mixture in the direction it took. That is the balance
+ * heuristic for the pair, so the estimate stays unbiased whichever proposal
+ * drew the direction, and the weight never exceeds 1 / (1 - PortalSampling):
+ * the cosine share alone already bounds the mixture from below.
+ *
+ * An opening's rectangle does not have to be open. It only proposes
+ * directions; a closed door in it is geometry the ray hits, and a wall in
+ * front of it is occlusion. Neither changes the density, which is all the
+ * weight needs.
+ */
+static const uint MaximumZonePortals = 32u;
+
+/*
+ * How strongly an opening is proposed from this point: roughly its solid
+ * angle, and nothing when it is behind the surface or its far side sees no
+ * light. The same function drives selection and density, so the two agree
+ * whatever approximation it makes.
+ */
+float portalProposalWeight(ZonePortal portal, float3 origin, float3 normal)
+{
+    if (!(portal.lit > 0.0)) {
+        return 0.0;
+    }
+    float3 toCentre = portal.corner + 0.5 * (portal.edge + portal.rise) -
+        origin;
+    float distanceSquared = dot(toCentre, toCentre);
+    if (!(distanceSquared > 1.0e-6)) {
+        return 0.0;
+    }
+    float3 direction = toCentre * rsqrt(distanceSquared);
+    if (dot(normal, direction) <= 0.0) {
+        return 0.0;
+    }
+    /* cross(edge, rise) has the rectangle's area as its length. */
+    float projectedArea = abs(dot(cross(portal.edge, portal.rise), direction));
+    return min(projectedArea / distanceSquared, 2.0 * Pi);
+}
+
+/* Solid-angle density of aiming at a uniform point of this rectangle, in the
+ * given direction; zero when the direction misses it. */
+float portalDirectionPdf(ZonePortal portal, float3 origin, float3 direction)
+{
+    float3 areaNormal = cross(portal.edge, portal.rise);
+    float facing = dot(direction, areaNormal);
+    if (!(abs(facing) > 1.0e-8)) {
+        return 0.0;
+    }
+    float distance = dot(portal.corner - origin, areaNormal) / facing;
+    if (!(distance > 0.0)) {
+        return 0.0;
+    }
+    float3 local = origin + direction * distance - portal.corner;
+    float along = dot(local, portal.edge) / dot(portal.edge, portal.edge);
+    float up = dot(local, portal.rise) / dot(portal.rise, portal.rise);
+    if (along < 0.0 || along > 1.0 || up < 0.0 || up > 1.0) {
+        return 0.0;
+    }
+    /* distance^2 / (area * |cos|), and |facing| is area * |cos|. */
+    return distance * distance / abs(facing);
+}
+
+struct FirstBounce
+{
+    float3 direction;
+    float weight;
+};
+
+FirstBounce sampleFirstBounce(uint2 pixel, uint sampleIndex,
+                              SurfaceData surface, float2 cosineSample)
+{
+    FirstBounce result;
+    float3 normal = surface.geometricNormal;
+    result.direction = cosineHemisphere(normal, cosineSample);
+    result.weight = 1.0;
+    if (!(PortalSampling > 0.0) || surface.sourceZonePlusOne == 0u) {
+        return result;
+    }
+    uint zone = surface.sourceZonePlusOne - 1u;
+    if (zone >= ZonePortalRanges[0].x) {
+        return result;
+    }
+    uint2 range = ZonePortalRanges[1u + zone];
+    uint count = min(range.y, MaximumZonePortals);
+    /* The same origin the bounce ray leaves from, so the density describes
+     * the ray that is actually traced. */
+    float3 origin = surface.position + normal * RayEpsilon;
+    float total = 0.0;
+    [loop]
+    for (uint index = 0u; index < count; ++index) {
+        total += portalProposalWeight(ZonePortals[range.x + index], origin,
+                                      normal);
+    }
+    if (!(total > 0.0)) {
+        return result;
+    }
+    float4 random = sampleStream(pixel, sampleIndex, PortalSampleStream);
+    if (random.x < PortalSampling) {
+        float target = random.y * total;
+        float running = 0.0;
+        /* Rounding can leave the target past the last sum; fall back to the
+         * last opening that can be proposed, never one that cannot. */
+        uint chosen = 0u;
+        [loop]
+        for (uint candidate = 0u; candidate < count; ++candidate) {
+            float proposal = portalProposalWeight(
+                ZonePortals[range.x + candidate], origin, normal);
+            if (!(proposal > 0.0)) {
+                continue;
+            }
+            chosen = candidate;
+            running += proposal;
+            if (target < running) {
+                break;
+            }
+        }
+        ZonePortal portal = ZonePortals[range.x + chosen];
+        float3 offset = portal.corner + portal.edge * random.z +
+            portal.rise * random.w - origin;
+        float offsetLength = length(offset);
+        if (!(offsetLength > 1.0e-6)) {
+            result.weight = 0.0;
+            return result;
+        }
+        result.direction = offset / offsetLength;
+    }
+    float cosinePdf = dot(normal, result.direction) / Pi;
+    if (!(cosinePdf > 0.0)) {
+        result.weight = 0.0;
+        return result;
+    }
+    float portalPdf = 0.0;
+    [loop]
+    for (uint term = 0u; term < count; ++term) {
+        ZonePortal portal = ZonePortals[range.x + term];
+        float proposal = portalProposalWeight(portal, origin, normal);
+        if (proposal > 0.0) {
+            portalPdf += proposal *
+                portalDirectionPdf(portal, origin, result.direction);
+        }
+    }
+    float mixturePdf = (1.0 - PortalSampling) * cosinePdf +
+        PortalSampling * portalPdf / total;
+    result.weight = mixturePdf > 0.0 ? cosinePdf / mixturePdf : 0.0;
+    return result;
+}
+
 struct DiffusePathSample
 {
     /* Outgoing diffuse radiance at the first indirect surface, including all
      * later configured surfaces. Primary albedo is deliberately absent. */
     float3 radiance;
+    /*
+     * The cosine density over the density the first direction was actually
+     * drawn with. `radiance` is what arrived along that direction, so it is
+     * the estimate a cosine-sampled path would have been; multiplying by this
+     * makes it the estimate for how the direction was really chosen. Exactly
+     * one without portal sampling, and zero for a direction that proposal
+     * produced below the surface.
+     */
+    float firstWeight;
     float3 firstDirection;
     float firstDistance;
     SurfacePayload firstPayload;
@@ -2896,6 +3083,7 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
                                     SurfaceData primarySurface)
 {
     DiffusePathSample result = (DiffusePathSample)0;
+    result.firstWeight = 1.0;
     result.firstDirection = primarySurface.geometricNormal;
     result.firstDistance = SceneFarPlane;
     result.firstPayload.primitiveIndex = InvalidIndex;
@@ -2924,8 +3112,19 @@ DiffusePathSample sampleDiffusePath(uint2 pixel, uint sampleIndex,
             sampleBlueNoise(pixel, sampleIndex, dimension + 7u));
         directionSample = stratifiedDiffuseDirectionSample(
             pixel, sampleIndex, continuationIndex, directionSample);
-        float3 bounceDirection = cosineHemisphere(
-            departureSurface.geometricNormal, directionSample);
+        float3 bounceDirection;
+        if (continuationIndex == 0u) {
+            FirstBounce first = sampleFirstBounce(
+                pixel, sampleIndex, departureSurface, directionSample);
+            bounceDirection = first.direction;
+            result.firstWeight = first.weight;
+            if (!(first.weight > 0.0)) {
+                break;
+            }
+        } else {
+            bounceDirection = cosineHemisphere(
+                departureSurface.geometricNormal, directionSample);
+        }
         if (dot(departureSurface.geometricNormal, bounceDirection) <= 0.0) {
             break;
         }
@@ -3854,7 +4053,7 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                         pixel, indirectSampleIndex, surface);
                     sampleIndirectDirection = pathSample.firstDirection;
                     sampleIndirectIncident = pathSample.radiance *
-                        diffuseContinuationScale;
+                        pathSample.firstWeight * diffuseContinuationScale;
                     if (sampleOrdinal == 0u &&
                         (DiagnosticGuideMask & 2u) != 0u) {
                         DiffuseHitDistance[pixel] = pathSample.firstDistance;
@@ -4193,10 +4392,19 @@ void BurstContinuation()
              */
             float canonicalCosine = saturate(
                 dot(surface.shadingNormal, pathSample.firstDirection));
-            if (!(canonicalCosine > 1.0e-3)) {
+            /* A direction the portal proposal put below the surface is still a
+             * sample, one that found nothing; it has to count towards M. */
+            bool proposedNothing = !(pathSample.firstWeight > 0.0);
+            if (!proposedNothing && !(canonicalCosine > 1.0e-3)) {
                 continue;
             }
-            float3 canonicalTarget = incident * canonicalCosine;
+            float3 canonicalTarget = proposedNothing ? 0.0 :
+                incident * canonicalCosine;
+            /* The density the direction was drawn with, in the same units as
+             * the cosine it replaces. The stored radiance stays what arrived,
+             * which is what a shift re-evaluates. */
+            float canonicalPdf = proposedNothing ? 0.0 :
+                canonicalCosine / pathSample.firstWeight;
             PathReservoir candidate = makeReservoir(
                 canonicalTarget, canonicalAncestry, indirectSampleIndex,
                 pathSample.firstHit ? 1u : 0u, MaximumDepth, 1.0, 1.0,
@@ -4206,7 +4414,7 @@ void BurstContinuation()
                 pathSample.firstHit ?
                     pathSample.firstSurface.geometricNormal :
                     pathSample.firstDirection,
-                incident, canonicalCosine);
+                incident, canonicalPdf);
             candidate.ancestry = canonicalAncestry;
             candidate.primaryPosition = surface.position;
             candidate.primaryNormal =
@@ -4221,7 +4429,7 @@ void BurstContinuation()
                              canonicalTarget);
         }
         IndirectSignal sampleSignal = indirectSignalFromRadiance(
-            incident, pathSample.firstDirection);
+            incident * pathSample.firstWeight, pathSample.firstDirection);
         signalSum.luminanceSH += sampleSignal.luminanceSH;
         signalSum.chroma += sampleSignal.chroma;
     }
@@ -4821,11 +5029,21 @@ void ComputeDuplicationMap()
  */
 float4 scaleReconstructionInput(float4 radiance)
 {
-    if (ReconstructionInputScale == 1.0) {
-        return radiance;
+    if (ReconstructionInputScale != 1.0) {
+        float3 scaled = radiance.rgb * ReconstructionInputScale;
+        radiance.rgb = select(scaled > HalfFloatMaximum, HalfFloatMaximum,
+                              scaled);
     }
-    float3 scaled = radiance.rgb * ReconstructionInputScale;
-    radiance.rgb = select(scaled > HalfFloatMaximum, HalfFloatMaximum, scaled);
+    /*
+     * The highlight knee: W * ln(1 + L / W) on luminance, colour kept.
+     * post_process.hlsl inverts it from the same tone-state value.
+     */
+    float knee = ReconstructionKneeScale *
+        ReconstructionToneState[ReconstructionAdaptedLuminanceIndex];
+    float value = luminance(max(radiance.rgb, 0.0));
+    if (knee > 0.0 && isfinite(knee) && value > 0.0 && isfinite(value)) {
+        radiance.rgb *= knee * log(1.0 + value / knee) / value;
+    }
     return radiance;
 }
 
