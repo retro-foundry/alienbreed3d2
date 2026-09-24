@@ -35,6 +35,9 @@ cbuffer PostConstants : register(b0)
     /* The exposure present.hlsl applies, so the value handed to Ray
      * Reconstruction below is the one the frame is actually shown at. */
     float ExposureBiasStops;
+    /* What Ray Reconstruction's input was multiplied by, divided back out of
+     * its output here; see RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE. */
+    float ReconstructionInputScale;
 };
 
 static const uint HistogramBinCount = 128u;
@@ -84,6 +87,20 @@ float3 finiteHdr(float3 color)
     return all(isfinite(color)) ? clamp(color, 0.0, 65504.0) : 0.0;
 }
 
+/*
+ * Ray Reconstruction's output in scene units. RR saw its input multiplied by
+ * ReconstructionInputScale, so the brightest light sits near the top of
+ * half-float range and any overshoot comes back as infinity. That is a very
+ * bright pixel, not a missing one, so it is held at the maximum before the
+ * scale is divided out rather than left for finiteHdr to turn black.
+ */
+float3 loadReconstructed(int2 pixel)
+{
+    float3 color = InputRadiance.Load(int3(pixel, 0)).rgb;
+    color = select(and(isinf(color), color > 0.0), 65504.0, color);
+    return color / ReconstructionInputScale;
+}
+
 float3 extractBloom(float3 color)
 {
     color = finiteHdr(color);
@@ -111,7 +128,7 @@ float3 downsampleInput(uint2 pixel, bool extract)
                 uint2(max(SourceWidth, 1u) - 1u,
                       max(SourceHeight, 1u) - 1u));
             float3 sampleValue = extract ?
-                InputRadiance.Load(int3(sourcePixel, 0)).rgb :
+                loadReconstructed(int2(sourcePixel)) :
                 BloomInput.Load(int3(sourcePixel, 0)).rgb;
             result += extract ? extractBloom(sampleValue) :
                                 finiteHdr(sampleValue);
@@ -172,8 +189,7 @@ void bloom_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     } else if (BloomOperation == BloomComposite) {
         float2 uv = (float2(pixel) + 0.5) /
             float2(max(TargetWidth, 1u), max(TargetHeight, 1u));
-        float3 source = finiteHdr(
-            InputRadiance.Load(int3(pixel, 0)).rgb);
+        float3 source = finiteHdr(loadReconstructed(int2(pixel)));
         float3 bloom = finiteHdr(
             BloomInput.SampleLevel(LinearClampSampler, uv, 0.0).rgb);
         result = lerp(source, bloom, BloomStrength);
@@ -437,7 +453,8 @@ void curve_main(uint3 dispatchThreadId : SV_DispatchThreadID)
     float highLuminance = exp2(histogramLogLuminance(highBin));
     ToneMapState[AdaptedLuminanceStateIndex] = adaptedLuminance;
     ExposureOutput[uint2(0u, 0u)] =
-        exp2(ExposureBiasStops - 2.0) / max(adaptedLuminance, 1.0e-8);
+        exp2(ExposureBiasStops - 2.0) / max(adaptedLuminance, 1.0e-8) /
+        ReconstructionInputScale;
     ToneMapState[TargetLuminanceStateIndex] = targetLuminance;
     ToneMapState[AverageLuminanceStateIndex] = averageLuminance;
     ToneMapState[LowLuminanceStateIndex] = lowLuminance;

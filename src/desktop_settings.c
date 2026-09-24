@@ -558,6 +558,17 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.light_scale_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_rr_input_scale")) {
+        if (!desktop_settings_parse_float_range(
+                value, 1.0, 1024.0, &settings->ray_tracing.rr_input_scale)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_rr_input_scale must be 1 through 1024",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.rr_input_scale_set = UINT8_MAX;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_max_luminance")) {
         if (!desktop_settings_parse_float_range(
                 value, 0.001, 1024.0,

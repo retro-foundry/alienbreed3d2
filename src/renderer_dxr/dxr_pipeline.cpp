@@ -165,6 +165,8 @@ enum BloomTargetIndex : UINT {
 constexpr UINT64 frame_constant_stride =
     2u * D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT;
 constexpr float pi = 3.14159265358979323846f;
+/* Largest finite value of the RGBA16F buffers Ray Reconstruction reads. */
+constexpr float half_float_maximum = 65504.0f;
 constexpr float source_fullscreen_depth_scale =
     4.0f * (32767.0f / 65536.0f) * (85.0f / 256.0f) * (927.0f / 1024.0f);
 
@@ -228,6 +230,8 @@ struct FrameConstants {
     float source_light_scale;
     /* AB3D2_DXR_ZONE_LIGHTS; zero restores the scene-wide distribution. */
     uint32_t zone_lights_enabled;
+    /* What Ray Reconstruction's input is multiplied by; one without RR. */
+    float reconstruction_input_scale;
 };
 
 /*
@@ -236,7 +240,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 72u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 73u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -276,9 +280,15 @@ struct PostConstants {
      * is actually shown at, so the number cannot be written down twice.
      */
     float exposure_bias_stops;
+    /*
+     * The factor Ray Reconstruction's input was multiplied by. Bloom divides
+     * it back out of RR's output, and the exposure handed to RR is divided by
+     * it so that exposure still maps RR's input to the frame as displayed.
+     */
+    float reconstruction_input_scale;
 };
 
-static_assert(sizeof(PostConstants) == 12u * sizeof(uint32_t));
+static_assert(sizeof(PostConstants) == 13u * sizeof(uint32_t));
 
 enum class EnvironmentToggle {
     automatic,
@@ -708,6 +718,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.light_scale_set != 0u) {
         scene_.set_light_scale(options.light_scale);
     }
+    if (options.rr_input_scale_set != 0u) {
+        rr_input_scale_ = options.rr_input_scale;
+    }
     if (options.restir_history_reduction_set != 0u) {
         restir_history_reduction_ = options.restir_history_reduction;
     }
@@ -882,6 +895,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                 return false;
             }
             scene_.set_light_scale(static_cast<float>(parsed));
+        }
+    }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_RR_INPUT_SCALE", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 1.0 || parsed > 1024.0) {
+                error = "AB3D2_DXR_RR_INPUT_SCALE must be 1 to 1024";
+                return false;
+            }
+            rr_input_scale_ = static_cast<float>(parsed);
         }
     }
     {
@@ -1188,7 +1218,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  std::to_string(candidate_count_) + " reservoir limit=" +
                  " radiance clamp=" +
                  std::to_string(radiance_clamp_) + " exposure bias=" +
-                 std::to_string(exposure_bias_stops_) + " EV NDF trim=" +
+                 std::to_string(exposure_bias_stops_) + " EV RR input scale=" +
+                 std::to_string(rr_input_scale_) + " NDF trim=" +
                  std::to_string(ndf_trim_) + " split primary=" +
                  (split_primary_ ? "on" : "off") +
                  " single primary direct survivor=" +
@@ -3108,6 +3139,20 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         streamline->active_mode() ==
             RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE;
 #endif
+    /*
+     * rtx_rr_input_scale, lowered where it would carry the brightest emitter
+     * past half-float range: RR's input is RGBA16F, and a directly visible
+     * light has to survive the multiply. Without RR there is nothing to scale
+     * for, and the input is left exactly as traced.
+     */
+    float reconstruction_input_scale = 1.0f;
+    if (streamline_active) {
+        const float brightest_emitter = scene_.maximum_emitter_radiance();
+        reconstruction_input_scale = brightest_emitter > 0.0f ?
+            std::clamp(half_float_maximum / brightest_emitter, 1.0f,
+                       rr_input_scale_) :
+            rr_input_scale_;
+    }
     const SceneCamera *camera = find_camera(frame);
     if (!camera) {
         error = "DXR SceneFrame has geometry but no camera command";
@@ -3315,6 +3360,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.restir_history_reduction = restir_history_reduction_;
     constants.source_light_scale = source_light_scale_;
     constants.zone_lights_enabled = zone_lights_enabled_;
+    constants.reconstruction_input_scale = reconstruction_input_scale;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
     constants.single_primary_direct_survivor =
         single_primary_direct_survivor_ ? 1u : 0u;
@@ -3756,7 +3802,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             static_cast<uint32_t>(operation),
             constants.validation_enabled,
             noise_floor_stops_, minimum_luminance_, maximum_luminance_,
-            exposure_bias_stops_};
+            exposure_bias_stops_, reconstruction_input_scale};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(pass_constants) / sizeof(uint32_t),
             &pass_constants, 0u);
@@ -3876,7 +3922,8 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                               noise_floor_stops_,
                                               minimum_luminance_,
                                               maximum_luminance_,
-                                              exposure_bias_stops_};
+                                              exposure_bias_stops_,
+                                              reconstruction_input_scale};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(post_constants) / sizeof(uint32_t), &post_constants, 0u);
         command_list->SetPipelineState(post_histogram_pipeline_state_.Get());

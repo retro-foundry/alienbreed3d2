@@ -86,6 +86,21 @@ world_light_tessellation=4
 # Default ray-reconstruction.
 #rtx_denoiser=ray-reconstruction
 
+# What the DLSS pass's input is multiplied by, 1 through 1024. Its output is
+# divided by the same factor before bloom and tone mapping, so this changes
+# only the units DLSS works in: nothing is clamped or discarded. Default 32.
+#
+# Ray Reconstruction is not scale invariant. A room lit only through a doorway
+# sits around 0.00015 in scene radiance, and at that absolute level RR turns it
+# into blotches and sparkles -- but only while something bright is on screen.
+# Turn away from the doorway and the same room denoises cleanly. Measured on
+# such a room with the doorway in view: 4 is still blotchy, 12.5 partly clean,
+# 32 and 64 clean. The renderer lowers it automatically wherever the scene's
+# brightest emitter would otherwise overflow RR's half-float input, so a high
+# rtx_light_scale is safe. 1 restores the unscaled input. It does nothing
+# while DLSS is off.
+#rtx_rr_input_scale=1
+
 
 # --- Path tracer ----------------------------------------------------------
 

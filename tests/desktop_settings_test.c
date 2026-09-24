@@ -163,6 +163,7 @@ int main(void)
         settings.ray_tracing.restir_connection_footprint_set != 0u ||
         settings.ray_tracing.restir_history_reduction_set != 0u ||
         settings.ray_tracing.restir_decorrelation_set != 0u ||
+        settings.ray_tracing.rr_input_scale_set != 0u ||
         settings.ray_tracing.radiance_clamp != 0.0f ||
         settings.ray_tracing.exposure_bias_stops != 0.0f ||
         settings.ray_tracing.exposure_bias_set != 0u ||
@@ -313,6 +314,7 @@ int main(void)
             "rtx_restir_history_reduction=0\n"
             "rtx_restir_decorrelation=0\n"
             "rtx_denoiser=ray-reconstruction\n"
+            "rtx_rr_input_scale=1\n"
             "rtx_debug_view=reservoir-m\n"
             "rtx_dlss=performance\n";
         if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u, error,
@@ -332,6 +334,8 @@ int main(void)
             settings.ray_tracing.restir_decorrelation_set == 0u ||
             settings.ray_tracing.denoiser !=
                 RENDERER_DENOISER_RAY_RECONSTRUCTION ||
+            settings.ray_tracing.rr_input_scale != 1.0f ||
+            settings.ray_tracing.rr_input_scale_set == 0u ||
             settings.ray_tracing.debug_view !=
                 RENDERER_DEBUG_VIEW_RESERVOIR_M ||
             settings.ray_tracing.reconstruction !=
@@ -360,6 +364,8 @@ int main(void)
             "rtx_restir_connection_footprint=0.05\n",
             "rtx_restir_history_reduction=4.5\n",
             "rtx_restir_decorrelation=1.5\n",
+            "rtx_rr_input_scale=0.5\n",
+            "rtx_rr_input_scale=2048\n",
             "rtx_indirect_mode=restir\n",
             "rtx_restir_reconnection=roughness\n",
             "rtx_denoiser=nrd\n",

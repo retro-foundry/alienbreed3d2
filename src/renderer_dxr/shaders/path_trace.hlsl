@@ -12,6 +12,8 @@ static const uint WorldBillboardPrimitive = 2u;
 static const uint WorldEffectPrimitive = 3u;
 static const uint WorldVectorPrimitive = 4u;
 static const float InvalidMotion = 65504.0;
+/* Largest finite value of the RGBA16F buffers Ray Reconstruction reads. */
+static const float HalfFloatMaximum = 65504.0;
 /*
  * Mirrors `reconstruction::scene_far_plane` in dxr_reconstruction_math.h, which
  * also feeds the Streamline `cameraFar` constant. Background pixels must report
@@ -364,6 +366,12 @@ cbuffer FrameConstants : register(b0)
      * else that changed between two builds.
      */
     uint ZoneLightsEnabled;
+    /*
+     * What Ray Reconstruction's input is multiplied by; post_process.hlsl
+     * divides it back out. One when RR is not running. See
+     * RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE.
+     */
+    float ReconstructionInputScale;
 };
 
 cbuffer RayRootConstants : register(b1)
@@ -4804,6 +4812,23 @@ void ComputeDuplicationMap()
     }
 }
 
+/*
+ * RR's input in the units RR is given it. The host keeps the scale low enough
+ * for the brightest emitter to fit; the bound only catches a resampling
+ * outlier that the multiply would otherwise carry to infinity. A comparison
+ * rather than min() so that NaN reaches RR exactly as it did unscaled, and a
+ * scale of one leaves the input untouched.
+ */
+float4 scaleReconstructionInput(float4 radiance)
+{
+    if (ReconstructionInputScale == 1.0) {
+        return radiance;
+    }
+    float3 scaled = radiance.rgb * ReconstructionInputScale;
+    radiance.rgb = select(scaled > HalfFloatMaximum, HalfFloatMaximum, scaled);
+    return radiance;
+}
+
 [shader("raygeneration")]
 void ReconstructIndirect()
 {
@@ -4824,6 +4849,7 @@ void ReconstructIndirect()
     float4 centerAlbedo = DiffuseAlbedo[pixel];
     if (centerAlbedo.a <= 0.0) {
         IndirectFiltered[pixel] = 0.0;
+        NoisyRadiance[pixel] = scaleReconstructionInput(NoisyRadiance[pixel]);
         return;
     }
     IndirectSignal integratedSignal = loadIndirectSignal(
@@ -4967,7 +4993,7 @@ void ReconstructIndirect()
     if (includeRoughSpecular) {
         noisy.rgb += roughSpecular;
     }
-    NoisyRadiance[pixel] = noisy;
+    NoisyRadiance[pixel] = scaleReconstructionInput(noisy);
 }
 
 float exposureHistogramLuminance(uint index)

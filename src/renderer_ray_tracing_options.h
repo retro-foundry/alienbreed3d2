@@ -221,6 +221,26 @@ enum {
  * to compensate, so rtx_max_luminance has to have the range for it.
  */
 #define RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE 1.0f
+/*
+ * The factor Ray Reconstruction's input is multiplied by, and its output
+ * divided by again before bloom and tone mapping. It is a change of units
+ * only: nothing is clamped or discarded, and with RR off it does nothing.
+ *
+ * RR is not scale invariant. A room lit only through a doorway averages about
+ * 0.00015 in scene radiance, and at that absolute level RR reconstructs it as
+ * blotches and sparkles -- but only while something bright is on screen. Turn
+ * away from the doorway and the same room denoises cleanly. The RR input
+ * pixels for the room were byte-identical either way, so this is RR, not the
+ * path tracer. Neither the tagged exposure texture nor the tone curve moved it.
+ *
+ * Measured on that room with the doorway in view: 4 is still blotchy, 12.5
+ * partly clean, 32 and 64 clean. 32 is the smallest that clears it, and it
+ * leaves the brightest authored emitter (1600) inside half-float range. The
+ * renderer lowers it further whenever the scene's brightest emitter would
+ * otherwise overflow, so rtx_light_scale cannot push the input to infinity.
+ * One restores the unscaled input.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE 32.0f
 /* Radiance of a fully lit surface under the level's own vertex lighting, which
  * bounce vertices return in place of tracing on. Indirect light is pure path
  * tracing by default: the fill lifts the dark end of the frame measurably, but
@@ -299,6 +319,8 @@ typedef struct {
     uint8_t maximum_luminance_set;
     float light_scale;
     uint8_t light_scale_set;
+    float rr_input_scale;
+    uint8_t rr_input_scale_set;
     /*
      * Probability that final shading discards the resampled reservoir and
      * shades the preserved initial sample instead, trading variance for the
