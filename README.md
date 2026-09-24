@@ -679,10 +679,7 @@ history. A missing/corrupt map or missing world/entity/weapon binding is fatal;
 the runtime does not regenerate fallback textures.
 
 Each software mip in the renderer-local atlas has a one-texel repeat-wrapped
-gutter. Exact primary and continuation emitter proposals use that gutter for
-one hardware-bilinear emissive lookup instead of four explicit atlas loads;
-all configured candidates, textured target values, PDFs, and selected-only
-visibility rays remain intact. Reached surfaces retain the existing
+gutter. Reached surfaces retain the existing
 directional footprint, software mip choice, trilinear blend, and bounded
 anisotropic tap positions, but each bilinear tap across all five PBR channels
 is likewise one hardware sample rather than four explicit loads. Atlas
@@ -693,7 +690,26 @@ material evaluation.
 The current staged renderer keeps one pixel-centred camera ray with zero
 frame-varying subpixel jitter. Base colour is written as a reconstruction guide,
 not added to HDR as fake self-emission. The image shows directly visible
-authored emission and material-dependent polygon-light transport. At the
+authored emission and material-dependent polygon-light transport.
+
+Emission is used in two forms. What the camera sees directly -- an emitter's
+surface, and any additive sprite a primary ray passes through -- samples the
+emissive texture, so a light panel shows its authored pattern. Everything that
+carries light instead reads one flat colour per triangle: the mean of that
+texture over the triangle's UVs, measured on the CPU with the shader's own
+addressing and stored in every vertex of the triangle. Light sampling emits
+it, emitter selection is weighted by area times it, and bounces, glossy
+reflections and rays crossing sprites collect it. The split is Q2RTX's, whose
+light polygons carry a `light_color` rather than their texture. Lighting from
+the texel under each sampled point paired a pointwise value with a proposal
+built on the mean, and for a sparse map such as `wall_06_technolights`, whose
+texels peak near 150 against means of 1.5 to 5, that made the surfaces around
+it firefly sources. Because the texture averages to the flat colour over each
+triangle, a light still casts what it looks like it casts. Directly visible
+texels do reach white: across the Level A-P smoke views 0.009% of pixels
+saturate on average and 0.45% at most.
+
+At the
 primary hit the shader draws `rtx_light_candidates` samples from the complete
 authored-emitter alias distribution, evaluates Fresnel-reduced Lambert diffuse
 and GGX specular, and streams their luminance together through fresh RIS. The
@@ -712,7 +728,7 @@ so Level A's starting-room emitters remain in local proposals instead of being
 diluted among every emissive triangle in the level. Indirect vertices retain
 metal-free diffuse reflectance and unbiased fresh-RIS normalization. Candidate
 emitters use the existing unbiased proposal and standard uniform-area triangle
-sampling with exact authored emission. Every third frame, one rotating diffuse
+sampling of each triangle's mean authored emission. Every third frame, one rotating diffuse
 path stratum can partition that candidate budget into two disjoint groups with
 a fresh visibility ray per group; the fixed-count mean
 treats an occluded estimate as zero. Primary
@@ -912,7 +928,7 @@ its saved-motion variance has not passed the production image gate.
 `AB3D2_DXR_PROXY_PRIMARY_CANDIDATES=1` is a mutually exclusive 1C diagnostic
 that requires S1. It keeps all configured primary proposal points but
 streams them with a geometry/BSDF target derived from the emitter's maximum
-authored luminance, then samples exact textured emission and traces visibility
+authored luminance, then evaluates the triangle's mean emission and traces visibility
 only for the survivor. The selected proxy target supplies the RIS
 normalization, so a sampled black texel contributes zero without bias. This
 path is off by default: measured primary timing was effectively neutral and

@@ -70,10 +70,11 @@ struct DxrSceneVertex {
     /*
      * Emitted radiance, the same on all three vertices of a triangle: the mean
      * of the material's emissive texture over that triangle's UVs, factor
-     * included, emissive_scale not. The renderer never samples an emissive
-     * texture -- every use of emission, whether seen directly, reflected, or
-     * sampled as a light, reads this colour instead. The texture is read only
-     * here, on the CPU, to measure it; see compile_emissive_triangles.
+     * included, emissive_scale not. Every light path reads this colour --
+     * sampled as a light, reached by a bounce, reflected, or crossed as a
+     * sprite -- so the proposal matches the power each triangle casts; see
+     * compile_emissive_triangles. Only what the camera sees directly samples
+     * the emissive texture itself, which averages to this over the triangle.
      */
     float emission[3];
     /*

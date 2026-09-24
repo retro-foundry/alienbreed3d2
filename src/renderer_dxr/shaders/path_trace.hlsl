@@ -213,10 +213,16 @@ Texture2D<float4> BaseColorAtlas : register(t3);
 Texture2D<float4> NormalAtlas : register(t4);
 Texture2D<float4> MetalnessAtlas : register(t5);
 Texture2D<float4> RoughnessAtlas : register(t6);
-/* t7 still holds the emissive atlas, but nothing samples it: emission comes
- * from SceneVertex::emission, measured from that texture on the CPU. Leaving
- * the declaration out means any new read fails to compile rather than quietly
- * bringing texel emission back. */
+/*
+ * Read only for what the camera sees directly: an emitter's surface, and an
+ * additive sprite a primary ray passes through. Every light path -- a sampled
+ * light, a bounce, a glossy reflection, a ray crossing a sprite -- uses the
+ * flat per-triangle mean in SceneVertex::emission instead, which is what light
+ * sampling and selection are built on. Letting the texel reach a light path
+ * would pair a pointwise value with a proposal built on the mean, which is
+ * what made the sparse technolights map a firefly source. See loadSurface.
+ */
+Texture2D<float4> EmissiveAtlas : register(t7);
 StructuredBuffer<EmissiveTriangle> Emitters : register(t8);
 StructuredBuffer<SceneVertex> PreviousVertices : register(t9);
 ByteAddressBuffer BlueNoiseSampler : register(t10);
@@ -1321,7 +1327,14 @@ MaterialFilterFootprint worldMaterialFilterFootprint(
     return filter;
 }
 
-SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
+/*
+ * `texturedEmission` is for camera rays only: it replaces the flat mean with
+ * the emissive texture under this point, so a light shows its authored pattern
+ * while the light it casts stays the mean that pattern averages to over the
+ * triangle. Every other caller leaves it false.
+ */
+SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection,
+                        bool texturedEmission = false)
 {
     uint firstVertex = payload.primitiveIndex * 3u;
     SceneVertex first = Vertices[firstVertex + 0u];
@@ -1389,8 +1402,16 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection)
     float emissionScale = first.emissiveScale * firstWeight +
         second.emissiveScale * payload.barycentrics.x +
         third.emissiveScale * payload.barycentrics.y;
-    /* Flat per triangle; the emissive texture is never sampled. */
+    /* Flat per triangle for light transport; see EmissiveAtlas. */
     surface.emission = first.emission * emissionScale;
+    if (texturedEmission && any(first.emission > 0.0)) {
+        surface.emission =
+            sampleMaterialAtlasFilteredHardware(
+                EmissiveAtlas, material, surface.textureCoordinate,
+                surface.textureWindowOrigin, surface.textureWindowExtent,
+                filter, inverseAtlasDimensions).rgb *
+            material.emissiveFactor * emissionScale;
+    }
     surface.sourceZonePlusOne = first.sourceZoneIndex + 1u;
     surface.sourceIrradiance = SourceLightScale * (
         first.sourceIrradiance * firstWeight +
@@ -1468,7 +1489,8 @@ struct SegmentTraversal
     uint additiveLayers;
 };
 
-SegmentTraversal traceSegment(RayDesc ray)
+/* `texturedEmission` shows crossed sprites' textures; camera rays only. */
+SegmentTraversal traceSegment(RayDesc ray, bool texturedEmission = false)
 {
     SegmentTraversal result;
     result.additiveRadiance = 0.0;
@@ -1499,7 +1521,8 @@ SegmentTraversal traceSegment(RayDesc ray)
              * loop would otherwise have counted twice. */
             return result;
         }
-        SurfaceData surface = loadSurface(payload, ray.Direction);
+        SurfaceData surface = loadSurface(payload, ray.Direction,
+                                          texturedEmission);
         result.additiveRadiance += surface.emission;
         ++result.additiveLayers;
         travelled += payload.rayDistance;
@@ -3941,7 +3964,9 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
     if (primaryPayload.hit == 0u) {
         writeMissGuides(pixel, unjitteredDirection, float2(dimensions));
     } else {
-        SurfaceData surface = loadSurface(primaryPayload, direction);
+        /* Textured emission: this surface's emission is only ever added as
+         * what the camera sees below, never used to light anything. */
+        SurfaceData surface = loadSurface(primaryPayload, direction, true);
         writeSurfaceGuides(pixel, primaryPayload, surface, dimensions,
                            -direction);
         stampReservoirSurface(pixel, dimensions, surface,
@@ -4206,7 +4231,7 @@ SegmentTraversal tracePrimary(float3 direction)
     ray.Direction = direction;
     ray.TMin = RayEpsilon;
     ray.TMax = SceneFarPlane;
-    return traceSegment(ray);
+    return traceSegment(ray, true);
 }
 
 [shader("raygeneration")]
