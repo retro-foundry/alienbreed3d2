@@ -595,6 +595,21 @@ static int game_app_init(GameApp *app, int argc, char **argv)
         /* Keep the opt-in hidden smoke bounded and independent of desktop layout. */
         renderer_config.window_width = 1280;
         renderer_config.window_height = 720;
+        {
+            /*
+             * AB3D2_GPU_SMOKE_SIZE=<width>x<height> reproduces a player's
+             * display. Upscaler quality modes trace a fraction of the output,
+             * so an artifact seen at one resolution need not exist at 720p.
+             */
+            const char *size = getenv("AB3D2_GPU_SMOKE_SIZE");
+            unsigned width = 0u;
+            unsigned height = 0u;
+            if (size && sscanf(size, "%ux%u", &width, &height) == 2 &&
+                width >= 96u && height >= 80u && width <= 7680u && height <= 4320u) {
+                renderer_config.window_width = (int)width;
+                renderer_config.window_height = (int)height;
+            }
+        }
     } else if (!game_app_get_desktop_resolution(&renderer_config.window_width,
                                                 &renderer_config.window_height,
                                                 error, sizeof(error))) {
@@ -1575,8 +1590,19 @@ static int game_app_run_gpu_smoke(GameApp *app)
             shot_subframe = (unsigned)parsed;
         }
 
+        /* AB3D2_DXR_SAVED_SMOKE_FROZEN_FRAMES lengthens the frozen stage, so a
+         * comparison against the idle stage can use the same frame numbers. */
+        unsigned frozen_frames = GAME_APP_SAVED_GPU_SMOKE_FRAMES;
+        {
+            const char *frozen_text = getenv("AB3D2_DXR_SAVED_SMOKE_FROZEN_FRAMES");
+            const unsigned long parsed =
+                frozen_text ? strtoul(frozen_text, NULL, 10) : 0ul;
+            if (parsed >= 1ul && parsed <= 4096ul) {
+                frozen_frames = (unsigned)parsed;
+            }
+        }
         for (unsigned frame_index = 0u;
-             frame_index < GAME_APP_SAVED_GPU_SMOKE_FRAMES; ++frame_index) {
+             frame_index < frozen_frames; ++frame_index) {
             if (!game_app_build_presentation_frame_at_alpha(app, 1.0f) ||
                 !renderer_present(app->renderer, &app->frame, &app->view,
                                   error, sizeof(error))) {
@@ -1598,7 +1624,7 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 "saturated=%llu outliers16=%llu "
                 "reprojected_outliers16=%llu reprojected_samples=%llu\n",
                 (char)('A' + app->game.active_level_index),
-                (unsigned)GAME_APP_SAVED_GPU_SMOKE_FRAMES,
+                frozen_frames,
                 (unsigned long long)checksum, delta, reprojected_delta,
                 (unsigned long long)renderer_last_frame_nonzero_pixels(
                     app->renderer),
@@ -1613,6 +1639,61 @@ static int game_app_run_gpu_smoke(GameApp *app)
                 (unsigned long long)
                     renderer_last_frame_reprojected_pixel_count(app->renderer));
 
+        {
+            /*
+             * AB3D2_DXR_SAVED_SMOKE_IDLE_UPDATES=<n> lets the game run n
+             * ordinary updates after the frozen frames, with no input and the
+             * camera where it is, presenting each one as play does. Frozen
+             * frames never advance the simulation, so they cannot show what a
+             * player standing still sees while the level keeps animating.
+             */
+            const char *idle_text = getenv("AB3D2_DXR_SAVED_SMOKE_IDLE_UPDATES");
+            unsigned long idle_updates =
+                idle_text ? strtoul(idle_text, NULL, 10) : 0ul;
+            if (idle_updates > 1000ul) {
+                idle_updates = 1000ul;
+            }
+            for (unsigned long idle_update = 0ul; idle_update < idle_updates;
+                 ++idle_update) {
+                if (!scene_frame_clone(
+                        &app->previous_source_frame, &app->source_frame) ||
+                    !game_bootstrap_update_single_player(
+                        &app->game, error, sizeof(error)) ||
+                    !game_app_capture_source_frame(app)) {
+                    fprintf(stderr,
+                            "[GAME] saved-state idle update %lu failed for Level %c: %s\n",
+                            idle_update, (char)('A' + app->game.active_level_index),
+                            error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+                for (unsigned subframe = 1u;
+                     subframe <= GAME_APP_SAVED_GPU_SMOKE_PRESENTATIONS_PER_UPDATE;
+                     ++subframe) {
+                    const float alpha = (float)subframe /
+                        (float)GAME_APP_SAVED_GPU_SMOKE_PRESENTATIONS_PER_UPDATE;
+                    if (!game_app_build_presentation_frame_at_alpha(app, alpha) ||
+                        !renderer_present(app->renderer, &app->frame, &app->view,
+                                          error, sizeof(error))) {
+                        fprintf(stderr,
+                                "[RENDER] saved-state idle update %lu failed for Level %c: %s\n",
+                                idle_update,
+                                (char)('A' + app->game.active_level_index), error);
+                        app->exit_code = 1;
+                        return 0;
+                    }
+                }
+            }
+            if (idle_updates != 0ul) {
+                fprintf(stdout,
+                        "[RENDER] saved-state Level %c idle updates=%lu delta=%.4f "
+                        "outliers16=%llu\n",
+                        (char)('A' + app->game.active_level_index), idle_updates,
+                        renderer_last_frame_delta(app->renderer),
+                        (unsigned long long)renderer_last_frame_temporal_outlier_pixels(
+                            app->renderer));
+            }
+        }
         app->game.session.player1_inventory
             .weapons[GAME_APP_SHOTGUN_GUN_INDEX] = UINT8_MAX;
         for (uint16_t ammunition_index = 0u;

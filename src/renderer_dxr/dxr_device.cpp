@@ -1014,7 +1014,25 @@ bool DxrDevice::collect_scene_readback(UINT64 fence_value, std::string &error)
         L"AB3D2_DXR_CAPTURE_PPM", capture_path,
         static_cast<DWORD>(std::size(capture_path)));
     if (capture_length > 0u && capture_length < std::size(capture_path)) {
-        std::ofstream capture(std::filesystem::path(capture_path),
+        std::filesystem::path capture_file(capture_path);
+        /*
+         * AB3D2_DXR_CAPTURE_SEQUENCE=1 keeps every readback instead of only
+         * the last, as <stem>_0000<ext> onwards. Flicker and sparkle are
+         * frame-to-frame effects, and one frame cannot show them.
+         */
+        wchar_t sequence_flag[8] = {};
+        if (GetEnvironmentVariableW(L"AB3D2_DXR_CAPTURE_SEQUENCE", sequence_flag,
+                                    static_cast<DWORD>(std::size(sequence_flag))) >
+                0u &&
+            sequence_flag[0] == L'1') {
+            static uint32_t capture_sequence = 0u;
+            wchar_t suffix[16] = {};
+            swprintf(suffix, std::size(suffix), L"_%04u", capture_sequence++);
+            capture_file = capture_file.parent_path() /
+                (capture_file.stem().wstring() + suffix +
+                 capture_file.extension().wstring());
+        }
+        std::ofstream capture(capture_file,
                               std::ios::binary | std::ios::trunc);
         if (capture) {
             capture << "P6\n" << readback_width_ << ' ' << readback_height_
