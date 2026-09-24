@@ -210,6 +210,17 @@ enum {
  * down. Lower it to force a scene to read brighter than it is.
  */
 #define RENDERER_RAY_TRACING_DEFAULT_MAXIMUM_LUMINANCE 16.0f
+/*
+ * Multiplies every material's authored emissive factor, so it scales what the
+ * lights radiate and what next-event estimation samples them as together.
+ *
+ * One is the level as authored. It is a single control over the whole level's
+ * light rather than a per-material edit: the relationship between the lights
+ * stays as the artist set it, and only the overall level moves. Raising it
+ * forces more light into the scene and pushes the tone mapper's exposure down
+ * to compensate, so rtx_max_luminance has to have the range for it.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE 1.0f
 /* Radiance of a fully lit surface under the level's own vertex lighting, which
  * bounce vertices return in place of tracing on. Indirect light is pure path
  * tracing by default: the fill lifts the dark end of the frame measurably, but
@@ -286,6 +297,8 @@ typedef struct {
     uint8_t minimum_luminance_set;
     float maximum_luminance;
     uint8_t maximum_luminance_set;
+    float light_scale;
+    uint8_t light_scale_set;
     /*
      * Probability that final shading discards the resampled reservoir and
      * shades the preserved initial sample instead, trading variance for the

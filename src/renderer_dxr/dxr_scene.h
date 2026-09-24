@@ -4,6 +4,7 @@
 #include "dxr_materials.h"
 #include "dxr_reconstruction_math.h"
 #include "dxr_scene_update.h"
+#include "renderer_ray_tracing_options.h"
 #include "scene_frame.h"
 
 #include <d3d12.h>
@@ -197,6 +198,14 @@ public:
     uint32_t triangle_count() const {
         return static_cast<uint32_t>(vertices_.size() / 3u);
     }
+    /*
+     * Multiplies every authored emissive factor; see
+     * RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE. Applied where a material image
+     * takes its factor, so both the radiance a light shows and the radiance
+     * next-event estimation measures move together.
+     */
+    void set_light_scale(float scale);
+    float light_scale() const { return light_scale_; }
     uint32_t emitter_count() const {
         return static_cast<uint32_t>(emissive_triangles_.size());
     }
@@ -371,6 +380,7 @@ private:
      * candidate tables built from it, not the rows themselves.
      */
     std::vector<uint32_t> zone_visibility_;
+    float light_scale_ = RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE;
     std::vector<uint32_t> zone_light_ranges_;
     std::vector<uint32_t> zone_lights_;
     /* Emitter power moves as pooled slots go live and idle, and the tables are

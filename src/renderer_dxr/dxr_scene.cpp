@@ -927,7 +927,8 @@ float maximum_emissive_luminance(const MaterialImage &image)
 
 /* One place that turns a packaged PBR definition into an atlas image. The
  * wall/floor path builds its own because it also runs the mip chain. */
-MaterialImage material_image_from_definition(const DxrMaterialDefinition &pbr)
+MaterialImage material_image_from_definition(const DxrMaterialDefinition &pbr,
+                                             float light_scale)
 {
     MaterialImage image;
     image.width = pbr.width;
@@ -935,8 +936,10 @@ MaterialImage material_image_from_definition(const DxrMaterialDefinition &pbr)
     image.borrowed_pixels = &pbr.pixels;
     image.normal_strength = pbr.normal_strength;
     image.specular_factor = pbr.specular_factor;
-    std::memcpy(image.emissive_factor, pbr.emissive_factor,
-                sizeof(image.emissive_factor));
+    for (size_t channel = 0u; channel < 3u; ++channel) {
+        image.emissive_factor[channel] =
+            pbr.emissive_factor[channel] * light_scale;
+    }
     image.maximum_emissive_luminance = maximum_emissive_luminance(image);
     return image;
 }
@@ -1639,6 +1642,18 @@ bool DxrScene::view_weapon_pose_hash(uint64_t &pose_hash) const
     return false;
 }
 
+void DxrScene::set_light_scale(float scale)
+{
+    if (!std::isfinite(scale) || scale < 0.0f || scale == light_scale_) {
+        return;
+    }
+    light_scale_ = scale;
+    /* Emitter radiance is measured during the compile that packs the atlas, so
+     * a new scale needs that compile rather than a reupload. */
+    gpu_build_pending_ = true;
+    previous_world_layout_ = 0u;
+}
+
 D3D12_GPU_VIRTUAL_ADDRESS DxrScene::material_address() const
 {
     return material_buffer_ ? material_buffer_->GetGPUVirtualAddress() : 0;
@@ -1964,8 +1979,10 @@ bool DxrScene::compile(const SceneFrame &frame,
                 const DxrMaterialDefinition *pbr = surface_pbr;
                 image.normal_strength = pbr->normal_strength;
                 image.specular_factor = pbr->specular_factor;
-                std::memcpy(image.emissive_factor, pbr->emissive_factor,
-                            sizeof(image.emissive_factor));
+                for (size_t channel = 0u; channel < 3u; ++channel) {
+                    image.emissive_factor[channel] =
+                        pbr->emissive_factor[channel] * light_scale_;
+                }
                 if (wall) {
                     if (!build_wall_material_image(geometry, *pbr, image,
                                                    error)) {
@@ -2076,7 +2093,8 @@ bool DxrScene::compile(const SceneFrame &frame,
                 return false;
             }
             MaterialImage image =
-                material_image_from_definition(*binding.definition);
+                material_image_from_definition(*binding.definition,
+                                              light_scale_);
             compiled_bitmap_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
@@ -2219,7 +2237,8 @@ bool DxrScene::compile(const SceneFrame &frame,
                 return false;
             }
             MaterialImage image =
-                material_image_from_definition(*binding.definition);
+                material_image_from_definition(*binding.definition,
+                                              light_scale_);
             compiled_vector_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
@@ -2298,7 +2317,7 @@ bool DxrScene::compile(const SceneFrame &frame,
                 return false;
             }
             MaterialImage image =
-                material_image_from_definition(*pbr);
+                material_image_from_definition(*pbr, light_scale_);
             compiled_vector_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));
@@ -2382,7 +2401,7 @@ bool DxrScene::compile(const SceneFrame &frame,
                 return false;
             }
             MaterialImage image =
-                material_image_from_definition(*pbr);
+                material_image_from_definition(*pbr, light_scale_);
             compiled_vector_material_indices.emplace(
                 key, static_cast<uint32_t>(images.size()));
             images.push_back(std::move(image));

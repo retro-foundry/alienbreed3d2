@@ -237,7 +237,7 @@ world_light_tessellation=4
 # the clipped fraction is unchanged at 8.2% -- the lights are untouched and
 # only the amplification of the darks has gone. Lower it to let dark rooms
 # brighten further at the cost of that amplification.
-#rtx_min_luminance=0.01
+#rtx_min_luminance=0.0
 
 # The brightest scene luminance auto-exposure will meter to, 0.001 through
 # 1024. Default 16.
@@ -255,7 +255,19 @@ world_light_tessellation=4
 # higher.
 #
 # Lower it to force a bright scene to keep reading bright.
-#rtx_max_luminance=16.0
+rtx_max_luminance=1024.0
+
+# Multiplies every material's authored emissive factor, 0 through 1024.
+# Default 1, the level as authored.
+#
+# One control over the whole level's light rather than a per-material edit:
+# the relationship between the lights stays as the artist set it and only the
+# overall level moves. It scales what the lights radiate and what next-event
+# estimation samples them as together, so a light stays as bright as it looks.
+#
+# Raising it forces more light into the scene and pushes exposure down to
+# compensate, so rtx_max_luminance above has to have the range for it.
+#rtx_light_scale=1.0
 
 # Radiance of a fully lit surface under the level's own vertex lighting,
 # 0 through 1024. Default 0, which is pure path-traced indirect.

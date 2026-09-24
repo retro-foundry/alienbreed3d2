@@ -705,6 +705,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.maximum_luminance_set != 0u) {
         maximum_luminance_ = options.maximum_luminance;
     }
+    if (options.light_scale_set != 0u) {
+        scene_.set_light_scale(options.light_scale);
+    }
     if (options.restir_history_reduction_set != 0u) {
         restir_history_reduction_ = options.restir_history_reduction;
     }
@@ -862,6 +865,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                 return false;
             }
             maximum_luminance_ = static_cast<float>(parsed);
+        }
+    }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_LIGHT_SCALE", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 0.0 || parsed > 1024.0) {
+                error = "AB3D2_DXR_LIGHT_SCALE must be 0 to 1024";
+                return false;
+            }
+            scene_.set_light_scale(static_cast<float>(parsed));
         }
     }
     {
