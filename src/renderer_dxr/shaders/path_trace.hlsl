@@ -2680,7 +2680,29 @@ float emitterSolidAngleMass(uint emitterIndex, float3 position, float3 normal)
  */
 static const uint ZoneBruteForceLights = 8u;
 
+/*
+ * The masses one partition of a zone's list has at one shading point. They
+ * depend on nothing else, and a vertex draws every candidate at one point, so
+ * a partition's masses are computed once and kept until a candidate draws a
+ * different partition. For a zone of up to eight lights that is every
+ * candidate: sixteen candidates had been computing the same eight spherical
+ * triangles sixteen times. The draw itself is unchanged, value for value.
+ */
+struct ZoneMassCache
+{
+    /* The partition held, plus one; zero holds nothing. */
+    uint partitionPlusOne;
+    float mass;
+    float masses[ZoneBruteForceLights];
+};
+
+ZoneMassCache emptyZoneMassCache()
+{
+    return (ZoneMassCache)0;
+}
+
 bool selectEmitterForZone(float selection, SurfaceData surface,
+                          inout ZoneMassCache cache,
                           out LightSelection result)
 {
     result.emitterIndex = InvalidIndex;
@@ -2706,24 +2728,27 @@ bool selectEmitterForZone(float selection, SurfaceData surface,
     uint start = range.x + uint(chosen);
     uint end = range.x + range.y;
 
-    float masses[8];
-    float mass = 0.0;
     uint slot = 0u;
-    uint index = start;
-    [unroll]
-    for (slot = 0u; slot < ZoneBruteForceLights; ++slot) {
-        masses[slot] = 0.0;
-        if (index >= end) {
-            continue;
+    if (cache.partitionPlusOne != uint(chosen) + 1u) {
+        cache.partitionPlusOne = uint(chosen) + 1u;
+        cache.mass = 0.0;
+        uint index = start;
+        [unroll]
+        for (slot = 0u; slot < ZoneBruteForceLights; ++slot) {
+            cache.masses[slot] = 0.0;
+            if (index >= end) {
+                continue;
+            }
+            uint emitterIndex = ZoneLights[index];
+            if (emitterIndex < EmitterCount) {
+                cache.masses[slot] = emitterSolidAngleMass(
+                    emitterIndex, surface.position, surface.shadingNormal);
+                cache.mass += cache.masses[slot];
+            }
+            index += stride;
         }
-        uint emitterIndex = ZoneLights[index];
-        if (emitterIndex < EmitterCount) {
-            masses[slot] = emitterSolidAngleMass(
-                emitterIndex, surface.position, surface.shadingNormal);
-            mass += masses[slot];
-        }
-        index += stride;
     }
+    float mass = cache.mass;
     if (!(mass > 0.0)) {
         return false;
     }
@@ -2733,12 +2758,12 @@ bool selectEmitterForZone(float selection, SurfaceData surface,
     float selectedMass = 0.0;
     [unroll]
     for (slot = 0u; slot < ZoneBruteForceLights; ++slot) {
-        if (masses[slot] <= 0.0) {
+        if (cache.masses[slot] <= 0.0) {
             continue;
         }
         selectedSlot = slot;
-        selectedMass = masses[slot];
-        target -= masses[slot];
+        selectedMass = cache.masses[slot];
+        target -= cache.masses[slot];
         if (target <= 0.0) {
             break;
         }
@@ -2756,7 +2781,7 @@ bool selectEmitterForZone(float selection, SurfaceData surface,
 float3 sampleDiffusePolygonLightSurvivor(
     uint2 pixel, uint sampleIndex, uint stream, int lightGridCell,
     uint candidateStart, uint candidateStride, uint candidateCount,
-    SurfaceData surface)
+    SurfaceData surface, inout ZoneMassCache zoneMasses)
 {
     /* Fresh RIS rejects black texels and poor geometric connections before the
      * one survivor spends a visibility ray. There is no temporal/spatial reuse
@@ -2772,7 +2797,8 @@ float3 sampleDiffusePolygonLightSurvivor(
         float4 random = sampleStream(
             pixel, sampleIndex, stream + candidate);
         LightSelection lightSelection;
-        if (!selectEmitterForZone(random.x, surface, lightSelection)) {
+        if (!selectEmitterForZone(random.x, surface, zoneMasses,
+                                  lightSelection)) {
             lightSelection = selectEmitterForCell(random.x, lightGridCell);
         }
         EmitterSample lightSample;
@@ -2828,6 +2854,7 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
     int lightGridCell = localProposal ? lightGridCellForSurface(
         pixel, sampleIndex, surface.position) : -1;
     float3 sum = 0.0;
+    ZoneMassCache zoneMasses = emptyZoneMassCache();
     /* Partition the existing candidate budget into disjoint RIS groups. Each
      * group performs its own selection and fresh visibility test without
      * doubling material/geometry candidate evaluation. A fixed-count average
@@ -2840,7 +2867,7 @@ float3 sampleDiffusePolygonLight(uint2 pixel, uint sampleIndex,
          ++lightSample) {
         sum += sampleDiffusePolygonLightSurvivor(
             pixel, sampleIndex, stream, lightGridCell, lightSample,
-            lightSampleCount, candidateCount, surface);
+            lightSampleCount, candidateCount, surface, zoneMasses);
     }
     return sum / float(lightSampleCount);
 }
@@ -3705,6 +3732,7 @@ float3 sampleSecondaryDirectLighting(uint2 pixel, uint sampleIndex, uint depth,
     selected.positionSample = 0u;
     selected.valid = false;
     float weightSum = 0.0;
+    ZoneMassCache zoneMasses = emptyZoneMassCache();
 
     for (uint candidate = 0u; candidate < localSampleCount; ++candidate) {
         float4 random = sampleStream(
@@ -3713,7 +3741,8 @@ float3 sampleSecondaryDirectLighting(uint2 pixel, uint sampleIndex, uint depth,
         float selection = (random.x + float(candidate)) /
             float(localSampleCount);
         LightSelection lightSelection;
-        if (!selectEmitterForZone(selection, surface, lightSelection)) {
+        if (!selectEmitterForZone(selection, surface, zoneMasses,
+                                  lightSelection)) {
             lightSelection = selectEmitterForCell(selection, lightGridCell);
         }
         EmitterSample candidateSample;

@@ -67,11 +67,11 @@ world_light_tessellation=4
 # Share of the window's pixels traced, that size at 3840x2160, and the GPU time
 # a frame took there on an RTX 3090:
 #
-#   quality              44%  2560x1440  86 ms
-#   balanced             34%  2227x1253  66 ms
-#   performance          25%  1920x1080  48 ms
-#   high-performance     20%  1717x966   40 ms
-#   ultra-performance    11%  1280x720   23 ms
+#   quality              44%  2560x1440  77 ms
+#   balanced             34%  2227x1253  60 ms
+#   performance          25%  1920x1080  45 ms
+#   high-performance     20%  1717x966   38 ms
+#   ultra-performance    11%  1280x720   22 ms
 #   extreme-performance   5%   853x480   11 ms
 #
 # The ray-traced backend renders at the monitor's real pixels, so on a desktop
