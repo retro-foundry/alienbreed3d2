@@ -458,6 +458,42 @@ int main()
         }
     }
 
+    /* DLSS Programming Guide 3.7.1's minimum phase counts, at the render
+     * extents Streamline chose for a 3838x2158 output (Ultra Performance
+     * reconstructs to 2559x1439 first). */
+    struct ScalePhases {
+        uint32_t render_height;
+        uint32_t output_height;
+        uint32_t phases;
+    };
+    constexpr ScalePhases scale_phases[] = {
+        {2158u, 2158u, 8u},   /* DLAA */
+        {1439u, 2158u, 18u},  /* Quality */
+        {1252u, 2158u, 24u},  /* Balanced */
+        {1079u, 2158u, 32u},  /* Performance */
+        {480u, 1439u, 72u},   /* Ultra Performance */
+        {360u, 720u, 32u},    /* Performance at the 1280x720 smoke */
+    };
+    for (const ScalePhases &entry : scale_phases) {
+        if (jitter_phase_count_for_scale(entry.render_height,
+                                         entry.output_height) !=
+            entry.phases) {
+            return fail("jitter phase count does not follow the DLSS guide");
+        }
+    }
+    constexpr uint32_t ultra_phases = 72u;
+    for (uint32_t phase = 0u; phase < ultra_phases; ++phase) {
+        const PixelJitter phase_jitter = frame_jitter(phase, ultra_phases);
+        const PixelJitter wrapped_jitter =
+            frame_jitter(phase + ultra_phases * 3u, ultra_phases);
+        if (!near(phase_jitter.x, wrapped_jitter.x) ||
+            !near(phase_jitter.y, wrapped_jitter.y) ||
+            phase_jitter.x < -0.5f || phase_jitter.x > 0.5f ||
+            phase_jitter.y < -0.5f || phase_jitter.y > 0.5f) {
+            return fail("scaled jitter did not repeat inside the pixel");
+        }
+    }
+
     const Vec3 dielectric = specular_albedo({0.04f, 0.04f, 0.04f}, 0.5f,
                                              1.0f);
     const Vec3 metal = specular_albedo({0.8f, 0.2f, 0.1f}, 0.25f, 0.5f);

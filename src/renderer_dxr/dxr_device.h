@@ -152,6 +152,7 @@ private:
     /* Set from AB3D2_DXR_HITCH_MS: log any frame at or above this many
      * milliseconds, with its CPU phase breakdown. Off unless set. */
     bool hitch_log_enabled_ = false;
+    bool smoke_readback_enabled_ = true;
     double hitch_log_threshold_ms_ = 0.0;
     uint64_t hitch_log_last_rebuilds_ = 0u;
     UINT render_target_descriptor_size_ = 0;

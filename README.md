@@ -144,13 +144,11 @@ default, so the shipped template lists them commented out with their defaults:
 - `rtx_rr_input_scale=1..1024` multiplies the DLSS pass's input and divides
   its output by the same factor before bloom and tone mapping. It defaults to
   `32`, is lowered automatically wherever the brightest emitter would
-  overflow the half-float input, and does nothing while DLSS is off; and
-- `rtx_rr_highlight_knee=0..1024` log-compresses the DLSS pass's input above
-  that many multiples of the exposure's white and inverts it on the output.
-  It defaults to `160`; `0` disables it.
+  overflow the half-float input, and does nothing while DLSS is off.
 
-These three settings exist for one problem, a dark room lit only through an
-opening; see "Dark rooms beside bright openings" below.
+These two settings exist for one problem, a dark room lit only through an
+opening; see "Dark rooms beside bright openings" below. A third,
+`rtx_rr_highlight_knee`, was retired once sub-pixel jitter was restored.
 
 `AB3D2_DXR_SPP`, `AB3D2_DXR_INDIRECT_SPP`,
 `AB3D2_DXR_INDIRECT_LIGHT_SAMPLES`,
@@ -161,7 +159,7 @@ opening; see "Dark rooms beside bright openings" below.
 `AB3D2_DXR_EXPOSURE_BIAS`, `AB3D2_DXR_NDF_TRIM`, `AB3D2_DXR_RR_MODE`,
 `AB3D2_DXR_OUTPUT`, `AB3D2_DXR_HDR_PEAK_NITS`,
 `AB3D2_DXR_HDR_SATURATION`, `AB3D2_DXR_PORTAL_SAMPLING`,
-`AB3D2_DXR_RR_INPUT_SCALE`, and `AB3D2_DXR_RR_HIGHLIGHT_KNEE` still
+and `AB3D2_DXR_RR_INPUT_SCALE` still
 override the file for one run, which is how a setting gets swept without
 editing it. The ordinary hidden `--gpu-smoke` path
 deliberately reads no `ab3d2.ini`, so its measurements stay independent of the
@@ -184,6 +182,19 @@ presentations each, which is what a player standing still sees.
 sparkle are frame-to-frame effects that one frame cannot show. And
 `AB3D2_GPU_SMOKE_SIZE=<width>x<height>` replaces the smoke's 1280x720 window,
 so an artifact reported at a player's resolution can be reproduced at it.
+`AB3D2_DXR_SAVED_SMOKE_PAN_FRAMES=<n>` then turns the view by
+`AB3D2_DXR_SAVED_SMOKE_PAN_COUNTS` mouse counts (default 6, about a degree) on
+each of n frames with the simulation held, because a still view lets a
+temporal reconstructor converge at any input resolution and a turning one does
+not.
+
+Three more switch the render size for one run. `AB3D2_DXR_RR_OUTPUT_FRACTION=
+0.25..1` has RR reconstruct to that fraction of the window in any mode, with
+the presentation's linear upscale covering the rest; `1` under
+ultra-performance is NVIDIA's own Ultra Performance, straight to the window.
+`AB3D2_DXR_RR_RENDER_SCALE=1..4` replaces the mode's output-to-render ratio
+where RR accepts it, and `1` renders a native-resolution reference.
+`AB3D2_DXR_JITTER=0` keeps primary rays pixel-centred under RR.
 
 `run_default` is accepted as an alias for `always_run`, matching the first
 port. Boolean keys also accept `true`/`false`, `yes`/`no`, and `on`/`off`.
@@ -597,8 +608,8 @@ GPU-based validation mode.
 
 The DXR backend creates a native SDL/`HWND` window without OpenGL,
 selects a high-performance hardware adapter with feature level 12_0,
-`ID3D12Device5`, and a nonzero DXR tier. It compiles opaque world surfaces and
-Player 1's exact `ENT_NEXT_2` companion from the renderer-neutral `SceneFrame`,
+`ID3D12Device5`, and DXR tier 1.1, which its inline visibility queries need.
+It compiles opaque world surfaces and Player 1's exact `ENT_NEXT_2` companion from the renderer-neutral `SceneFrame`,
 uploads positions, UVs, material/primitive indices, and renderer-native
 base-color, tangent-normal, metalness, roughness, emissive, and dielectric
 specular material data, then
@@ -902,7 +913,12 @@ p99/maximum GPU-stage times, and the corresponding CPU phase distributions.
 The profiler is off by default and never adds a same-frame wait. Profiles state
 `validation_enabled`: hidden smoke reports `true` because its acceptance
 counters and image readback are active, while ordinary visible performance
-reports `false`. The production scheduler reports `primary_visibility`,
+reports `false`. That readback waits for every frame and analyses it on the
+CPU, 124-144 ms at 3838x2158, and a GPU left that idle drops its clock, so a
+light configuration profiles at a third of its real speed. Add
+`AB3D2_DXR_SMOKE_READBACK=0` when profiling: it skips the analysis, the smoke
+fails its Shotgun image check after the profile window, and the timings are
+taken at full clock. The production scheduler reports `primary_visibility`,
 `primary_shading`, and `burst_continuation` separately. Its bounded GPU-written
 list carries the configured number of fresh diffuse paths for every eligible
 internal pixel; there is no mature-history checkerboard or renderer-owned
@@ -1115,16 +1131,19 @@ a frozen run and a run with the game simulating gave identical numbers at the
 same frame numbers; resetting only RR's history every 48 frames kept it clean;
 and dimming only the doorway's pixels in RR's input kept it clean for all 192
 frames. RR preset E was twenty to ninety times worse than the default preset D.
-`rtx_rr_highlight_knee` therefore compresses luminance above the knee as
-`W * ln(1 + L / W)` before RR and applies the exact inverse afterwards, with
-`W` read by both passes from the adapted luminance in the previous frame's tone
-state so the inverse matches. The dark room sits thousands of times below the
-knee and is untouched. Over 192 still frames the knee held sparkle at the level
-of a fresh history, `0.001%` against `0.009%` to `0.032%` without it, and
-returned to the right-hand wall most of the roughly 15% of its light that RR
-had been losing. It is not free of bias: RR averages pixels above the knee in
-compressed units, which cost the corridor seen through the doorway 2% at `160`
-and 6% at `40`, while `640` let the sparkle back.
+
+A highlight knee, `W * ln(1 + L / W)` on RR's input with the exponential
+inverse on its output, held that sparkle at the level of a fresh history for a
+day. It was treating a symptom. The primary rays were pixel-centred, so RR was
+reconstructing from one fixed point per render pixel and had no sub-pixel
+samples to converge with. With jitter restored and no knee, the same 192 still
+frames at 3838x2158 measure `0.0010%` in both halves of the window, against
+`0.0081%` and rising with the knee off and no jitter. The knee was also doing
+harm: its exponential inverse multiplies any error RR makes in compressed units,
+and on a thin line lit far past it RR returned up to 13.7 times the brightest
+value it had been given, which came out as a bloom flare across the doorway for
+the first ninety frames after every history reset. It was removed and
+`rtx_rr_highlight_knee` is now rejected with that reason.
 
 #### ReSTIR PT bias
 

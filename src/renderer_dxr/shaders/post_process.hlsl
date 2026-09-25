@@ -38,9 +38,6 @@ cbuffer PostConstants : register(b0)
     /* What Ray Reconstruction's input was multiplied by, divided back out of
      * its output here; see RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE. */
     float ReconstructionInputScale;
-    /* Times the adapted luminance, the knee path_trace.hlsl compressed RR's
-     * input above; see RENDERER_RAY_TRACING_DEFAULT_RR_HIGHLIGHT_KNEE. */
-    float ReconstructionKneeScale;
 };
 
 static const uint HistogramBinCount = 128u;
@@ -101,15 +98,6 @@ float3 loadReconstructed(int2 pixel)
 {
     float3 color = InputRadiance.Load(int3(pixel, 0)).rgb;
     color = select(and(isinf(color), color > 0.0), 65504.0, color);
-    /* Undo the highlight knee. The curve pass has not yet replaced the
-     * adapted luminance, so this is the value the input was compressed with. */
-    float knee = ReconstructionKneeScale *
-        ToneMapState[AdaptedLuminanceStateIndex];
-    float compressed = luminance(max(color, 0.0));
-    if (knee > 0.0 && isfinite(knee) && compressed > 0.0 &&
-        isfinite(compressed)) {
-        color *= knee * (exp(min(compressed / knee, 80.0)) - 1.0) / compressed;
-    }
     return color / ReconstructionInputScale;
 }
 

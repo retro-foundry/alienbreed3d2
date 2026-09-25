@@ -164,7 +164,6 @@ int main(void)
         settings.ray_tracing.restir_history_reduction_set != 0u ||
         settings.ray_tracing.restir_decorrelation_set != 0u ||
         settings.ray_tracing.rr_input_scale_set != 0u ||
-        settings.ray_tracing.rr_highlight_knee_set != 0u ||
         settings.ray_tracing.portal_sampling_set != 0u ||
         settings.ray_tracing.radiance_clamp != 0.0f ||
         settings.ray_tracing.exposure_bias_stops != 0.0f ||
@@ -317,7 +316,6 @@ int main(void)
             "rtx_restir_decorrelation=0\n"
             "rtx_denoiser=ray-reconstruction\n"
             "rtx_rr_input_scale=1\n"
-            "rtx_rr_highlight_knee=0\n"
             "rtx_portal_sampling=0\n"
             "rtx_debug_view=reservoir-m\n"
             "rtx_dlss=performance\n";
@@ -340,8 +338,6 @@ int main(void)
                 RENDERER_DENOISER_RAY_RECONSTRUCTION ||
             settings.ray_tracing.rr_input_scale != 1.0f ||
             settings.ray_tracing.rr_input_scale_set == 0u ||
-            settings.ray_tracing.rr_highlight_knee != 0.0f ||
-            settings.ray_tracing.rr_highlight_knee_set == 0u ||
             settings.ray_tracing.portal_sampling != 0.0f ||
             settings.ray_tracing.portal_sampling_set == 0u ||
             settings.ray_tracing.debug_view !=
@@ -374,8 +370,7 @@ int main(void)
             "rtx_restir_decorrelation=1.5\n",
             "rtx_rr_input_scale=0.5\n",
             "rtx_rr_input_scale=2048\n",
-            "rtx_rr_highlight_knee=-1\n",
-            "rtx_rr_highlight_knee=2048\n",
+            "rtx_rr_highlight_knee=160\n",
             "rtx_portal_sampling=0.95\n",
             "rtx_portal_sampling=-0.1\n",
             "rtx_indirect_mode=restir\n",

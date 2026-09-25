@@ -320,8 +320,6 @@ private:
         RENDERER_RAY_TRACING_DEFAULT_MAXIMUM_LUMINANCE;
     /* rtx_rr_input_scale, or AB3D2_DXR_RR_INPUT_SCALE for measurement. */
     float rr_input_scale_ = RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE;
-    /* rtx_rr_highlight_knee, or AB3D2_DXR_RR_HIGHLIGHT_KNEE for measurement. */
-    float rr_highlight_knee_ = RENDERER_RAY_TRACING_DEFAULT_RR_HIGHLIGHT_KNEE;
     /* rtx_portal_sampling, or AB3D2_DXR_PORTAL_SAMPLING for measurement. */
     float portal_sampling_ = RENDERER_RAY_TRACING_DEFAULT_PORTAL_SAMPLING;
     /* rtx_min_luminance, or AB3D2_DXR_MIN_LUMINANCE for measurement. */
@@ -335,6 +333,14 @@ private:
      * distribution for one run, so the zone lists are measured against
      * themselves rather than against a separately built binary. */
     uint32_t zone_lights_enabled_ = 1u;
+    /* AB3D2_DXR_JITTER=0 keeps primary rays pixel-centred under RR, so a
+     * run can be measured against the unjittered image. */
+    uint32_t jitter_enabled_ = 1u;
+    /* AB3D2_DXR_RR_OUTPUT_FRACTION: the fraction of the window RR
+     * reconstructs to, in any mode. 0 keeps each mode's own (two thirds for
+     * Ultra Performance, the whole window otherwise); 1 sends Ultra
+     * Performance straight to the window as NVIDIA's mode does. */
+    float reconstruction_fraction_ = 0.0f;
     float source_light_scale_ =
         RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE;
     /* Path length counting the primary hit; ab3d2.ini may change it. */

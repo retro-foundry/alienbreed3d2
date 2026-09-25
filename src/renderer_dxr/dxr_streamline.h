@@ -80,6 +80,7 @@ public:
 private:
     bool configure_mode(RendererRayReconstructionMode requested,
                         std::string &error);
+    bool configure_render_scale(std::string &error);
     bool verify_runtime(std::string &error);
 
     std::filesystem::path runtime_directory_;
@@ -88,6 +89,10 @@ private:
     UINT output_height_ = 0;
     UINT render_width_ = 0;
     UINT render_height_ = 0;
+    /* AB3D2_DXR_RR_RENDER_SCALE: output / render per axis for one run, in
+     * place of the mode's own ratio, so render sizes between the modes can be
+     * measured. RR still has to accept it for the mode in force. */
+    double render_scale_override_ = 0.0;
     bool initialized_ = false;
     bool device_set_ = false;
     bool resources_allocated_ = false;

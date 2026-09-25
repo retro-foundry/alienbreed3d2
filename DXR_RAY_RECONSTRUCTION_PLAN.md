@@ -685,9 +685,11 @@ Use the `SceneEnvironment` backdrop/sky through a documented lat-long or equival
 
 Current staged status (2026-08-26): after reducing the executed DXR path to
 flat primary visibility, diffuse polygon-light transport has been reintroduced
-without the former full PBR estimator. The camera ray remains pixel-centred
-with zero frame-varying subpixel jitter and preserves flat base colour as an
-inspectable material guide rather than adding it to HDR as self-emission.
+without the former full PBR estimator. The camera ray was then pixel-centred
+with zero frame-varying subpixel jitter (restored 2026-09-25 while RR
+reconstructs; see the performance audit below) and preserves flat base colour
+as an inspectable material guide rather than adding it to HDR as
+self-emission.
 Directly visible authored emission is shown. For each direct SPP sample, the primary
 diffuse surface streams `CandidateCount` samples from the complete global
 authored-emitter alias distribution through fresh RIS, converts area density to
@@ -1425,9 +1427,10 @@ metric is reported rather than bounded until each stage has a recorded baseline.
 
 #### 11a. Guide and jitter prerequisites — complete
 
-- `reconstruction::frame_jitter` wraps its index by `jitter_phase_count` (32).
-  An unbounded Halton index never repeats, so the upscaler had no fixed point to
-  settle onto.
+- `reconstruction::frame_jitter` wraps its index by a phase count, by default
+  `jitter_phase_count` (32). An unbounded Halton index never repeats, so the
+  upscaler had no fixed point to settle onto. Under RR the count is
+  `jitter_phase_count_for_scale`, the DLSS guide's 8 * (output / render)^2.
 - Background pixels report `SceneFarPlane` linear depth, a camera-facing unit
   normal, and roughness 1. A zero linear depth with `depthInverted = eFalse` is
   the nearest representable distance and inverted every sky silhouette.
@@ -1989,3 +1992,111 @@ The renderer is ready for normal use only when all of these are true:
   moving reconstruction quality.
 
 This plan intentionally leaves no compatibility path to the removed renderer. If a required behavior is missing, extend the clean renderer and its API-neutral `SceneFrame` evidence rather than reviving old code or data.
+
+## 4K performance audit (2026-09-25)
+
+Measured with `AB3D2_DXR_PROFILE=1` on the saved-state smoke at
+`AB3D2_GPU_SMOKE_SIZE=3838x2158` (Paul's display), RTX 3090, driver 591.86.
+
+**Render sizes are correct.** Streamline's optimal sizes match the DLSS
+Programming Guide's per-axis ratios exactly: Quality 1.5 (2559x1439),
+Balanced 1.724 (2226x1252), Performance 2.0 (1919x1079). Ultra Performance
+deliberately departs from the guide's 3.0 (1279x719 to the window): it traces
+853x480, reconstructs to 2559x1439 and scales the rest linearly.
+
+**Ray Reconstruction is not the bottleneck.** It measured 8.2 ms at 4K
+Performance, matching the DLSS-RR Integration Guide's 8.83 ms for an RTX 3080 Ti.
+The frame was 93.7 ms. Three things were wrong:
+
+1. The ReSTIR temporal, spatial and duplication dispatches had no profiler
+   scope, which hid 33 ms. They now report as `indirect_temporal`,
+   `indirect_spatial` and `indirect_duplication`.
+2. Visibility rays used `TraceRay`. Switching `traceVisibility` to an inline
+   `RayQuery` (same candidate test as `AnyHit`, DXR tier 1.1, `lib_6_5`) gave a
+   bit-identical frame and took 4K Performance from 93.5 to 49.9 ms: temporal
+   22.2 -> 5.9, spatial 10.8 -> 2.7, burst paths 40.1 -> 21.0, primary shading
+   5.5 -> 4.8. Surface rays were tried the same way and were slower (burst 21.0
+   -> 25.6 ms), so `traceSegment` keeps `TraceRay`.
+3. Jitter was zero, so DLSS never got sub-pixel samples to super-resolve from.
+   Restored with the guide's phase counts. The reported sign is the negated
+   sample offset: reporting the sample offset itself left 273 frozen
+   `outliers16` against 0, which was the edge shake that had jitter removed.
+
+After the change, per mode (ms, GPU at boost clock):
+
+| mode | traced | frame | burst | temporal | spatial | RR |
+|---|---|---|---|---|---|---|
+| Quality | 2559x1439 | 88.4 | 38.1 | 11.2 | 5.6 | 15.3 |
+| Balanced | 2226x1252 | 65.6 | 28.5 | 8.2 | 3.5 | 11.7 |
+| Performance | 1919x1079 | 50.0 | 21.5 | 6.1 | 2.7 | 8.4 |
+
+The smoke waits for every frame and analyses its 4K readback on the CPU,
+124-144 ms a frame against 12-50 ms of GPU work, and a GPU that idle drops its
+clock: Ultra Performance first measured 32 ms at 645 MHz. Profile with
+`AB3D2_DXR_SMOKE_READBACK=0`, which skips that analysis (the smoke then fails
+its Shotgun image check, after the profile window) and keeps the GPU at 99-100%
+utilisation and boost clock. Ultra Performance is then 11.6 ms.
+
+### Tracing fewer pixels (2026-09-25)
+
+RR accepts any fixed input between a mode's minimum and the output, but the
+minimums at a 3838x2158 output are 1919x1079 for Performance and exactly
+1279x719 for Ultra Performance, so nothing between those two can reach the
+window. `AB3D2_DXR_RR_OUTPUT_FRACTION=<f>` reconstructs to a fraction of the
+window in any mode and lets the presentation triangle's linear upscale cover
+the rest; `AB3D2_DXR_RR_RENDER_SCALE=<s>` overrides the render scale within
+RR's range, and 1 gives a native-resolution reference.
+
+Quality is SSIM on display luma against that reference (every pixel traced,
+RR as denoiser only), over lit pixels, for the last of 48 still frames and the
+last of a 32-frame pan (`AB3D2_DXR_SAVED_SMOKE_PAN_FRAMES`, about a degree a
+frame). GPU ms at boost clock:
+
+| configuration | traced | RR output | ms | still | pan |
+|---|---|---|---|---|---|
+| native reference | 3838x2158 | 3838x2158 | 193.8 | 1 | 1 |
+| Quality | 2559x1439 | 3838x2158 | 87.9 | 0.967 | 0.973 |
+| Performance | 1919x1079 | 3838x2158 | 50.1 | 0.947 | 0.955 |
+| Performance, 5/6 output | 1599x899 | 3198x1798 | 35.3 | 0.906 | 0.913 |
+| Performance, 3/4 output | 1440x810 | 2879x1619 | 31.3 | 0.879 | 0.875 |
+| Ultra Performance to the window | 1279x719 | 3838x2158 | 24.1 | 0.895 | 0.891 |
+| Performance, 2/3 output | 1280x720 | 2559x1439 | 23.3 | 0.853 | 0.853 |
+| Performance, 1/2 output | 960x540 | 1919x1079 | 13.9 | 0.789 | 0.795 |
+| Ultra Performance as shipped | 853x480 | 2559x1439 | 11.6 | 0.797 | 0.791 |
+
+At an equal traced size, RR reconstructing to the window beats RR
+reconstructing to two thirds plus a linear upscale by a wide margin for 0.6 ms,
+and beats three quarters, which traces 27% more. NVIDIA's own Ultra
+Performance (`AB3D2_DXR_RR_OUTPUT_FRACTION=1` under ultra-performance) halves
+Performance's cost at that loss; the shipped two-thirds Ultra is cheaper again
+at a larger one. (Measured with the highlight knee still in place; see below.)
+
+### Fresh paths and energy
+
+`rtx_indirect_samples` 4 -> 2 -> 1 measured 50.0 -> 42.1 -> 37.7 ms at 4K
+Performance with dark-area grain after RR almost unchanged. Short runs showed
+the frame darkening with fewer paths, but the per-frame indirect sum is heavy
+tailed (+-20% frame to frame even at 16 paths). Over 288 frames, which covers a
+full 256-sample cycle of the blue-noise sampler at one path a frame, plain path
+tracing is unbiased in the count -- 1, 4 and 16 paths measure 0.001564,
+0.001587 and 0.001591 per pixel, within their standard errors -- while ReSTIR
+PT with reuse measures 3% low at 4 paths and 8% low at 1. That is the reuse or
+its firefly filter, not the path tracer, and it is the thing to fix before the
+default comes down.
+
+### The highlight knee was removed
+
+`rtx_rr_highlight_knee` log-compressed RR's input above 160 times the
+exposure's white and expanded RR's output exponentially afterwards. It was
+added for sparkle in a dark room beside a bright doorway, which grew over a
+still view. That sparkle came from the pixel-centred primary rays: over 192
+still frames at 3838x2158, with the knee off, events (pixels above 1.5x their
+own temporal median + 4) measure 0.0081% and rising without jitter and 0.0010%
+flat with it.
+
+The knee was also doing harm. On a thin line lit far past it, RR returned up
+to 13.7 times the brightest value it had been given (39x at a knee of 40, 5.1x
+at 640, never above 1.1x with the knee off), and the exponential inverse turned
+that into a bloom flare across the doorway for the ninety frames after every
+history reset, and a greyed-out highlight where RR undershot instead. The knee
+is gone; the setting is rejected with that reason.

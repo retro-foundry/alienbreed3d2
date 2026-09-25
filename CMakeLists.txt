@@ -408,7 +408,7 @@ if(AB3D2_ENABLE_DXR)
     OUTPUT "${AB3D2_DXR_PATH_TRACE_SHADER}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${AB3D2_DXR_SHADER_BUILD_DIR}"
     COMMAND "${AB3D2_DXC_EXECUTABLE}" -nologo -WX -Ges -O3 -Qstrip_debug
-            -Qstrip_reflect -T lib_6_3
+            -Qstrip_reflect -T lib_6_5
             -Fo "${AB3D2_DXR_PATH_TRACE_SHADER}"
             "${AB3D2_DXR_PATH_TRACE_SHADER_SOURCE}"
     DEPENDS "${AB3D2_DXR_PATH_TRACE_SHADER_SOURCE}"

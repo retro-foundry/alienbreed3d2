@@ -1641,6 +1641,51 @@ static int game_app_run_gpu_smoke(GameApp *app)
 
         {
             /*
+             * AB3D2_DXR_SAVED_SMOKE_PAN_FRAMES=<n> turns the view by
+             * AB3D2_DXR_SAVED_SMOKE_PAN_COUNTS mouse counts (default 6, about
+             * one degree) on each of n presented frames after the frozen ones,
+             * with the simulation held. A still view lets a temporal
+             * reconstructor converge whatever its input resolution; a turning
+             * one is where a lower render resolution shows.
+             */
+            const char *pan_text = getenv("AB3D2_DXR_SAVED_SMOKE_PAN_FRAMES");
+            const char *counts_text = getenv("AB3D2_DXR_SAVED_SMOKE_PAN_COUNTS");
+            unsigned long pan_frames =
+                pan_text ? strtoul(pan_text, NULL, 10) : 0ul;
+            long pan_counts = counts_text ? strtol(counts_text, NULL, 10) : 6l;
+            if (pan_frames > 4096ul) {
+                pan_frames = 4096ul;
+            }
+            if (pan_counts < -256l || pan_counts > 256l) {
+                pan_counts = 6l;
+            }
+            for (unsigned long pan_frame = 0ul; pan_frame < pan_frames;
+                 ++pan_frame) {
+                render_view_add_mouse_yaw(&app->view, (int32_t)pan_counts);
+                if (!game_app_build_presentation_frame_at_alpha(app, 1.0f) ||
+                    !renderer_present(app->renderer, &app->frame, &app->view,
+                                      error, sizeof(error))) {
+                    fprintf(stderr,
+                            "[RENDER] saved-state pan frame %lu failed for Level %c: %s\n",
+                            pan_frame, (char)('A' + app->game.active_level_index),
+                            error);
+                    app->exit_code = 1;
+                    return 0;
+                }
+            }
+            if (pan_frames != 0ul) {
+                fprintf(stdout,
+                        "[RENDER] saved-state Level %c pan frames=%lu counts=%ld "
+                        "delta=%.4f reprojected=%.4f outliers16=%llu\n",
+                        (char)('A' + app->game.active_level_index), pan_frames,
+                        pan_counts, renderer_last_frame_delta(app->renderer),
+                        renderer_last_frame_reprojected_delta(app->renderer),
+                        (unsigned long long)renderer_last_frame_temporal_outlier_pixels(
+                            app->renderer));
+            }
+        }
+        {
+            /*
              * AB3D2_DXR_SAVED_SMOKE_IDLE_UPDATES=<n> lets the game run n
              * ordinary updates after the frozen frames, with no input and the
              * camera where it is, presenting each one as play does. Frozen

@@ -28,6 +28,7 @@ constexpr std::array<const char *, static_cast<size_t>(DxrGpuStage::count)>
         "indirect_gradient",
         "indirect_temporal",
         "indirect_spatial",
+        "indirect_duplication",
         "indirect_reconstruct",
         "ray_reconstruction",
         "bloom",

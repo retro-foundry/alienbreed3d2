@@ -208,9 +208,29 @@ inline float radical_inverse(uint32_t index, uint32_t base)
  */
 constexpr uint32_t jitter_phase_count = 32u;
 
-inline PixelJitter frame_jitter(uint32_t sample_index)
+/*
+ * DLSS Programming Guide section 3.7.1: eight phases cover a pixel when nothing
+ * is scaled, and each output pixel still needs eight when one render pixel
+ * spans several of them, so the count grows with the scaled pixel AREA:
+ * 8 * (output / render)^2. The guide's minimums follow from it -- 18 Quality,
+ * 24 Balanced, 32 Performance, 72 Ultra Performance, 8 DLAA.
+ */
+inline uint32_t jitter_phase_count_for_scale(uint32_t render_height,
+                                             uint32_t output_height)
 {
-    const uint32_t sample = (sample_index % jitter_phase_count) + 1u;
+    if (render_height == 0u || output_height <= render_height) {
+        return 8u;
+    }
+    const double ratio = static_cast<double>(output_height) /
+        static_cast<double>(render_height);
+    return static_cast<uint32_t>(std::ceil(8.0 * ratio * ratio - 1.0e-3));
+}
+
+inline PixelJitter frame_jitter(uint32_t sample_index,
+                                uint32_t phase_count = jitter_phase_count)
+{
+    const uint32_t sample =
+        (sample_index % std::max(phase_count, 1u)) + 1u;
     return {radical_inverse(sample, 2u) - 0.5f,
             radical_inverse(sample, 3u) - 0.5f};
 }

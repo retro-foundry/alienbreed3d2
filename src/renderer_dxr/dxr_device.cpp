@@ -186,8 +186,10 @@ bool DxrDevice::select_adapter_and_device(std::string &error)
                      << " (D3D12_OPTIONS5 query failed); ";
             continue;
         }
-        if (options.RaytracingTier == D3D12_RAYTRACING_TIER_NOT_SUPPORTED) {
-            rejected << adapter_name(description) << " (DXR tier unsupported); ";
+        /* Tier 1.1 for inline ray queries: every visibility test in the path
+         * tracer is one. */
+        if (options.RaytracingTier < D3D12_RAYTRACING_TIER_1_1) {
+            rejected << adapter_name(description) << " (DXR tier 1.1 unsupported); ";
             continue;
         }
 
@@ -202,16 +204,14 @@ bool DxrDevice::select_adapter_and_device(std::string &error)
 #endif
         device_->SetName(L"AB3D2 DXR Device");
         debug_output("selected high-performance adapter " + adapter_name(description) +
-                     " with DXR tier " +
-                     (options.RaytracingTier >= D3D12_RAYTRACING_TIER_1_1 ?
-                          std::string("1.1") : std::string("1.0")));
+                     " with DXR tier 1.1");
         break;
     }
 
     if (!device_) {
         error = saw_hardware_adapter ?
             "no high-performance hardware adapter supports ID3D12Device5, feature "
-            "level 12_0, and a nonzero DXR tier" :
+            "level 12_0, and DXR tier 1.1" :
             "no high-performance hardware graphics adapter was found";
         if (!rejected.str().empty()) {
             error += "; rejected adapters: " + rejected.str();
@@ -1102,6 +1102,20 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
                      hitch_log_threshold_ms_);
         std::fflush(stdout);
     }
+    {
+        /*
+         * AB3D2_DXR_SMOKE_READBACK=0 is for profiling. The hidden smoke waits
+         * for every frame and analyses it on the CPU -- 124-144 ms a frame at
+         * 3838x2158 against 12-50 ms of GPU work -- and a GPU that idle drops
+         * its clock: Ultra Performance measured at 645 MHz instead of 1905. The
+         * smoke's image statistics go unread, so it ends by failing its
+         * Shotgun check; the profile, taken over the frozen frames, is valid.
+         */
+        char readback[2] = {};
+        smoke_readback_enabled_ = !(GetEnvironmentVariableA(
+            "AB3D2_DXR_SMOKE_READBACK", readback,
+            static_cast<DWORD>(sizeof(readback))) == 1u && readback[0] == '0');
+    }
 
     if (!window || !IsWindow(window)) {
         error = "DXR device initialization received no valid HWND";
@@ -1358,7 +1372,8 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
                           &performance_profiler_, error)) {
         return false;
     }
-    const bool capture_scene = hidden_window_ && pipeline.has_scene();
+    const bool capture_scene = hidden_window_ && smoke_readback_enabled_ &&
+        pipeline.has_scene();
     ID3D12Resource *const scene_motion =
         pipeline.streamline_scene_motion_resource();
     if (capture_scene) {

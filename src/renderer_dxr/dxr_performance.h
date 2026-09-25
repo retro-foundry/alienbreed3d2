@@ -27,6 +27,7 @@ enum class DxrGpuStage : size_t {
     indirect_gradient,
     indirect_temporal,
     indirect_spatial,
+    indirect_duplication,
     indirect_reconstruct,
     ray_reconstruction,
     bloom,

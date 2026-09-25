@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cwchar>
 #include <cstring>
 #include <sstream>
@@ -272,7 +273,17 @@ sl::Constants make_constants(
                   previous_projection);
     sl::matrixFullInvert(constants.prevClipToClip, constants.clipToPrevClip);
 
-    constants.jitterOffset = sl::float2(jitter.x, jitter.y);
+    /*
+     * PixelJitter is where the pixel was sampled, relative to its centre.
+     * DLSS wants how far the image content moved, which is the opposite: a
+     * projection jittered to sample at centre + j shifts the scene by -j. DLSS
+     * Programming Guide 3.7.3 ties the offset to the motion-vector convention
+     * without printing the sign, so it was measured: on a frozen 4K
+     * Performance view the reported sample offset left 273 outliers16 and a
+     * frozen delta of 0.5157, the negated one 0 and 0.5048 -- as still as no
+     * jitter at all. The first is the edge shake that once had jitter removed.
+     */
+    constants.jitterOffset = sl::float2(-jitter.x, -jitter.y);
     constants.mvecScale = sl::float2(
         1.0f / static_cast<float>(current_camera.width),
         1.0f / static_cast<float>(current_camera.height));
@@ -367,6 +378,26 @@ bool DxrStreamline::configure_mode(RendererRayReconstructionMode requested,
                 "ultra-performance, or off";
         return false;
     }
+    return configure_render_scale(error);
+}
+
+bool DxrStreamline::configure_render_scale(std::string &error)
+{
+    char value[64] = {};
+    const DWORD length = GetEnvironmentVariableA(
+        "AB3D2_DXR_RR_RENDER_SCALE", value, static_cast<DWORD>(sizeof(value)));
+    if (length == 0) {
+        return true;
+    }
+    char *end = nullptr;
+    const double parsed = length < sizeof(value) ?
+        std::strtod(value, &end) : 0.0;
+    if (length >= sizeof(value) || end == value || *end != '\0' ||
+        !(parsed >= 1.0 && parsed <= 4.0)) {
+        error = "AB3D2_DXR_RR_RENDER_SCALE must be 1 to 4";
+        return false;
+    }
+    render_scale_override_ = parsed;
     return true;
 }
 
@@ -634,9 +665,30 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
             settings.optimalRenderWidth;
         selected_height = use_minimum_input ? selected_min_height :
             settings.optimalRenderHeight;
+        if (render_scale_override_ > 0.0) {
+            selected_width = static_cast<UINT>(std::lround(
+                static_cast<double>(output_width) / render_scale_override_));
+            selected_height = static_cast<UINT>(std::lround(
+                static_cast<double>(output_height) / render_scale_override_));
+            if (selected_width < selected_min_width ||
+                selected_height < selected_min_height ||
+                selected_width > selected_max_width ||
+                selected_height > selected_max_height) {
+                error = "AB3D2_DXR_RR_RENDER_SCALE gives " +
+                    std::to_string(selected_width) + "x" +
+                    std::to_string(selected_height) + ", outside DLSS-RR " +
+                    mode_name(mode_) + "'s " +
+                    std::to_string(selected_min_width) + "x" +
+                    std::to_string(selected_min_height) + " through " +
+                    std::to_string(selected_max_width) + "x" +
+                    std::to_string(selected_max_height);
+                return false;
+            }
+        }
         if (selected_width == 0 || selected_height == 0 ||
             selected_width > output_width || selected_height > output_height ||
-            (selected_width == output_width && selected_height == output_height)) {
+            (render_scale_override_ == 0.0 &&
+             selected_width == output_width && selected_height == output_height)) {
             error = "DLSS-RR did not provide a valid low-resolution render size for " +
                 std::to_string(output_width) + "x" +
                 std::to_string(output_height);

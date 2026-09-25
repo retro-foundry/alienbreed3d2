@@ -245,10 +245,6 @@ struct ZonePortal
 /* Laid out as ZoneLightRanges is, over ZonePortals. */
 StructuredBuffer<uint2> ZonePortalRanges : register(t13);
 StructuredBuffer<ZonePortal> ZonePortals : register(t14);
-/* post_process.hlsl's tone state: element 129 is the adapted luminance the
- * previous frame was shown at, which places RR's highlight knee. */
-RWStructuredBuffer<float> ReconstructionToneState : register(u35);
-static const uint ReconstructionAdaptedLuminanceIndex = 129u;
 SamplerState MaterialBilinearSampler : register(s0);
 
 RWTexture2D<float4> NoisyRadiance : register(u0);
@@ -397,9 +393,6 @@ cbuffer FrameConstants : register(b0)
     float ReconstructionInputScale;
     /* rtx_portal_sampling; see RENDERER_RAY_TRACING_DEFAULT_PORTAL_SAMPLING. */
     float PortalSampling;
-    /* Times the adapted luminance, RR's highlight knee in its own units;
-     * zero disables it. See RENDERER_RAY_TRACING_DEFAULT_RR_HIGHLIGHT_KNEE. */
-    float ReconstructionKneeScale;
 };
 
 cbuffer RayRootConstants : register(b1)
@@ -1052,6 +1045,40 @@ uint2 materialTexel(SceneMaterial material, float2 textureCoordinate,
         min(uint2(wrapped * float2(window.extent)), window.extent - 1u);
 }
 
+/*
+ * The any-hit decision for a non-opaque candidate triangle, shared by the
+ * AnyHit shader and by the inline queries that trace without it.
+ *
+ * Additive geometry casts no shadow. `glDepthMask(GL_FALSE)` is what the
+ * OpenGL path uses to say the same thing, and the source never had a depth
+ * buffer to write: a glare or additive bitmap adds light and takes none away.
+ * Visibility rays are exactly the rays that must not see it, while surface
+ * rays have to stop at the layer and collect its emission.
+ *
+ * Artist-authored billboard/vector cutouts use the material manifest's mask
+ * threshold. Opaque world BLAS never reach this test.
+ */
+bool candidateTriangleIgnored(uint primitiveIndex, float2 barycentrics,
+                              bool visibilityRay)
+{
+    uint firstVertex = primitiveIndex * 3u;
+    SceneVertex first = Vertices[firstVertex + 0u];
+    if (visibilityRay && first.primitive == WorldEffectPrimitive) {
+        return true;
+    }
+    SceneVertex second = Vertices[firstVertex + 1u];
+    SceneVertex third = Vertices[firstVertex + 2u];
+    float firstWeight = 1.0 - barycentrics.x - barycentrics.y;
+    float2 textureCoordinate = first.textureCoordinate * firstWeight +
+        second.textureCoordinate * barycentrics.x +
+        third.textureCoordinate * barycentrics.y;
+    SceneMaterial material = Materials[first.materialIndex];
+    return BaseColorAtlas.Load(int3(
+        materialTexel(material, textureCoordinate,
+                      first.textureWindowOrigin,
+                      first.textureWindowExtent), 0)).a < 0.5;
+}
+
 uint materialMipYOffset(uint baseHeight, uint level)
 {
     uint offset = 0u;
@@ -1504,6 +1531,9 @@ SegmentTraversal traceSegment(RayDesc ray, bool texturedEmission = false)
         payload.barycentrics = 0.0;
         payload.primitiveIndex = InvalidIndex;
         payload.hit = 0u;
+        /* A shader call, unlike traceVisibility. An inline closest-hit query
+         * measured slower here (burst continuation 21.0 -> 25.6 ms at
+         * 1919x1079), so surface rays stay on TraceRay. */
         TraceRay(Scene, RAY_FLAG_NONE, SceneInstanceMask,
                  0, 0, 0, ray, payload);
         result.payload = payload;
@@ -2060,13 +2090,27 @@ bool traceVisibility(float3 origin, float3 direction, float maximumDistance,
     ray.Direction = direction;
     ray.TMin = RayEpsilon;
     ray.TMax = maximumDistance;
-    ShadowPayload payload;
-    payload.visible = 0u;
-    TraceRay(Scene,
-             RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
-                 RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
-             instanceMask, 0, 0, 1, ray, payload);
-    return payload.visible != 0u;
+    /*
+     * Inline rather than TraceRay. A shader call has to preserve whatever the
+     * caller holds across it, and every caller of this holds a lot: the
+     * resampling passes keep several reservoirs live across each shift's test.
+     * Measured at 1919x1079 on an RTX 3090 the inline query produced the same
+     * image bit for bit and took temporal reuse from 22.2 to 5.9 ms, spatial
+     * from 10.8 to 2.7 ms and the burst paths from 40.1 to 21.0 ms. The
+     * candidate test is the AnyHit shader's own.
+     */
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH |
+             RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES> query;
+    query.TraceRayInline(Scene, RAY_FLAG_NONE, instanceMask, ray);
+    while (query.Proceed()) {
+        if (query.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE &&
+            !candidateTriangleIgnored(
+                query.CandidateInstanceID() + query.CandidatePrimitiveIndex(),
+                query.CandidateTriangleBarycentrics(), true)) {
+            query.CommitNonOpaqueTriangleHit();
+        }
+    }
+    return query.CommittedStatus() == COMMITTED_NOTHING;
 }
 
 /*
@@ -5149,21 +5193,11 @@ void ComputeDuplicationMap()
  */
 float4 scaleReconstructionInput(float4 radiance)
 {
-    if (ReconstructionInputScale != 1.0) {
-        float3 scaled = radiance.rgb * ReconstructionInputScale;
-        radiance.rgb = select(scaled > HalfFloatMaximum, HalfFloatMaximum,
-                              scaled);
+    if (ReconstructionInputScale == 1.0) {
+        return radiance;
     }
-    /*
-     * The highlight knee: W * ln(1 + L / W) on luminance, colour kept.
-     * post_process.hlsl inverts it from the same tone-state value.
-     */
-    float knee = ReconstructionKneeScale *
-        ReconstructionToneState[ReconstructionAdaptedLuminanceIndex];
-    float value = luminance(max(radiance.rgb, 0.0));
-    if (knee > 0.0 && isfinite(knee) && value > 0.0 && isfinite(value)) {
-        radiance.rgb *= knee * log(1.0 + value / knee) / value;
-    }
+    float3 scaled = radiance.rgb * ReconstructionInputScale;
+    radiance.rgb = select(scaled > HalfFloatMaximum, HalfFloatMaximum, scaled);
     return radiance;
 }
 
@@ -5471,35 +5505,11 @@ void CalculateAutomaticExposure()
 void AnyHit(inout SurfacePayload payload,
             BuiltInTriangleIntersectionAttributes attributes)
 {
-    uint firstVertex = (InstanceID() + PrimitiveIndex()) * 3u;
-    SceneVertex first = Vertices[firstVertex + 0u];
-    /*
-     * Additive geometry casts no shadow. `glDepthMask(GL_FALSE)` is what the
-     * OpenGL path uses to say the same thing, and the source never had a depth
-     * buffer to write: a glare or additive bitmap adds light and takes none
-     * away. Visibility rays are exactly the rays that must not see it, and they
-     * are the only rays that skip the closest-hit shader, so the ray's own
-     * flags separate them from the surface rays that have to pass through the
-     * layer and collect its emission.
-     */
-    if (first.primitive == WorldEffectPrimitive &&
-        (RayFlags() & RAY_FLAG_SKIP_CLOSEST_HIT_SHADER) != 0u) {
-        IgnoreHit();
-    }
-    SceneVertex second = Vertices[firstVertex + 1u];
-    SceneVertex third = Vertices[firstVertex + 2u];
-    float firstWeight = 1.0 - attributes.barycentrics.x -
-        attributes.barycentrics.y;
-    float2 textureCoordinate = first.textureCoordinate * firstWeight +
-        second.textureCoordinate * attributes.barycentrics.x +
-        third.textureCoordinate * attributes.barycentrics.y;
-    SceneMaterial material = Materials[first.materialIndex];
-    /* Artist-authored billboard/vector cutouts use the material manifest's
-     * mask threshold. Opaque world BLAS skip this shader. */
-    if (BaseColorAtlas.Load(int3(
-            materialTexel(material, textureCoordinate,
-                          first.textureWindowOrigin,
-                          first.textureWindowExtent), 0)).a < 0.5) {
+    /* Visibility rays are the only rays that skip the closest-hit shader, so
+     * the ray's own flags say which kind this is. */
+    if (candidateTriangleIgnored(
+            InstanceID() + PrimitiveIndex(), attributes.barycentrics,
+            (RayFlags() & RAY_FLAG_SKIP_CLOSEST_HIT_SHADER) != 0u)) {
         IgnoreHit();
     }
 }

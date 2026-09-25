@@ -63,6 +63,11 @@ world_light_tessellation=4
 # frame. It does not change the estimator: target functions, PDFs and path
 # transport are identical at every quality mode. Default quality.
 #
+# The internal resolution is NVIDIA's for each mode: the window divided by 1.5
+# (quality), 1.724 (balanced) or 2 (performance) on each axis. At 3840x2160
+# that is about 2560x1440, 2227x1253 and 1920x1080, and the path tracer's cost
+# follows those pixel counts; performance traces a quarter of the window.
+#
 # Ultra Performance is explicitly speed-first: at a 1280x720 window it traces
 # 285x160, reconstructs to 854x480, then uses the final linear presentation
 # upscale. The other enabled modes reconstruct directly to the window extent.
@@ -100,24 +105,6 @@ world_light_tessellation=4
 # rtx_light_scale is safe. 1 restores the unscaled input. It does nothing
 # while DLSS is off.
 #rtx_rr_input_scale=32
-
-# Where the DLSS pass's input starts being compressed, in multiples of the
-# luminance the exposure shows as white, 0 through 1024. Default 160. Above it
-# a pixel's luminance L becomes knee * ln(1 + L / knee), and the exact inverse
-# is applied to the output. 0 disables it.
-#
-# With a bright opening on screen, Ray Reconstruction's history of the dark
-# room beside it degrades over a still view: clean for the first second, then
-# fireflies that appear, blur and never converge. The room's own input does
-# not change while this happens, and hiding only the opening's pixels from RR
-# stops it, so it is the highlights' magnitude that RR reacts to. Compressing
-# only what is far past white removes that while the dark room stays linear.
-# It is not a clamp, but RR does average the pixels above the knee in
-# compressed units, so they are the one place it is biased. Measured on a
-# doorway-lit room: 160 holds sparkle at the level of a fresh history while the
-# corridor seen through the doorway loses 2%; 40 suppresses a little more and
-# costs that corridor 6%; 640 lets the sparkle back.
-#rtx_rr_highlight_knee=160
 
 
 # --- Path tracer ----------------------------------------------------------

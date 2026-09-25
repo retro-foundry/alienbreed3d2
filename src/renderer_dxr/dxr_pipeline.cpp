@@ -234,8 +234,6 @@ struct FrameConstants {
     float reconstruction_input_scale;
     /* rtx_portal_sampling; zero is plain cosine sampling. */
     float portal_sampling;
-    /* RR's highlight knee over the adapted luminance; zero disables it. */
-    float reconstruction_knee_scale;
 };
 
 /*
@@ -244,7 +242,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 75u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 74u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -290,11 +288,9 @@ struct PostConstants {
      * it so that exposure still maps RR's input to the frame as displayed.
      */
     float reconstruction_input_scale;
-    /* The same knee scale path_trace.hlsl compressed RR's input with. */
-    float reconstruction_knee_scale;
 };
 
-static_assert(sizeof(PostConstants) == 14u * sizeof(uint32_t));
+static_assert(sizeof(PostConstants) == 13u * sizeof(uint32_t));
 
 enum class EnvironmentToggle {
     automatic,
@@ -727,9 +723,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.rr_input_scale_set != 0u) {
         rr_input_scale_ = options.rr_input_scale;
     }
-    if (options.rr_highlight_knee_set != 0u) {
-        rr_highlight_knee_ = options.rr_highlight_knee;
-    }
     if (options.portal_sampling_set != 0u) {
         portal_sampling_ = options.portal_sampling;
     }
@@ -822,7 +815,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         uint32_t limit;
         uint32_t *target;
     };
-    const std::array<Override, 8> overrides = {
+    const std::array<Override, 9> overrides = {
         Override{"AB3D2_DXR_MAX_BOUNCES", 1u,
                  indirect_reconstruction::maximum_path_depth,
                  &maximum_depth_},
@@ -840,6 +833,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
         Override{"AB3D2_DXR_GI_TEMPORAL_FRAMES", 1u,
                  indirect_reconstruction::temporal_window_maximum,
                  &indirect_temporal_window_},
+        Override{"AB3D2_DXR_JITTER", 0u, 1u, &jitter_enabled_},
     };
     {
         char value[64] = {};
@@ -856,6 +850,23 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                 return false;
             }
             noise_floor_stops_ = static_cast<float>(parsed);
+        }
+    }
+    {
+        char value[64] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_RR_OUTPUT_FRACTION", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            errno = 0;
+            const double parsed = std::strtod(value, &end);
+            if (errno != 0 || end == value || *end != 0x00 ||
+                !std::isfinite(parsed) || parsed < 0.25 || parsed > 1.0) {
+                error = "AB3D2_DXR_RR_OUTPUT_FRACTION must be 0.25 to 1";
+                return false;
+            }
+            reconstruction_fraction_ = static_cast<float>(parsed);
         }
     }
     {
@@ -924,23 +935,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                 return false;
             }
             rr_input_scale_ = static_cast<float>(parsed);
-        }
-    }
-    {
-        char value[64] = {};
-        const DWORD length = GetEnvironmentVariableA(
-            "AB3D2_DXR_RR_HIGHLIGHT_KNEE", value,
-            static_cast<DWORD>(sizeof(value)));
-        if (length > 0u && length < sizeof(value)) {
-            char *end = nullptr;
-            errno = 0;
-            const double parsed = std::strtod(value, &end);
-            if (errno != 0 || end == value || *end != 0x00 ||
-                !std::isfinite(parsed) || parsed < 0.0 || parsed > 1024.0) {
-                error = "AB3D2_DXR_RR_HIGHLIGHT_KNEE must be 0 to 1024";
-                return false;
-            }
-            rr_highlight_knee_ = static_cast<float>(parsed);
         }
     }
     {
@@ -1265,8 +1259,7 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
                  " radiance clamp=" +
                  std::to_string(radiance_clamp_) + " exposure bias=" +
                  std::to_string(exposure_bias_stops_) + " EV RR input scale=" +
-                 std::to_string(rr_input_scale_) + " RR highlight knee=" +
-                 std::to_string(rr_highlight_knee_) + " portal sampling=" +
+                 std::to_string(rr_input_scale_) + " portal sampling=" +
                  std::to_string(portal_sampling_) + " NDF trim=" +
                  std::to_string(ndf_trim_) + " split primary=" +
                  (split_primary_ ? "on" : "off") +
@@ -1545,7 +1538,7 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     ranges[4].NumDescriptors = 7;
     ranges[4].BaseShaderRegister = 26;
     ranges[4].OffsetInDescriptorsFromTableStart = 13;
-    std::array<D3D12_ROOT_PARAMETER, 25> parameters = {};
+    std::array<D3D12_ROOT_PARAMETER, 24> parameters = {};
     for (UINT index : {0u, 1u, 4u}) {
         const UINT range_index = index == 4u ? 2u : index;
         parameters[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
@@ -1602,10 +1595,6 @@ bool DxrPipeline::create_raytracing_pipeline(ID3D12Device5 *device,
     parameters[22].Descriptor.ShaderRegister = 13;
     parameters[23].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     parameters[23].Descriptor.ShaderRegister = 14;
-    /* The post pass's tone state, read for the adapted luminance that sets
-     * RR's highlight knee. It is in UAV state for the whole trace. */
-    parameters[24].ParameterType = D3D12_ROOT_PARAMETER_TYPE_UAV;
-    parameters[24].Descriptor.ShaderRegister = 35;
     for (D3D12_ROOT_PARAMETER &parameter : parameters) {
         parameter.ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
     }
@@ -3153,7 +3142,16 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     bool streamline_active = false;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     streamline_active = streamline && streamline->active();
-    if (streamline_active &&
+    if (streamline_active && reconstruction_fraction_ > 0.0f &&
+        reconstruction_fraction_ < 1.0f) {
+        /* AB3D2_DXR_RR_OUTPUT_FRACTION: reconstruct to this fraction of the
+         * window in any mode, and let the presentation triangle's linear
+         * upscale cover the rest. */
+        reconstruction_output_width = std::max(1u, static_cast<UINT>(
+            std::lround(static_cast<double>(width) * reconstruction_fraction_)));
+        reconstruction_output_height = std::max(1u, static_cast<UINT>(
+            std::lround(static_cast<double>(height) * reconstruction_fraction_)));
+    } else if (streamline_active && reconstruction_fraction_ == 0.0f &&
         streamline->active_mode() ==
             RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE) {
         /* Reconstruct at two thirds of the physical presentation extent,
@@ -3212,20 +3210,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                        rr_input_scale_) :
             rr_input_scale_;
     }
-    /*
-     * rtx_rr_highlight_knee is in multiples of display white. The frame is
-     * shown at exp2(bias - 2) / adapted, so white is adapted / exp2(bias - 2)
-     * in scene units, and the knee in RR's units carries the input scale too.
-     * Both shaders multiply this by the adapted luminance the previous frame
-     * left in the tone state; neither pass runs the curve before reading it,
-     * so the two see the same number and the inverse is exact.
-     */
-    const float reconstruction_knee_scale =
-        streamline_active && !debug_view_requested_ &&
-                rr_highlight_knee_ > 0.0f ?
-            rr_highlight_knee_ * reconstruction_input_scale /
-                std::exp2(exposure_bias_stops_ - 2.0f) :
-            0.0f;
     const SceneCamera *camera = find_camera(frame);
     if (!camera) {
         error = "DXR SceneFrame has geometry but no camera command";
@@ -3332,11 +3316,23 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     if (profiler) {
         profiler->set_metadata(performance_metadata);
     }
-    /* The diffuse polygon-light pass varies NEE/continuation samples, not
-     * primary visibility. Moving the camera ray within each pixel made
-     * otherwise stable geometry edges visibly shake, so keep it pixel-centred
-     * and report the same zero primary jitter to Streamline. */
-    const reconstruction::PixelJitter current_jitter = {};
+    /*
+     * Sub-pixel jitter is where DLSS gets detail finer than the render grid:
+     * without it every frame samples the same point in each pixel, and at
+     * Performance that point is the corner of four output pixels whose own
+     * centres are never sampled. The phase count grows with the scale as the
+     * DLSS guide asks.
+     * Only while RR reconstructs, because only it has a history to put the
+     * offsets back together in. A debug view presents RR's input directly and
+     * without RR there is no history, so both stay pixel-centred.
+     */
+    const bool jitter_active = streamline_active && !debug_view_requested_ &&
+        jitter_enabled_ != 0u;
+    const reconstruction::PixelJitter current_jitter = jitter_active ?
+        reconstruction::frame_jitter(
+            sample_index, reconstruction::jitter_phase_count_for_scale(
+                              render_height, reconstruction_output_height)) :
+        reconstruction::PixelJitter{};
     const reconstruction::CameraProjection &previous_camera =
         history_valid ? history_.previous_camera : current_camera;
     const reconstruction::PixelJitter previous_jitter = history_valid ?
@@ -3435,7 +3431,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.zone_lights_enabled = zone_lights_enabled_;
     constants.reconstruction_input_scale = reconstruction_input_scale;
     constants.portal_sampling = portal_sampling_;
-    constants.reconstruction_knee_scale = reconstruction_knee_scale;
     constants.validation_enabled = validation_enabled ? 1u : 0u;
     constants.single_primary_direct_survivor =
         single_primary_direct_survivor_ ? 1u : 0u;
@@ -3539,8 +3534,6 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         22, scene_.zone_portal_range_address());
     command_list->SetComputeRootShaderResourceView(
         23, scene_.zone_portal_address());
-    command_list->SetComputeRootUnorderedAccessView(
-        24, tone_map_state_->GetGPUVirtualAddress());
     command_list->SetComputeRootShaderResourceView(
         6, scene_.previous_vertex_address());
     command_list->SetComputeRootShaderResourceView(
@@ -3701,15 +3694,22 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     if (indirect_mode_ == RENDERER_INDIRECT_RESTIR_PT) {
         dispatch.Width = render_width;
         dispatch.Height = render_height;
-        const UINT restir_records[] = {
-            shader_record_resample_temporal,
-            shader_record_resample_spatial,
-            shader_record_compute_duplication_map,
+        const struct {
+            UINT record;
+            DxrGpuStage stage;
+        } restir_passes[] = {
+            {shader_record_resample_temporal, DxrGpuStage::indirect_temporal},
+            {shader_record_resample_spatial, DxrGpuStage::indirect_spatial},
+            {shader_record_compute_duplication_map,
+             DxrGpuStage::indirect_duplication},
         };
-        for (const UINT record : restir_records) {
+        for (const auto &pass : restir_passes) {
             dispatch.RayGenerationShaderRecord = {
-                table + shader_record_size * record, shader_record_size};
-            command_list->DispatchRays(&dispatch);
+                table + shader_record_size * pass.record, shader_record_size};
+            {
+                DxrGpuProfileScope profile(profiler, command_list, pass.stage);
+                command_list->DispatchRays(&dispatch);
+            }
             const D3D12_RESOURCE_BARRIER restir_ready[] = {
                 uav_barrier(reservoirs_[0].Get()),
                 uav_barrier(reservoirs_[1].Get()),
@@ -3883,8 +3883,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             static_cast<uint32_t>(operation),
             constants.validation_enabled,
             noise_floor_stops_, minimum_luminance_, maximum_luminance_,
-            exposure_bias_stops_, reconstruction_input_scale,
-            reconstruction_knee_scale};
+            exposure_bias_stops_, reconstruction_input_scale};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(pass_constants) / sizeof(uint32_t),
             &pass_constants, 0u);
@@ -4005,8 +4004,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
                                               minimum_luminance_,
                                               maximum_luminance_,
                                               exposure_bias_stops_,
-                                              reconstruction_input_scale,
-                                              reconstruction_knee_scale};
+                                              reconstruction_input_scale};
         command_list->SetComputeRoot32BitConstants(
             3, sizeof(post_constants) / sizeof(uint32_t), &post_constants, 0u);
         command_list->SetPipelineState(post_histogram_pipeline_state_.Get());
