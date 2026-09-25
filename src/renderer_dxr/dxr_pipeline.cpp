@@ -729,43 +729,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.restir_history_reduction_set != 0u) {
         restir_history_reduction_ = options.restir_history_reduction;
     }
-    /* The reconnection criterion is fixed at the footprint form; the
-     * roughness-cutoff comparison mode has no shader path yet. */
-    if (options.restir_reconnection == RENDERER_RECONNECTION_FIXED) {
-        error = "rtx_restir_reconnection=fixed has no shader path; the "
-                "footprint criterion is the only implemented mode";
-        return false;
-    }
-    if (options.restir_connection_footprint_set != 0u) {
-        error = "rtx_restir_connection_footprint applies to the hybrid shift's "
-                "replayed prefix, which this renderer's diffuse indirect "
-                "transport does not yet produce";
-        return false;
-    }
     if (options.restir_decorrelation_set != 0u) {
         restir_decorrelation_ = options.restir_decorrelation;
-    }
-    if (options.debug_view != RENDERER_DEBUG_VIEW_OFF) {
-        error = "rtx_debug_view is not implemented yet; the render-resolution "
-                "diagnostic views land with the ReSTIR PT passes";
-        return false;
-    }
-    /* Ray Reconstruction is the only reconstruction path that exists. The
-     * renderer-owned spatial filter it replaced has been retired. */
-    if (options.denoiser != RENDERER_DENOISER_DEFAULT &&
-        options.denoiser != RENDERER_DENOISER_RAY_RECONSTRUCTION) {
-        error = "rtx_denoiser must be ray-reconstruction; the spatial and off "
-                "paths are not implemented yet";
-        return false;
-    }
-    /* Ray Reconstruction is a DLSS feature, so it cannot denoise a frame that
-     * DLSS never sees. Refuse the contradiction rather than silently dropping
-     * one half of it. */
-    if (options.denoiser == RENDERER_DENOISER_RAY_RECONSTRUCTION &&
-        options.reconstruction == RENDERER_RAY_RECONSTRUCTION_OFF) {
-        error = "rtx_denoiser=ray-reconstruction requires DLSS; rtx_dlss=off "
-                "leaves nothing to reconstruct with";
-        return false;
     }
     candidate_count_ = options.light_candidates != 0u ?
         options.light_candidates :

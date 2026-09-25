@@ -39,11 +39,12 @@ world_light_tessellation=4
 
 # --- Ray-traced backend (renderer=rtx) ------------------------------------
 #
-# Presentation-only quality settings. Every one of them is commented out, and a
-# commented-out key keeps the renderer's own default, so uncomment only what you
-# want to change. These do not touch source assets or gameplay.
+# Presentation-only quality settings. All but rtx_max_luminance are commented
+# out, and a commented-out key keeps the renderer's own default, so uncomment
+# only what you want to change. These do not touch source assets or gameplay.
 #
-# The frame is built in this order, and the sections below follow it:
+# The frame is built in this order, and after the resolution it all runs at,
+# the sections below follow it:
 #
 #   primary rays -> path tracing -> ReSTIR PT resampling -> reconstruction
 #   -> DLSS upscaling -> tone mapping -> output
@@ -72,24 +73,9 @@ world_light_tessellation=4
 # 285x160, reconstructs to 854x480, then uses the final linear presentation
 # upscale. The other enabled modes reconstruct directly to the window extent.
 #
-# rtx_ray_reconstruction is accepted as an alias for this key alone. It used to
-# select the denoiser as well; that half now lives in rtx_denoiser below.
+# Ray Reconstruction is the denoiser whenever DLSS runs; off renders without
+# one. rtx_ray_reconstruction is accepted as an older spelling of this key.
 #rtx_dlss=quality
-
-# Which stage reconstructs the noisy ray-traced signal.
-#   ray-reconstruction  DLSS Ray Reconstruction denoises and upscales in one
-#                       pass. It replaces a conventional denoiser rather than
-#                       running after one, so the renderer's own spatial filter
-#                       is disabled whenever this is selected.
-#   spatial             A renderer-owned filter at internal resolution, ahead of
-#                       DLSS Super Resolution.
-#   off                 Hand the raw resampled signal straight to DLSS SR. This
-#                       is a diagnostic setting; it will be noisy.
-# No generic TAA pass ever runs between the path tracer and DLSS SR: DLSS
-# already performs temporal image reconstruction, and a second temporal filter
-# in front of it smears detail and hides motion-vector errors.
-# Default ray-reconstruction.
-#rtx_denoiser=ray-reconstruction
 
 # What the DLSS pass's input is multiplied by, 1 through 1024. Its output is
 # divided by the same factor before bloom and tone mapping, so this changes
@@ -117,9 +103,10 @@ world_light_tessellation=4
 #rtx_samples_per_pixel=1
 
 # Fresh indirect paths per internal pixel per frame, 1 through 32. Default 4.
-# ReSTIR PT is designed around roughly one new path per pixel per frame and
-# recovers quality by resampling rather than by tracing more; if you enable
-# rtx_indirect_mode=restir-pt, lower this before raising the resampling budget.
+# The most expensive setting there is: at 3838x2158 with rtx_dlss=performance
+# four paths take 21.5 ms of the frame and one takes 9. ReSTIR PT is built
+# around one new path per pixel, but with fewer it currently reads darker --
+# 3% at four against plain path tracing and 8% at one.
 #rtx_indirect_samples=4
 
 # Probability that a path's first bounce is aimed through one of its zone's
@@ -143,9 +130,9 @@ world_light_tessellation=4
 #rtx_portal_sampling=0.5
 
 # Fresh emitter candidates drawn at each diffuse vertex, 1 through 1024. The
-# primary vertex uses the complete alias table; the indirect vertex uses a
-# quantized world-stable local proposal and samples authored triangles uniformly
-# in area. Default 16.
+# primary vertex draws from every light in the level; a bounce vertex draws from
+# the lights its zone can see, falling back to a world-stable local grid where
+# the zone has none. Default 16.
 #rtx_light_candidates=16
 
 # Maximum polygon-light RIS estimates for one rotating diffuse path stratum.
@@ -165,19 +152,53 @@ world_light_tessellation=4
 #rtx_ndf_trim=0.9
 
 # Ceiling on one lighting sample, applied to direct, specular and each indirect
-# bounce. Default 1000, matching Q2RTX's MAX_OUTPUT_VALUE.
+# bounce, 0 through 100000. Default 0, off.
 #
-# An earlier note here claimed Q2RTX does not clamp path radiance and disabled
-# this by default. That was wrong: clamp_output() in its path tracer bounds
-# every lighting result to 1000 and turns a non-finite one into black, in
-# production rather than as a diagnostic. Without it one improbable path carries
-# unbounded radiance into the frame, which is a firefly by itself and worse
-# under resampling, where the reservoir selects it, holds it for the length of
-# its history and copies it into its neighbours.
+# Q2RTX's clamp_output() bounds every lighting result to 1000, its
+# MAX_OUTPUT_VALUE. This renderer does not by default: a clamp removes the
+# energy of the paths it cuts rather than estimating them better, so it darkens
+# the image where it acts. Any nonzero value also turns off the split primary
+# scheduler, which assumes an unclamped signal.
+#rtx_radiance_clamp=0
+
+# Multiplies every material's authored emissive factor, 0 through 1024.
+# Default 1, the level as authored.
 #
-# 0 disables it and is genuinely diagnostic: use it to see what the estimator
-# produces unbounded. Accepts 0 through 100000.
-#rtx_radiance_clamp=1000
+# One control over the whole level's light rather than a per-material edit:
+# the relationship between the lights stays as the artist set it and only the
+# overall level moves. It scales what the lights radiate and what next-event
+# estimation samples them as together, so a light stays as bright as it looks.
+#
+# Raising it forces more light into the scene and pushes exposure down to
+# compensate, so rtx_max_luminance below has to have the range for it.
+#rtx_light_scale=1.0
+
+# Radiance of a fully lit surface under the level's own vertex lighting,
+# 0 through 1024. Default 0, which is pure path-traced indirect.
+#
+# Alien Breed 3D II lights every surface from its sector brightness tables, not
+# from the emissive fixtures a path tracer can see: no palette entry in the game
+# survives the darkest shading row, so no texture is self-lit. The renderer uses
+# those tables from the second bounce onward. The primary hit stays fully path
+# traced -- emitters, ray-traced shadows, the lot -- and a ray that bounces onto
+# a surface reads its vertex lighting rather than spending the rays needed to
+# light it properly.
+#
+# Dark parts of a level are lit almost entirely through those bounces, which is
+# where a path tracer has the least signal and so the most grain. Raising this
+# lifts them further out of the noise; lowering it returns to a darker, more
+# physically literal image lit only by what emits.
+#
+# The unit is scene radiance, so read it against what the level emits:
+# floor_0101 emits 164 and the wall fixtures 1.5 to 7.7. One is about a 160th
+# of the brightest thing in frame and looks identical to zero. Measured on a
+# saved game, the tenth percentile of the frame runs 11 at zero, 16 at 8, 19 at
+# 64 and 20 at 128, and highlights begin to clip past 128, so the useful range
+# is 64 to 128.
+#
+# It is off by default. It lifts the dark end of the frame, but it did not fix
+# the grain around a bright fixture that it was built for.
+#rtx_bounce_light=0.0
 
 
 # --- ReSTIR PT ------------------------------------------------------------
@@ -204,8 +225,7 @@ world_light_tessellation=4
 #rtx_restir_temporal_history=20
 
 # Spatial neighbours resampled per pixel, 0 through 8. Default 2. Zero disables
-# spatial reuse. Neighbour pairs are resampled reciprocally, so a pair's forward
-# and reverse shifts are computed together rather than twice.
+# spatial reuse. Each neighbour costs a shift and its reverse, both traced.
 #rtx_restir_spatial_samples=2
 
 # Spatial search radius as a fraction of render height, 0 through 0.25.
@@ -215,22 +235,33 @@ world_light_tessellation=4
 # rtx_dlss changes.
 #rtx_restir_spatial_radius=0.03
 
-# How a shifted path decides it may stop being replayed and reconnect to the
-# stored path suffix.
-#   footprint  Footprint criterion of ReSTIR PT Enhanced. A ray's footprint
-#              grows with reconnection distance and with rougher scattering,
-#              and bounding it bounds how much the path contribution can
-#              deviate after the shift. This handles glossy transport that
-#              roughness cutoffs get wrong.
-#   fixed      Classic roughness-and-distance cutoffs, for A/B diagnosis only.
-# Default footprint.
-#rtx_restir_reconnection=footprint
+# Duplication-based history reduction strength, 0 through 4. Default 0, off.
+# Where one canonical path has been copied across many reservoirs, those
+# descendants are not independent samples. This counts how many neighbours
+# share a sample ancestry and lowers the temporal cap toward 1 as that
+# duplication rises; the value is the exponent of the curve.
+#
+# It is off because it is biased. The samples that spread are the bright ones
+# resampling favours, so lowering confidence where they have spread lowers the
+# weight of exactly those samples: a doorway-lit room read 11% dark at the
+# default reuse and 17% at 64 frames and 4 neighbours.
+#rtx_restir_history_reduction=0
 
-# Footprint threshold scaling the primary ray's footprint, 0.1 through 10.
-# Default 1. Larger values reconnect sooner and replay less of the path, which
-# is cheaper but reuses more aggressively. Only used when
-# rtx_restir_reconnection=footprint.
-#rtx_restir_connection_footprint=1.0
+# Probability that final shading discards the resampled reservoir and shades the
+# preserved initial sample instead, 0 through 1. Default 0, off.
+#
+# Ray Reconstruction expects temporally independent input noise, and ReSTIR
+# correlates samples across frames on purpose. This trades some of that reuse
+# back for independence. The probability is fixed: it used to be scaled by how
+# long a pixel had held its sample, but the long-lived samples are the bright
+# winners resampling favours, so that replaced exactly those and darkened the
+# image in proportion to the history length. Once the estimator itself was
+# unbiased, ReSTIR without decorrelation measured as free of sparkle after RR
+# as plain path tracing. Only meaningful while DLSS is on.
+#rtx_restir_decorrelation=0
+
+
+# --- Tone mapping and output ----------------------------------------------
 
 # Where the tone curve stops treating a luminance as signal, in photographic
 # stops, -24 through 0. Default 0.
@@ -277,7 +308,7 @@ world_light_tessellation=4
 # the clipped fraction is unchanged at 8.2% -- the lights are untouched and
 # only the amplification of the darks has gone. Lower it to let dark rooms
 # brighten further at the cost of that amplification.
-#rtx_min_luminance=0.0
+#rtx_min_luminance=0.01
 
 # The brightest scene luminance auto-exposure will meter to, 0.001 through
 # 1024. Default 16.
@@ -295,102 +326,16 @@ world_light_tessellation=4
 # higher.
 #
 # Lower it to force a bright scene to keep reading bright.
+#
+# This file sets 1024 so that a raised rtx_light_scale above has room. With the
+# level's own lights the meter stays under 16, where the two read the same.
 rtx_max_luminance=1024.0
 
-# Multiplies every material's authored emissive factor, 0 through 1024.
-# Default 1, the level as authored.
-#
-# One control over the whole level's light rather than a per-material edit:
-# the relationship between the lights stays as the artist set it and only the
-# overall level moves. It scales what the lights radiate and what next-event
-# estimation samples them as together, so a light stays as bright as it looks.
-#
-# Raising it forces more light into the scene and pushes exposure down to
-# compensate, so rtx_max_luminance above has to have the range for it.
-#rtx_light_scale=1.0
-
-# Radiance of a fully lit surface under the level's own vertex lighting,
-# 0 through 1024. Default 0, which is pure path-traced indirect.
-#
-# Alien Breed 3D II lights every surface from its sector brightness tables, not
-# from the emissive fixtures a path tracer can see: no palette entry in the game
-# survives the darkest shading row, so no texture is self-lit. The renderer uses
-# those tables from the second bounce onward. The primary hit stays fully path
-# traced -- emitters, ray-traced shadows, the lot -- and a ray that bounces onto
-# a surface reads its vertex lighting rather than spending the rays needed to
-# light it properly.
-#
-# Dark parts of a level are lit almost entirely through those bounces, which is
-# where a path tracer has the least signal and so the most grain. Raising this
-# lifts them further out of the noise; lowering it returns to a darker, more
-# physically literal image lit only by what emits.
-#
-# The unit is scene radiance, so read it against what the level emits:
-# floor_0101 emits 164 and the wall fixtures 1.5 to 7.7. One is about a 160th
-# of the brightest thing in frame and looks identical to zero. Measured on a
-# saved game, the tenth percentile of the frame runs 11 at zero, 16 at 8, 19 at
-# 64 and 20 at 128, and highlights begin to clip past 128, so the useful range
-# is 64 to 128.
-#
-# It is off by default. It lifts the dark end of the frame, but it did not fix
-# the grain around a bright fixture that it was built for.
-#rtx_bounce_light=0.0
-
-# Duplication-based history reduction strength, 0 through 4. Default 0, off.
-# Where one canonical path has been copied across many reservoirs, those
-# descendants are not independent samples. This counts how many neighbours
-# share a sample ancestry and lowers the temporal cap toward 1 as that
-# duplication rises; the value is the exponent of the curve.
-#
-# It is off because it is biased. The samples that spread are the bright ones
-# resampling favours, so lowering confidence where they have spread lowers the
-# weight of exactly those samples: a doorway-lit room read 11% dark at the
-# default reuse and 17% at 64 frames and 4 neighbours.
-#rtx_restir_history_reduction=0
-
-# Probability that final shading discards the resampled reservoir and shades the
-# preserved initial sample instead, 0 through 1. Default 0, off.
-#
-# Ray Reconstruction expects temporally independent input noise, and ReSTIR
-# correlates samples across frames on purpose. This trades some of that reuse
-# back for independence. The probability is fixed: it used to be scaled by how
-# long a pixel had held its sample, but the long-lived samples are the bright
-# winners resampling favours, so that replaced exactly those and darkened the
-# image in proportion to the history length. Once the estimator itself was
-# unbiased, ReSTIR without decorrelation measured as free of sparkle after RR
-# as plain path tracing. Only meaningful with rtx_denoiser=ray-reconstruction.
-#rtx_restir_decorrelation=0
-
-
-# --- Diagnostics ----------------------------------------------------------
-
-# Render-resolution diagnostic view. Every one of these is the buffer as it
-# exists before any upscaling, because a reconstructed image cannot establish
-# that the estimator underneath it is correct: DLSS will happily make a biased
-# estimator look stable. Always confirm a suspected artifact here first.
-#
-#   off            Normal shading.
-#   reference      High-sample-count reference path tracer. Slow, unbiased, and
-#                  the thing every other mode is compared against.
-#   canonical      Initial samples only, with no reuse at all.
-#   temporal       Temporal reuse only.
-#   spatial        Spatial reuse only.
-#   motion         Motion vector XY.
-#   reprojection   Reprojected previous-frame coordinate.
-#   rejection      Why temporal history was refused for this pixel.
-#   history-age    Frames this reservoir has survived.
-#   reservoir-m    Represented sample count M.
-#   ancestry       Sample ancestry ID, as a colour.
-#   duplication    Local duplication ratio driving history reduction.
-#
-# If an artifact is visible in canonical, it is a path tracer bug. If it first
-# appears in temporal or spatial, it is a resampling or reprojection bug. If it
-# only appears after DLSS, check the motion, depth and jitter inputs.
-# Default off.
-#rtx_debug_view=off
-
-
-# --- Output and tone mapping ----------------------------------------------
+# Q2RTX-compatible post-tone-curve exposure bias, -5 through 0 EV. Default -1.
+# This is applied downstream of the estimator on purpose: changing exposure must
+# not change which light path is statistically important, so it never reaches a
+# ReSTIR target function.
+#rtx_exposure_bias=-1
 
 # Display output: sdr uses exact 8-bit sRGB; hdr requires native FP16 scRGB and
 # fails clearly if Windows HDR is unavailable; auto explicitly follows the
@@ -403,9 +348,3 @@ rtx_max_luminance=1024.0
 # saturation accepts 0 through 200%.
 #rtx_hdr_peak_nits=800
 #rtx_hdr_saturation=100
-
-# Q2RTX-compatible post-tone-curve exposure bias, -5 through 0 EV. Default -1.
-# This is applied downstream of the estimator on purpose: changing exposure must
-# not change which light path is statistically important, so it never reaches a
-# ReSTIR target function.
-#rtx_exposure_bias=-1

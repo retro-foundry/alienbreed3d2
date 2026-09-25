@@ -123,43 +123,6 @@ static int desktop_settings_parse_float_range(const char *text, double minimum,
     return 1;
 }
 
-/*
- * Render-resolution diagnostic views. Every name maps to a buffer inspected
- * before any upscaling runs, because a reconstructed image cannot establish
- * that the estimator underneath it is correct.
- */
-static int desktop_settings_parse_debug_view(const char *value,
-                                             RendererDebugView *out)
-{
-    static const struct {
-        const char *name;
-        RendererDebugView view;
-    } views[] = {
-        {"off", RENDERER_DEBUG_VIEW_OFF},
-        {"reference", RENDERER_DEBUG_VIEW_REFERENCE},
-        {"canonical", RENDERER_DEBUG_VIEW_CANONICAL},
-        {"temporal", RENDERER_DEBUG_VIEW_TEMPORAL},
-        {"spatial", RENDERER_DEBUG_VIEW_SPATIAL},
-        {"motion", RENDERER_DEBUG_VIEW_MOTION},
-        {"reprojection", RENDERER_DEBUG_VIEW_REPROJECTION},
-        {"rejection", RENDERER_DEBUG_VIEW_REJECTION},
-        {"history-age", RENDERER_DEBUG_VIEW_HISTORY_AGE},
-        {"history_age", RENDERER_DEBUG_VIEW_HISTORY_AGE},
-        {"reservoir-m", RENDERER_DEBUG_VIEW_RESERVOIR_M},
-        {"reservoir_m", RENDERER_DEBUG_VIEW_RESERVOIR_M},
-        {"ancestry", RENDERER_DEBUG_VIEW_ANCESTRY},
-        {"duplication", RENDERER_DEBUG_VIEW_DUPLICATION},
-    };
-    size_t index;
-    for (index = 0u; index < sizeof(views) / sizeof(views[0]); ++index) {
-        if (desktop_settings_equals_ci(value, views[index].name)) {
-            *out = views[index].view;
-            return 1;
-        }
-    }
-    return 0;
-}
-
 static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
                                        size_t line_number, char *error, size_t error_size)
 {
@@ -398,10 +361,8 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
     }
     /*
      * The DLSS Super Resolution quality ladder, which also fixes the internal
-     * resolution every ray-traced and ReSTIR buffer runs at. rtx_denoiser
-     * separately decides whether Ray Reconstruction or a renderer-owned filter
-     * reconstructs the noisy signal, so the older rtx_ray_reconstruction
-     * spelling survives as an alias for this ladder alone.
+     * resolution every ray-traced and ReSTIR buffer runs at. The older
+     * rtx_ray_reconstruction spelling survives as an alias.
      */
     if (desktop_settings_equals_ci(key, "rtx_dlss") ||
         desktop_settings_equals_ci(key, "rtx_ray_reconstruction")) {
@@ -426,27 +387,11 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         }
         return 1;
     }
-    /*
-     * Which stage reconstructs the noisy ray-traced signal. Ray Reconstruction
-     * replaces a conventional denoiser rather than running after one, so the
-     * renderer's own spatial filter is disabled whenever it is selected.
-     */
     if (desktop_settings_equals_ci(key, "rtx_denoiser")) {
-        if (desktop_settings_equals_ci(value, "ray-reconstruction") ||
-            desktop_settings_equals_ci(value, "ray_reconstruction")) {
-            settings->ray_tracing.denoiser =
-                RENDERER_DENOISER_RAY_RECONSTRUCTION;
-        } else if (desktop_settings_equals_ci(value, "spatial")) {
-            settings->ray_tracing.denoiser = RENDERER_DENOISER_SPATIAL;
-        } else if (desktop_settings_equals_ci(value, "off")) {
-            settings->ray_tracing.denoiser = RENDERER_DENOISER_OFF;
-        } else {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_denoiser must be "
-                           "ray-reconstruction, spatial, or off", line_number);
-            return 0;
-        }
-        return 1;
+        (void)snprintf(error, error_size,
+                       "ab3d2.ini line %zu: rtx_denoiser was retired; Ray Reconstruction is the only denoiser, and rtx_dlss=off runs without one",
+                       line_number);
+        return 0;
     }
     /* Which estimator produces indirect lighting. */
     if (desktop_settings_equals_ci(key, "rtx_indirect_mode")) {
@@ -507,33 +452,17 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.restir_spatial_radius_set = UINT8_MAX;
         return 1;
     }
-    /* Which consecutive vertex pairs a shifted path may reconnect through. */
     if (desktop_settings_equals_ci(key, "rtx_restir_reconnection")) {
-        if (desktop_settings_equals_ci(value, "footprint")) {
-            settings->ray_tracing.restir_reconnection =
-                RENDERER_RECONNECTION_FOOTPRINT;
-        } else if (desktop_settings_equals_ci(value, "fixed")) {
-            settings->ray_tracing.restir_reconnection =
-                RENDERER_RECONNECTION_FIXED;
-        } else {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_restir_reconnection must be "
-                           "footprint or fixed", line_number);
-            return 0;
-        }
-        return 1;
+        (void)snprintf(error, error_size,
+                       "ab3d2.ini line %zu: rtx_restir_reconnection was retired; ReSTIR shifts reconnect at the first bounce with no replayed prefix, so there is no criterion to choose",
+                       line_number);
+        return 0;
     }
     if (desktop_settings_equals_ci(key, "rtx_restir_connection_footprint")) {
-        if (!desktop_settings_parse_float_range(
-                value, 0.1, 10.0,
-                &settings->ray_tracing.restir_connection_footprint)) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_restir_connection_footprint must be 0.1 through 10",
-                           line_number);
-            return 0;
-        }
-        settings->ray_tracing.restir_connection_footprint_set = UINT8_MAX;
-        return 1;
+        (void)snprintf(error, error_size,
+                       "ab3d2.ini line %zu: rtx_restir_connection_footprint was retired; ReSTIR shifts reconnect at the first bounce with no replayed prefix, so there is no footprint to bound",
+                       line_number);
+        return 0;
     }
     if (desktop_settings_equals_ci(key, "rtx_noise_floor")) {
         if (!desktop_settings_parse_float_range(
@@ -648,18 +577,11 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.restir_decorrelation_set = UINT8_MAX;
         return 1;
     }
-    /* Render-resolution diagnostic view, inspected before any upscaling. */
     if (desktop_settings_equals_ci(key, "rtx_debug_view")) {
-        if (!desktop_settings_parse_debug_view(
-                value, &settings->ray_tracing.debug_view)) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_debug_view must be off, reference, "
-                           "canonical, temporal, spatial, motion, reprojection, "
-                           "rejection, history-age, reservoir-m, ancestry, or duplication",
-                           line_number);
-            return 0;
-        }
-        return 1;
+        (void)snprintf(error, error_size,
+                       "ab3d2.ini line %zu: rtx_debug_view was retired; none of its views was ever implemented; AB3D2_DXR_DEBUG_VIEW selects the render-resolution buffers that exist",
+                       line_number);
+        return 0;
     }
     if (desktop_settings_equals_ci(key, "rtx_output")) {
         if (desktop_settings_equals_ci(value, "auto")) {

@@ -53,56 +53,6 @@ typedef enum {
     RENDERER_INDIRECT_RESTIR_PT
 } RendererIndirectMode;
 
-/*
- * Which stage owns reconstruction of the noisy ray-traced signal. Ray
- * Reconstruction replaces a conventional denoiser rather than running after
- * one, so selecting it disables the renderer's own spatial filter.
- */
-typedef enum {
-    RENDERER_DENOISER_DEFAULT = 0,
-    /* DLSS Ray Reconstruction denoises and upscales in one pass. */
-    RENDERER_DENOISER_RAY_RECONSTRUCTION,
-    /* Renderer-owned render-resolution spatial filter ahead of DLSS SR. */
-    RENDERER_DENOISER_SPATIAL,
-    /* Hand the raw resampled signal straight to DLSS SR. Diagnostic. */
-    RENDERER_DENOISER_OFF
-} RendererDenoiserMode;
-
-/*
- * How ReSTIR PT decides that a pair of consecutive path vertices may be
- * reconnected, which bounds how far a shifted path has to be replayed.
- */
-typedef enum {
-    RENDERER_RECONNECTION_DEFAULT = 0,
-    /* Footprint criterion of ReSTIR PT Enhanced. */
-    RENDERER_RECONNECTION_FOOTPRINT,
-    /* Classic roughness-and-distance cutoffs. Diagnostic control. */
-    RENDERER_RECONNECTION_FIXED
-} RendererReconnectionMode;
-
-/*
- * Render-resolution diagnostic views. Every one of them is inspected before any
- * upscaling, because a reconstructed image cannot prove the estimator
- * underneath it is correct.
- */
-typedef enum {
-    RENDERER_DEBUG_VIEW_OFF = 0,
-    /* Estimator isolation. */
-    RENDERER_DEBUG_VIEW_REFERENCE,
-    RENDERER_DEBUG_VIEW_CANONICAL,
-    RENDERER_DEBUG_VIEW_TEMPORAL,
-    RENDERER_DEBUG_VIEW_SPATIAL,
-    /* Temporal correspondence. */
-    RENDERER_DEBUG_VIEW_MOTION,
-    RENDERER_DEBUG_VIEW_REPROJECTION,
-    RENDERER_DEBUG_VIEW_REJECTION,
-    RENDERER_DEBUG_VIEW_HISTORY_AGE,
-    /* Reservoir statistics. */
-    RENDERER_DEBUG_VIEW_RESERVOIR_M,
-    RENDERER_DEBUG_VIEW_ANCESTRY,
-    RENDERER_DEBUG_VIEW_DUPLICATION
-} RendererDebugView;
-
 /* Fresh current-frame path-sampling defaults. Four stratified diffuse paths
  * interleave one additional secondary-light RIS estimate every third frame. */
 enum {
@@ -327,11 +277,6 @@ typedef struct {
     /* Spatial search radius as a fraction of render height. */
     float restir_spatial_radius;
     uint8_t restir_spatial_radius_set;
-    /* Which vertex pairs ReSTIR PT may reconnect. */
-    RendererReconnectionMode restir_reconnection;
-    /* Footprint threshold scale for the footprint reconnection criterion. */
-    float restir_connection_footprint;
-    uint8_t restir_connection_footprint_set;
     /* Duplication-based history reduction strength; zero disables it. */
     float restir_history_reduction;
     uint8_t restir_history_reduction_set;
@@ -361,10 +306,6 @@ typedef struct {
      * resolution the path tracer and every ReSTIR buffer run at.
      */
     RendererRayReconstructionMode reconstruction;
-    /* Which stage reconstructs the noisy ray-traced signal. */
-    RendererDenoiserMode denoiser;
-    /* Render-resolution diagnostic view, inspected before any upscaling. */
-    RendererDebugView debug_view;
     /* Display-output policy. Hidden validation windows are always forced SDR. */
     RendererOutputMode output;
     /* Zero keeps Q2RTX's 800-nit scene default. */
