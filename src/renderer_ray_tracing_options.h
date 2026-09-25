@@ -233,6 +233,17 @@ enum {
  * useful range around 64 to 128. One is about a 160th of the brightest thing
  * in frame and looks identical to zero. */
 #define RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE 0.0f
+/*
+ * Whether authored emission follows the level's own animated vertex lighting.
+ * Each world vertex's source lighting -- the fraction of fully lit the source
+ * shades it at -- multiplies the light its surface emits, the texture the
+ * camera sees included, so a zone whose CurrentPointBrights words carry an
+ * Anim_BrightTable index pulses its emissive panels with newanims.s:brightanim
+ * -- the floor_0101 panel beside Level A's start breathes on a four second
+ * cycle -- and a zone the authors lit dimly has dim panels. Off leaves every
+ * world emitter at its authored brightness.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_EMISSIVE_ANIMATION 1
 
 typedef struct {
     /*
@@ -299,6 +310,9 @@ typedef struct {
     uint8_t rr_input_scale_set;
     float portal_sampling;
     uint8_t portal_sampling_set;
+    /* rtx_emissive_animation; see RENDERER_RAY_TRACING_DEFAULT_EMISSIVE_ANIMATION. */
+    uint8_t emissive_animation;
+    uint8_t emissive_animation_set;
     /*
      * Probability that final shading discards the resampled reservoir and
      * shades the preserved initial sample instead, trading variance for the

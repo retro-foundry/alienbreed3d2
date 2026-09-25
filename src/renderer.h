@@ -94,6 +94,13 @@ uint64_t renderer_last_frame_reprojected_temporal_outlier_pixels(
     const Renderer *renderer);
 uint64_t renderer_last_frame_reprojected_pixel_count(const Renderer *renderer);
 
+/* Hidden GPU-smoke fold of the per-vertex emission scale the ray-traced
+ * backend uploaded for the last presented scene; see rtx_emissive_animation.
+ * It is how the smoke sees newanims.s:brightanim reach that backend while
+ * fresh-sample noise still swamps any image comparison. Zero on backends that
+ * trace no authored emission. */
+uint64_t renderer_last_scene_emissive_scale_fold(const Renderer *renderer);
+
 /* Hidden GPU-smoke count of complete RTX scene-layout rebuilds. */
 uint64_t renderer_scene_rebuild_count(const Renderer *renderer);
 

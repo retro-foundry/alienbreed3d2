@@ -42,6 +42,7 @@ public:
     uint64_t last_scene_temporal_outlier_pixels() const;
     uint64_t last_scene_reprojected_temporal_outlier_pixels() const;
     uint64_t last_scene_reprojected_pixel_count() const;
+    uint64_t last_scene_emissive_scale_fold() const;
     uint64_t scene_rebuild_count() const;
     bool prepare_vector_materials(const uint32_t *asset_ids, size_t asset_count,
                                   size_t &prepared, std::string &error);

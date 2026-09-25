@@ -64,14 +64,23 @@ int main()
         return 1;
     }
 
-    /* Source Gouraud brightness remains renderer-neutral frame data for the
-     * OpenGL path, but it must not perturb DXR geometry or PBR emission. */
+    /* Source Gouraud brightness scales authored emission, so a brightness-only
+     * frame rewrites vertices without moving anything. The scene zeroes the
+     * light hash when rtx_emissive_animation is off, and then it is ignored. */
     vertices[1].source_light_level += 7;
     const DxrSceneGeometryHashes relit = dxr_scene_geometry_hashes(frame);
-    if (!expect(dxr_scene_classify_update(true, moved, relit),
-                DxrSceneUpdateKind::unchanged, "ignored Gouraud brightness") ||
+    DxrSceneGeometryHashes moved_unlit = moved;
+    DxrSceneGeometryHashes relit_unlit = relit;
+    moved_unlit.vertex_light = 0u;
+    relit_unlit.vertex_light = 0u;
+    if (relit.vertex_data != moved.vertex_data ||
+        !expect(dxr_scene_classify_update(true, moved, relit),
+                DxrSceneUpdateKind::geometry, "animated Gouraud brightness") ||
         !expect(dxr_scene_classify_update(true, relit, relit),
-                DxrSceneUpdateKind::unchanged, "identical relit frame")) {
+                DxrSceneUpdateKind::unchanged, "identical relit frame") ||
+        !expect(dxr_scene_classify_update(true, moved_unlit, relit_unlit),
+                DxrSceneUpdateKind::unchanged,
+                "Gouraud brightness with emissive animation off")) {
         return 1;
     }
 

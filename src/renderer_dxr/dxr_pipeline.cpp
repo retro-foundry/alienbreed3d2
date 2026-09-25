@@ -729,6 +729,10 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.portal_sampling_set != 0u) {
         portal_sampling_ = options.portal_sampling;
     }
+    scene_.set_emissive_animation(
+        options.emissive_animation_set != 0u ?
+            options.emissive_animation != 0u :
+            RENDERER_RAY_TRACING_DEFAULT_EMISSIVE_ANIMATION != 0);
     if (options.restir_history_reduction_set != 0u) {
         restir_history_reduction_ = options.restir_history_reduction;
     }

@@ -1120,6 +1120,7 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
                               uint32_t material_index,
                               uint32_t material_width,
                               uint32_t material_height,
+                              bool emissive_animation,
                               std::vector<DxrSceneVertex> &vertices,
                               std::string &error)
 {
@@ -1221,12 +1222,20 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
         vertex.primitive = static_cast<uint32_t>(DxrScenePrimitive::world);
         vertex.texture_window_origin = texture_window_origin;
         vertex.texture_window_extent = texture_window_extent;
-        /* PBR emission is authored radiance. Source Gouraud/ZoneT values are
-         * raster-lighting inputs retained for OpenGL, not an emitter control. */
-        vertex.emissive_scale = 1.0f;
+        const float source_light_level =
+            static_cast<float>(source.source_light_level);
+        /*
+         * The vertex lighting, 0 to 1, which newanims.s:brightanim animates.
+         * The source draws an emissive texture at that brightness like any
+         * other, so authored emission is multiplied by it -- the texture the
+         * camera sees and the light it casts -- unless rtx_emissive_animation
+         * is off.
+         */
+        vertex.emissive_scale = emissive_animation ?
+            source_lighting::world_shade(source_light_level) : 1.0f;
         /* What a bounce ray landing here will read instead of tracing on. */
-        vertex.source_irradiance = source_lighting::world_irradiance(
-            static_cast<float>(source.source_light_level));
+        vertex.source_irradiance =
+            source_lighting::world_irradiance(source_light_level);
         vertex.source_zone_index = geometry.source_zone_index;
         vertices.push_back(vertex);
     }
@@ -1642,6 +1651,28 @@ bool DxrScene::view_weapon_pose_hash(uint64_t &pose_hash) const
     return false;
 }
 
+void DxrScene::set_emissive_animation(bool enabled)
+{
+    if (enabled == emissive_animation_) {
+        return;
+    }
+    emissive_animation_ = enabled;
+    /* Every world vertex carries the scale, so the next frame recompiles. */
+    has_hashes_ = false;
+}
+
+uint64_t DxrScene::emissive_scale_fold() const
+{
+    uint64_t fold = UINT64_C(1469598103934665603);
+    for (const DxrSceneVertex &vertex : vertices_) {
+        uint32_t bits = 0u;
+        std::memcpy(&bits, &vertex.emissive_scale, sizeof(bits));
+        fold ^= static_cast<uint64_t>(bits);
+        fold *= UINT64_C(1099511628211);
+    }
+    return fold;
+}
+
 void DxrScene::set_light_scale(float scale)
 {
     if (!std::isfinite(scale) || scale < 0.0f || scale == light_scale_) {
@@ -1806,6 +1837,9 @@ bool DxrScene::update(const SceneFrame &frame,
         }
     }
     DxrSceneGeometryHashes hashes = dxr_scene_geometry_hashes(frame);
+    if (!emissive_animation_) {
+        hashes.vertex_light = 0u;
+    }
     const uint64_t world_layout = hashes.layout;
     /*
      * Reserve the view weapon a fixed vertex run, high-water across every
@@ -1893,9 +1927,15 @@ bool DxrScene::update(const SceneFrame &frame,
                        hashes, world_layout, error);
     }
 
+    /*
+     * A Gouraud-only change never moves a triangle, so every instance keeps its
+     * BLAS. The vertices still have to be rewritten, static ones included,
+     * because they carry the emission scale that brightanim just moved.
+     */
+    const bool light_changed = scene_hashes_.vertex_light != hashes.vertex_light;
     bool static_changed = false;
     if (!compile_geometry_update(frame, view_weapon, world_bitmaps,
-                                 world_vectors,
+                                 world_vectors, light_changed,
                                  static_changed, error)) {
         return false;
     }
@@ -2033,6 +2073,7 @@ bool DxrScene::compile(const SceneFrame &frame,
             if (!append_geometry_vertices(geometry, material_index,
                                           images[material_index].width,
                                           images[material_index].height,
+                                          emissive_animation_,
                                           compiled_vertices, error)) {
                 return false;
             }
@@ -2620,6 +2661,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                                        const DxrViewWeaponCompilation &view_weapon,
                                        const DxrWorldBitmapCompilation &world_bitmaps,
                                        const DxrWorldVectorCompilation &world_vectors,
+                                       bool light_changed,
                                        bool &static_changed,
                                        std::string &error)
 {
@@ -2672,7 +2714,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
             static_changed = true;
             return true;
         }
-        if (instance_changed) {
+        if (instance_changed || light_changed) {
             std::vector<DxrSceneVertex> updated_vertices;
             updated_vertices.reserve(previous.vertex_count);
             for (uint32_t surface_index = 0;
@@ -2688,7 +2730,7 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
                         material_index,
                         materials_[material_index].width,
                         materials_[material_index].height,
-                        updated_vertices, error)) {
+                        emissive_animation_, updated_vertices, error)) {
                     return false;
                 }
             }

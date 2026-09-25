@@ -38,11 +38,29 @@ uint64_t hash_instance_vertices(uint64_t hash,
     return hash;
 }
 
+uint64_t hash_instance_vertex_light(uint64_t hash,
+                                    const SceneGeometryInstance &instance)
+{
+    const SceneMesh &mesh = instance.mesh;
+    for (uint32_t surface_index = 0;
+         mesh.surfaces && surface_index < mesh.surface_count; ++surface_index) {
+        const SceneGeometry &geometry = mesh.surfaces[surface_index].geometry;
+        for (uint32_t vertex_index = 0;
+             geometry.vertices && vertex_index < geometry.vertex_count;
+             ++vertex_index) {
+            const SceneVertex &vertex = geometry.vertices[vertex_index];
+            hash = hash_bytes(hash, &vertex.source_light_level,
+                              sizeof(vertex.source_light_level));
+        }
+    }
+    return hash;
+}
+
 }  // namespace
 
 DxrSceneGeometryHashes dxr_scene_geometry_hashes(const SceneFrame &frame)
 {
-    DxrSceneGeometryHashes hashes = {fnv_offset, fnv_offset};
+    DxrSceneGeometryHashes hashes = {fnv_offset, fnv_offset, fnv_offset};
     for (size_t command_index = 0; command_index < frame.count;
          ++command_index) {
         const SceneCommand &command = frame.commands[command_index];
@@ -82,6 +100,8 @@ DxrSceneGeometryHashes dxr_scene_geometry_hashes(const SceneFrame &frame)
         }
         hashes.vertex_data =
             hash_instance_vertices(hashes.vertex_data, instance);
+        hashes.vertex_light =
+            hash_instance_vertex_light(hashes.vertex_light, instance);
     }
     return hashes;
 }
@@ -139,7 +159,13 @@ DxrSceneUpdateKind dxr_scene_classify_update(
     if (!has_previous || previous.layout != current.layout) {
         return DxrSceneUpdateKind::rebuild;
     }
-    return previous.vertex_data == current.vertex_data ?
+    /*
+     * A brightness-only frame still reaches the geometry path: it rewrites the
+     * vertex buffer's emission scale while every BLAS keeps its refit state,
+     * so newanims.s:brightanim never resets the temporal history.
+     */
+    return previous.vertex_data == current.vertex_data &&
+            previous.vertex_light == current.vertex_light ?
         DxrSceneUpdateKind::unchanged : DxrSceneUpdateKind::geometry;
 }
 

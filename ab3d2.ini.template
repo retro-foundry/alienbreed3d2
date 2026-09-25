@@ -185,6 +185,17 @@ world_light_tessellation=4
 # compensate, so rtx_max_luminance below has to have the range for it.
 #rtx_light_scale=1.0
 
+# Let emissive surfaces follow the level's own animated lighting, on or off.
+# Default on.
+#
+# The source shades every point by its zone's CurrentPointBrights words, and
+# some zones animate them: the floor light panel beside Level A's start pulses
+# on a four second cycle. On multiplies each world emitter by its vertex
+# lighting, the glowing texture and the light it casts alike, so the panel
+# pulses as the original does and a dimly lit zone's panels are dim. Off leaves
+# every emitter at its authored brightness.
+#rtx_emissive_animation=on
+
 # Radiance of a fully lit surface under the level's own vertex lighting,
 # 0 through 1024. Default 0, which is pure path-traced indirect.
 #

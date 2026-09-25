@@ -58,10 +58,12 @@ struct DxrSceneVertex {
      */
     uint32_t texture_window_origin;
     uint32_t texture_window_extent;
-    /* Explicit authored-emission strength. World PBR surfaces, ordinary
-     * entities, vectors, and the weapon use neutral one. Glare bitmaps retain
-     * their measured additive strength without turning source Gouraud/ZoneT
-     * raster lighting into emitted radiance. */
+    /* Scales authored emission. On world geometry it is the vertex's source
+     * lighting (source_lighting::world_irradiance) while
+     * rtx_emissive_animation is on, so an emissive panel in a zone whose
+     * CurrentPointBrights words carry an Anim_BrightTable index pulses with
+     * newanims.s:brightanim, and one when it is off. Entities, vectors and the
+     * weapon use one; glare bitmaps carry their measured additive strength. */
     float emissive_scale;
     /* Camera-local source position for the view weapon. World geometry leaves
      * this zero. Keeping the small authored offset avoids losing its motion to
@@ -234,6 +236,15 @@ public:
      */
     void set_light_scale(float scale);
     float light_scale() const { return light_scale_; }
+    /* rtx_emissive_animation; see
+     * RENDERER_RAY_TRACING_DEFAULT_EMISSIVE_ANIMATION. */
+    void set_emissive_animation(bool enabled);
+    /*
+     * Fold of every vertex's emission scale. The hidden GPU smoke uses it to
+     * assert that newanims.s:brightanim reaches the vertex buffer, which an
+     * image comparison cannot show while the sampler is still boiling.
+     */
+    uint64_t emissive_scale_fold() const;
     uint32_t emitter_count() const {
         return static_cast<uint32_t>(emissive_triangles_.size());
     }
@@ -288,6 +299,7 @@ private:
                                  const DxrViewWeaponCompilation &view_weapon,
                                  const DxrWorldBitmapCompilation &world_bitmaps,
                                  const DxrWorldVectorCompilation &world_vectors,
+                                 bool light_changed,
                                  bool &static_changed, std::string &error);
     void release_gpu();
 
@@ -410,6 +422,8 @@ private:
      */
     std::vector<uint32_t> zone_visibility_;
     float light_scale_ = RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE;
+    bool emissive_animation_ =
+        RENDERER_RAY_TRACING_DEFAULT_EMISSIVE_ANIMATION != 0;
     std::vector<uint32_t> zone_light_ranges_;
     std::vector<uint32_t> zone_lights_;
     /* The level's openings as the frame published them, and the GPU tables

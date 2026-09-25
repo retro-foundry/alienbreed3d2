@@ -262,6 +262,11 @@ uint64_t DxrRenderer::last_scene_reprojected_pixel_count() const
         UINT64_C(0);
 }
 
+uint64_t DxrRenderer::last_scene_emissive_scale_fold() const
+{
+    return pipeline_ ? pipeline_->scene_emissive_scale_fold() : UINT64_C(0);
+}
+
 uint64_t DxrRenderer::scene_rebuild_count() const
 {
     return pipeline_ ? pipeline_->scene_rebuild_count() : UINT64_C(0);

@@ -142,6 +142,11 @@ default, so the shipped template lists them commented out with their defaults:
   path-radiance clamp control. `rtx_ndf_trim=0.9` trims the active sampled GGX
   visible-normal distribution, while `rtx_exposure_bias=-5..0` is applied
   after the tone curve in log2 stops and defaults to Q2RTX's `-1` EV;
+- `rtx_emissive_animation=on|off` multiplies authored emission, the visible
+  texture and the light it casts, by the level's animated vertex lighting, so
+  the floor light panel beside Level A's start pulses with
+  `newanims.s:brightanim` and dimly lit zones have dim panels. It defaults to
+  `on`; `off` leaves every world emitter at its authored brightness;
 - `rtx_portal_sampling=0..0.9` is the probability that a path's first bounce
   is aimed at a uniformly chosen point on one of its zone's openings instead
   of drawn from the cosine distribution. It defaults to `0.5`; `0` is plain

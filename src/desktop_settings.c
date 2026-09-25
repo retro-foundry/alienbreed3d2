@@ -524,6 +524,17 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.portal_sampling_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_emissive_animation")) {
+        if (!desktop_settings_parse_bool(
+                value, &settings->ray_tracing.emissive_animation)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_emissive_animation must be a boolean",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.emissive_animation_set = UINT8_MAX;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_max_luminance")) {
         if (!desktop_settings_parse_float_range(
                 value, 0.001, 1024.0,

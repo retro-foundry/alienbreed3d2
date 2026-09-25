@@ -59,7 +59,10 @@ inline constexpr float shade_curve[shade_row_count] = {
 inline constexpr float world_full_brightness_level = 300.0f;
 
 /*
- * Irradiance on a world surface, as a fraction of fully lit.
+ * The brightness the source draws a world surface at, from 0 to 1: one at or
+ * below world_full_brightness_level, falling along shade_curve past it. This
+ * is the vertex lighting value itself, and it is what an emissive texture is
+ * multiplied by.
  *
  * renderer_opengl.c selects the shading row as `source_light_level - 300`
  * plus a term in view depth. That depth term is distance fog: a raster
@@ -68,13 +71,10 @@ inline constexpr float world_full_brightness_level = 300.0f;
  * light the same wall correctly through a bounce, so only the view-independent
  * part is converted here.
  */
-inline float world_irradiance(float source_light_level)
+inline float world_shade(float source_light_level)
 {
-    if (!(source_light_level > 0.0f)) {
-        return 0.0f;
-    }
     float shade = source_light_level - world_full_brightness_level;
-    if (shade < 0.0f) {
+    if (!(shade > 0.0f)) {
         shade = 0.0f;
     }
     const float last = static_cast<float>(shade_row_count - 1u);
@@ -91,6 +91,16 @@ inline float world_irradiance(float source_light_level)
      */
     return shade_curve[lower] +
         (shade_curve[upper] - shade_curve[lower]) * fraction;
+}
+
+/* Irradiance on a world surface, as a fraction of fully lit: world_shade, with
+ * a level of zero or less read as no lighting at all. */
+inline float world_irradiance(float source_light_level)
+{
+    if (!(source_light_level > 0.0f)) {
+        return 0.0f;
+    }
+    return world_shade(source_light_level);
 }
 
 /*

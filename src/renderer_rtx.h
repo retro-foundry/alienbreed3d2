@@ -91,6 +91,7 @@ uint64_t renderer_rtx_last_frame_reprojected_temporal_outlier_pixels(
     const RendererRtx *renderer);
 uint64_t renderer_rtx_last_frame_reprojected_pixel_count(
     const RendererRtx *renderer);
+uint64_t renderer_rtx_last_scene_emissive_scale_fold(const RendererRtx *renderer);
 /* Monotonic diagnostic count of complete CPU/GPU scene-layout rebuilds. */
 uint64_t renderer_rtx_scene_rebuild_count(const RendererRtx *renderer);
 
