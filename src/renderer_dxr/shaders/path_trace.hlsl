@@ -404,6 +404,21 @@ cbuffer RayRootConstants : register(b1)
 };
 
 /*
+ * Every diagnostic counter goes through here. The buffer is cleared and read
+ * back only by validation runs, so any other frame nothing reads what is added
+ * to it -- and a counter every thread adds to is one L2 address the whole
+ * dispatch queues behind. Ungated, ReSTIR temporal reuse spent almost its
+ * entire pass waiting on its own counters: the SMs were full and issued on 2%
+ * of cycles.
+ */
+void recordDiagnostic(uint slot, uint value)
+{
+    if (ValidationEnabled != 0u) {
+        InterlockedAdd(Diagnostics[slot], value);
+    }
+}
+
+/*
  * ReSTIR reuse counters. Whether reuse is succeeding is not visible in the
  * image -- a rejected shift and an accepted one that contributes little look
  * identical -- so it is counted instead of inferred.
@@ -938,9 +953,9 @@ void recordIndirectTemporalDiagnostic(bool accepted, uint effectiveCount)
         (IndirectTemporalWindow & IndirectTemporalWindowMask) <= 1u) {
         return;
     }
-    InterlockedAdd(Diagnostics[accepted ? 16u : 17u], 1u);
+    recordDiagnostic(accepted ? 16u : 17u, 1u);
     uint bucket = clamp(effectiveCount, 1u, 4u) - 1u;
-    InterlockedAdd(Diagnostics[18u + bucket], 1u);
+    recordDiagnostic(18u + bucket, 1u);
 }
 
 /* The opponent-color portion of IndirectSignal is linear and reversible.
@@ -2196,7 +2211,7 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
     shiftedTarget = 0.0;
     jacobian = 0.0;
     if (!reservoirValid(source)) {
-        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 0u], 1u); return false;
+        recordDiagnostic(DiagnosticShiftFail + 0u, 1u); return false;
     }
 
     bool environmentSample = source.rcVertexLength == 0u;
@@ -2214,32 +2229,32 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
         float3 offset = source.translatedWorldPosition - offsetOrigin;
         float lengthSquared = dot(offset, offset);
         if (!(lengthSquared > 1.0e-9)) {
-            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 1u], 1u); return false;
+            recordDiagnostic(DiagnosticShiftFail + 1u, 1u); return false;
         }
         distance = sqrt(lengthSquared);
         direction = offset / distance;
         /* The reconnection vertex must still face the new receiver. */
         float emissionCosine = dot(source.worldNormal, -direction);
         if (!(emissionCosine > 1.0e-4)) {
-            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 2u], 1u); return false;
+            recordDiagnostic(DiagnosticShiftFail + 2u, 1u); return false;
         }
         float3 sourceOffset = source.translatedWorldPosition -
             source.primaryPosition;
         float sourceLengthSquared = dot(sourceOffset, sourceOffset);
         if (!(sourceLengthSquared > 1.0e-9)) {
-            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 3u], 1u); return false;
+            recordDiagnostic(DiagnosticShiftFail + 3u, 1u); return false;
         }
         float sourceCosine = dot(source.worldNormal,
                                  -normalize(sourceOffset));
         if (!(sourceCosine > 1.0e-4)) {
-            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 4u], 1u); return false;
+            recordDiagnostic(DiagnosticShiftFail + 4u, 1u); return false;
         }
         /* Equation (11) of the ReSTIR GI paper: the ratio of solid angles the
          * reconnection subtends from the two receivers. */
         jacobian = (emissionCosine * sourceLengthSquared) /
             (sourceCosine * lengthSquared);
         if (isnan(jacobian) || isinf(jacobian) || jacobian <= 0.0) {
-            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 5u], 1u); return false;
+            recordDiagnostic(DiagnosticShiftFail + 5u, 1u); return false;
         }
         /*
          * A reconnection that is nearly degenerate -- the receiver almost in
@@ -2257,7 +2272,7 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
          */
         if (jacobian > ReservoirMaximumJacobian ||
             jacobian < 1.0 / ReservoirMaximumJacobian) {
-            InterlockedAdd(Diagnostics[DiagnosticShiftFail + 6u], 1u); return false;
+            recordDiagnostic(DiagnosticShiftFail + 6u, 1u); return false;
         }
     }
 
@@ -2270,16 +2285,16 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
      */
     float receiverCosine = dot(surface.geometricNormal, direction);
     if (!(receiverCosine > 1.0e-4)) {
-        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 7u], 1u); return false;
+        recordDiagnostic(DiagnosticShiftFail + 7u, 1u); return false;
     }
     if (dot(surface.geometricNormal, direction) <= 0.0) {
-        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 8u], 1u); return false;
+        recordDiagnostic(DiagnosticShiftFail + 8u, 1u); return false;
     }
     if (!traceVisibility(offsetOrigin, direction,
                          environmentSample ? SceneFarPlane :
                              distance - RayEpsilon,
                          instanceMask)) {
-        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 9u], 1u); return false;
+        recordDiagnostic(DiagnosticShiftFail + 9u, 1u); return false;
     }
 
     /* The cosines above are validity gates, not weights: the shifted path's
@@ -2287,7 +2302,7 @@ bool shiftReservoir(PathReservoir source, SurfaceData surface,
      * uses, so the two can be compared without either needing an inverse. */
     shiftedTarget = source.radiance * receiverCosine;
     if (any(isnan(shiftedTarget)) || any(isinf(shiftedTarget))) {
-        InterlockedAdd(Diagnostics[DiagnosticShiftFail + 10u], 1u); return false;
+        recordDiagnostic(DiagnosticShiftFail + 10u, 1u); return false;
     }
     return true;
 }
@@ -4090,7 +4105,7 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                      * explicitly instead of dropping the path. */
                     deferBurstContinuation = false;
                     if (ValidationEnabled != 0u) {
-                        InterlockedAdd(Diagnostics[15], 1u);
+                        recordDiagnostic(15, 1u);
                     }
                 }
             }
@@ -4206,13 +4221,13 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                     inverseDirectCount;
                 if (ValidationEnabled != 0u) {
                     if (luminance(averageDirectDiffuse) > 1.0e-6) {
-                        InterlockedAdd(Diagnostics[11], 1u);
+                        recordDiagnostic(11, 1u);
                     }
                     if (luminance(averageDirectSpecular) > 1.0e-6) {
-                        InterlockedAdd(Diagnostics[12], 1u);
+                        recordDiagnostic(12, 1u);
                     }
                     if (luminance(averageSmoothSpecular) > 1.0e-6) {
-                        InterlockedAdd(Diagnostics[14], 1u);
+                        recordDiagnostic(14, 1u);
                     }
                 }
                 if (RadianceChannel == RadianceChannelCombined ||
@@ -4246,21 +4261,21 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
     if (ValidationEnabled != 0u) {
         if (primaryPrimitive == ViewWeaponPrimitive) {
             uint3 encoded = uint3(saturate(resolvedRadiance) * 255.0);
-            InterlockedAdd(Diagnostics[0], 1u);
-            InterlockedAdd(Diagnostics[1],
+            recordDiagnostic(0, 1u);
+            recordDiagnostic(1,
                 encoded.r * 3u + encoded.g * 5u + encoded.b * 7u);
         }
         if (primaryPrimitive == WorldBillboardPrimitive ||
             primaryPrimitive == WorldEffectPrimitive) {
-            InterlockedAdd(Diagnostics[2], 1u);
+            recordDiagnostic(2, 1u);
         }
         if (primaryPrimitive == WorldVectorPrimitive) {
-            InterlockedAdd(Diagnostics[3], 1u);
+            recordDiagnostic(3, 1u);
         }
         /* Additive layers remain non-occluding and their source emission is
          * visible, but they are excluded from the polygon-light distribution. */
         if (primarySegment.additiveLayers != 0u) {
-            InterlockedAdd(Diagnostics[4], 1u);
+            recordDiagnostic(4, 1u);
         }
         float4 diffuseGuide = DiffuseAlbedo[pixel];
         float4 specularGuide = SpecularAlbedo[pixel];
@@ -4278,7 +4293,7 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
             any(isnan(motionGuide)) || any(isinf(motionGuide)) ||
             isnan(specularDistanceGuide) || isinf(specularDistanceGuide);
         if (invalidLightingOrGuide) {
-            InterlockedAdd(Diagnostics[13], 1u);
+            recordDiagnostic(13, 1u);
         }
     }
 }
@@ -4463,8 +4478,8 @@ void BurstContinuation()
                 int bucket = int(floor((log2(sampleLuminance) + 8.0) * 0.5));
                 bucket = clamp(bucket, 0,
                                int(DiagnosticLuminanceBuckets) - 1);
-                InterlockedAdd(
-                    Diagnostics[DiagnosticLuminanceHistogram + uint(bucket)],
+                recordDiagnostic(
+                    DiagnosticLuminanceHistogram + uint(bucket),
                     1u);
             }
         }
@@ -4736,15 +4751,13 @@ void ResampleTemporal()
                 all(previousCoordinate < int2(dimensions))) {
                 PathReservoir history = PreviousReservoirs[
                     reservoirIndex(uint2(previousCoordinate), dimensions)];
-                InterlockedAdd(
-                    Diagnostics[DiagnosticTemporalConsidered], 1u);
+                recordDiagnostic(DiagnosticTemporalConsidered, 1u);
                 if (!reservoirSurfaceCompatible(
                         history, surface, depth,
                         ReservoirTemporalDepthTolerance,
                         ReservoirTemporalNormalTolerance,
                         ReservoirTemporalSeparation * depth)) {
-                    InterlockedAdd(
-                        Diagnostics[DiagnosticTemporalSurfaceRejected], 1u);
+                    recordDiagnostic(DiagnosticTemporalSurfaceRejected, 1u);
                 }
                 if (reservoirSurfaceCompatible(
                         history, surface, depth,
@@ -4788,16 +4801,16 @@ void ResampleTemporal()
                         bool shifted = shiftReservoir(
                             history, surface, SceneInstanceMask,
                             shiftedTarget, jacobian);
-                        InterlockedAdd(
-                            Diagnostics[shifted ?
+                        recordDiagnostic(
+                            shifted ?
                                 DiagnosticTemporalAccepted :
-                                DiagnosticTemporalShiftFailed], 1u);
+                                DiagnosticTemporalShiftFailed, 1u);
                         if (shifted) {
-                            InterlockedAdd(
-                                Diagnostics[DiagnosticTemporalJacobianSum],
+                            recordDiagnostic(
+                                DiagnosticTemporalJacobianSum,
                                 uint(min(jacobian, 64.0) * 1024.0));
-                            InterlockedAdd(
-                                Diagnostics[DiagnosticTemporalJacobianCount],
+                            recordDiagnostic(
+                                DiagnosticTemporalJacobianCount,
                                 1u);
                             float acceptance = sampleStream(
                                 pixel, SampleIndex,
@@ -4871,13 +4884,13 @@ void ResampleTemporal()
      * reuse filling in coverage rather than inflating energy.
      */
     if (reused) {
-        InterlockedAdd(Diagnostics[reservoirValid(canonical) ?
-                           DiagnosticReuseWithCanonical :
-                           DiagnosticReuseWithoutCanonical], 1u);
+        recordDiagnostic(reservoirValid(canonical) ?
+                         DiagnosticReuseWithCanonical :
+                         DiagnosticReuseWithoutCanonical, 1u);
     }
     if (reused && reservoirValid(canonical)) {
-        InterlockedAdd(Diagnostics[DiagnosticHistoryEnergyRead],
-                       quantizeEnergy(historyResolved));
+        recordDiagnostic(DiagnosticHistoryEnergyRead,
+                         quantizeEnergy(historyResolved));
         {
             float canonicalEnergy =
                 reservoirLuminance(resolvedRadiance(canonical));
@@ -4888,26 +4901,27 @@ void ResampleTemporal()
             float predicted = total > 0.0 ?
                 (canonicalEnergy * canonicalCount +
                  historyEnergy * historyCount) / total : 0.0;
-            InterlockedAdd(Diagnostics[DiagnosticPredictedAfter],
-                           quantizeEnergy(predicted.xxx));
+            recordDiagnostic(DiagnosticPredictedAfter,
+                             quantizeEnergy(predicted.xxx));
         }
-        InterlockedAdd(Diagnostics[DiagnosticCanonicalM],
-                       uint(min(canonical.m, 255.0) * 16.0));
-        InterlockedAdd(Diagnostics[DiagnosticHistoryM],
-                       uint(min(max(current.m - canonical.m, 0.0), 255.0) *
-                            16.0));
-        InterlockedAdd(Diagnostics[DiagnosticWeightBefore],
-                       uint(min(max(canonical.weightSum, 0.0), 64.0) * 1024.0));
-        InterlockedAdd(Diagnostics[DiagnosticWeightAfter],
-                       uint(min(max(current.weightSum, 0.0), 64.0) * 1024.0));
-        InterlockedAdd(Diagnostics[DiagnosticTargetBefore],
-                       quantizeEnergy(canonical.targetFunction));
-        InterlockedAdd(Diagnostics[DiagnosticTargetAfter],
-                       quantizeEnergy(current.targetFunction));
-        InterlockedAdd(Diagnostics[DiagnosticTemporalEnergyBefore],
-                       quantizeEnergy(resolvedRadiance(canonical)));
-        InterlockedAdd(Diagnostics[DiagnosticTemporalEnergyAfter],
-                       quantizeEnergy(resolvedRadiance(current)));
+        recordDiagnostic(DiagnosticCanonicalM,
+                         uint(min(canonical.m, 255.0) * 16.0));
+        recordDiagnostic(DiagnosticHistoryM,
+                         uint(min(max(current.m - canonical.m, 0.0), 255.0) *
+                              16.0));
+        recordDiagnostic(DiagnosticWeightBefore,
+                         uint(min(max(canonical.weightSum, 0.0), 64.0) *
+                              1024.0));
+        recordDiagnostic(DiagnosticWeightAfter,
+                         uint(min(max(current.weightSum, 0.0), 64.0) * 1024.0));
+        recordDiagnostic(DiagnosticTargetBefore,
+                         quantizeEnergy(canonical.targetFunction));
+        recordDiagnostic(DiagnosticTargetAfter,
+                         quantizeEnergy(current.targetFunction));
+        recordDiagnostic(DiagnosticTemporalEnergyBefore,
+                         quantizeEnergy(resolvedRadiance(canonical)));
+        recordDiagnostic(DiagnosticTemporalEnergyAfter,
+                         quantizeEnergy(resolvedRadiance(current)));
     }
     current.age = reused ? min(current.age + 1u, 0xffffu) : 0u;
     /* Cap the confidence on the way out, not merely where history is read. An
@@ -4994,7 +5008,7 @@ void ResampleSpatial()
         uint neighborIndex =
             reservoirIndex(uint2(neighborPixel), dimensions);
         PathReservoir neighbor = ResampleReservoirs[neighborIndex];
-        InterlockedAdd(Diagnostics[DiagnosticSpatialConsidered], 1u);
+        recordDiagnostic(DiagnosticSpatialConsidered, 1u);
         if (!reservoirSurfaceCompatible(neighbor, surface, depth,
                                         ReservoirSpatialDepthTolerance,
                                         ReservoirSpatialNormalTolerance,
@@ -5016,7 +5030,7 @@ void ResampleSpatial()
         float jacobian;
         if (shiftReservoir(neighbor, surface, SceneInstanceMask,
                            shiftedTarget, jacobian)) {
-            InterlockedAdd(Diagnostics[DiagnosticSpatialAccepted], 1u);
+            recordDiagnostic(DiagnosticSpatialAccepted, 1u);
             float acceptance = sampleStream(pixel, SampleIndex + tap,
                                             ReservoirSpatialStream).x;
             if (resampleReservoir(current, neighbor, acceptance, shiftedTarget,
@@ -5100,11 +5114,11 @@ void ResampleSpatial()
     finalizeResampling(current, selectedPi,
                        piSum * reservoirLuminance(selectedTarget));
     if (predictedWeight > 0.0) {
-        InterlockedAdd(Diagnostics[DiagnosticSpatialPredicted],
-                       quantizeEnergy((predictedEnergy /
-                                       predictedWeight).xxx));
-        InterlockedAdd(Diagnostics[DiagnosticSpatialActual],
-                       quantizeEnergy(resolvedRadiance(current)));
+        recordDiagnostic(DiagnosticSpatialPredicted,
+                         quantizeEnergy((predictedEnergy /
+                                         predictedWeight).xxx));
+        recordDiagnostic(DiagnosticSpatialActual,
+                         quantizeEnergy(resolvedRadiance(current)));
     }
     current.m = min(current.m, float(ReservoirTemporalHistory));
     /*
@@ -5202,14 +5216,14 @@ void ComputeDuplicationMap()
         }
     }
     DuplicationMap[reservoirIndex(pixel, dimensions)] = min(count, 255u);
-    InterlockedAdd(Diagnostics[DiagnosticDuplicationSum], min(count, 255u));
+    recordDiagnostic(DiagnosticDuplicationSum, min(count, 255u));
     if (count > 0u) {
-        InterlockedAdd(Diagnostics[DiagnosticDuplicationNonZero], 1u);
+        recordDiagnostic(DiagnosticDuplicationNonZero, 1u);
     }
     /* Ancestry encodes the pixel that generated the canonical sample, so a
      * mismatch against this pixel means the sample was inherited. */
     if ((own >> 8u) != reservoirIndex(pixel, dimensions)) {
-        InterlockedAdd(Diagnostics[DiagnosticAncestryForeign], 1u);
+        recordDiagnostic(DiagnosticAncestryForeign, 1u);
     }
 }
 
@@ -5276,9 +5290,9 @@ void ReconstructIndirect()
          * winning: a reservoir that keeps refreshing is already independent
          * enough, and only a stale one needs replacing.
          */
-        InterlockedAdd(Diagnostics[DiagnosticShaded], 1u);
-        InterlockedAdd(Diagnostics[DiagnosticAgeSum],
-                       min(resolved.age, 255u));
+        recordDiagnostic(DiagnosticShaded, 1u);
+        recordDiagnostic(DiagnosticAgeSum,
+                         min(resolved.age, 255u));
         /*
          * A fixed probability. Choosing between two unbiased estimates is
          * unbiased only when the choice does not look at them: scaling it by
@@ -5294,7 +5308,7 @@ void ReconstructIndirect()
                 PathReservoir preserved = PreservedReservoirs[resolvedIndex];
                 if (reservoirValid(preserved)) {
                     resolved = preserved;
-                    InterlockedAdd(Diagnostics[DiagnosticDecorrelated], 1u);
+                    recordDiagnostic(DiagnosticDecorrelated, 1u);
                 }
             }
         }
@@ -5340,8 +5354,7 @@ void ReconstructIndirect()
                         PreservedReservoirs[resolvedIndex];
                     if (reservoirValid(preserved)) {
                         resolved = preserved;
-                        InterlockedAdd(
-                            Diagnostics[DiagnosticFireflyReplaced], 1u);
+                        recordDiagnostic(DiagnosticFireflyReplaced, 1u);
                     }
                 }
             }
