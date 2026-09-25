@@ -199,6 +199,11 @@ the presentation's linear upscale covering the rest; `1` under
 extreme-performance sends it straight to the window, as ultra-performance does.
 `AB3D2_DXR_RR_RENDER_SCALE=1..4` replaces the mode's output-to-render ratio
 where RR accepts it, and `1` renders a native-resolution reference.
+`AB3D2_DXR_FIXED_FRAME_SECONDS=<s>` advances exposure adaptation by a fixed
+step instead of the wall clock. The tone curve adapts by the time a frame took,
+so without it two runs of one build agree in every statistic but not in the
+checksum; with it the checksum shows whether a change left the image bit for
+bit alone.
 `AB3D2_DXR_JITTER=0` keeps primary rays pixel-centred under RR.
 
 `run_default` is accepted as an alias for `always_run`, matching the first

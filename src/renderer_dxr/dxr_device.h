@@ -153,6 +153,8 @@ private:
      * milliseconds, with its CPU phase breakdown. Off unless set. */
     bool hitch_log_enabled_ = false;
     bool smoke_readback_enabled_ = true;
+    /* AB3D2_DXR_FIXED_FRAME_SECONDS, or zero for the wall clock. */
+    float fixed_frame_seconds_ = 0.0f;
     double hitch_log_threshold_ms_ = 0.0;
     uint64_t hitch_log_last_rebuilds_ = 0u;
     UINT render_target_descriptor_size_ = 0;

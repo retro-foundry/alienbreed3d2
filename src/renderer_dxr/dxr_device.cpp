@@ -1118,6 +1118,29 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
             "AB3D2_DXR_SMOKE_READBACK", readback,
             static_cast<DWORD>(sizeof(readback))) == 1u && readback[0] == '0');
     }
+    {
+        /*
+         * AB3D2_DXR_FIXED_FRAME_SECONDS=<s> advances exposure adaptation by a
+         * fixed step instead of the wall clock. The tone curve adapts by the
+         * time a frame took, so otherwise two runs of the same build give the
+         * same statistics but different checksums, and a change cannot be
+         * shown to leave the image bit for bit alone.
+         */
+        char value[32] = {};
+        const DWORD length = GetEnvironmentVariableA(
+            "AB3D2_DXR_FIXED_FRAME_SECONDS", value,
+            static_cast<DWORD>(sizeof(value)));
+        if (length > 0u && length < sizeof(value)) {
+            char *end = nullptr;
+            const double parsed = std::strtod(value, &end);
+            if (end == value || *end != 0x00 || !std::isfinite(parsed) ||
+                parsed <= 0.0 || parsed > 1.0) {
+                error = "AB3D2_DXR_FIXED_FRAME_SECONDS must be above 0 and at most 1";
+                return false;
+            }
+            fixed_frame_seconds_ = static_cast<float>(parsed);
+        }
+    }
 
     if (!window || !IsWindow(window)) {
         error = "DXR device initialization received no valid HWND";
@@ -1361,9 +1384,9 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
     static constexpr FLOAT clear_color[4] = {0.018f, 0.028f, 0.052f, 1.0f};
     command_list_->ClearRenderTargetView(frame.render_target_view, clear_color, 0, nullptr);
     const auto render_time = std::chrono::steady_clock::now();
-    const float exposure_delta_seconds = previous_render_time_valid_ ?
-        std::chrono::duration<float>(render_time - previous_render_time_).count() :
-        0.0f;
+    const float exposure_delta_seconds = !previous_render_time_valid_ ? 0.0f :
+        fixed_frame_seconds_ > 0.0f ? fixed_frame_seconds_ :
+        std::chrono::duration<float>(render_time - previous_render_time_).count();
     previous_render_time_ = render_time;
     previous_render_time_valid_ = true;
     if (!pipeline.record(device_.Get(), command_list_.Get(), width_, height_,
