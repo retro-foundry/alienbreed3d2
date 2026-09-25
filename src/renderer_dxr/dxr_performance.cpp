@@ -42,6 +42,29 @@ constexpr std::array<const char *, static_cast<size_t>(DxrGpuStage::count)>
 static_assert(gpu_stage_names.size() ==
               static_cast<size_t>(DxrGpuStage::count));
 
+/*
+ * The same names as PIX-style command-list events, so a GPU trace -- Nsight
+ * Systems with dx12-annotations, PIX -- shows each profiled stage as a named
+ * range and can attribute its hardware counters to it. Metadata 0 is the
+ * unicode string form.
+ */
+void begin_stage_event(ID3D12GraphicsCommandList4 *command_list, size_t index)
+{
+    static const std::array<std::wstring,
+                            static_cast<size_t>(DxrGpuStage::count)> names = [] {
+        std::array<std::wstring, static_cast<size_t>(DxrGpuStage::count)> wide;
+        for (size_t stage = 0u; stage < wide.size(); ++stage) {
+            const std::string narrow = gpu_stage_names[stage];
+            wide[stage].assign(narrow.begin(), narrow.end());
+        }
+        return wide;
+    }();
+    const std::wstring &name = names[index];
+    command_list->BeginEvent(
+        0u, name.c_str(),
+        static_cast<UINT>((name.size() + 1u) * sizeof(wchar_t)));
+}
+
 bool environment_text(const char *name, std::string &value,
                       std::string &error)
 {
@@ -365,6 +388,7 @@ void DxrGpuProfiler::begin_stage(
     }
     frame.active[index] = true;
     frame.began[index] = true;
+    begin_stage_event(command_list, index);
     command_list->EndQuery(
         query_heap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
         query_index(current_frame_slot_, stage, false));
@@ -386,6 +410,7 @@ void DxrGpuProfiler::end_stage(
     command_list->EndQuery(
         query_heap_.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
         query_index(current_frame_slot_, stage, true));
+    command_list->EndEvent();
 }
 
 void DxrGpuProfiler::set_metadata(const DxrPerformanceMetadata &metadata)
