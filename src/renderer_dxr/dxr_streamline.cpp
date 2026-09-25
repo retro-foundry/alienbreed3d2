@@ -619,6 +619,8 @@ bool DxrStreamline::set_device(ID3D12Device5 *device, const LUID &luid,
 }
 
 bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
+                                     UINT requested_width,
+                                     UINT requested_height,
                                      UINT &render_width, UINT &render_height,
                                      std::string &error)
 {
@@ -627,6 +629,8 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
         return false;
     }
     if (output_width_ == output_width && output_height_ == output_height &&
+        requested_width_ == requested_width &&
+        requested_height_ == requested_height &&
         render_width_ != 0 && render_height_ != 0) {
         render_width = render_width_;
         render_height = render_height_;
@@ -684,10 +688,33 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
                     std::to_string(selected_max_height);
                 return false;
             }
+        } else if (requested_width != 0u && requested_height != 0u) {
+            selected_width = requested_width;
+            selected_height = requested_height;
+            if (selected_width < selected_min_width ||
+                selected_height < selected_min_height ||
+                selected_width > selected_max_width ||
+                selected_height > selected_max_height) {
+                error = "rtx_render_percent gives " +
+                    std::to_string(selected_width) + "x" +
+                    std::to_string(selected_height) + ", outside DLSS-RR " +
+                    mode_name(mode_) + "'s " +
+                    std::to_string(selected_min_width) + "x" +
+                    std::to_string(selected_min_height) + " through " +
+                    std::to_string(selected_max_width) + "x" +
+                    std::to_string(selected_max_height) + " at " +
+                    std::to_string(output_width) + "x" +
+                    std::to_string(output_height);
+                return false;
+            }
         }
+        /* A requested or overridden size may be the output itself: that is
+         * RR denoising at native resolution, with nothing to upscale. */
+        const bool explicit_size = render_scale_override_ > 0.0 ||
+            (requested_width != 0u && requested_height != 0u);
         if (selected_width == 0 || selected_height == 0 ||
             selected_width > output_width || selected_height > output_height ||
-            (render_scale_override_ == 0.0 &&
+            (!explicit_size &&
              selected_width == output_width && selected_height == output_height)) {
             error = "DLSS-RR did not provide a valid low-resolution render size for " +
                 std::to_string(output_width) + "x" +
@@ -697,6 +724,8 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
     }
     output_width_ = output_width;
     output_height_ = output_height;
+    requested_width_ = requested_width;
+    requested_height_ = requested_height;
     render_width_ = selected_width;
     render_height_ = selected_height;
     render_width = render_width_;
@@ -872,6 +901,8 @@ bool DxrStreamline::shutdown(std::string &error)
     resources_allocated_ = false;
     output_width_ = 0;
     output_height_ = 0;
+    requested_width_ = 0;
+    requested_height_ = 0;
     render_width_ = 0;
     render_height_ = 0;
     return succeeded;

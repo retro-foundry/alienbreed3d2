@@ -109,6 +109,14 @@ default, so the shipped template lists them commented out with their defaults:
   and uses the final presentation sampler for the remaining upscale. At
   1280x720 this is 285x160 tracing, DLSS-RR to 854x480, then presentation to
   1280x720. The default is `quality`;
+- `rtx_render_percent=5..100` renders that share of the window's pixels in
+  place of the size `rtx_dlss` picks, and chooses the DLSS mode to match. From
+  25% up DLSS reconstructs straight to the window; below it no mode can, so
+  DLSS reconstructs to twice the render size (to three times from 11% down)
+  and the presentation's linear upscale covers the rest. At 3838x2158 on an
+  RTX 3090, 20% costs 40.2 ms against Performance's 48.7, and 15% costs more
+  than 11% without looking better. `AB3D2_DXR_RENDER_PERCENT` overrides it for
+  one run;
 - `rtx_output=auto|sdr|hdr` controls final display negotiation. The default is
   `sdr`, matching Q2RTX's opt-in HDR policy. `auto` explicitly follows the
   Windows advanced-colour state of the monitor containing the window and falls

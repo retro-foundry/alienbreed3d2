@@ -58,7 +58,10 @@ public:
                            std::string &error) const;
     bool set_device(ID3D12Device5 *device, const LUID &luid,
                     std::string &error);
+    /* `requested_*` names the render size, or zero for the mode's own. It
+     * must lie within what DLSS-RR accepts for the mode at this output. */
     bool configure_output(UINT output_width, UINT output_height,
+                          UINT requested_width, UINT requested_height,
                           UINT &render_width, UINT &render_height,
                           std::string &error);
     bool evaluate(ID3D12GraphicsCommandList4 *command_list,
@@ -89,6 +92,8 @@ private:
     UINT output_height_ = 0;
     UINT render_width_ = 0;
     UINT render_height_ = 0;
+    UINT requested_width_ = 0;
+    UINT requested_height_ = 0;
     /* AB3D2_DXR_RR_RENDER_SCALE: output / render per axis for one run, in
      * place of the mode's own ratio, so render sizes between the modes can be
      * measured. RR still has to accept it for the mode in force. */

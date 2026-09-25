@@ -5,6 +5,7 @@
 #include "renderer_dxr/dxr_indirect_reconstruction.h"
 #include "renderer_dxr/dxr_light_grid.h"
 #include "renderer_dxr/dxr_temporal_metrics.h"
+#include "renderer_dxr/dxr_render_percent.h"
 
 #include <cmath>
 #include <cstdio>
@@ -491,6 +492,49 @@ int main()
             phase_jitter.x < -0.5f || phase_jitter.x > 0.5f ||
             phase_jitter.y < -0.5f || phase_jitter.y > 0.5f) {
             return fail("scaled jitter did not repeat inside the pixel");
+        }
+    }
+
+    /* rtx_render_percent at a 3838x2158 window, sizes DLSS-RR accepted. Zero
+     * render size means RR names it, as Ultra Performance must. */
+    {
+        namespace rp = ab3d2::dxr::render_percent;
+        struct Case {
+            float percent;
+            RendererRayReconstructionMode mode;
+            uint32_t render_width, render_height;
+            uint32_t output_width, output_height;
+        };
+        constexpr Case cases[] = {
+            {100.0f, RENDERER_RAY_RECONSTRUCTION_QUALITY, 3838u, 2158u, 3838u, 2158u},
+            {50.0f, RENDERER_RAY_RECONSTRUCTION_QUALITY, 2714u, 1526u, 3838u, 2158u},
+            {34.0f, RENDERER_RAY_RECONSTRUCTION_BALANCED, 2238u, 1258u, 3838u, 2158u},
+            {25.0f, RENDERER_RAY_RECONSTRUCTION_PERFORMANCE, 1919u, 1079u, 3838u, 2158u},
+            {20.0f, RENDERER_RAY_RECONSTRUCTION_PERFORMANCE, 1716u, 965u, 3432u, 1930u},
+            {15.0f, RENDERER_RAY_RECONSTRUCTION_PERFORMANCE, 1486u, 836u, 2972u, 1672u},
+            /* Within a percent of one ninth: Ultra Performance to the window. */
+            {11.2f, RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE, 0u, 0u, 3838u, 2158u},
+            {5.0f, RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE, 0u, 0u, 2575u, 1450u},
+        };
+        for (const Case &entry : cases) {
+            const rp::Plan plan = rp::plan(entry.percent, 3838u, 2158u);
+            if (plan.mode != entry.mode ||
+                plan.render_width != entry.render_width ||
+                plan.render_height != entry.render_height ||
+                plan.reconstruction_width != entry.output_width ||
+                plan.reconstruction_height != entry.output_height) {
+                std::fprintf(stderr,
+                             "%.1f%%: mode %d %ux%u -> %ux%u\n",
+                             entry.percent, static_cast<int>(plan.mode),
+                             plan.render_width, plan.render_height,
+                             plan.reconstruction_width,
+                             plan.reconstruction_height);
+                return fail("render percent plan changed");
+            }
+        }
+        if (rp::valid(4.9f) || rp::valid(100.1f) || !rp::valid(5.0f) ||
+            !rp::valid(100.0f)) {
+            return fail("render percent range changed");
         }
     }
 

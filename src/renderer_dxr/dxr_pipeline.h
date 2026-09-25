@@ -341,6 +341,8 @@ private:
      * Ultra Performance, the whole window otherwise); 1 sends Ultra
      * Performance straight to the window as NVIDIA's mode does. */
     float reconstruction_fraction_ = 0.0f;
+    /* rtx_render_percent, or zero for the size rtx_dlss picks. */
+    float render_percent_ = 0.0f;
     float source_light_scale_ =
         RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE;
     /* Path length counting the primary hit; ab3d2.ini may change it. */

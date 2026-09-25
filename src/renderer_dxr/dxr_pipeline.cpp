@@ -4,6 +4,7 @@
 #include "dxr_debug.h"
 #include "dxr_indirect_reconstruction.h"
 #include "dxr_performance.h"
+#include "dxr_render_percent.h"
 #include "scene_geometry_compile.h"
 #if defined(AB3D2_ENABLE_STREAMLINE)
 #include "dxr_streamline.h"
@@ -774,6 +775,8 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.ndf_trim > 0.0f) {
         ndf_trim_ = options.ndf_trim;
     }
+    render_percent_ = options.render_percent_set != 0u ?
+        options.render_percent : 0.0f;
     struct Override {
         const char *name;
         uint32_t minimum;
@@ -3104,10 +3107,21 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     UINT render_height = height;
     UINT reconstruction_output_width = width;
     UINT reconstruction_output_height = height;
+    UINT requested_render_width = 0u;
+    UINT requested_render_height = 0u;
     bool streamline_active = false;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     streamline_active = streamline && streamline->active();
-    if (streamline_active && reconstruction_fraction_ > 0.0f &&
+    if (streamline_active && render_percent_ > 0.0f) {
+        /* rtx_render_percent names the render size and where RR takes it;
+         * DxrRenderer already chose the mode from the same plan. */
+        const render_percent::Plan plan =
+            render_percent::plan(render_percent_, width, height);
+        requested_render_width = plan.render_width;
+        requested_render_height = plan.render_height;
+        reconstruction_output_width = plan.reconstruction_width;
+        reconstruction_output_height = plan.reconstruction_height;
+    } else if (streamline_active && reconstruction_fraction_ > 0.0f &&
         reconstruction_fraction_ < 1.0f) {
         /* AB3D2_DXR_RR_OUTPUT_FRACTION: reconstruct to this fraction of the
          * window in any mode, and let the presentation triangle's linear
@@ -3134,6 +3148,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     if (!streamline ||
         !streamline->configure_output(
             reconstruction_output_width, reconstruction_output_height,
+            requested_render_width, requested_render_height,
             render_width, render_height, error)) {
         return false;
     }

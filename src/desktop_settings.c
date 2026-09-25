@@ -498,6 +498,17 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.rr_input_scale_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_render_percent")) {
+        if (!desktop_settings_parse_float_range(
+                value, 5.0, 100.0, &settings->ray_tracing.render_percent)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_render_percent must be 5 through 100",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.render_percent_set = UINT8_MAX;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_rr_highlight_knee")) {
         (void)snprintf(error, error_size,
                        "ab3d2.ini line %zu: rtx_rr_highlight_knee was retired; the sparkle it suppressed came from unjittered primary rays, and jitter removes it",
