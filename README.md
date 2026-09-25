@@ -101,22 +101,16 @@ default, so the shipped template lists them commented out with their defaults:
   continuation uses the standard cosine-weighted Lambertian estimator and
   standard uniform-area authored-triangle NEE, except that the first bounce
   may instead be aimed through a zone opening; see `rtx_portal_sampling`.
-- `rtx_ray_reconstruction=quality|balanced|performance|ultra-performance|off`
+- `rtx_ray_reconstruction=quality|balanced|performance|high-performance|ultra-performance|extreme-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
-  path tracer renders at before reconstruction upscales it. Quality, Balanced,
-  and Performance reconstruct directly to the presentation extent. The
-  speed-first Ultra Performance path reconstructs to two thirds of that extent
-  and uses the final presentation sampler for the remaining upscale. At
-  1280x720 this is 285x160 tracing, DLSS-RR to 854x480, then presentation to
-  1280x720. The default is `quality`;
-- `rtx_render_percent=5..100` renders that share of the window's pixels in
-  place of the size `rtx_dlss` picks, and chooses the DLSS mode to match. From
-  25% up DLSS reconstructs straight to the window; below it no mode can, so
-  DLSS reconstructs to twice the render size (to three times from 11% down)
-  and the presentation's linear upscale covers the rest. At 3838x2158 on an
-  RTX 3090, 20% costs 40.2 ms against Performance's 48.7, and 15% costs more
-  than 11% without looking better. `AB3D2_DXR_RENDER_PERCENT` overrides it for
-  one run;
+  path tracer renders at before reconstruction upscales it. At 3838x2158 they
+  trace 44%, 34%, 25%, 20%, 11% and 5% of the window's pixels. Quality,
+  Balanced, Performance and Ultra Performance are NVIDIA's own sizes and
+  reconstruct directly to the presentation extent. No DLSS mode reaches the
+  window from a buffer between Performance's and Ultra Performance's, so High
+  Performance reconstructs to twice its render size, and Extreme Performance
+  takes Ultra Performance's third to two thirds of the extent; the final
+  presentation sampler covers the rest. The default is `quality`;
 - `rtx_output=auto|sdr|hdr` controls final display negotiation. The default is
   `sdr`, matching Q2RTX's opt-in HDR policy. `auto` explicitly follows the
   Windows advanced-colour state of the monitor containing the window and falls
@@ -199,7 +193,7 @@ not.
 Three more switch the render size for one run. `AB3D2_DXR_RR_OUTPUT_FRACTION=
 0.25..1` has RR reconstruct to that fraction of the window in any mode, with
 the presentation's linear upscale covering the rest; `1` under
-ultra-performance is NVIDIA's own Ultra Performance, straight to the window.
+extreme-performance sends it straight to the window, as ultra-performance does.
 `AB3D2_DXR_RR_RENDER_SCALE=1..4` replaces the mode's output-to-render ratio
 where RR accepts it, and `1` renders a native-resolution reference.
 `AB3D2_DXR_JITTER=0` keeps primary rays pixel-centred under RR.
@@ -858,9 +852,9 @@ smoke to save the latest presented frame. Weapon, bitmap-entity, and
 vector-entity coverage come from a GPU UAV. Transient projectile, HUD, and text
 coverage are not claimed at this milestone.
 Presentation applies the Q2RTX tone-mapping behavior requested on 2026-08-27
-to the linear-FP16 image returned by Ray Reconstruction. Ultra Performance
-meters and blooms its two-thirds-resolution output before the final linear
-upscale; the other modes operate at the presentation extent. Exact
+to the linear-FP16 image returned by Ray Reconstruction. High and Extreme
+Performance meter and bloom their reduced reconstruction before the final
+linear upscale; the other modes operate at the presentation extent. Exact
 black is excluded; remaining log luminance is tent-filtered into 128 bins over
 `[-24, 8]` stops with Q2RTX's centre weighting and one pseudocount per bin. The
 per-pixel integer weights are first combined in 16-by-16 groups, preserving the
@@ -877,9 +871,9 @@ contrast allocation, not ambient fill or a shadow-lift curve.
 Before that meter, bright reconstructed energy is extracted into half-,
 quarter-, and eighth-resolution `R11G11B10_FLOAT` buffers, folded back into the
 finer levels, and composited with the same linear-HDR image that presentation
-consumes. Quality, Balanced, and Performance blur every scale separably. The
-explicit speed-first Ultra Performance path preserves the broad eighth-scale
-blur but omits the redundant half- and quarter-scale blur pairs, removing four
+consumes. Quality through High Performance blur every scale separably. The
+speed-first Ultra and Extreme Performance paths preserve the broad
+eighth-scale blur but omit the redundant half- and quarter-scale blur pairs, removing four
 compute dispatches and their intermediate traffic. Luminance tone mapping preserves RGB ratios until
 the comparator's component-wise SDR knee. The current 8-bit SDR path then
 applies exact sRGB encoding and sub-half-code dithering from the renderer's pinned blue-noise/
@@ -1066,11 +1060,13 @@ LUID.
 
 The default `AB3D2_DXR_RR_MODE=quality` traces at Streamline's fixed optimal
 input size and reconstructs into a presentation-sized HDR output. `balanced`
-and `performance` select the other full-output modes. `ultra-performance` is
-the explicit speed-first path: it asks Streamline for the minimum supported
-input at a two-thirds presentation target, then linearly samples that result at
-the swap-chain extent. At 1280x720 its fixed chain is
-285x160 -> 854x480 -> 1280x720;
+and `performance` select the other full-output modes, and `ultra-performance`
+is NVIDIA's own third on each axis, also to the full output.
+`high-performance` renders a fifth of the pixels and reconstructs to twice
+that, and `extreme-performance` asks Streamline for Ultra Performance's input
+at a two-thirds presentation target; both then linearly sample the result at
+the swap-chain extent. At 1280x720 their chains are 572x322 -> 1144x644 and
+285x160 -> 854x480, each -> 1280x720;
 `off` presents the raw noisy input for diagnosis. An explicit
 `AB3D2_DXR_DEBUG_VIEW` also bypasses the reconstructed output and displays the
 selected low-resolution guide. Streamline-enabled executables import the

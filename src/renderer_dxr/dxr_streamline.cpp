@@ -196,8 +196,10 @@ sl::DLSSMode streamline_mode(DxrStreamline::Mode mode)
     case DxrStreamline::Mode::balanced:
         return sl::DLSSMode::eBalanced;
     case DxrStreamline::Mode::performance:
+    case DxrStreamline::Mode::high_performance:
         return sl::DLSSMode::eMaxPerformance;
     case DxrStreamline::Mode::ultra_performance:
+    case DxrStreamline::Mode::extreme_performance:
         return sl::DLSSMode::eUltraPerformance;
     case DxrStreamline::Mode::off:
         return sl::DLSSMode::eOff;
@@ -216,8 +218,12 @@ const char *mode_name(DxrStreamline::Mode mode)
         return "balanced";
     case DxrStreamline::Mode::performance:
         return "performance";
+    case DxrStreamline::Mode::high_performance:
+        return "high-performance";
     case DxrStreamline::Mode::ultra_performance:
         return "ultra-performance";
+    case DxrStreamline::Mode::extreme_performance:
+        return "extreme-performance";
     }
     return "unknown";
 }
@@ -347,8 +353,14 @@ bool DxrStreamline::configure_mode(RendererRayReconstructionMode requested,
     case RENDERER_RAY_RECONSTRUCTION_PERFORMANCE:
         mode_ = Mode::performance;
         break;
+    case RENDERER_RAY_RECONSTRUCTION_HIGH_PERFORMANCE:
+        mode_ = Mode::high_performance;
+        break;
     case RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE:
         mode_ = Mode::ultra_performance;
+        break;
+    case RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE:
+        mode_ = Mode::extreme_performance;
         break;
     case RENDERER_RAY_RECONSTRUCTION_OFF: mode_ = Mode::off; break;
     case RENDERER_RAY_RECONSTRUCTION_DEFAULT: mode_ = Mode::quality; break;
@@ -369,13 +381,18 @@ bool DxrStreamline::configure_mode(RendererRayReconstructionMode requested,
         mode_ = Mode::balanced;
     } else if (std::strcmp(value, "performance") == 0) {
         mode_ = Mode::performance;
+    } else if (std::strcmp(value, "high-performance") == 0) {
+        mode_ = Mode::high_performance;
     } else if (std::strcmp(value, "ultra-performance") == 0) {
         mode_ = Mode::ultra_performance;
+    } else if (std::strcmp(value, "extreme-performance") == 0) {
+        mode_ = Mode::extreme_performance;
     } else if (std::strcmp(value, "off") == 0) {
         mode_ = Mode::off;
     } else {
         error = "AB3D2_DXR_RR_MODE must be quality, balanced, performance, "
-                "ultra-performance, or off";
+                "high-performance, ultra-performance, extreme-performance, "
+                "or off";
         return false;
     }
     return configure_render_scale(error);
@@ -407,8 +424,12 @@ RendererRayReconstructionMode DxrStreamline::active_mode() const
     case Mode::quality: return RENDERER_RAY_RECONSTRUCTION_QUALITY;
     case Mode::balanced: return RENDERER_RAY_RECONSTRUCTION_BALANCED;
     case Mode::performance: return RENDERER_RAY_RECONSTRUCTION_PERFORMANCE;
+    case Mode::high_performance:
+        return RENDERER_RAY_RECONSTRUCTION_HIGH_PERFORMANCE;
     case Mode::ultra_performance:
         return RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE;
+    case Mode::extreme_performance:
+        return RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE;
     case Mode::off: return RENDERER_RAY_RECONSTRUCTION_OFF;
     }
     return RENDERER_RAY_RECONSTRUCTION_DEFAULT;
@@ -664,7 +685,8 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
          * input range, and reduces every render-resolution trace/guide/history
          * allocation as well as the rays themselves. Other modes retain the
          * SDK's quality-tuned optimum. */
-        const bool use_minimum_input = mode_ == Mode::ultra_performance;
+        const bool use_minimum_input = mode_ == Mode::ultra_performance ||
+            mode_ == Mode::extreme_performance;
         selected_width = use_minimum_input ? selected_min_width :
             settings.optimalRenderWidth;
         selected_height = use_minimum_input ? selected_min_height :
@@ -695,7 +717,8 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
                 selected_height < selected_min_height ||
                 selected_width > selected_max_width ||
                 selected_height > selected_max_height) {
-                error = "rtx_render_percent gives " +
+                error = std::string("rtx_dlss=") + mode_name(mode_) +
+                    " asks for " +
                     std::to_string(selected_width) + "x" +
                     std::to_string(selected_height) + ", outside DLSS-RR " +
                     mode_name(mode_) + "'s " +

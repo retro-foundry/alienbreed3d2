@@ -159,7 +159,6 @@ int main(void)
         settings.ray_tracing.restir_history_reduction_set != 0u ||
         settings.ray_tracing.restir_decorrelation_set != 0u ||
         settings.ray_tracing.rr_input_scale_set != 0u ||
-        settings.ray_tracing.render_percent_set != 0u ||
         settings.ray_tracing.portal_sampling_set != 0u ||
         settings.ray_tracing.radiance_clamp != 0.0f ||
         settings.ray_tracing.exposure_bias_stops != 0.0f ||
@@ -309,7 +308,6 @@ int main(void)
             "rtx_restir_history_reduction=0\n"
             "rtx_restir_decorrelation=0\n"
             "rtx_rr_input_scale=1\n"
-            "rtx_render_percent=15\n"
             "rtx_portal_sampling=0\n"
             "rtx_dlss=performance\n";
         if (!desktop_settings_parse(&settings, text, sizeof(text) - 1u, error,
@@ -325,8 +323,6 @@ int main(void)
             settings.ray_tracing.restir_decorrelation_set == 0u ||
             settings.ray_tracing.rr_input_scale != 1.0f ||
             settings.ray_tracing.rr_input_scale_set == 0u ||
-            settings.ray_tracing.render_percent != 15.0f ||
-            settings.ray_tracing.render_percent_set == 0u ||
             settings.ray_tracing.portal_sampling != 0.0f ||
             settings.ray_tracing.portal_sampling_set == 0u ||
             settings.ray_tracing.reconstruction !=
@@ -345,6 +341,34 @@ int main(void)
         fprintf(stderr, "the rtx_dlss alias was not accepted: %s\n", error);
         return 1;
     }
+    /* The ladder past Performance, in order of cost. */
+    {
+        static const struct {
+            const char *text;
+            RendererRayReconstructionMode mode;
+        } modes[] = {
+            {"rtx_dlss=high-performance\n",
+             RENDERER_RAY_RECONSTRUCTION_HIGH_PERFORMANCE},
+            {"rtx_dlss=ultra-performance\n",
+             RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE},
+            {"rtx_dlss=extreme-performance\n",
+             RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE},
+            {"rtx_dlss=extreme_performance\n",
+             RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE},
+        };
+        size_t index;
+        for (index = 0u; index < sizeof(modes) / sizeof(modes[0]); ++index) {
+            desktop_settings_default(&settings);
+            if (!desktop_settings_parse(&settings, modes[index].text,
+                                        strlen(modes[index].text), error,
+                                        sizeof(error)) ||
+                settings.ray_tracing.reconstruction != modes[index].mode) {
+                fprintf(stderr, "%s was not accepted: %s\n",
+                        modes[index].text, error);
+                return 1;
+            }
+        }
+    }
     {
         static const char *const rejected[] = {
             "rtx_restir_temporal_history=0\n",
@@ -355,9 +379,8 @@ int main(void)
             "rtx_restir_decorrelation=1.5\n",
             "rtx_rr_input_scale=0.5\n",
             "rtx_rr_input_scale=2048\n",
-            "rtx_render_percent=4\n",
-            "rtx_render_percent=101\n",
-            "rtx_render_percent=half\n",
+            "rtx_dlss=ultra\n",
+            "rtx_dlss=20\n",
             "rtx_rr_highlight_knee=160\n",
             "rtx_portal_sampling=0.95\n",
             "rtx_portal_sampling=-0.1\n",

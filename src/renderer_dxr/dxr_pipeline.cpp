@@ -4,7 +4,7 @@
 #include "dxr_debug.h"
 #include "dxr_indirect_reconstruction.h"
 #include "dxr_performance.h"
-#include "dxr_render_percent.h"
+#include "dxr_render_size.h"
 #include "scene_geometry_compile.h"
 #if defined(AB3D2_ENABLE_STREAMLINE)
 #include "dxr_streamline.h"
@@ -775,8 +775,6 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.ndf_trim > 0.0f) {
         ndf_trim_ = options.ndf_trim;
     }
-    render_percent_ = options.render_percent_set != 0u ?
-        options.render_percent : 0.0f;
     struct Override {
         const char *name;
         uint32_t minimum;
@@ -3112,16 +3110,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     bool streamline_active = false;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     streamline_active = streamline && streamline->active();
-    if (streamline_active && render_percent_ > 0.0f) {
-        /* rtx_render_percent names the render size and where RR takes it;
-         * DxrRenderer already chose the mode from the same plan. */
-        const render_percent::Plan plan =
-            render_percent::plan(render_percent_, width, height);
-        requested_render_width = plan.render_width;
-        requested_render_height = plan.render_height;
-        reconstruction_output_width = plan.reconstruction_width;
-        reconstruction_output_height = plan.reconstruction_height;
-    } else if (streamline_active && reconstruction_fraction_ > 0.0f &&
+    if (streamline_active && reconstruction_fraction_ > 0.0f &&
         reconstruction_fraction_ < 1.0f) {
         /* AB3D2_DXR_RR_OUTPUT_FRACTION: reconstruct to this fraction of the
          * window in any mode, and let the presentation triangle's linear
@@ -3130,20 +3119,30 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             std::lround(static_cast<double>(width) * reconstruction_fraction_)));
         reconstruction_output_height = std::max(1u, static_cast<UINT>(
             std::lround(static_cast<double>(height) * reconstruction_fraction_)));
+    } else if (streamline_active &&
+               streamline->active_mode() ==
+                   RENDERER_RAY_RECONSTRUCTION_HIGH_PERFORMANCE) {
+        /* A fifth of the pixels, which RR cannot take to the window: it
+         * reconstructs to twice the render size and the presentation's
+         * linear upscale covers the rest. */
+        const render_size::Extents extents =
+            render_size::high_performance(width, height);
+        requested_render_width = extents.render_width;
+        requested_render_height = extents.render_height;
+        reconstruction_output_width = extents.reconstruction_width;
+        reconstruction_output_height = extents.reconstruction_height;
     } else if (streamline_active && reconstruction_fraction_ == 0.0f &&
         streamline->active_mode() ==
-            RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE) {
+            RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE) {
         /* Reconstruct at two thirds of the physical presentation extent,
          * then use the ordinary final presentation triangle for the remaining
-         * linear upscale. Ultra Performance therefore traces at roughly two
+         * linear upscale. Extreme Performance therefore traces at roughly two
          * ninths of the physical width/height while keeping the swap-chain
          * extent. */
-        reconstruction_output_width = std::max(
-            1u, static_cast<UINT>(
-                (static_cast<UINT64>(width) * 2u + 2u) / 3u));
-        reconstruction_output_height = std::max(
-            1u, static_cast<UINT>(
-                (static_cast<UINT64>(height) * 2u + 2u) / 3u));
+        reconstruction_output_width =
+            render_size::extreme_performance_reconstruction(width);
+        reconstruction_output_height =
+            render_size::extreme_performance_reconstruction(height);
     }
     if (!streamline ||
         !streamline->configure_output(
@@ -3171,8 +3170,10 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     bool speed_first_post = false;
 #if defined(AB3D2_ENABLE_STREAMLINE)
     speed_first_post = streamline_active && streamline &&
-        streamline->active_mode() ==
-            RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE;
+        (streamline->active_mode() ==
+             RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE ||
+         streamline->active_mode() ==
+             RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE);
 #endif
     /*
      * rtx_rr_input_scale, lowered where it would carry the brightest emitter

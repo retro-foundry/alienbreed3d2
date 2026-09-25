@@ -3,7 +3,6 @@
 #include "dxr_debug.h"
 #include "dxr_device.h"
 #include "dxr_pipeline.h"
-#include "dxr_render_percent.h"
 #if defined(AB3D2_ENABLE_STREAMLINE)
 #include "dxr_streamline.h"
 #endif
@@ -11,53 +10,10 @@
 #include <SDL_syswm.h>
 
 #include <climits>
-#include <cstdlib>
 
 namespace ab3d2::dxr {
 
 namespace {
-
-/*
- * rtx_render_percent, or AB3D2_DXR_RENDER_PERCENT for one measured run, picks
- * the render size and so the DLSS mode: the mode rtx_dlss named cannot take a
- * size outside its range, and Streamline fixes the mode before the first frame.
- */
-bool apply_render_percent(RendererRayTracingOptions &options,
-                          std::string &error)
-{
-    char value[64] = {};
-    const DWORD length = GetEnvironmentVariableA(
-        "AB3D2_DXR_RENDER_PERCENT", value, static_cast<DWORD>(sizeof(value)));
-    if (length >= sizeof(value)) {
-        error = "AB3D2_DXR_RENDER_PERCENT exceeds 63 bytes";
-        return false;
-    }
-    if (length != 0u) {
-        char *end = nullptr;
-        const double parsed = std::strtod(value, &end);
-        if (end == value || *end != 0x00 ||
-            !render_percent::valid(static_cast<float>(parsed))) {
-            error = "AB3D2_DXR_RENDER_PERCENT must be 5 through 100";
-            return false;
-        }
-        options.render_percent = static_cast<float>(parsed);
-        options.render_percent_set = UINT8_MAX;
-    }
-    if (options.render_percent_set == 0u) {
-        return true;
-    }
-    if (!render_percent::valid(options.render_percent)) {
-        error = "rtx_render_percent must be 5 through 100";
-        return false;
-    }
-    if (options.reconstruction == RENDERER_RAY_RECONSTRUCTION_OFF) {
-        error = "rtx_render_percent needs DLSS to reach the window; "
-            "rtx_dlss=off has nothing to upscale with";
-        return false;
-    }
-    options.reconstruction = render_percent::mode_for(options.render_percent);
-    return true;
-}
 
 bool tessellation_factor_valid(uint8_t factor)
 {
@@ -199,13 +155,9 @@ bool DxrRenderer::create_window(int window_width, int window_height,
 bool DxrRenderer::initialize(int window_width, int window_height,
                              const char *window_title, bool desktop_window,
                              bool hidden_window, uint8_t world_light_tessellation,
-                             const RendererRayTracingOptions &requested_options,
+                             const RendererRayTracingOptions &options,
                              std::string &error)
 {
-    RendererRayTracingOptions options = requested_options;
-    if (!apply_render_percent(options, error)) {
-        return false;
-    }
     if (!window_title || window_width < 96 || window_height < 80 ||
         !tessellation_factor_valid(world_light_tessellation)) {
         error = "D3D12/DXR window configuration is invalid";

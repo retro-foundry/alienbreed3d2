@@ -26,7 +26,12 @@ typedef enum {
     RENDERER_RAY_RECONSTRUCTION_QUALITY,
     RENDERER_RAY_RECONSTRUCTION_BALANCED,
     RENDERER_RAY_RECONSTRUCTION_PERFORMANCE,
+    /* A fifth of the pixels, reconstructed to twice the render size. */
+    RENDERER_RAY_RECONSTRUCTION_HIGH_PERFORMANCE,
+    /* NVIDIA's Ultra Performance: a third on each axis, to the window. */
     RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE,
+    /* Ultra Performance reconstructed to two thirds of the window. */
+    RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE,
     RENDERER_RAY_RECONSTRUCTION_OFF
 } RendererRayReconstructionMode;
 
@@ -306,13 +311,6 @@ typedef struct {
      * resolution the path tracer and every ReSTIR buffer run at.
      */
     RendererRayReconstructionMode reconstruction;
-    /*
-     * rtx_render_percent: the share of the window's pixels the path tracer
-     * renders, 5 through 100, in place of the size rtx_dlss would pick. The
-     * DLSS mode follows from it; see renderer_dxr/dxr_render_percent.h.
-     */
-    float render_percent;
-    uint8_t render_percent_set;
     /* Display-output policy. Hidden validation windows are always forced SDR. */
     RendererOutputMode output;
     /* Zero keeps Q2RTX's 800-nit scene default. */

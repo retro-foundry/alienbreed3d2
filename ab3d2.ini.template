@@ -57,49 +57,33 @@ world_light_tessellation=4
 
 # --- Resolution and upscaling ---------------------------------------------
 
-# DLSS Super Resolution quality mode: quality, balanced, performance,
-# ultra-performance, or off. This also fixes the internal resolution that the
-# path tracer, the G-buffer and every ReSTIR reservoir buffer run at, so
-# changing it resizes those buffers and resets ReSTIR's temporal history for a
-# frame. It does not change the estimator: target functions, PDFs and path
-# transport are identical at every quality mode. Default quality.
+# DLSS mode, which also fixes the internal resolution the path tracer, the
+# G-buffer and every ReSTIR reservoir buffer run at: quality, balanced,
+# performance, high-performance, ultra-performance, extreme-performance, or
+# off. Changing it resizes those buffers and resets ReSTIR's temporal history
+# for a frame. It does not change the estimator: target functions, PDFs and
+# path transport are identical at every mode. Default quality.
 #
-# The internal resolution is NVIDIA's for each mode: the window divided by 1.5
-# (quality), 1.724 (balanced) or 2 (performance) on each axis. At 3840x2160
-# that is about 2560x1440, 2227x1253 and 1920x1080, and the path tracer's cost
-# follows those pixel counts; performance traces a quarter of the window.
+# Share of the window's pixels traced, that size at 3838x2158, and the GPU time
+# a frame took there on an RTX 3090:
 #
-# Ultra Performance is explicitly speed-first: at a 1280x720 window it traces
-# 285x160, reconstructs to 854x480, then uses the final linear presentation
-# upscale. The other enabled modes reconstruct directly to the window extent.
+#   quality              44%  2559x1439  88 ms
+#   balanced             34%  2226x1252  66 ms
+#   performance          25%  1919x1079  49 ms
+#   high-performance     20%  1716x965   40 ms
+#   ultra-performance    11%  1279x719   24 ms
+#   extreme-performance   5%   853x480   12 ms
+#
+# Quality through ultra-performance are NVIDIA's own sizes, and each but
+# high-performance reconstructs straight to the window. No DLSS mode can reach
+# the window from a buffer between Performance's and Ultra Performance's, so
+# high-performance reconstructs to twice its size, and extreme-performance
+# takes Ultra Performance's third to two thirds of the window; the
+# presentation's linear upscale covers the rest.
 #
 # Ray Reconstruction is the denoiser whenever DLSS runs; off renders without
 # one. rtx_ray_reconstruction is accepted as an older spelling of this key.
-# rtx_render_percent below replaces the size this picks.
 #rtx_dlss=quality
-
-# Share of the window's pixels the path tracer renders, 5 through 100, in
-# place of the size rtx_dlss picks; the DLSS mode follows from it. Unset by
-# default. 25 is Performance's size, and 100 renders every pixel and leaves
-# DLSS only denoising.
-#
-# From 25 up, DLSS reconstructs straight to the window. Below that no DLSS
-# mode can reach the window from so small a buffer: between 25 and 11 it
-# reconstructs to twice the buffer's size, and from 11 down Ultra Performance
-# reconstructs to three times it, with the presentation's linear upscale
-# covering the rest. At 11 exactly that is the window itself.
-#
-# Measured at 3838x2158 on an RTX 3090 -- GPU time, and structural similarity
-# to a native-resolution reference over lit pixels in a still view (1 is
-# identical):
-#
-#   25   48.7 ms  0.952        15   30.7 ms  0.899
-#   20   40.2 ms  0.920        11   24.0 ms  0.903
-#                               5   11.7 ms  0.811
-#
-# 15 costs more than 11 and looks no better, because 11 lets DLSS reconstruct
-# the whole window and 15 does not.
-#rtx_render_percent=20
 
 # What the DLSS pass's input is multiplied by, 1 through 1024. Its output is
 # divided by the same factor before bloom and tone mapping, so this changes

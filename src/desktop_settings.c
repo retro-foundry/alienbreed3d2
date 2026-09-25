@@ -372,16 +372,25 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
             settings->ray_tracing.reconstruction = RENDERER_RAY_RECONSTRUCTION_BALANCED;
         } else if (desktop_settings_equals_ci(value, "performance")) {
             settings->ray_tracing.reconstruction = RENDERER_RAY_RECONSTRUCTION_PERFORMANCE;
+        } else if (desktop_settings_equals_ci(value, "high-performance") ||
+                   desktop_settings_equals_ci(value, "high_performance")) {
+            settings->ray_tracing.reconstruction =
+                RENDERER_RAY_RECONSTRUCTION_HIGH_PERFORMANCE;
         } else if (desktop_settings_equals_ci(value, "ultra-performance") ||
                    desktop_settings_equals_ci(value, "ultra_performance")) {
             settings->ray_tracing.reconstruction =
                 RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE;
+        } else if (desktop_settings_equals_ci(value, "extreme-performance") ||
+                   desktop_settings_equals_ci(value, "extreme_performance")) {
+            settings->ray_tracing.reconstruction =
+                RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE;
         } else if (desktop_settings_equals_ci(value, "off")) {
             settings->ray_tracing.reconstruction = RENDERER_RAY_RECONSTRUCTION_OFF;
         } else {
             (void)snprintf(error, error_size,
                            "ab3d2.ini line %zu: %s must be quality, balanced, "
-                           "performance, ultra-performance, or off",
+                           "performance, high-performance, ultra-performance, "
+                           "extreme-performance, or off",
                            line_number, key);
             return 0;
         }
@@ -496,17 +505,6 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
             return 0;
         }
         settings->ray_tracing.rr_input_scale_set = UINT8_MAX;
-        return 1;
-    }
-    if (desktop_settings_equals_ci(key, "rtx_render_percent")) {
-        if (!desktop_settings_parse_float_range(
-                value, 5.0, 100.0, &settings->ray_tracing.render_percent)) {
-            (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_render_percent must be 5 through 100",
-                           line_number);
-            return 0;
-        }
-        settings->ray_tracing.render_percent_set = UINT8_MAX;
         return 1;
     }
     if (desktop_settings_equals_ci(key, "rtx_rr_highlight_knee")) {

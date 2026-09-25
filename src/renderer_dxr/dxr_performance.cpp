@@ -183,8 +183,12 @@ const char *reconstruction_name(RendererRayReconstructionMode mode)
     case RENDERER_RAY_RECONSTRUCTION_QUALITY: return "quality";
     case RENDERER_RAY_RECONSTRUCTION_BALANCED: return "balanced";
     case RENDERER_RAY_RECONSTRUCTION_PERFORMANCE: return "performance";
+    case RENDERER_RAY_RECONSTRUCTION_HIGH_PERFORMANCE:
+        return "high-performance";
     case RENDERER_RAY_RECONSTRUCTION_ULTRA_PERFORMANCE:
         return "ultra-performance";
+    case RENDERER_RAY_RECONSTRUCTION_EXTREME_PERFORMANCE:
+        return "extreme-performance";
     case RENDERER_RAY_RECONSTRUCTION_OFF: return "off";
     }
     return "invalid";

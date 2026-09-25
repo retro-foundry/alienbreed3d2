@@ -337,12 +337,8 @@ private:
      * run can be measured against the unjittered image. */
     uint32_t jitter_enabled_ = 1u;
     /* AB3D2_DXR_RR_OUTPUT_FRACTION: the fraction of the window RR
-     * reconstructs to, in any mode. 0 keeps each mode's own (two thirds for
-     * Ultra Performance, the whole window otherwise); 1 sends Ultra
-     * Performance straight to the window as NVIDIA's mode does. */
+     * reconstructs to, in any mode. 0 keeps each mode's own. */
     float reconstruction_fraction_ = 0.0f;
-    /* rtx_render_percent, or zero for the size rtx_dlss picks. */
-    float render_percent_ = 0.0f;
     float source_light_scale_ =
         RENDERER_RAY_TRACING_DEFAULT_SOURCE_LIGHT_SCALE;
     /* Path length counting the primary hit; ab3d2.ini may change it. */

@@ -42,7 +42,9 @@ public:
         quality,
         balanced,
         performance,
+        high_performance,
         ultra_performance,
+        extreme_performance,
     };
 
     DxrStreamline() = default;
