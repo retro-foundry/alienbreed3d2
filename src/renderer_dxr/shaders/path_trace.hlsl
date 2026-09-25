@@ -267,11 +267,11 @@ RWTexture2D<float> DiffuseHitDistanceHistory : register(u9);
  * presents at, so these are never allocated at output extent. Both stay in the
  * unordered-access state for the whole frame, so the previous grid binds as a
  * UAV although this frame only reads it. */
-RWStructuredBuffer<PathReservoir> CurrentReservoirs : register(u10);
-RWStructuredBuffer<PathReservoir> PreviousReservoirs : register(u11);
+RWStructuredBuffer<uint4> CurrentReservoirs : register(u10);
+RWStructuredBuffer<uint4> PreviousReservoirs : register(u11);
 /* Temporal output and spatial input. A pass may not read its neighbours out of
  * the grid it is writing, so the two stages hand over through this one. */
-RWStructuredBuffer<PathReservoir> ResampleReservoirs : register(u22);
+RWStructuredBuffer<uint4> ResampleReservoirs : register(u22);
 /* Ancestry of each pixel's surviving path, and the count of neighbours sharing
  * it. Both are render-resolution grids read a frame after they are written. */
 RWStructuredBuffer<uint> SampleAncestry : register(u23);
@@ -285,7 +285,7 @@ RWStructuredBuffer<uint> DuplicationMap : register(u24);
  * sample lets final shading stochastically fall back to it, which is what
  * restores the independence the denoiser was built to assume.
  */
-RWStructuredBuffer<PathReservoir> PreservedReservoirs : register(u25);
+RWStructuredBuffer<uint4> PreservedReservoirs : register(u25);
 RWStructuredBuffer<uint> Diagnostics : register(u12);
 RWStructuredBuffer<LightGridEntry> LightGrid : register(u13);
 /* Demodulated diffuse-suffix lighting. Primary/burst shading writes a fresh
@@ -393,6 +393,8 @@ cbuffer FrameConstants : register(b0)
     float ReconstructionInputScale;
     /* rtx_portal_sampling; see RENDERER_RAY_TRACING_DEFAULT_PORTAL_SAMPLING. */
     float PortalSampling;
+    /* Reservoirs per plane: the traced pixel count; see loadReservoir. */
+    uint ReservoirPlaneStride;
 };
 
 cbuffer RayRootConstants : register(b1)
@@ -1808,6 +1810,68 @@ uint reservoirIndex(uint2 pixel, uint2 dimensions)
 PathReservoir emptyReservoir()
 {
     return (PathReservoir)0;
+}
+
+/*
+ * Reservoirs are stored as seven planes of uint4 -- plane k holds bytes 16k to
+ * 16k + 15 of every pixel's reservoir -- rather than as an array of the
+ * structure. Stored as structures, a warp writes each field to 32 addresses
+ * 112 bytes apart, fourteen scattered partial-sector writes per reservoir, and
+ * at 4K a single such store cost temporal reuse 1.7 of its 3.6 ms. A warp
+ * writing one plane writes 512 contiguous bytes. The packing is bit for bit.
+ */
+static const uint ReservoirPlaneCount = 7u;
+
+PathReservoir loadReservoir(RWStructuredBuffer<uint4> planes, uint index)
+{
+    uint4 row[ReservoirPlaneCount];
+    [unroll]
+    for (uint plane = 0u; plane < ReservoirPlaneCount; ++plane) {
+        row[plane] = planes[plane * ReservoirPlaneStride + index];
+    }
+    PathReservoir reservoir;
+    reservoir.translatedWorldPosition = asfloat(row[0].xyz);
+    reservoir.weightSum = asfloat(row[0].w);
+    reservoir.worldNormal = asfloat(row[1].xyz);
+    reservoir.m = asfloat(row[1].w);
+    reservoir.radiance = asfloat(row[2].xyz);
+    reservoir.partialJacobian = asfloat(row[2].w);
+    reservoir.targetFunction = asfloat(row[3].xyz);
+    reservoir.rcWiPdf = asfloat(row[3].w);
+    reservoir.rcVertexLength = row[4].x;
+    reservoir.pathLength = row[4].y;
+    reservoir.randomSeed = row[4].z;
+    reservoir.randomIndex = row[4].w;
+    reservoir.age = row[5].x;
+    reservoir.ancestry = row[5].y;
+    reservoir.primaryNormal = row[5].z;
+    reservoir.primaryMaterial = row[5].w;
+    reservoir.primaryPosition = asfloat(row[6].xyz);
+    reservoir.primaryDepth = asfloat(row[6].w);
+    return reservoir;
+}
+
+void storeReservoir(RWStructuredBuffer<uint4> planes, uint index,
+                    PathReservoir reservoir)
+{
+    uint4 row[ReservoirPlaneCount];
+    row[0] = uint4(asuint(reservoir.translatedWorldPosition),
+                   asuint(reservoir.weightSum));
+    row[1] = uint4(asuint(reservoir.worldNormal), asuint(reservoir.m));
+    row[2] = uint4(asuint(reservoir.radiance),
+                   asuint(reservoir.partialJacobian));
+    row[3] = uint4(asuint(reservoir.targetFunction),
+                   asuint(reservoir.rcWiPdf));
+    row[4] = uint4(reservoir.rcVertexLength, reservoir.pathLength,
+                   reservoir.randomSeed, reservoir.randomIndex);
+    row[5] = uint4(reservoir.age, reservoir.ancestry,
+                   reservoir.primaryNormal, reservoir.primaryMaterial);
+    row[6] = uint4(asuint(reservoir.primaryPosition),
+                   asuint(reservoir.primaryDepth));
+    [unroll]
+    for (uint plane = 0u; plane < ReservoirPlaneCount; ++plane) {
+        planes[plane * ReservoirPlaneStride + index] = row[plane];
+    }
 }
 
 bool reservoirValid(PathReservoir reservoir)
@@ -4004,8 +4068,8 @@ void writeSurfaceGuides(uint2 pixel, SurfacePayload payload,
 void clearCurrentReservoir(uint2 pixel, uint2 dimensions)
 {
     if (IndirectMode == IndirectModeRestirPt) {
-        CurrentReservoirs[reservoirIndex(pixel, dimensions)] =
-            emptyReservoir();
+        storeReservoir(CurrentReservoirs,
+                       reservoirIndex(pixel, dimensions), emptyReservoir());
     }
 }
 
@@ -4027,12 +4091,12 @@ void stampReservoirSurface(uint2 pixel, uint2 dimensions, SurfaceData surface,
         return;
     }
     uint index = reservoirIndex(pixel, dimensions);
-    PathReservoir reservoir = CurrentReservoirs[index];
+    PathReservoir reservoir = loadReservoir(CurrentReservoirs, index);
     reservoir.primaryPosition = surface.position;
     reservoir.primaryNormal = packOctahedralNormal(surface.geometricNormal);
     reservoir.primaryMaterial = surface.materialIndex;
     reservoir.primaryDepth = depth;
-    CurrentReservoirs[index] = reservoir;
+    storeReservoir(CurrentReservoirs, index, reservoir);
 }
 
 void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
@@ -4563,7 +4627,7 @@ void BurstContinuation()
         /* Carry the surface stamp through, so a pixel whose candidates all
          * failed still tells the reuse passes what it is looking at. */
         PathReservoir stamped =
-            CurrentReservoirs[reservoirIndex(pixel, dimensions)];
+            loadReservoir(CurrentReservoirs, reservoirIndex(pixel, dimensions));
         reservoir.primaryPosition = stamped.primaryPosition;
         reservoir.primaryNormal = stamped.primaryNormal;
         reservoir.primaryMaterial = stamped.primaryMaterial;
@@ -4582,7 +4646,8 @@ void BurstContinuation()
                            reservoirLuminance(reservoir.targetFunction) *
                                reservoirLuminance(reservoir.targetFunction) *
                                reservoir.m);
-        CurrentReservoirs[reservoirIndex(pixel, dimensions)] = reservoir;
+        storeReservoir(CurrentReservoirs,
+                       reservoirIndex(pixel, dimensions), reservoir);
     }
 
     IndirectSignal signal = scaleIndirectSignal(
@@ -4696,13 +4761,13 @@ void ResampleTemporal()
         return;
     }
 
-    PathReservoir canonical = CurrentReservoirs[index];
+    PathReservoir canonical = loadReservoir(CurrentReservoirs, index);
     /* Keep the unresampled sample before reuse overwrites this slot. */
-    PreservedReservoirs[index] = canonical;
+    storeReservoir(PreservedReservoirs, index, canonical);
     SurfaceData surface;
     float depth;
     if (!loadResamplingSurface(pixel, canonical, surface, depth)) {
-        ResampleReservoirs[index] = canonical;
+        storeReservoir(ResampleReservoirs, index, canonical);
         return;
     }
 
@@ -4749,8 +4814,9 @@ void ResampleTemporal()
             int2 previousCoordinate = int2(floor(previousPixel));
             if (all(previousCoordinate >= 0) &&
                 all(previousCoordinate < int2(dimensions))) {
-                PathReservoir history = PreviousReservoirs[
-                    reservoirIndex(uint2(previousCoordinate), dimensions)];
+                PathReservoir history = loadReservoir(
+                    PreviousReservoirs,
+                    reservoirIndex(uint2(previousCoordinate), dimensions));
                 recordDiagnostic(DiagnosticTemporalConsidered, 1u);
                 if (!reservoirSurfaceCompatible(
                         history, surface, depth,
@@ -4929,7 +4995,7 @@ void ResampleTemporal()
      * and because this frame's reservoir is next frame's history the error
      * compounds rather than merely biasing one image. */
     current.m = min(current.m, float(ReservoirTemporalHistory));
-    ResampleReservoirs[index] = current;
+    storeReservoir(ResampleReservoirs, index, current);
 }
 
 /*
@@ -4949,12 +5015,12 @@ void ResampleSpatial()
         return;
     }
 
-    PathReservoir centre = ResampleReservoirs[index];
+    PathReservoir centre = loadReservoir(ResampleReservoirs, index);
     SurfaceData surface;
     float depth;
     if (ReservoirSpatialSamples == 0u ||
         !loadResamplingSurface(pixel, centre, surface, depth)) {
-        CurrentReservoirs[index] = centre;
+        storeReservoir(CurrentReservoirs, index, centre);
         return;
     }
 
@@ -5007,7 +5073,8 @@ void ResampleSpatial()
         }
         uint neighborIndex =
             reservoirIndex(uint2(neighborPixel), dimensions);
-        PathReservoir neighbor = ResampleReservoirs[neighborIndex];
+        PathReservoir neighbor = loadReservoir(ResampleReservoirs,
+                                               neighborIndex);
         recordDiagnostic(DiagnosticSpatialConsidered, 1u);
         if (!reservoirSurfaceCompatible(neighbor, surface, depth,
                                         ReservoirSpatialDepthTolerance,
@@ -5080,7 +5147,8 @@ void ResampleSpatial()
             piSum += selectedPi * acceptedM[entry];
             continue;
         }
-        PathReservoir neighbor = ResampleReservoirs[acceptedIndex[entry]];
+        PathReservoir neighbor = loadReservoir(ResampleReservoirs,
+                                               acceptedIndex[entry]);
         SurfaceData neighborSurface;
         float neighborDepth;
         uint2 neighborPosition = uint2(
@@ -5106,7 +5174,8 @@ void ResampleSpatial()
         predictedWeight += ownM;
     }
     for (uint probe = 0u; probe < acceptedCount; ++probe) {
-        PathReservoir neighbour = ResampleReservoirs[acceptedIndex[probe]];
+        PathReservoir neighbour = loadReservoir(ResampleReservoirs,
+                                                acceptedIndex[probe]);
         predictedEnergy +=
             reservoirLuminance(resolvedRadiance(neighbour)) * acceptedM[probe];
         predictedWeight += acceptedM[probe];
@@ -5144,8 +5213,9 @@ void ResampleSpatial()
                 if (any(probe < 0) || any(probe >= int2(dimensions))) {
                     continue;
                 }
-                PathReservoir fresh = PreservedReservoirs[
-                    reservoirIndex(uint2(probe), dimensions)];
+                PathReservoir fresh = loadReservoir(
+                    PreservedReservoirs,
+                    reservoirIndex(uint2(probe), dimensions));
                 if (reservoirValid(fresh)) {
                     localCanonical +=
                         reservoirLuminance(resolvedRadiance(fresh));
@@ -5164,14 +5234,15 @@ void ResampleSpatial()
             if (reservoirLuminance(resolvedRadiance(current)) >
                 ReservoirFireflyStoreThreshold * localCanonical +
                     ReservoirFireflyFloor) {
-                PathReservoir preserved = PreservedReservoirs[index];
+                PathReservoir preserved = loadReservoir(PreservedReservoirs,
+                                                        index);
                 if (reservoirValid(preserved)) {
                     current = preserved;
                 }
             }
         }
     }
-    CurrentReservoirs[index] = current;
+    storeReservoir(CurrentReservoirs, index, current);
 
     /* The duplication map reads this next frame to find neighbourhoods that
      * have filled with descendants of one path. */
@@ -5282,7 +5353,8 @@ void ReconstructIndirect()
          * only the diffuse term is replaced here.
          */
         uint resolvedIndex = reservoirIndex(pixel, dimensions);
-        PathReservoir resolved = CurrentReservoirs[resolvedIndex];
+        PathReservoir resolved = loadReservoir(CurrentReservoirs,
+                                               resolvedIndex);
         /*
          * Stochastic decorrelation, as a one-sample MIS between the resampled
          * reservoir and the preserved initial one. The probability is scaled by
@@ -5305,7 +5377,8 @@ void ReconstructIndirect()
             float draw = sampleStream(pixel, SampleIndex,
                                       ReservoirDecorrelationStream).x;
             if (draw < probability) {
-                PathReservoir preserved = PreservedReservoirs[resolvedIndex];
+                PathReservoir preserved = loadReservoir(PreservedReservoirs,
+                                                        resolvedIndex);
                 if (reservoirValid(preserved)) {
                     resolved = preserved;
                     recordDiagnostic(DiagnosticDecorrelated, 1u);
@@ -5334,8 +5407,9 @@ void ReconstructIndirect()
                         any(neighbour >= int2(dimensions))) {
                         continue;
                     }
-                    PathReservoir sample = PreservedReservoirs[
-                        reservoirIndex(uint2(neighbour), dimensions)];
+                    PathReservoir sample = loadReservoir(
+                        PreservedReservoirs,
+                        reservoirIndex(uint2(neighbour), dimensions));
                     if (reservoirValid(sample)) {
                         localCanonical +=
                             reservoirLuminance(resolvedRadiance(sample));
@@ -5351,7 +5425,7 @@ void ReconstructIndirect()
                     ReservoirFireflyThreshold * localCanonical +
                         ReservoirFireflyFloor) {
                     PathReservoir preserved =
-                        PreservedReservoirs[resolvedIndex];
+                        loadReservoir(PreservedReservoirs, resolvedIndex);
                     if (reservoirValid(preserved)) {
                         resolved = preserved;
                         recordDiagnostic(DiagnosticFireflyReplaced, 1u);

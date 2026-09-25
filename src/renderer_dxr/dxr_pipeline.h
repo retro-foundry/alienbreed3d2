@@ -26,7 +26,8 @@ class DxrGpuProfiler;
 /*
  * Layout mirrored by `PathReservoir` in shaders/path_trace.hlsl. Members are
  * grouped into sixteen-byte rows so the two declarations cannot drift into
- * disagreeing about packing.
+ * disagreeing about packing. The buffers hold each row as its own plane (see
+ * loadReservoir), so this is the size a pixel occupies, not an element.
  */
 struct DxrPathReservoir {
     float translated_world_position[3];

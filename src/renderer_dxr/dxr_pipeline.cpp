@@ -235,6 +235,8 @@ struct FrameConstants {
     float reconstruction_input_scale;
     /* rtx_portal_sampling; zero is plain cosine sampling. */
     float portal_sampling;
+    /* Reservoirs per plane of the reservoir buffers: the traced pixel count. */
+    uint32_t reservoir_plane_stride;
 };
 
 /*
@@ -243,7 +245,7 @@ struct FrameConstants {
  * size, leaving room for future bindings without trimming camera or exposure
  * state.
  */
-static_assert(sizeof(FrameConstants) == 74u * sizeof(uint32_t));
+static_assert(sizeof(FrameConstants) == 75u * sizeof(uint32_t));
 static_assert(sizeof(FrameConstants) <= frame_constant_stride);
 
 struct PresentConstants {
@@ -3329,6 +3331,7 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     constants.maximum_depth = maximum_depth_;
     constants.output_width = width;
     constants.output_height = height;
+    constants.reservoir_plane_stride = render_width * render_height;
     constants.triangle_count = scene_.triangle_count();
     constants.emitter_count = scene_.emitter_count();
     copy_vector(constants.previous_camera_position, previous_camera.position);
