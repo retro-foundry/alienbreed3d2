@@ -1108,8 +1108,10 @@ bool DxrDevice::initialize(HWND window, bool hidden_window,
          * for every frame and analyses it on the CPU -- 124-144 ms a frame at
          * 3838x2158 against 12-50 ms of GPU work -- and a GPU that idle drops
          * its clock: Ultra Performance measured at 645 MHz instead of 1905. The
-         * smoke's image statistics go unread, so it ends by failing its
-         * Shotgun check; the profile, taken over the frozen frames, is valid.
+         * validation counters, which only the readback reads, go too, so the
+         * frame is the one the game renders. The smoke's image statistics go
+         * unread and it ends by failing its Shotgun check; the profile, taken
+         * over the frozen frames, is valid.
          */
         char readback[2] = {};
         smoke_readback_enabled_ = !(GetEnvironmentVariableA(
@@ -1368,7 +1370,10 @@ bool DxrDevice::render(DxrPipeline &pipeline, const SceneFrame &scene_frame,
                           frame.render_target_view, scene_frame, view,
                           frame_number,
                           frame_index_, exposure_delta_seconds,
-                          streamline_, hidden_window_,
+                          streamline_,
+                          /* Validation counters only feed the readback, so
+                           * without it the frame is the game's own. */
+                          hidden_window_ && smoke_readback_enabled_,
                           &performance_profiler_, error)) {
         return false;
     }

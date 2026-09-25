@@ -103,8 +103,11 @@ default, so the shipped template lists them commented out with their defaults:
   may instead be aimed through a zone opening; see `rtx_portal_sampling`.
 - `rtx_ray_reconstruction=quality|balanced|performance|high-performance|ultra-performance|extreme-performance|off`
   selects the DLSS Ray Reconstruction mode, which also sets the resolution the
-  path tracer renders at before reconstruction upscales it. At 3838x2158 they
-  trace 44%, 34%, 25%, 20%, 11% and 5% of the window's pixels. Quality,
+  path tracer renders at before reconstruction upscales it. They trace 44%,
+  34%, 25%, 20%, 11% and 5% of the window's pixels. The ray-traced backend is
+  per-monitor DPI aware (the executable is not, for OpenGL's sake) and opens a
+  borderless window at the monitor's bounds, so the window is the monitor's
+  real pixels. Quality,
   Balanced, Performance and Ultra Performance are NVIDIA's own sizes and
   reconstruct directly to the presentation extent. No DLSS mode reaches the
   window from a buffer between Performance's and Ultra Performance's, so High

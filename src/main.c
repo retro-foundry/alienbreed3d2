@@ -591,6 +591,27 @@ static int game_app_init(GameApp *app, int argc, char **argv)
     app->frame_initialized = 1;
     renderer_config.backend = app->has_renderer_backend_from_command_line != 0u ?
         app->renderer_backend_from_command_line : app->desktop_settings.renderer_backend;
+#if defined(_WIN32)
+    if (renderer_config.backend == RENDERER_BACKEND_RTX) {
+        /*
+         * The ray-traced backend renders at the monitor's real pixels. The
+         * executable stays DPI-unaware for the OpenGL backend, as the first
+         * port was, but a DPI-unaware process on a 150%-scaled 3840x2160
+         * desktop is told the desktop is 2560x1440: DXR traced and
+         * reconstructed a 2568x1471 swap chain and Windows stretched it to the
+         * panel. SDL reads the display sizes when video starts, and the
+         * process has no window yet, so video restarts per-monitor aware
+         * before the backend asks for them.
+         */
+        SDL_QuitSubSystem(SDL_INIT_VIDEO);
+        SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
+        if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0) {
+            fprintf(stderr, "[PLATFORM] SDL video restart failed: %s\n",
+                    SDL_GetError());
+            return 0;
+        }
+    }
+#endif
     if (app->gpu_smoke) {
         /* Keep the opt-in hidden smoke bounded and independent of desktop layout. */
         renderer_config.window_width = 1280;

@@ -64,15 +64,19 @@ world_light_tessellation=4
 # for a frame. It does not change the estimator: target functions, PDFs and
 # path transport are identical at every mode. Default quality.
 #
-# Share of the window's pixels traced, that size at 3838x2158, and the GPU time
+# Share of the window's pixels traced, that size at 3840x2160, and the GPU time
 # a frame took there on an RTX 3090:
 #
-#   quality              44%  2559x1439  88 ms
-#   balanced             34%  2226x1252  66 ms
-#   performance          25%  1919x1079  49 ms
-#   high-performance     20%  1716x965   40 ms
-#   ultra-performance    11%  1279x719   24 ms
-#   extreme-performance   5%   853x480   12 ms
+#   quality              44%  2560x1440  86 ms
+#   balanced             34%  2227x1253  66 ms
+#   performance          25%  1920x1080  48 ms
+#   high-performance     20%  1717x966   40 ms
+#   ultra-performance    11%  1280x720   23 ms
+#   extreme-performance   5%   853x480   11 ms
+#
+# The ray-traced backend renders at the monitor's real pixels, so on a desktop
+# scaled to 150% the window is the full 3840x2160, not the 2560x1440 Windows
+# reports to the OpenGL backend.
 #
 # Quality through ultra-performance are NVIDIA's own sizes, and each but
 # high-performance reconstructs straight to the window. No DLSS mode can reach

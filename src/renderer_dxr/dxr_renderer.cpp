@@ -9,7 +9,6 @@
 
 #include <SDL_syswm.h>
 
-#include <climits>
 
 namespace ab3d2::dxr {
 
@@ -79,35 +78,6 @@ DxrRenderer::~DxrRenderer()
     }
 }
 
-bool DxrRenderer::expand_desktop_client_window(int desktop_x, int desktop_y,
-                                               std::string &error)
-{
-    int top = 0;
-    int left = 0;
-    int bottom = 0;
-    int right = 0;
-    int client_width = 0;
-    int client_height = 0;
-
-    if (SDL_GetWindowBordersSize(window_, &top, &left, &bottom, &right) != 0) {
-        error = sdl_error("SDL desktop window border measurement failed");
-        return false;
-    }
-    if (top < 0 || left < 0 || bottom < 0 || right < 0) {
-        error = "SDL desktop window reported invalid border dimensions";
-        return false;
-    }
-    SDL_GetWindowSize(window_, &client_width, &client_height);
-    if (client_width < 1 || client_height < 1 || client_width > INT_MAX - left ||
-        client_height > INT_MAX - top) {
-        error = "SDL desktop window client dimensions are invalid";
-        return false;
-    }
-    SDL_SetWindowSize(window_, client_width + left, client_height + top);
-    SDL_SetWindowPosition(window_, desktop_x - left, desktop_y - top);
-    return true;
-}
-
 bool DxrRenderer::create_window(int window_width, int window_height,
                                 const char *window_title, bool desktop_window,
                                 bool hidden_window, std::string &error)
@@ -116,6 +86,17 @@ bool DxrRenderer::create_window(int window_width, int window_height,
     int window_y = SDL_WINDOWPOS_CENTERED;
     Uint32 window_flags = (hidden_window ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN) |
                           SDL_WINDOW_RESIZABLE;
+    /*
+     * The desktop window is borderless at the monitor's bounds, so the swap
+     * chain is the monitor. It used to be a framed window grown until its
+     * client area covered the desktop with the frame pushed off screen, which
+     * left 11 columns and 45 rows of every traced, reconstructed and
+     * tone-mapped frame outside the monitor at 3840x2160 and the view centre
+     * 22 pixels above the screen's.
+     */
+    if (desktop_window && !hidden_window) {
+        window_flags |= SDL_WINDOW_BORDERLESS;
+    }
 
     if ((SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) == 0) {
         error = "D3D12/DXR renderer requires SDL_INIT_VIDEO before creation";
@@ -143,10 +124,6 @@ bool DxrRenderer::create_window(int window_width, int window_height,
                                window_width, window_height, window_flags);
     if (!window_) {
         error = sdl_error("SDL D3D12/DXR window creation failed");
-        return false;
-    }
-    if (desktop_window && !hidden_window &&
-        !expand_desktop_client_window(window_x, window_y, error)) {
         return false;
     }
     return true;

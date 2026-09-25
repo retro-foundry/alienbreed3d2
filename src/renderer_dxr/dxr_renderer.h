@@ -66,8 +66,6 @@ public:
 private:
     bool create_window(int window_width, int window_height, const char *window_title,
                        bool desktop_window, bool hidden_window, std::string &error);
-    bool expand_desktop_client_window(int desktop_x, int desktop_y,
-                                      std::string &error);
 
     SDL_Window *window_ = nullptr;
     std::unique_ptr<DxrDevice> device_;
