@@ -3199,6 +3199,25 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             std::clamp(half_float_maximum / brightest_emitter, 1.0f,
                        rr_input_scale_) :
             rr_input_scale_;
+        /*
+         * Report the ceiling whenever it binds, because the startup line
+         * prints what was asked for. A scene with a bright enough emitter caps
+         * this well below any larger value rtx_rr_input_scale names, so raising
+         * the setting changes nothing and says so nowhere -- which makes a
+         * sweep of it look like evidence that the scale does not matter.
+         */
+        static float reported_scale = -1.0f;
+        if (reconstruction_input_scale < rr_input_scale_ &&
+            reconstruction_input_scale != reported_scale) {
+            reported_scale = reconstruction_input_scale;
+            debug_output(
+                "RR input scale limited to " +
+                std::to_string(reconstruction_input_scale) + " of the " +
+                std::to_string(rr_input_scale_) +
+                " requested; the brightest emitter (" +
+                std::to_string(brightest_emitter) +
+                ") must survive the multiply in half float");
+        }
     }
     const SceneCamera *camera = find_camera(frame);
     if (!camera) {
