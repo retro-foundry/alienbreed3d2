@@ -228,44 +228,58 @@ const char *mode_name(DxrStreamline::Mode mode)
     return "unknown";
 }
 
+sl::DLSSDPreset streamline_preset(RendererRayReconstructionPreset preset)
+{
+    switch (preset) {
+    case RENDERER_RAY_RECONSTRUCTION_PRESET_D:
+        return sl::DLSSDPreset::ePresetD;
+    case RENDERER_RAY_RECONSTRUCTION_PRESET_E:
+        return sl::DLSSDPreset::ePresetE;
+    case RENDERER_RAY_RECONSTRUCTION_PRESET_F:
+        return sl::DLSSDPreset::ePresetF;
+    case RENDERER_RAY_RECONSTRUCTION_PRESET_DRIVER:
+    default:
+        return sl::DLSSDPreset::eDefault;
+    }
+}
+
 /*
- * AB3D2_DXR_RR_PRESET: which Ray Reconstruction model to pin, "d", "e" or "f".
- *
- * Every preset field defaults to eDefault, which sl_dlss_d.h describes as
- * behaviour that "may or may not change after an OTA" -- the driver's choice,
- * not ours, and not reproducible between machines or driver versions. All
- * three named presets are transformer models; on v2.14.1 the header calls F
- * "Latest and default transformer model", where v2.12.0 had F merely reverting
- * to the default. Which one handles a disocclusion best is a question for
- * measurement, and measurement needs the model pinned.
+ * AB3D2_DXR_RR_PRESET overrides rtx_rr_preset for one run, taking "driver",
+ * "d", "e" or "f". Comparing models is the reason this exists at all, and a
+ * comparison that needs the settings file edited between runs is one nobody
+ * makes twice.
  */
-sl::DLSSDPreset requested_preset()
+RendererRayReconstructionPreset requested_preset(
+    RendererRayReconstructionPreset configured)
 {
     char value[16] = {};
     const DWORD length = GetEnvironmentVariableA(
         "AB3D2_DXR_RR_PRESET", value, static_cast<DWORD>(sizeof(value)));
     if (length == 0u || length >= sizeof(value)) {
-        return sl::DLSSDPreset::eDefault;
+        return configured;
     }
-    if (value[0] == 'd' || value[0] == 'D') {
-        return sl::DLSSDPreset::ePresetD;
+    switch (value[0]) {
+    case 'd': case 'D':
+        /* "driver" and "d" differ only past the first character. */
+        return (value[1] == 'r' || value[1] == 'R') ?
+            RENDERER_RAY_RECONSTRUCTION_PRESET_DRIVER :
+            RENDERER_RAY_RECONSTRUCTION_PRESET_D;
+    case 'e': case 'E':
+        return RENDERER_RAY_RECONSTRUCTION_PRESET_E;
+    case 'f': case 'F':
+        return RENDERER_RAY_RECONSTRUCTION_PRESET_F;
+    default:
+        return configured;
     }
-    if (value[0] == 'e' || value[0] == 'E') {
-        return sl::DLSSDPreset::ePresetE;
-    }
-    if (value[0] == 'f' || value[0] == 'F') {
-        return sl::DLSSDPreset::ePresetF;
-    }
-    return sl::DLSSDPreset::eDefault;
 }
 
 sl::DLSSDOptions make_options(DxrStreamline::Mode mode, UINT output_width,
                               UINT output_height,
-                              const reconstruction::CameraProjection *camera)
+                              const reconstruction::CameraProjection *camera,
+                              sl::DLSSDPreset preset)
 {
     sl::DLSSDOptions options{};
     options.mode = streamline_mode(mode);
-    const sl::DLSSDPreset preset = requested_preset();
     options.dlaaPreset = preset;
     options.qualityPreset = preset;
     options.balancedPreset = preset;
@@ -513,12 +527,14 @@ bool DxrStreamline::verify_runtime(std::string &error)
 }
 
 bool DxrStreamline::initialize(RendererRayReconstructionMode mode,
+                               RendererRayReconstructionPreset preset,
                                std::string &error)
 {
     if (initialized_) {
         error = "Streamline was initialized more than once";
         return false;
     }
+    preset_ = requested_preset(preset);
     for (size_t index = 0u; index < runtime_module_names.size(); ++index) {
         HMODULE module = GetModuleHandleW(runtime_module_names[index]);
         /* slShutdown does not necessarily unload every production module.
@@ -716,7 +732,8 @@ bool DxrStreamline::configure_output(UINT output_width, UINT output_height,
     if (active()) {
         sl::DLSSDOptimalSettings settings{};
         const sl::DLSSDOptions options = make_options(
-            mode_, output_width, output_height, nullptr);
+            mode_, output_width, output_height, nullptr,
+            streamline_preset(preset_));
         const sl::Result result = slDLSSDGetOptimalSettings(options, settings);
         if (result != sl::Result::eOk) {
             error = result_error("slDLSSDGetOptimalSettings", result);
@@ -842,7 +859,8 @@ bool DxrStreamline::evaluate(
         return false;
     }
     const sl::DLSSDOptions options = make_options(
-        mode_, output_width_, output_height_, &current_camera);
+        mode_, output_width_, output_height_, &current_camera,
+        streamline_preset(preset_));
     result = slDLSSDSetOptions(rr_viewport, options);
     if (result != sl::Result::eOk) {
         error = result_error("slDLSSDSetOptions", result);

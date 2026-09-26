@@ -336,6 +336,49 @@ int main(void)
             return 1;
         }
     }
+    /*
+     * rtx_rr_preset names the model rather than the quality ladder. The unset
+     * case must stay distinguishable from an explicit request for the driver's
+     * own choice: both read as PRESET_DRIVER, and only the flag separates a
+     * build that pins its default from one that inherits whatever an OTA last
+     * decided.
+     */
+    {
+        static const struct {
+            const char *text;
+            RendererRayReconstructionPreset preset;
+        } presets[] = {
+            {"rtx_rr_preset=driver\n",
+             RENDERER_RAY_RECONSTRUCTION_PRESET_DRIVER},
+            {"rtx_rr_preset=d\n", RENDERER_RAY_RECONSTRUCTION_PRESET_D},
+            {"rtx_rr_preset=E\n", RENDERER_RAY_RECONSTRUCTION_PRESET_E},
+            {"rtx_rr_preset=f\n", RENDERER_RAY_RECONSTRUCTION_PRESET_F},
+        };
+        for (size_t index = 0u;
+             index < sizeof(presets) / sizeof(presets[0]); ++index) {
+            desktop_settings_default(&settings);
+            if (!desktop_settings_parse(&settings, presets[index].text,
+                                        61u + index, error, sizeof(error)) ||
+                settings.ray_tracing.reconstruction_preset !=
+                    presets[index].preset ||
+                settings.ray_tracing.reconstruction_preset_set == 0u) {
+                fprintf(stderr, "rtx_rr_preset rejected %s: %s\n",
+                        presets[index].text, error);
+                return 1;
+            }
+        }
+        desktop_settings_default(&settings);
+        if (settings.ray_tracing.reconstruction_preset_set != 0u) {
+            fprintf(stderr,
+                    "an absent rtx_rr_preset reported itself as set\n");
+            return 1;
+        }
+        if (desktop_settings_parse(&settings, "rtx_rr_preset=g\n", 62u, error,
+                                   sizeof(error))) {
+            fprintf(stderr, "rtx_rr_preset accepted an unknown model\n");
+            return 1;
+        }
+    }
     /* rtx_ray_reconstruction now names the DLSS quality ladder alone. */
     desktop_settings_default(&settings);
     if (!desktop_settings_parse(&settings, "rtx_ray_reconstruction=balanced\n",

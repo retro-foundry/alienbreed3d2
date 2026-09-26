@@ -247,6 +247,17 @@ world_light_tessellation=4
 # when diagnosing a lighting trail or a persistent firefly.
 #rtx_restir_temporal_history=20
 
+# Which Ray Reconstruction model to ask NGX for: driver, d, e or f.
+# Default f, the latest transformer model on the pinned Streamline SDK.
+#
+# "driver" leaves the choice to NVIDIA, which the SDK header warns "may or may
+# not change after an OTA" -- the same build then renders differently after a
+# driver update, with nothing here to say why. The named presets are all
+# transformer models; f measurably reduced weapon ghosting against the driver's
+# own pick. AB3D2_DXR_RR_PRESET overrides this for one run, which is the way to
+# compare two models without editing this file between them.
+#rtx_rr_preset=f
+
 # How large a change in one emitter's emission costs ReSTIR its whole temporal
 # history, as a fraction of that emitter's brighter state, 0 through 1.
 # Default 1: only a total ignition or extinction wipes it outright, and smaller

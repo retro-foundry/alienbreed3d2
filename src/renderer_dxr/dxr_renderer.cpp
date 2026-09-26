@@ -142,7 +142,14 @@ bool DxrRenderer::initialize(int window_width, int window_height,
     }
 #if defined(AB3D2_ENABLE_STREAMLINE)
     streamline_ = std::make_unique<DxrStreamline>();
-    if (!streamline_->initialize(options.reconstruction, error)) {
+    /* An unset key means the build's own default, not the driver's: those are
+     * different intentions, and only the flag separates them. */
+    const RendererRayReconstructionPreset reconstruction_preset =
+        options.reconstruction_preset_set != 0u ?
+            options.reconstruction_preset :
+            RENDERER_RAY_TRACING_DEFAULT_RR_PRESET;
+    if (!streamline_->initialize(options.reconstruction, reconstruction_preset,
+                                 error)) {
         return false;
     }
 #endif

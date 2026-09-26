@@ -52,7 +52,9 @@ public:
     DxrStreamline(const DxrStreamline &) = delete;
     DxrStreamline &operator=(const DxrStreamline &) = delete;
 
-    bool initialize(RendererRayReconstructionMode mode, std::string &error);
+    bool initialize(RendererRayReconstructionMode mode,
+                    RendererRayReconstructionPreset preset,
+                    std::string &error);
     bool adapter_supported(const LUID &luid, std::string &reason) const;
     bool get_native_factory(IDXGIFactory6 *proxy, IDXGIFactory6 **native,
                             std::string &error) const;
@@ -90,6 +92,11 @@ private:
 
     std::filesystem::path runtime_directory_;
     Mode mode_ = Mode::quality;
+    /* rtx_rr_preset, after AB3D2_DXR_RR_PRESET has had its say. Pinned rather
+     * than inherited so the model does not change under a driver update
+     * without anything in the build changing. */
+    RendererRayReconstructionPreset preset_ =
+        RENDERER_RAY_TRACING_DEFAULT_RR_PRESET;
     UINT output_width_ = 0;
     UINT output_height_ = 0;
     UINT render_width_ = 0;

@@ -35,6 +35,26 @@ typedef enum {
     RENDERER_RAY_RECONSTRUCTION_OFF
 } RendererRayReconstructionMode;
 
+/*
+ * Which Ray Reconstruction model to ask NGX for.
+ *
+ * DRIVER leaves sl::DLSSDPreset::eDefault in place, which sl_dlss_d.h
+ * describes as behaviour that "may or may not change after an OTA" -- the
+ * driver's choice rather than ours, and not reproducible between machines or
+ * driver versions. Every other value pins a named model, so a build renders
+ * the same way twice.
+ *
+ * D, E and F are all transformer models. On the pinned v2.14.1 SDK the header
+ * calls F "Latest and default transformer model"; on v2.12.0 the same value
+ * merely reverted to the default, so asking for it there did nothing.
+ */
+typedef enum {
+    RENDERER_RAY_RECONSTRUCTION_PRESET_DRIVER = 0,
+    RENDERER_RAY_RECONSTRUCTION_PRESET_D,
+    RENDERER_RAY_RECONSTRUCTION_PRESET_E,
+    RENDERER_RAY_RECONSTRUCTION_PRESET_F
+} RendererRayReconstructionPreset;
+
 typedef enum {
     /* Follow the Windows advanced-color state of the window's current monitor. */
     RENDERER_OUTPUT_AUTO = 0,
@@ -108,6 +128,17 @@ enum {
  * history outright.
  */
 #define RENDERER_RAY_TRACING_DEFAULT_RESTIR_EMITTER_CHANGE_LIMIT 1.0f
+
+/*
+ * The Ray Reconstruction model, pinned rather than inherited.
+ *
+ * Preset F measurably reduced weapon ghosting against the driver's own choice
+ * on the pinned v2.14.1 SDK, and leaving the default unpinned means the model
+ * can change under a driver update without anything in the build changing --
+ * which is how an earlier model comparison here ended up measuring nothing.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_RR_PRESET \
+    RENDERER_RAY_RECONSTRUCTION_PRESET_F
 
 /*
  * Exponent of the power curve that pulls the temporal confidence cap toward one
@@ -344,6 +375,11 @@ typedef struct {
      * resolution the path tracer and every ReSTIR buffer run at.
      */
     RendererRayReconstructionMode reconstruction;
+    /* rtx_rr_preset; see RENDERER_RAY_TRACING_DEFAULT_RR_PRESET. The flag
+     * distinguishes an unset key from an explicit request for the driver's own
+     * choice, which are different intentions and must not collapse. */
+    RendererRayReconstructionPreset reconstruction_preset;
+    uint8_t reconstruction_preset_set;
     /* Display-output policy. Hidden validation windows are always forced SDR. */
     RendererOutputMode output;
     /* Zero keeps Q2RTX's 800-nit scene default. */

@@ -524,6 +524,28 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.portal_sampling_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_rr_preset")) {
+        if (desktop_settings_equals_ci(value, "driver")) {
+            settings->ray_tracing.reconstruction_preset =
+                RENDERER_RAY_RECONSTRUCTION_PRESET_DRIVER;
+        } else if (desktop_settings_equals_ci(value, "d")) {
+            settings->ray_tracing.reconstruction_preset =
+                RENDERER_RAY_RECONSTRUCTION_PRESET_D;
+        } else if (desktop_settings_equals_ci(value, "e")) {
+            settings->ray_tracing.reconstruction_preset =
+                RENDERER_RAY_RECONSTRUCTION_PRESET_E;
+        } else if (desktop_settings_equals_ci(value, "f")) {
+            settings->ray_tracing.reconstruction_preset =
+                RENDERER_RAY_RECONSTRUCTION_PRESET_F;
+        } else {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_rr_preset must be driver, d, e or f",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.reconstruction_preset_set = UINT8_MAX;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_restir_emitter_change_limit")) {
         if (!desktop_settings_parse_float_range(
                 value, 0.0, 1.0,
