@@ -1783,7 +1783,8 @@ float2 previousToCurrentPixel(float2 previousPixel, float2 motion)
  * On a pose change, the exact new and prior silhouettes are scrubbed without
  * discarding RR history from the surrounding scene. */
 bool updateRayReconstructionWeaponHistory(uint2 pixel,
-                                          bool currentViewWeapon)
+                                          bool currentViewWeapon,
+                                          out bool weaponVacated)
 {
     static const uint WeaponCoverageBit = 0x100u;
     static const uint RejectionLifetimeMask = 0xffu;
@@ -1795,9 +1796,22 @@ bool updateRayReconstructionWeaponHistory(uint2 pixel,
     uint rejectionFrames = previousHistory & RejectionLifetimeMask;
     rejectionFrames = rejectionFrames > 0u ? rejectionFrames - 1u : 0u;
 
+    bool previousViewWeapon = (previousHistory & WeaponCoverageBit) != 0u;
+    /*
+     * Pixels the weapon covered a frame ago and does not cover now, which are
+     * the only ones with genuinely no history to reuse: the scene behind the
+     * weapon was hidden, so nothing upstream ever resolved it. Everything else
+     * under the silhouette still has a perfectly good previous frame.
+     *
+     * Deliberately narrower than the rejection lifetime below, and unqualified
+     * by the pose transition, because the weapon vacates pixels whenever it
+     * moves at all -- recoil, bob, a model swap on firing. One frame is the
+     * whole exposure: by the next, the pixel has been scene for a frame and
+     * has real history again.
+     */
+    weaponVacated = previousViewWeapon && !currentViewWeapon;
+
     if (RayReconstructionWeaponPoseTransition != 0u) {
-        bool previousViewWeapon =
-            (previousHistory & WeaponCoverageBit) != 0u;
         if (currentViewWeapon || previousViewWeapon) {
             rejectionFrames = RejectionFrameCount;
         }
@@ -4140,9 +4154,11 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
     SurfacePayload primaryPayload = primarySegment.payload;
     uint primaryPrimitive = primaryPayload.hit != 0u ?
         Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
+    bool weaponVacatedPixel;
     bool rejectRayReconstructionHistory =
         updateRayReconstructionWeaponHistory(
-            pixel, primaryPrimitive == ViewWeaponPrimitive);
+            pixel, primaryPrimitive == ViewWeaponPrimitive,
+            weaponVacatedPixel);
     RayReconstructionDisocclusion[pixel] =
         rejectRayReconstructionHistory ? 1.0 : 0.0;
     RayReconstructionBiasCurrentColor[pixel] =
@@ -4346,6 +4362,33 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
                     indirectSignalSum, 1.0 / float(indirectSampleCount));
             }
         }
+    }
+    /*
+     * Reject the vacated weapon silhouette the only way Ray Reconstruction
+     * actually listens to: by giving it a reprojection that cannot resolve.
+     *
+     * writeRayReconstructionMotion states that temporal rejection belongs in
+     * RayReconstructionDisocclusion rather than in fabricated motion, and as a
+     * matter of design it does. Measured against this artefact, though, both
+     * documented per-pixel channels are inert: kBufferTypeDisocclusionMask has
+     * no stated meaning for RR, and pinning kBufferTypeBiasCurrentColorHint to
+     * one -- which sl_core_types.h defines as completely rejecting history --
+     * left the ghost exactly as it was. Motion is the one input RR is known to
+     * honour, and pushing the lookup a full frame off-screen leaves it nothing
+     * to blend, so the pixel resolves from this frame alone.
+     *
+     * SceneMotion keeps the true vector throughout; only Streamline's copy is
+     * displaced, so ReSTIR's reprojection and the motion debug view are
+     * unaffected.
+     *
+     * Confined to the pixels the weapon has just uncovered. Rejecting the
+     * whole silhouette for the rejection lifetime, as a first attempt did,
+     * strips history from a large region that mostly still has valid history,
+     * and in a path tracer whatever loses its history resolves from one sample
+     * -- trading the ghost for a patch of raw noise the same shape.
+     */
+    if (weaponVacatedPixel) {
+        StreamlineSceneMotion[pixel] = float2(dimensions);
     }
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);
     storeCurrentIndirectSignal(pixel, resolvedIndirectSignal);
