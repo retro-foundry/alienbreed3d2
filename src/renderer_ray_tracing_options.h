@@ -138,13 +138,18 @@ enum {
 /*
  * The Ray Reconstruction model, pinned rather than inherited.
  *
- * Preset F measurably reduced weapon ghosting against the driver's own choice
- * on the pinned v2.14.1 SDK, and leaving the default unpinned means the model
- * can change under a driver update without anything in the build changing --
- * which is how an earlier model comparison here ended up measuring nothing.
+ * Leaving it unpinned means the driver's choice, which sl_dlss_d.h warns "may
+ * or may not change after an OTA" -- the same build renders differently after
+ * a driver update with nothing here to say why.
+ *
+ * D rather than F. F is the latest transformer model on SDK v2.14.1, and it
+ * did reduce weapon ghosting -- but the 310.9.1 model that ships with that SDK
+ * puts blotchy noise on surfaces while a light brightens, which 310.7 does
+ * not. That was measured by swapping only the model DLL, with everything else
+ * held still. The SDK therefore stays at v2.12.0, where F merely reverts to
+ * the default and D is the current transformer model.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_RR_PRESET \
-    RENDERER_RAY_RECONSTRUCTION_PRESET_F
+#define RENDERER_RAY_TRACING_DEFAULT_RR_PRESET     RENDERER_RAY_RECONSTRUCTION_PRESET_D
 
 /*
  * Exponent of the power curve that pulls the temporal confidence cap toward one
