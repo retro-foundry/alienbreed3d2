@@ -184,7 +184,10 @@ bool DxrRenderer::initialize(int window_width, int window_height,
         "visibility before reconstruction; transient projectiles, HUD, and "
         "text remain outside this milestone"
 #if defined(AB3D2_ENABLE_STREAMLINE)
-        "; Streamline DLSS Ray Reconstruction 2.12 integration is enabled"
+        /* Unversioned deliberately: DxrStreamline reports the SDK and NGX
+         * versions it actually loaded, and a number written out here can only
+         * disagree with them. */
+        "; Streamline DLSS Ray Reconstruction integration is enabled"
 #endif
     );
     return true;
