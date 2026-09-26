@@ -708,6 +708,9 @@ bool DxrPipeline::configure_resampling(const RendererRayTracingOptions &options,
     if (options.restir_spatial_radius_set != 0u) {
         restir_spatial_radius_ = options.restir_spatial_radius;
     }
+    if (options.restir_emitter_change_limit_set != 0u) {
+        restir_emitter_change_limit_ = options.restir_emitter_change_limit;
+    }
     if (options.source_light_scale_set != 0u) {
         source_light_scale_ = options.source_light_scale;
     }
@@ -3399,19 +3402,38 @@ bool DxrPipeline::record(ID3D12Device5 *device,
     /* The blend keeps its 2:3 shape, so only the upper bound is configured. */
     constants.traced_specular_roughness_limit = specular_roughness_limit_;
     constants.indirect_mode = indirect_mode_;
+    constants.restir_decorrelation = restir_decorrelation_;
+    constants.maximum_emitter_radiance = scene_.maximum_emitter_radiance();
     /*
      * A reservoir stores the radiance its path carried when it was traced, not
      * a recipe for re-deriving it, so when the emitters change that stored
-     * value is simply wrong. Confidence is exactly what makes that dangerous:
-     * a reservoir capped at twenty frames keeps reporting the old lighting
-     * nineteen times out of twenty and a light switching on takes most of a
-     * second to appear. Discard the history on the frame the emitter state
-     * changes and let canonical sampling re-establish it.
+     * value is wrong -- but wrong by the amount they moved, not completely,
+     * and the hash behind indirect_lighting_changed cannot tell the two apart.
+     *
+     * Discarding every reservoir on screen whenever it trips leaves the
+     * estimator at one sample per pixel for as long as anything animates, and
+     * brightanim animates continuously. That noise was always present; the
+     * denoiser's temporal smoothing used to bury it, and a model that leans
+     * less on history no longer does, so it surfaces rising and falling in
+     * time with the pulse.
+     *
+     * Give up confidence in proportion to the measured change instead. A light
+     * switching on still takes the history with it; a ramp a few percent per
+     * frame costs a few percent of confidence. Residual staleness stays
+     * bounded either way, because the reservoir age cap forces a refresh
+     * regardless of what this says.
      */
-    constants.restir_decorrelation = restir_decorrelation_;
-    constants.maximum_emitter_radiance = scene_.maximum_emitter_radiance();
-    constants.restir_temporal_history =
-        indirect_lighting_changed ? 1u : restir_temporal_history_;
+    uint32_t restir_temporal_history = restir_temporal_history_;
+    if (indirect_lighting_changed) {
+        const float limit = std::max(restir_emitter_change_limit_, 1.0e-6f);
+        const float severity =
+            std::min(scene_.emitter_power_change() / limit, 1.0f);
+        const float graded = static_cast<float>(restir_temporal_history_) +
+            severity * (1.0f - static_cast<float>(restir_temporal_history_));
+        restir_temporal_history = static_cast<uint32_t>(
+            std::max(std::lround(graded), 1L));
+    }
+    constants.restir_temporal_history = restir_temporal_history;
     constants.restir_spatial_samples = restir_spatial_samples_;
     constants.restir_spatial_radius = restir_spatial_radius_;
     constants.restir_history_reduction = restir_history_reduction_;

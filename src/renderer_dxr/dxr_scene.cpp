@@ -253,6 +253,63 @@ uint64_t compute_emitter_state_hash(
     return hash;
 }
 
+/*
+ * What each emitter currently emits, as one number per triangle.
+ *
+ * The shader multiplies the triangle's measured radiance by the per-vertex
+ * emissive scale, so the product is what brightanim actually moves. Area is
+ * left out deliberately: this is only ever read as a ratio against the same
+ * triangle a frame earlier, and a triangle that changed area changed its
+ * geometry, which the layout hash and the position term of the state hash
+ * already answer for.
+ */
+void compute_emitter_power(const std::vector<DxrEmissiveTriangle> &emitters,
+                           const std::vector<DxrSceneVertex> &vertices,
+                           std::vector<float> &power)
+{
+    power.assign(emitters.size(), 0.0f);
+    for (size_t index = 0; index < emitters.size(); ++index) {
+        const DxrEmissiveTriangle &emitter = emitters[index];
+        if (emitter.first_vertex > vertices.size() ||
+            3u > vertices.size() - emitter.first_vertex) {
+            continue;
+        }
+        float scale = 0.0f;
+        for (size_t vertex_index = 0u; vertex_index < 3u; ++vertex_index) {
+            scale += vertices[emitter.first_vertex + vertex_index]
+                         .emissive_scale;
+        }
+        const float radiance = 0.2126f * emitter.radiance[0] +
+            0.7152f * emitter.radiance[1] + 0.0722f * emitter.radiance[2];
+        power[index] = radiance * (scale / 3.0f);
+    }
+}
+
+/*
+ * The largest fraction of itself any one emitter gained or lost, which is what
+ * separates a light switching on from a panel breathing. A table of a
+ * different length is a different set of emitters and cannot be compared term
+ * by term, so it reports a complete change.
+ */
+float compute_emitter_power_change(const std::vector<float> &previous,
+                                   const std::vector<float> &current)
+{
+    if (previous.size() != current.size()) {
+        return 1.0f;
+    }
+    float change = 0.0f;
+    for (size_t index = 0; index < current.size(); ++index) {
+        const float larger = std::max(previous[index], current[index]);
+        if (!(larger > 0.0f)) {
+            continue;
+        }
+        const float relative =
+            std::fabs(current[index] - previous[index]) / larger;
+        change = change > relative ? change : relative;
+    }
+    return change;
+}
+
 struct MaterialKey {
     SceneMaterialSource source;
     uint32_t source_asset_id;
@@ -2648,6 +2705,10 @@ bool DxrScene::compile(const SceneFrame &frame,
         compute_light_grid_layout_hash(emissive_triangles_);
     emitter_state_hash_ =
         compute_emitter_state_hash(emissive_triangles_, vertices_);
+    /* A rebuild resets the reconstruction history outright, so nothing
+     * survives for a measured change to grade. */
+    compute_emitter_power(emissive_triangles_, vertices_, emitter_power_);
+    emitter_power_change_ = 1.0f;
     surface_material_indices_ =
         std::move(compiled_surface_material_indices);
     material_emissive_bound_ =
@@ -3022,6 +3083,11 @@ bool DxrScene::compile_geometry_update(const SceneFrame &frame,
     emissive_triangles_ = std::move(compiled_emitters);
     emitter_state_hash_ =
         compute_emitter_state_hash(emissive_triangles_, vertices_);
+    std::vector<float> updated_power;
+    compute_emitter_power(emissive_triangles_, vertices_, updated_power);
+    emitter_power_change_ =
+        compute_emitter_power_change(emitter_power_, updated_power);
+    emitter_power_ = std::move(updated_power);
     blas_update_pending_ = std::move(compiled_updates);
     return true;
 }

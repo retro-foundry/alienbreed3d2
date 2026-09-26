@@ -524,6 +524,18 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
         settings->ray_tracing.portal_sampling_set = UINT8_MAX;
         return 1;
     }
+    if (desktop_settings_equals_ci(key, "rtx_restir_emitter_change_limit")) {
+        if (!desktop_settings_parse_float_range(
+                value, 0.0, 1.0,
+                &settings->ray_tracing.restir_emitter_change_limit)) {
+            (void)snprintf(error, error_size,
+                           "ab3d2.ini line %zu: rtx_restir_emitter_change_limit must be 0 through 1",
+                           line_number);
+            return 0;
+        }
+        settings->ray_tracing.restir_emitter_change_limit_set = UINT8_MAX;
+        return 1;
+    }
     if (desktop_settings_equals_ci(key, "rtx_emissive_animation")) {
         if (!desktop_settings_parse_bool(
                 value, &settings->ray_tracing.emissive_animation)) {

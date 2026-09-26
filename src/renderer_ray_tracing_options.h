@@ -95,6 +95,21 @@ enum {
 #define RENDERER_RAY_TRACING_DEFAULT_RESTIR_CONNECTION_FOOTPRINT 1.0f
 
 /*
+ * The per-emitter emission change that costs ReSTIR its whole temporal
+ * history, as a fraction of that emitter's brighter state. Smaller changes
+ * give up confidence in proportion rather than all of it.
+ *
+ * A reservoir holds the radiance its path carried, so changing what an emitter
+ * emits does make that number wrong -- but by the amount the emitter moved,
+ * not completely. Discarding every reservoir on screen whenever brightanim
+ * advances a frame leaves the estimator with one sample per pixel for as long
+ * as anything is animating, which surfaces as noise rising and falling in time
+ * with the pulse. One means only a total extinction or ignition wipes the
+ * history outright.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_RESTIR_EMITTER_CHANGE_LIMIT 1.0f
+
+/*
  * Exponent of the power curve that pulls the temporal confidence cap toward one
  * as local sample duplication rises. Zero disables history reduction, and that
  * is the default because it is biased: the samples that spread through a
@@ -310,6 +325,10 @@ typedef struct {
     uint8_t rr_input_scale_set;
     float portal_sampling;
     uint8_t portal_sampling_set;
+    /* rtx_restir_emitter_change_limit; see
+     * RENDERER_RAY_TRACING_DEFAULT_RESTIR_EMITTER_CHANGE_LIMIT. */
+    float restir_emitter_change_limit;
+    uint8_t restir_emitter_change_limit_set;
     /* rtx_emissive_animation; see RENDERER_RAY_TRACING_DEFAULT_EMISSIVE_ANIMATION. */
     uint8_t emissive_animation;
     uint8_t emissive_animation_set;

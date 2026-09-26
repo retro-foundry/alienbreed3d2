@@ -247,6 +247,22 @@ world_light_tessellation=4
 # when diagnosing a lighting trail or a persistent firefly.
 #rtx_restir_temporal_history=20
 
+# How large a change in one emitter's emission costs ReSTIR its whole temporal
+# history, as a fraction of that emitter's brighter state, 0 through 1.
+# Default 1: only a total ignition or extinction wipes it outright, and smaller
+# changes give up confidence in proportion.
+#
+# A reservoir stores the radiance its path carried, so an emitter that changes
+# does make that number wrong -- by the amount it moved, not completely. Zero
+# restores the old behaviour of discarding every reservoir on screen whenever
+# any emitter moves, which leaves the estimator at one sample per pixel for as
+# long as brightanim is running and shows up as noise rising and falling in
+# time with the pulse.
+#
+# Lower this if animated light lags on the surfaces it falls on; raise it if
+# those surfaces look noisy while something is animating.
+#rtx_restir_emitter_change_limit=1.0
+
 # Spatial neighbours resampled per pixel, 0 through 8. Default 2. Zero disables
 # spatial reuse. Each neighbour costs a shift and its reverse, both traced.
 #rtx_restir_spatial_samples=2

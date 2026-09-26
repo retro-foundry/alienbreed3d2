@@ -252,6 +252,24 @@ public:
         return light_grid_layout_hash_;
     }
     uint64_t emitter_state_hash() const { return emitter_state_hash_; }
+    /*
+     * The largest relative emission change any single emitter underwent in the
+     * last compile, as a fraction of its own brighter state.
+     *
+     * The state hash says only that something moved, which is why discarding
+     * ReSTIR history on it costs the whole screen its temporal reuse on every
+     * frame brightanim advances -- and an estimator down to one sample is what
+     * the denoiser then has to cover for, visibly, in time with the pulse.
+     * Abruptness is the thing worth reacting to: a light switching on
+     * invalidates what a reservoir stored, while a ramp a few percent per
+     * frame leaves it very nearly right, and the reservoir age cap already
+     * bounds how long any one sample survives.
+     *
+     * Maximum rather than sum, because the sum of a level's emission barely
+     * moves when one panel pulses, and that panel is exactly the light whose
+     * reservoirs have gone stale.
+     */
+    float emitter_power_change() const { return emitter_power_change_; }
     uint64_t rebuild_count() const { return rebuild_count_; }
     /*
      * Decode every packaged texture region for the level's vector assets
@@ -334,6 +352,11 @@ private:
     std::vector<DxrEmissiveTriangle> emissive_triangles_;
     uint64_t light_grid_layout_hash_ = 0u;
     uint64_t emitter_state_hash_ = 0u;
+    /* Per-emitter emitted power, indexed alongside emissive_triangles_, kept
+     * so the next compile can measure what changed rather than only that
+     * something did. */
+    std::vector<float> emitter_power_;
+    float emitter_power_change_ = 0.0f;
     std::vector<uint32_t> surface_material_indices_;
     std::vector<float> material_emissive_bound_;
 
