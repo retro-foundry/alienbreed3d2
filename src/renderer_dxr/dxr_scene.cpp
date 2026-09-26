@@ -526,8 +526,8 @@ bool compile_view_weapon(
             vertex.texture_coordinate[1] = source.v;
             vertex.material_index = triangle.material_index;
             vertex.emitter_index = UINT32_MAX;
-            vertex.primitive = static_cast<uint32_t>(
-                DxrScenePrimitive::view_weapon);
+            vertex.primitive = dxr_scene_primitive_pack(
+                DxrScenePrimitive::view_weapon, dxr_scene_no_occupant);
             /* Camera-local weapon vertices deliberately carry no
              * objdrawhires.s:doapoly flat/Gouraud modulation. Authored PBR
              * emission remains unscaled and all incident light is traced. */
@@ -640,9 +640,10 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
             vertex.texture_coordinate[0] = source.u;
             vertex.texture_coordinate[1] = source.v;
             vertex.emitter_index = UINT32_MAX;
-            vertex.primitive = static_cast<uint32_t>(
+            vertex.primitive = dxr_scene_primitive_pack(
                 compiled.source.additive ? DxrScenePrimitive::world_effect :
-                                           DxrScenePrimitive::world_billboard);
+                                           DxrScenePrimitive::world_billboard,
+                sprite.source_record_id);
             /*
              * The packaged PBR maps are unlit assets. Ignore draw_Bitmap's
              * palette brightness and let traced incident radiance light them.
@@ -721,8 +722,10 @@ bool compile_world_bitmaps(const SceneFrame &frame, size_t pool_capacity,
             vertex.position[1] = origin.y;
             vertex.position[2] = origin.z;
             vertex.emitter_index = UINT32_MAX;
-            vertex.primitive =
-                static_cast<uint32_t>(DxrScenePrimitive::world_billboard);
+            /* Empty: no occupant, so a slot filling or emptying reads as the
+             * identity change it is. */
+            vertex.primitive = dxr_scene_primitive_pack(
+                DxrScenePrimitive::world_billboard, dxr_scene_no_occupant);
             vertex.emissive_scale = 1.0f;
         }
         result.vertex_hash = hash_bytes(
@@ -794,9 +797,10 @@ bool compile_world_vector_occupant(const SceneSpriteInstance &scene_instance,
             vertex.texture_coordinate[1] = source.v;
             vertex.material_index = triangle.material_index;
             vertex.emitter_index = UINT32_MAX;
-            vertex.primitive = static_cast<uint32_t>(
+            vertex.primitive = dxr_scene_primitive_pack(
                 triangle.additive ? DxrScenePrimitive::world_effect :
-                                    DxrScenePrimitive::world_vector);
+                                    DxrScenePrimitive::world_vector,
+                sprite.source_record_id);
             /* Entities use the source's own sprite brightness; see
              * dxr_source_lighting.h for why it is not the world encoding. */
             vertex.source_irradiance =
@@ -839,8 +843,8 @@ void fill_reserved_vector_slots(uint32_t asset, size_t capacity,
     result.vacant_vertex.position[1] = origin.y;
     result.vacant_vertex.position[2] = origin.z;
     result.vacant_vertex.emitter_index = UINT32_MAX;
-    result.vacant_vertex.primitive =
-        static_cast<uint32_t>(DxrScenePrimitive::world_vector);
+    result.vacant_vertex.primitive = dxr_scene_primitive_pack(
+        DxrScenePrimitive::world_vector, dxr_scene_no_occupant);
     result.vacant_vertex.emissive_scale = 1.0f;
     while (result.instances.size() < first_slot + capacity) {
         result.instances.emplace_back();
@@ -1289,7 +1293,8 @@ bool append_geometry_vertices(const SceneGeometry &geometry,
         vertex.texture_coordinate[1] = source.texture_v * v_scale;
         vertex.material_index = material_index;
         vertex.emitter_index = UINT32_MAX;
-        vertex.primitive = static_cast<uint32_t>(DxrScenePrimitive::world);
+        vertex.primitive = dxr_scene_primitive_pack(
+            DxrScenePrimitive::world, dxr_scene_no_occupant);
         vertex.texture_window_origin = texture_window_origin;
         vertex.texture_window_extent = texture_window_extent;
         const float source_light_level =
@@ -1469,10 +1474,10 @@ bool compile_emissive_triangles(
         const uint32_t material_index = vertices[first_vertex].material_index;
         /* The weapon and additive effects emit but are never light sources. */
         const bool light_source =
-            vertices[first_vertex].primitive != static_cast<uint32_t>(
-                DxrScenePrimitive::view_weapon) &&
-            vertices[first_vertex].primitive != static_cast<uint32_t>(
-                DxrScenePrimitive::world_effect);
+            dxr_scene_primitive_class(vertices[first_vertex].primitive) !=
+                static_cast<uint32_t>(DxrScenePrimitive::view_weapon) &&
+            dxr_scene_primitive_class(vertices[first_vertex].primitive) !=
+                static_cast<uint32_t>(DxrScenePrimitive::world_effect);
         if (material_index >= material_emissive_bound.size()) {
             if (!light_source) {
                 continue;
@@ -1527,7 +1532,8 @@ bool compile_emissive_triangles(
          * a slot taken by an occupant of a genuinely different size still
          * invalidates history, which is what dxr_reconstruction_test requires.
          */
-        const uint32_t primitive = vertices[first_vertex].primitive;
+        const uint32_t primitive =
+            dxr_scene_primitive_class(vertices[first_vertex].primitive);
         const bool pooled =
             primitive == static_cast<uint32_t>(
                 DxrScenePrimitive::world_billboard) ||

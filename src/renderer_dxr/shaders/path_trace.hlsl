@@ -19,11 +19,30 @@ static const uint ViewWeaponInstanceMask = 0x02u;
 /* Primary camera rays, and only those, see the weapon as well as the world. */
 static const uint PrimaryInstanceMask =
     SceneInstanceMask | ViewWeaponInstanceMask;
+/*
+ * SceneVertex.primitive packs the class in its low bits and, above them, the
+ * identity of whatever occupies the slot the vertex belongs to. Compare
+ * classes through primitiveClass; the occupant is what says whether the
+ * previous frame's vertex at this index describes the same object at all.
+ * Mirrors dxr_scene_primitive_pack in dxr_scene.h.
+ */
+static const uint PrimitiveClassBits = 3u;
+static const uint PrimitiveClassMask = (1u << PrimitiveClassBits) - 1u;
 static const uint WorldSurfacePrimitive = 0u;
 static const uint ViewWeaponPrimitive = 1u;
 static const uint WorldBillboardPrimitive = 2u;
 static const uint WorldEffectPrimitive = 3u;
 static const uint WorldVectorPrimitive = 4u;
+
+uint primitiveClass(uint packed)
+{
+    return packed & PrimitiveClassMask;
+}
+
+uint primitiveOccupant(uint packed)
+{
+    return packed >> PrimitiveClassBits;
+}
 static const float InvalidMotion = 65504.0;
 /* Largest finite value of the RGBA16F buffers Ray Reconstruction reads. */
 static const float HalfFloatMaximum = 65504.0;
@@ -1093,7 +1112,8 @@ bool candidateTriangleIgnored(uint primitiveIndex, float2 barycentrics,
 {
     uint firstVertex = primitiveIndex * 3u;
     SceneVertex first = Vertices[firstVertex + 0u];
-    if (visibilityRay && first.primitive == WorldEffectPrimitive) {
+    if (visibilityRay &&
+        primitiveClass(first.primitive) == WorldEffectPrimitive) {
         return true;
     }
     SceneVertex second = Vertices[firstVertex + 1u];
@@ -1408,7 +1428,7 @@ SurfaceData loadSurface(SurfacePayload payload, float3 incomingDirection,
         third.textureCoordinate * payload.barycentrics.y;
     surface.materialIndex = first.materialIndex;
     surface.emitterIndex = first.emitterIndex;
-    surface.primitive = first.primitive;
+    surface.primitive = primitiveClass(first.primitive);
     surface.textureWindowOrigin = first.textureWindowOrigin;
     surface.textureWindowExtent = first.textureWindowExtent;
     float3 tangent;
@@ -1572,7 +1592,7 @@ SegmentTraversal traceSegment(RayDesc ray, bool texturedEmission = false,
         if (payload.hit == 0u) {
             return result;
         }
-        if (Vertices[payload.primitiveIndex * 3u].primitive !=
+        if (primitiveClass(Vertices[payload.primitiveIndex * 3u].primitive) !=
             WorldEffectPrimitive) {
             return result;
         }
@@ -1717,6 +1737,27 @@ float2 surfaceMotion(SurfacePayload payload, SurfaceData surface,
                                    0.5 - previousNdc.y * 0.5) * dimensions;
         }
     } else {
+        /*
+         * A pooled slot whose occupant changed has no correspondence to
+         * difference. Billboard and vector-model slots are matched by position
+         * rather than by which object stands in them, so when the pool
+         * compacts -- an alien dies, a projectile retires, and every successor
+         * shifts up one -- PreviousVertices holds another object's vertices at
+         * these indices. Subtracting them yields a displacement between two
+         * unrelated points, which is small enough to pass InvalidMotion and
+         * reach Ray Reconstruction as a confident instruction to fetch history
+         * from wherever that object used to be.
+         *
+         * Zero is the honest answer, exactly as it is for a keyframed weapon
+         * across a pose change. shadePrimary additionally rejects this pixel's
+         * history, because zero motion would otherwise resolve to whatever
+         * stood at this pixel before the object arrived.
+         */
+        if (primitiveOccupant(Vertices[payload.primitiveIndex * 3u].primitive) !=
+            primitiveOccupant(
+                PreviousVertices[payload.primitiveIndex * 3u].primitive)) {
+            return float2(0.0, 0.0);
+        }
         currentValid = projectWorldToPixel(
             surface.position, CameraPosition, CameraForward, CameraRight,
             CameraUp, TanHalfFovY, Aspect, dimensions, currentPixel);
@@ -4153,7 +4194,8 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
 {
     SurfacePayload primaryPayload = primarySegment.payload;
     uint primaryPrimitive = primaryPayload.hit != 0u ?
-        Vertices[primaryPayload.primitiveIndex * 3u].primitive : InvalidIndex;
+        primitiveClass(Vertices[primaryPayload.primitiveIndex * 3u].primitive) :
+        InvalidIndex;
     bool weaponVacatedPixel;
     bool rejectRayReconstructionHistory =
         updateRayReconstructionWeaponHistory(
@@ -4386,8 +4428,18 @@ void shadePrimary(uint2 pixel, uint2 dimensions, float3 direction,
      * strips history from a large region that mostly still has valid history,
      * and in a path tracer whatever loses its history resolves from one sample
      * -- trading the ghost for a patch of raw noise the same shape.
+     *
+     * A pooled slot whose occupant changed is rejected for the same reason and
+     * costs nothing: the object standing there now was somewhere else or did
+     * not exist, so no history at this pixel describes it. Unlike the weapon
+     * band this is a single frame per compaction, not a continuous edge.
      */
-    if (weaponVacatedPixel) {
+    bool occupantChanged = primaryPayload.hit != 0u &&
+        primitiveOccupant(
+            Vertices[primaryPayload.primitiveIndex * 3u].primitive) !=
+        primitiveOccupant(
+            PreviousVertices[primaryPayload.primitiveIndex * 3u].primitive);
+    if (weaponVacatedPixel || occupantChanged) {
         StreamlineSceneMotion[pixel] = float2(dimensions);
     }
     NoisyRadiance[pixel] = float4(resolvedRadiance, 1.0);

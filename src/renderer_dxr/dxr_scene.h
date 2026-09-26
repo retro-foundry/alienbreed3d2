@@ -29,6 +29,47 @@ enum class DxrScenePrimitive : uint32_t {
     world_vector = 4u,
 };
 
+/*
+ * SceneVertex.primitive carries the class above in its low bits and, above
+ * them, the identity of whatever occupies the slot the vertex belongs to.
+ *
+ * Pooled slots are matched by position rather than by occupant, so when the
+ * pool compacts a slot's previous vertices describe a different object.
+ * Nothing downstream could tell, and differencing them produced a confident
+ * motion vector between two unrelated points -- the same defect that made the
+ * weapon smear while firing. The identity travels in the vertex because that
+ * is where the shader already looks: it can compare this frame's vertex with
+ * the previous frame's at the same index and see for itself, with no side
+ * buffer to keep in step.
+ *
+ * Five classes need three bits, leaving 29 for the occupant. ObjT record ids
+ * are array indices, so they do not approach that.
+ */
+inline constexpr uint32_t dxr_scene_primitive_class_bits = 3u;
+inline constexpr uint32_t dxr_scene_primitive_class_mask =
+    (1u << dxr_scene_primitive_class_bits) - 1u;
+
+inline constexpr uint32_t dxr_scene_primitive_pack(
+    DxrScenePrimitive primitive_class, uint32_t occupant)
+{
+    return (static_cast<uint32_t>(primitive_class) &
+            dxr_scene_primitive_class_mask) |
+        (occupant << dxr_scene_primitive_class_bits);
+}
+
+inline constexpr uint32_t dxr_scene_primitive_class(uint32_t packed)
+{
+    return packed & dxr_scene_primitive_class_mask;
+}
+
+inline constexpr uint32_t dxr_scene_primitive_occupant(uint32_t packed)
+{
+    return packed >> dxr_scene_primitive_class_bits;
+}
+
+/* Static geometry has no occupant to change, so it shares one identity. */
+inline constexpr uint32_t dxr_scene_no_occupant = 0u;
+
 /* One reserved run of world-vector slots, per asset. Sized to that asset's own
  * face count, because vector models differ in size where billboards do not. */
 struct DxrVectorPool {

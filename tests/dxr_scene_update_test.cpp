@@ -1,5 +1,7 @@
 #include "renderer_dxr/dxr_scene_update.h"
 
+#include "renderer_dxr/dxr_scene.h"
+
 #include <cstdio>
 
 using ab3d2::dxr::DxrSceneGeometryHashes;
@@ -153,6 +155,54 @@ int main()
         !expect(dxr_scene_classify_update(true, weapon_idle, weapon_idle),
                 DxrSceneUpdateKind::unchanged, "held view weapon frame")) {
         return 1;
+    }
+
+    /*
+     * SceneVertex.primitive packs the class beside the identity of the object
+     * occupying its slot, and path_trace.hlsl reads both back out. A class
+     * that bled into the occupant bits would make every pooled slot look like
+     * a changed occupant; an occupant that bled into the class would turn
+     * billboards into weapons.
+     */
+    {
+        using ab3d2::dxr::DxrScenePrimitive;
+        using ab3d2::dxr::dxr_scene_primitive_class;
+        using ab3d2::dxr::dxr_scene_primitive_occupant;
+        using ab3d2::dxr::dxr_scene_primitive_pack;
+        static const DxrScenePrimitive classes[] = {
+            DxrScenePrimitive::world,
+            DxrScenePrimitive::view_weapon,
+            DxrScenePrimitive::world_billboard,
+            DxrScenePrimitive::world_effect,
+            DxrScenePrimitive::world_vector,
+        };
+        /* Zero, one, a boundary, and the widest occupant the field holds. */
+        static const uint32_t occupants[] = {
+            0u, 1u, 7u, 8u, 1023u, (1u << 29) - 1u,
+        };
+        for (const DxrScenePrimitive primitive_class : classes) {
+            for (const uint32_t occupant : occupants) {
+                const uint32_t packed =
+                    dxr_scene_primitive_pack(primitive_class, occupant);
+                if (dxr_scene_primitive_class(packed) !=
+                        static_cast<uint32_t>(primitive_class) ||
+                    dxr_scene_primitive_occupant(packed) != occupant) {
+                    std::fprintf(stderr,
+                                 "primitive packing lost class %u occupant %u\n",
+                                 static_cast<unsigned>(primitive_class),
+                                 static_cast<unsigned>(occupant));
+                    return 1;
+                }
+            }
+        }
+        /* Two occupants of one slot must never pack alike; that equality is
+         * the whole signal the motion vectors depend on. */
+        if (dxr_scene_primitive_pack(DxrScenePrimitive::world_billboard, 4u) ==
+            dxr_scene_primitive_pack(DxrScenePrimitive::world_billboard, 5u)) {
+            std::fprintf(stderr,
+                         "two occupants of one slot packed identically\n");
+            return 1;
+        }
     }
 
     /* World vector objects take the same path with no material extent. */
