@@ -67,14 +67,33 @@ bool hitch_log_threshold_ms(double &threshold)
     return true;
 }
 
+/*
+ * Whether debug output is mirrored to the console as well as to the debugger.
+ *
+ * AB3D2_DXR_SL_VERBOSE implies it. Asking for verbose Streamline logging and
+ * then having to know that a second, differently named variable governs where
+ * any of it lands is a trap: the log looks like it is not being produced when
+ * it is only going somewhere unexpected. Read once, because verbose logging is
+ * per-message and an environment lookup per line is not free.
+ */
+bool console_mirror_enabled()
+{
+    static const bool enabled = []() {
+        char value[2] = {};
+        const DWORD size = static_cast<DWORD>(sizeof(value));
+        return GetEnvironmentVariableA("AB3D2_DXR_DEBUG_LOG", value, size) != 0u ||
+            GetEnvironmentVariableA("AB3D2_DXR_SL_VERBOSE", value, size) != 0u;
+    }();
+    return enabled;
+}
+
 void debug_output(const std::string &message)
 {
     std::string line = "[AB3D2 DXR] " + message + "\n";
     OutputDebugStringA(line.c_str());
-    char mirror[2] = {};
-    if (GetEnvironmentVariableA("AB3D2_DXR_DEBUG_LOG", mirror,
-                                static_cast<DWORD>(sizeof(mirror))) != 0u) {
+    if (console_mirror_enabled()) {
         std::fputs(line.c_str(), stderr);
+        std::fflush(stderr);
     }
 }
 

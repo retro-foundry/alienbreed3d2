@@ -228,12 +228,50 @@ const char *mode_name(DxrStreamline::Mode mode)
     return "unknown";
 }
 
+/*
+ * AB3D2_DXR_RR_PRESET: which Ray Reconstruction model to pin, "d", "e" or "f".
+ *
+ * Every preset field defaults to eDefault, which sl_dlss_d.h describes as
+ * behaviour that "may or may not change after an OTA" -- the driver's choice,
+ * not ours, and not reproducible between machines or driver versions. All
+ * three named presets are transformer models; on v2.14.1 the header calls F
+ * "Latest and default transformer model", where v2.12.0 had F merely reverting
+ * to the default. Which one handles a disocclusion best is a question for
+ * measurement, and measurement needs the model pinned.
+ */
+sl::DLSSDPreset requested_preset()
+{
+    char value[16] = {};
+    const DWORD length = GetEnvironmentVariableA(
+        "AB3D2_DXR_RR_PRESET", value, static_cast<DWORD>(sizeof(value)));
+    if (length == 0u || length >= sizeof(value)) {
+        return sl::DLSSDPreset::eDefault;
+    }
+    if (value[0] == 'd' || value[0] == 'D') {
+        return sl::DLSSDPreset::ePresetD;
+    }
+    if (value[0] == 'e' || value[0] == 'E') {
+        return sl::DLSSDPreset::ePresetE;
+    }
+    if (value[0] == 'f' || value[0] == 'F') {
+        return sl::DLSSDPreset::ePresetF;
+    }
+    return sl::DLSSDPreset::eDefault;
+}
+
 sl::DLSSDOptions make_options(DxrStreamline::Mode mode, UINT output_width,
                               UINT output_height,
                               const reconstruction::CameraProjection *camera)
 {
     sl::DLSSDOptions options{};
     options.mode = streamline_mode(mode);
+    const sl::DLSSDPreset preset = requested_preset();
+    options.dlaaPreset = preset;
+    options.qualityPreset = preset;
+    options.balancedPreset = preset;
+    options.performancePreset = preset;
+    options.ultraPerformancePreset = preset;
+    options.ultraQualityPreset = preset;
     options.outputWidth = output_width;
     options.outputHeight = output_height;
     options.sharpness = 0.0f;
@@ -502,7 +540,15 @@ bool DxrStreamline::initialize(RendererRayReconstructionMode mode,
     const wchar_t *plugin_paths[] = {runtime_directory_.c_str()};
     sl::Preferences preferences{};
     preferences.showConsole = false;
-    preferences.logLevel = sl::LogLevel::eDefault;
+    /*
+     * AB3D2_DXR_SL_VERBOSE: Streamline names the model it loads at verbose
+     * level. There is no slDLSSDGetOptions, so a preset we set is otherwise
+     * unverifiable, and a preset that silently failed to apply is
+     * indistinguishable from one that applied and changed nothing.
+     */
+    preferences.logLevel =
+        GetEnvironmentVariableA("AB3D2_DXR_SL_VERBOSE", nullptr, 0) != 0 ?
+            sl::LogLevel::eVerbose : sl::LogLevel::eDefault;
     preferences.pathsToPlugins = plugin_paths;
     preferences.numPathsToPlugins = static_cast<uint32_t>(std::size(plugin_paths));
     preferences.pathToLogsAndData = nullptr;
@@ -801,6 +847,19 @@ bool DxrStreamline::evaluate(
     if (result != sl::Result::eOk) {
         error = result_error("slDLSSDSetOptions", result);
         return false;
+    }
+    /* Report the preset once, with the result that accepted it, so a model
+     * comparison is never made against a setting that never arrived. */
+    {
+        static sl::DLSSDPreset reported = sl::DLSSDPreset::eCount;
+        if (options.qualityPreset != reported) {
+            reported = options.qualityPreset;
+            debug_output(
+                "DXR Ray Reconstruction preset requested: " +
+                std::to_string(static_cast<uint32_t>(reported)) +
+                " (0 = driver default, 4 = D, 5 = E, 6 = F); "
+                "slDLSSDSetOptions returned eOk");
+        }
     }
 
     constexpr uint32_t uav_state = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
