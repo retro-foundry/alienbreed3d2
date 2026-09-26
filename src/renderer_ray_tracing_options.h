@@ -195,7 +195,11 @@ enum {
  * have any, so stretching its dark end only reveals what the path tracer is
  * unsure about.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS (0.0f)
+/*
+ * Absolute log2 luminance, so the radiance calibration below moves it: the
+ * value that meant luminance 1.0 before means 1/16 of it now.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_NOISE_FLOOR_STOPS (-4.0f)
 /*
  * The darkest scene luminance auto-exposure will meter to -- Q2RTX's
  * tm_min_luminance, and the cap on how far exposure can open up, since the
@@ -212,7 +216,7 @@ enum {
  * regions 9.4 -> 7.9, and the clipped fraction unchanged at 8.2%, so the lights
  * are untouched and only the amplification of the darks has gone.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_MINIMUM_LUMINANCE 0.01f
+#define RENDERER_RAY_TRACING_DEFAULT_MINIMUM_LUMINANCE 0.000625f
 /*
  * The brightest scene luminance auto-exposure will meter to -- Q2RTX's
  * tm_max_luminance, and the floor on exposure gain, which is 0.125 divided by
@@ -228,7 +232,7 @@ enum {
  * Raising it restores the range exposure needs to bring a bright scene back
  * down. Lower it to force a scene to read brighter than it is.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_MAXIMUM_LUMINANCE 16.0f
+#define RENDERER_RAY_TRACING_DEFAULT_MAXIMUM_LUMINANCE 1.0f
 /*
  * Multiplies every material's authored emissive factor, so it scales what the
  * lights radiate and what next-event estimation samples them as together.
@@ -239,7 +243,27 @@ enum {
  * forces more light into the scene and pushes the tone mapper's exposure down
  * to compensate, so rtx_max_luminance has to have the range for it.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE 1.0f
+/*
+ * A sixteenth, which is the radiance calibration rather than an artistic
+ * choice.
+ *
+ * The emissive factors in the material pack are arbitrary: the floor light and
+ * the techno lights are both authored at 1600, against Q2RTX's shipped
+ * materials where emissive_factor is 0.1 for 403 of about 512 entries and
+ * never exceeds 0.5 outside three outliers. Matching those factors literally
+ * would be wrong -- our emitters are small bright panels lighting 4%-albedo
+ * surfaces where Q2RTX's are large dim ones, so the scenes only meter about
+ * 16x apart even though the factors are 16000x apart, and copying the factors
+ * would leave this game a thousand times darker than the reference.
+ *
+ * What is worth matching is the calibration: at a sixteenth,
+ * rtx_max_luminance lands on Q2RTX's tm_max_luminance of 1.0 and the whole
+ * absolute-luminance window sits where the ported tone curve was designed for
+ * instead of four decades away from it. Every constant below that names an
+ * absolute luminance moves with it, so the displayed image is unchanged and
+ * only the units it is computed in have moved.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE 0.0625f
 /*
  * The factor Ray Reconstruction's input is multiplied by, and its output
  * divided by again before bloom and tone mapping. It is a change of units
@@ -259,7 +283,14 @@ enum {
  * otherwise overflow, so rtx_light_scale cannot push the input to infinity.
  * One restores the unscaled input.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE 32.0f
+/*
+ * 512, which is the 32 measured above times the sixteen the radiance
+ * calibration took out, so Ray Reconstruction sees the same absolute values it
+ * did before and this change is a pure change of units. Whether RR then wants
+ * a different number is a separate question, and one this finally makes
+ * askable: 32 used to sit against a ceiling of about 41.
+ */
+#define RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE 512.0f
 /*
  * Probability that a path's first bounce is aimed through one of its zone's
  * openings instead of drawn from the cosine distribution, zero through 0.9.
