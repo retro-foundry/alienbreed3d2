@@ -1656,6 +1656,26 @@ float2 surfaceMotion(SurfacePayload payload, SurfaceData surface,
     bool currentValid;
     bool previousValid;
     if (viewWeapon) {
+        /*
+         * A keyframed weapon has no vertex correspondence across a pose
+         * change. Its reserved run is matched by position rather than by which
+         * model stands in it -- see compile_geometry_update -- so the moment
+         * firing swaps the model, PreviousVertices holds another mesh's
+         * vertices at these very indices, and differencing them yields a
+         * displacement between two unrelated points. It is far too small to
+         * trip InvalidMotion, so it reaches Ray Reconstruction as a confident
+         * instruction to fetch history from elsewhere on screen. That is the
+         * smear that appears only while the shot animation plays and never
+         * while the weapon is at rest.
+         *
+         * Zero is the honest answer instead: the weapon is camera-attached and
+         * very nearly screen-static, and RayReconstructionWeaponPoseTransition
+         * already rejects this pixel's history for the following few frames,
+         * so nothing is being asked to reuse a frame it should not.
+         */
+        if (RayReconstructionWeaponPoseTransition != 0u) {
+            return float2(0.0, 0.0);
+        }
         float3 currentPosition = currentViewWeaponPosition(payload);
         float3 previousPosition = previousViewWeaponPosition(payload);
         currentValid = currentPosition.z > 1.0e-6;
