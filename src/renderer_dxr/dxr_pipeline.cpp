@@ -3434,6 +3434,44 @@ bool DxrPipeline::record(ID3D12Device5 *device,
             std::max(std::lround(graded), 1L));
     }
     constants.restir_temporal_history = restir_temporal_history;
+    /*
+     * AB3D2_DXR_LIGHTING_LOG: how often the emitter state actually changes,
+     * how hard, and what confidence survived it.
+     *
+     * Tuning rtx_restir_emitter_change_limit without this is guesswork: the
+     * symptom is noise rising and falling with a pulse, and every stage
+     * between that pulse and the image can produce noise. Seeing the measured
+     * change reach one every cycle, and the history collapse to one with it,
+     * is what distinguishes this cause from the rest.
+     */
+    {
+        static uint64_t lighting_log_frames = 0u;
+        static uint64_t lighting_log_changes = 0u;
+        static float lighting_log_peak = 0.0f;
+        static uint32_t lighting_log_floor = 0xffffffffu;
+        if (GetEnvironmentVariableA("AB3D2_DXR_LIGHTING_LOG", nullptr, 0) != 0) {
+            ++lighting_log_frames;
+            if (indirect_lighting_changed) {
+                ++lighting_log_changes;
+                lighting_log_peak =
+                    std::max(lighting_log_peak, scene_.emitter_power_change());
+            }
+            lighting_log_floor =
+                std::min(lighting_log_floor, restir_temporal_history);
+            if (lighting_log_frames % 120u == 0u) {
+                debug_output(
+                    "lighting: " + std::to_string(lighting_log_changes) +
+                    "/120 frames changed emitter state, peak per-emitter "
+                    "change " + std::to_string(lighting_log_peak) +
+                    ", lowest ReSTIR history " +
+                    std::to_string(lighting_log_floor) + " of " +
+                    std::to_string(restir_temporal_history_));
+                lighting_log_changes = 0u;
+                lighting_log_peak = 0.0f;
+                lighting_log_floor = 0xffffffffu;
+            }
+        }
+    }
     constants.restir_spatial_samples = restir_spatial_samples_;
     constants.restir_spatial_radius = restir_spatial_radius_;
     constants.restir_history_reduction = restir_history_reduction_;

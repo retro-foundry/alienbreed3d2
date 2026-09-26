@@ -259,9 +259,17 @@ world_light_tessellation=4
 #rtx_rr_preset=f
 
 # How large a change in one emitter's emission costs ReSTIR its whole temporal
-# history, as a fraction of that emitter's brighter state, 0 through 1.
+# history, as a fraction of that emitter's brighter state, 0 through 8.
 # Default 1: only a total ignition or extinction wipes it outright, and smaller
 # changes give up confidence in proportion.
+#
+# Relative change cannot exceed 1, so values above it are what buys headroom
+# past that: at 2 even an emitter going fully dark surrenders half its
+# confidence rather than all of it, and nothing ever reaches a complete wipe.
+# Raise it if a hard-animating light brings noise with it every cycle.
+# AB3D2_DXR_LIGHTING_LOG=1 prints how often the emitter state changes, by how
+# much, and what confidence survived, which is what makes this tunable rather
+# than guessable.
 #
 # A reservoir stores the radiance its path carried, so an emitter that changes
 # does make that number wrong -- by the amount it moved, not completely. Zero

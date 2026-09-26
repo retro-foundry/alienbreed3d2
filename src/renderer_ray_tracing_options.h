@@ -126,6 +126,12 @@ enum {
  * as anything is animating, which surfaces as noise rising and falling in time
  * with the pulse. One means only a total extinction or ignition wipes the
  * history outright.
+ *
+ * Relative change cannot exceed one, so values above it are what buys headroom
+ * past that: at two even an emitter going fully dark surrenders half its
+ * confidence rather than all of it, and nothing ever reaches a complete wipe.
+ * That is the direction to go when a light animates hard enough to reach one
+ * every cycle and the noise arrives with it.
  */
 #define RENDERER_RAY_TRACING_DEFAULT_RESTIR_EMITTER_CHANGE_LIMIT 1.0f
 

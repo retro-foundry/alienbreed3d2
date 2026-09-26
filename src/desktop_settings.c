@@ -548,10 +548,10 @@ static int desktop_settings_apply_line(DesktopSettings *settings, char *line,
     }
     if (desktop_settings_equals_ci(key, "rtx_restir_emitter_change_limit")) {
         if (!desktop_settings_parse_float_range(
-                value, 0.0, 1.0,
+                value, 0.0, 8.0,
                 &settings->ray_tracing.restir_emitter_change_limit)) {
             (void)snprintf(error, error_size,
-                           "ab3d2.ini line %zu: rtx_restir_emitter_change_limit must be 0 through 1",
+                           "ab3d2.ini line %zu: rtx_restir_emitter_change_limit must be 0 through 8",
                            line_number);
             return 0;
         }
