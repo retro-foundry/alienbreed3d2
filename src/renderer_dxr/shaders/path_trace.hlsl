@@ -5,7 +5,20 @@ static const uint InvalidIndex = 0xffffffffu;
  * environment. All real emitter indices are compact and strictly below
  * EmitterCount, so the value cannot alias source-authored geometry. */
 static const uint EnvironmentLightIndex = 0xfffffffeu;
+/*
+ * The world, which any ray may strike. The view weapon is deliberately absent:
+ * held a couple of units from the near plane with its muzzle flash emitting
+ * from the same point, it intercepts the shadow rays leaving whatever the
+ * player faces and prints its own silhouette there every time a shot fires.
+ *
+ * Kept in step with world_instance_mask and view_weapon_instance_mask in
+ * dxr_scene.cpp, which tag the instances themselves.
+ */
 static const uint SceneInstanceMask = 0x01u;
+static const uint ViewWeaponInstanceMask = 0x02u;
+/* Primary camera rays, and only those, see the weapon as well as the world. */
+static const uint PrimaryInstanceMask =
+    SceneInstanceMask | ViewWeaponInstanceMask;
 static const uint WorldSurfacePrimitive = 0u;
 static const uint ViewWeaponPrimitive = 1u;
 static const uint WorldBillboardPrimitive = 2u;
@@ -1534,7 +1547,8 @@ struct SegmentTraversal
 };
 
 /* `texturedEmission` shows crossed sprites' textures; camera rays only. */
-SegmentTraversal traceSegment(RayDesc ray, bool texturedEmission = false)
+SegmentTraversal traceSegment(RayDesc ray, bool texturedEmission = false,
+                              uint instanceMask = SceneInstanceMask)
 {
     SegmentTraversal result;
     result.additiveRadiance = 0.0;
@@ -1551,7 +1565,7 @@ SegmentTraversal traceSegment(RayDesc ray, bool texturedEmission = false)
         /* A shader call, unlike traceVisibility. An inline closest-hit query
          * measured slower here (burst continuation 21.0 -> 25.6 ms at
          * 1919x1079), so surface rays stay on TraceRay. */
-        TraceRay(Scene, RAY_FLAG_NONE, SceneInstanceMask,
+        TraceRay(Scene, RAY_FLAG_NONE, instanceMask,
                  0, 0, 0, ray, payload);
         result.payload = payload;
         result.distance = travelled + payload.rayDistance;
@@ -4410,7 +4424,7 @@ SegmentTraversal tracePrimary(float3 direction)
     ray.Direction = direction;
     ray.TMin = RayEpsilon;
     ray.TMax = SceneFarPlane;
-    return traceSegment(ray, true);
+    return traceSegment(ray, true, PrimaryInstanceMask);
 }
 
 [shader("raygeneration")]

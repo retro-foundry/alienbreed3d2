@@ -137,6 +137,19 @@ constexpr uint32_t world_texture_scale = 4u;
 /* hires.s:Draw_Flats wraps both floor texture coordinates at 64 texels. */
 constexpr uint32_t floor_texture_extent = 64u;
 constexpr uint8_t world_instance_mask = 0x01u;
+/*
+ * The view weapon rides the camera a couple of units from the near plane, and
+ * its muzzle flash is a bright emitter at that same point. Sharing the world's
+ * mask lets it intercept shadow rays, so firing projects a hard, weapon-shaped
+ * silhouette onto whatever the player is facing -- present only while the shot
+ * animation plays, because that is when the flash exists, and untouched by any
+ * denoiser or temporal setting because nothing about it is temporal.
+ *
+ * Kept in step with SceneInstanceMask and ViewWeaponInstanceMask in
+ * shaders/path_trace.hlsl, where primary camera rays trace both bits and every
+ * other ray traces the world alone.
+ */
+constexpr uint8_t view_weapon_instance_mask = 0x02u;
 constexpr uint64_t fnv_prime = UINT64_C(1099511628211);
 /*
  * `objdrawhires.s:draw_bitmap_glare` adds a blend-table result rather than the
@@ -3822,8 +3835,11 @@ bool DxrScene::record_build(ID3D12Device5 *device,
         description.Transform[2][2] = 1.0f;
         description.InstanceID = instances_[index].first_vertex / 3u;
         /* World and camera-attached weapon geometry share one depth-ordered
-         * scene.  Primary, secondary, and visibility rays all see both. */
-        description.InstanceMask = world_instance_mask;
+         * scene, but not one mask: the camera sees the weapon, and nothing
+         * else does, so it can neither shadow nor light the world it is being
+         * held in front of. */
+        description.InstanceMask = instances_[index].view_weapon ?
+            view_weapon_instance_mask : world_instance_mask;
         description.Flags =
             D3D12_RAYTRACING_INSTANCE_FLAG_TRIANGLE_CULL_DISABLE;
         description.AccelerationStructure =
