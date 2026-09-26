@@ -70,28 +70,38 @@ bool hitch_log_threshold_ms(double &threshold)
 /*
  * Whether debug output is mirrored to the console as well as to the debugger.
  *
- * AB3D2_DXR_SL_VERBOSE implies it. Asking for verbose Streamline logging and
- * then having to know that a second, differently named variable governs where
- * any of it lands is a trap: the log looks like it is not being produced when
- * it is only going somewhere unexpected. Read once, because verbose logging is
- * per-message and an environment lookup per line is not free.
+ * Enumerating the diagnostics that should imply it does not work: this was
+ * written knowing that AB3D2_DXR_SL_VERBOSE had to imply the mirror, and the
+ * very next diagnostic added still logged into a debugger nobody was reading.
+ * A diagnostic that asks to be produced is asking to be seen, so each one
+ * turns the mirror on for itself through debug_output_enable_console_mirror
+ * and there is no central list to forget.
+ *
+ * AB3D2_DXR_DEBUG_LOG turns it on with no diagnostic attached, for the
+ * messages the renderer emits unconditionally.
  */
-bool console_mirror_enabled()
+bool &console_mirror_flag()
 {
-    static const bool enabled = []() {
+    /* Read once: mirrored logging is per-message and an environment lookup
+     * per line is not free. */
+    static bool enabled = []() {
         char value[2] = {};
         const DWORD size = static_cast<DWORD>(sizeof(value));
-        return GetEnvironmentVariableA("AB3D2_DXR_DEBUG_LOG", value, size) != 0u ||
-            GetEnvironmentVariableA("AB3D2_DXR_SL_VERBOSE", value, size) != 0u;
+        return GetEnvironmentVariableA("AB3D2_DXR_DEBUG_LOG", value, size) != 0u;
     }();
     return enabled;
+}
+
+void debug_output_enable_console_mirror()
+{
+    console_mirror_flag() = true;
 }
 
 void debug_output(const std::string &message)
 {
     std::string line = "[AB3D2 DXR] " + message + "\n";
     OutputDebugStringA(line.c_str());
-    if (console_mirror_enabled()) {
+    if (console_mirror_flag()) {
         std::fputs(line.c_str(), stderr);
         std::fflush(stderr);
     }

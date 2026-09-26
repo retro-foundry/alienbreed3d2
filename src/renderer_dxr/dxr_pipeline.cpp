@@ -3449,7 +3449,15 @@ bool DxrPipeline::record(ID3D12Device5 *device,
         static uint64_t lighting_log_changes = 0u;
         static float lighting_log_peak = 0.0f;
         static uint32_t lighting_log_floor = 0xffffffffu;
-        if (GetEnvironmentVariableA("AB3D2_DXR_LIGHTING_LOG", nullptr, 0) != 0) {
+        static const bool lighting_log_enabled = []() {
+            if (GetEnvironmentVariableA("AB3D2_DXR_LIGHTING_LOG",
+                                        nullptr, 0) == 0) {
+                return false;
+            }
+            debug_output_enable_console_mirror();
+            return true;
+        }();
+        if (lighting_log_enabled) {
             ++lighting_log_frames;
             if (indirect_lighting_changed) {
                 ++lighting_log_changes;

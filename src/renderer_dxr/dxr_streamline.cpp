@@ -562,9 +562,13 @@ bool DxrStreamline::initialize(RendererRayReconstructionMode mode,
      * unverifiable, and a preset that silently failed to apply is
      * indistinguishable from one that applied and changed nothing.
      */
-    preferences.logLevel =
-        GetEnvironmentVariableA("AB3D2_DXR_SL_VERBOSE", nullptr, 0) != 0 ?
-            sl::LogLevel::eVerbose : sl::LogLevel::eDefault;
+    const bool verbose_streamline_log =
+        GetEnvironmentVariableA("AB3D2_DXR_SL_VERBOSE", nullptr, 0) != 0;
+    if (verbose_streamline_log) {
+        debug_output_enable_console_mirror();
+    }
+    preferences.logLevel = verbose_streamline_log ?
+        sl::LogLevel::eVerbose : sl::LogLevel::eDefault;
     preferences.pathsToPlugins = plugin_paths;
     preferences.numPathsToPlugins = static_cast<uint32_t>(std::size(plugin_paths));
     preferences.pathToLogsAndData = nullptr;
