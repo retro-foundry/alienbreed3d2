@@ -284,13 +284,23 @@ enum {
  * One restores the unscaled input.
  */
 /*
- * 512, which is the 32 measured above times the sixteen the radiance
- * calibration took out, so Ray Reconstruction sees the same absolute values it
- * did before and this change is a pure change of units. Whether RR then wants
- * a different number is a separate question, and one this finally makes
- * askable: 32 used to sit against a ceiling of about 41.
+ * One: the input goes to Ray Reconstruction in the units the renderer computes
+ * in, unscaled.
+ *
+ * The scale was only ever a patch over radiance that sat four decades from
+ * anything the reference produces, and a calibration that still needs a
+ * multiplier on top of it is not a calibration. With rtx_light_scale putting
+ * the metered scene in Q2RTX's window, the honest default is no scaling, and
+ * whether RR is happy there is then a real measurement rather than a question
+ * about the patch.
+ *
+ * It may not be. The blotching above was measured at about 0.00015 scene
+ * radiance, and after calibration the low percentile of a dark view meters
+ * 0.000173 -- close enough that the dark end may still land in the range RR
+ * mishandles. If it does, that says the units are still wrong rather than that
+ * the scale should come back.
  */
-#define RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE 512.0f
+#define RENDERER_RAY_TRACING_DEFAULT_RR_INPUT_SCALE 1.0f
 /*
  * Probability that a path's first bounce is aimed through one of its zone's
  * openings instead of drawn from the cosine distribution, zero through 0.9.

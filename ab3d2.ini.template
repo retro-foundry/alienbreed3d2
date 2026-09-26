@@ -102,7 +102,7 @@ world_light_tessellation=4
 # brightest emitter would otherwise overflow RR's half-float input, so a high
 # rtx_light_scale is safe. 1 restores the unscaled input. It does nothing
 # while DLSS is off.
-#rtx_rr_input_scale=32
+#rtx_rr_input_scale=1.0
 
 
 # --- Path tracer ----------------------------------------------------------
@@ -171,6 +171,13 @@ world_light_tessellation=4
 # energy of the paths it cuts rather than estimating them better, so it darkens
 # the image where it acts. Any nonzero value also turns off the split primary
 # scheduler, which assumes an unclamped signal.
+#
+# The value is in scene radiance, which the calibration in rtx_light_scale
+# moved: a ceiling chosen before it now cuts sixteen times deeper than it did.
+# Q2RTX's 1000 is against emitters authored around 0.1, and after calibration
+# the brightest here is about 100, so its clamp is roughly a thousandfold
+# headroom and a comparable one here would be far above any value this scene
+# produces.
 #rtx_radiance_clamp=0
 
 # Multiplies every material's authored emissive factor, 0 through 1024.
@@ -183,7 +190,14 @@ world_light_tessellation=4
 #
 # Raising it forces more light into the scene and pushes exposure down to
 # compensate, so rtx_max_luminance below has to have the range for it.
-#rtx_light_scale=1.0
+#
+# Default 0.0625, which is the radiance calibration rather than an artistic
+# choice: the material pack authors its emitters around 1600 where Q2RTX's
+# sit at 0.1, and a sixteenth puts this game's metered scene where the ported
+# tone curve was designed for. Changing it moves the scene out of that
+# calibration, and rtx_min_luminance, rtx_max_luminance, rtx_noise_floor and
+# rtx_rr_input_scale are all set against it.
+#rtx_light_scale=0.0625
 
 # Let emissive surfaces follow the level's own animated lighting, on or off.
 # Default on.
@@ -349,7 +363,7 @@ world_light_tessellation=4
 #
 # Lower it to lift the dark end of the image back up, at the cost of showing
 # more of what the path tracer is unsure about there.
-#rtx_noise_floor=0.0
+#rtx_noise_floor=-4.0
 
 # The darkest scene luminance auto-exposure will meter to, 0.000001 through 1.
 # Default 0.01.
@@ -369,7 +383,7 @@ world_light_tessellation=4
 # the clipped fraction is unchanged at 8.2% -- the lights are untouched and
 # only the amplification of the darks has gone. Lower it to let dark rooms
 # brighten further at the cost of that amplification.
-#rtx_min_luminance=0.01
+#rtx_min_luminance=0.000625
 
 # The brightest scene luminance auto-exposure will meter to, 0.001 through
 # 1024. Default 16.
@@ -388,9 +402,14 @@ world_light_tessellation=4
 #
 # Lower it to force a bright scene to keep reading bright.
 #
-# This file sets 1024 so that a raised rtx_light_scale above has room. With the
-# level's own lights the meter stays under 16, where the two read the same.
-rtx_max_luminance=1024.0
+# Default 1.0, which is Q2RTX's tm_max_luminance: the radiance calibration in
+# rtx_light_scale puts this game's metered scene in the same window, so the
+# figures above describing 16 are in the units that preceded it.
+#
+# This file used to set 1024 outright, for headroom when rtx_light_scale was
+# something a user raised. It is a calibration now, so overriding this only
+# removes the guard -- an existing ab3d2.ini carrying that line still does.
+#rtx_max_luminance=1.0
 
 # Q2RTX-compatible post-tone-curve exposure bias, -5 through 0 EV. Default -1.
 # This is applied downstream of the estimator on purpose: changing exposure must

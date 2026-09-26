@@ -66,7 +66,19 @@ static const int SlopeBlurRadius = 13;
 static const float ExposureSpeedDown = 1.0;
 static const float ExposureSpeedUp = 2.0;
 static const float HistogramFractionScale = 128.0;
-static const float BloomSoftThreshold = 0.02;
+/*
+ * The soft knee below which a pixel contributes little bloom, in scene
+ * radiance: extractBloom runs on loadReconstructed, which has already divided
+ * the Ray Reconstruction scale back out. It therefore moves with the radiance
+ * calibration in RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE -- a sixteenth of
+ * the 0.02 it was, so the same surfaces bloom as before rather than sixteen
+ * times fewer of them clearing the knee.
+ *
+ * Unlike the luminance windows, which are absolute and deliberately stayed
+ * put, this one describes where this scene's own bright surfaces begin, so it
+ * has to follow them.
+ */
+static const float BloomSoftThreshold = 0.00125;
 /*
  * Q2RTX's bloom_intensity, and its compositing form.
  *
