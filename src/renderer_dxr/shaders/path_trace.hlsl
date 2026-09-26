@@ -637,7 +637,8 @@ static const uint ExposureHistogramBinCount = 64u;
  * and the dark side of the frame went to the noise floor. Widening the range is
  * what lets the histogram describe a scene that spans both.
  */
-/* Moved down four stops with the radiance calibration; see
+/* Q2RTX's metered range, left where it is by the radiance calibration: it is
+ * absolute, and the scene now sits inside it where the reference does. See
  * RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE. */
 static const float ExposureMinimumLuminance = 5.9604645e-8;
 static const float ExposureMaximumLuminance = 256.0;

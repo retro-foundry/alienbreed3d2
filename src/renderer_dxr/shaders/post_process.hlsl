@@ -48,10 +48,14 @@ static const uint AverageLuminanceStateIndex = AdaptedLuminanceStateIndex + 2u;
 static const uint LowLuminanceStateIndex = AdaptedLuminanceStateIndex + 3u;
 static const uint HighLuminanceStateIndex = AdaptedLuminanceStateIndex + 4u;
 /*
- * Q2RTX's min_log_luminance -24 and max_log_luminance +8, moved down four
- * stops by the radiance calibration in RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE.
- * The window has to follow the units or the whole scene falls into the top or
- * bottom bin and the histogram stops describing anything.
+ * Q2RTX's min_log_luminance -24 and max_log_luminance +8, left exactly there
+ * by the radiance calibration in RENDERER_RAY_TRACING_DEFAULT_LIGHT_SCALE.
+ *
+ * This is an absolute window, and the scene sitting near the top of it was the
+ * thing the calibration set out to fix; the scene now sits where the reference
+ * puts it. Moving the window down with the scene undoes that, and measurably:
+ * shifting it four stops turned a clean sixteenfold drop in metered average
+ * into a five-hundredfold one.
  */
 static const float MinimumLogLuminance = -24.0;
 static const float MaximumLogLuminance = 8.0;
